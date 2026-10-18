@@ -1,0 +1,20 @@
+id: revoluzen-flow
+name: Revoluzen Flow (OSS edition)
+version: 1.0.0
+status: ga
+owner: ''
+repo: revoluzen-flow
+language: python
+deployment:
+- on-prem
+- desktop
+- air-gap
+interfaces:
+  rest: true
+  mcp: true
+  webhooks: true
+docs: {}
+declared:
+- deployment
+- interfaces
+- owner
