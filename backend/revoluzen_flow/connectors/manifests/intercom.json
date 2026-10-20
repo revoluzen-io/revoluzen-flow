@@ -4,6 +4,10 @@
   "description": "Intercom REST API",
   "category": "saas",
   "base_url": "https://api.intercom.io",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/intercom/Intercom-OpenAPI/main/descriptions/2.11/api.intercom.io.yaml",
+    "notes": "YAML spec, unversioned paths. Intercom's dated API version travels in a request header, so it surfaces through the passive detector rather than a probe."
+  },
   "auth": {
     "type": "bearer",
     "token_param": "access_token",

@@ -4,6 +4,10 @@
   "description": "PagerDuty incident management and on-call data",
   "category": "saas",
   "base_url": "https://api.pagerduty.com",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json",
+    "notes": "OpenAPI 3, unversioned base path."
+  },
   "auth": {
     "type": "bearer",
     "header_name": "Authorization",

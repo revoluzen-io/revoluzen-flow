@@ -139,30 +139,67 @@ def _gh_manifest(pinned: str = "2022-11-28") -> dict:
         "base_url": "https://api.github.com",
         "headers": {"X-GitHub-Api-Version": pinned},
         "source_watch": {
-            "version_probe": {"url": GH_VERSIONS, "from": "json", "pointer": [0]}
+            # Empty pointer → the whole supported-version list.
+            "version_probe": {"url": GH_VERSIONS, "from": "json", "pointer": []}
         },
         "streams": [],
     }
 
 
-def test_version_probe_flags_a_newer_vendor_version_as_critical():
-    """The signal the whole feature exists for."""
-    f = fetcher({GH_VERSIONS: (200, {}, json.dumps(["2026-03-10", "2022-11-28"]))})
-    signals = sw.probe_api_version("github", _gh_manifest(), f)
+def test_a_newer_version_while_ours_is_still_supported_is_only_a_warning():
+    """REGRESSION: "newest != ours" is not breakage.
 
-    assert len(signals) == 1
-    s = signals[0]
-    assert (s.kind, s.severity) == ("api_version", "critical")
+    GitHub lists ["2026-03-10", "2022-11-28"] — both supported, ours among
+    them, nothing broken. An earlier version graded this `critical`, which is
+    the cry-wolf failure this module exists to avoid: a critical that fires on
+    a healthy connector trains everyone to ignore the one that fires on a
+    broken one.
+    """
+    f = fetcher({GH_VERSIONS: (200, {}, json.dumps(["2026-03-10", "2022-11-28"]))})
+    (s,) = sw.probe_api_version("github", _gh_manifest(), f)
+
+    assert (s.kind, s.severity) == ("api_version", "warn")
     assert s.pinned == "2022-11-28"
     assert s.observed == "2026-03-10"
     # Both versions must appear — an alert that omits either is not actionable.
     assert "2026-03-10" in s.summary and "2022-11-28" in s.summary
+    # And it must say our version is still fine, or the reader will panic.
+    assert "still supported" in s.summary
 
 
-def test_version_probe_is_quiet_when_the_version_still_matches():
+def test_our_version_dropping_off_the_supported_list_is_critical():
+    """This is the condition that actually breaks a connector."""
+    f = fetcher({GH_VERSIONS: (200, {}, json.dumps(["2026-03-10", "2024-01-01"]))})
+    (s,) = sw.probe_api_version("github", _gh_manifest(), f)
+
+    assert (s.kind, s.severity) == ("api_version", "critical")
+    assert "no longer lists" in s.summary
+    # The supported set must be in the message — that is what you migrate to.
+    assert "2026-03-10" in s.summary and "2024-01-01" in s.summary
+
+
+def test_version_probe_is_quiet_when_we_pin_the_newest_supported():
     f = fetcher({GH_VERSIONS: (200, {}, json.dumps(["2022-11-28"]))})
     (s,) = sw.probe_api_version("github", _gh_manifest(), f)
     assert (s.kind, s.severity) == ("api_version", "info")
+
+
+def test_a_scalar_version_mismatch_cannot_be_graded_critical():
+    """A single served-version string says nothing about what is still accepted.
+
+    Grading it critical would assert a breakage the evidence does not support.
+    """
+    manifest = {
+        "base_url": "https://api.vendor.test/v1",
+        "source_watch": {
+            "api_version": "2024-01-01",
+            "version_probe": {"url": GH_VERSIONS, "from": "header", "name": "Api-Version"},
+        },
+    }
+    f = fetcher({GH_VERSIONS: (200, {"Api-Version": "2026-03-10"}, "")})
+    (s,) = sw.probe_api_version("v", manifest, f)
+    assert s.severity == "warn"
+    assert "not confirmed" in s.summary
 
 
 def test_version_probe_reads_a_response_header_case_insensitively():
@@ -184,7 +221,9 @@ def test_version_probe_reads_a_response_header_case_insensitively():
     }
     f = fetcher({GH_VERSIONS: (200, {"x-github-api-version-selected": "2026-03-10"}, "")})
     (s,) = sw.probe_api_version("github", manifest, f)
-    assert s.severity == "critical"
+    # This test is about the lookup finding the header at all; a scalar probe
+    # grades a mismatch `warn` (see the scalar test above for why).
+    assert s.severity == "warn"
     assert s.observed == "2026-03-10"
 
 
@@ -287,6 +326,112 @@ def test_spec_signals_carry_the_full_digest_not_the_display_prefix():
     assert len(spec_signal.observed) == 12
     assert len(spec_signal.fingerprint) == 64
     assert spec_signal.fingerprint.startswith(spec_signal.observed)
+
+
+# ── Spec base prefix (where the vendor's paths are relative to) ──────────────
+#
+# REGRESSION GROUP. Vendors split evenly on this, and getting it wrong makes a
+# healthy connector report every endpoint as deleted, daily. Both halves were
+# found against real published specs, in opposite directions.
+
+
+def test_swagger2_base_path_is_joined_on():
+    """Slack: basePath /api, paths relative (`/users.list`)."""
+    spec = {"swagger": "2.0", "basePath": "/api", "paths": {"/users.list": {}}}
+    assert sw.spec_base_prefix(spec) == "/api"
+    assert sw.spec_path_set(spec) == {"/api/users.list"}
+
+
+def test_openapi3_server_path_is_joined_on():
+    """Mailchimp-shaped, expressed the OpenAPI 3 way."""
+    spec = {"openapi": "3.0.0",
+            "servers": [{"url": "https://x.test/3.0"}],
+            "paths": {"/lists": {}}}
+    assert sw.spec_base_prefix(spec) == "/3.0"
+    assert sw.spec_path_set(spec) == {"/3.0/lists"}
+
+
+def test_a_bare_slash_server_path_contributes_nothing():
+    """Stripe's server is `https://api.stripe.com/`.
+
+    Treating that trailing slash as a prefix would produce `//v1/account` and
+    match nothing.
+    """
+    spec = {"openapi": "3.0.0",
+            "servers": [{"url": "https://api.stripe.com/"}],
+            "paths": {"/v1/account": {}}}
+    assert sw.spec_base_prefix(spec) == ""
+    assert sw.spec_path_set(spec) == {"/v1/account"}
+
+
+def test_a_spec_with_no_declared_base_is_taken_at_face_value():
+    spec = {"openapi": "3.0.0", "paths": {"/incidents": {}}}
+    assert sw.spec_base_prefix(spec) == ""
+    assert sw.spec_path_set(spec) == {"/incidents"}
+
+
+def test_spec_path_set_normalises_parameters():
+    spec = {"paths": {"/users/{username}/repos": {}}}
+    assert sw.spec_path_set(spec) == {"/users/{}/repos"}
+
+
+def test_spec_path_set_is_empty_for_junk():
+    for junk in (None, [], "a string", 42):
+        assert sw.spec_path_set(junk) == set()
+
+
+def test_slack_and_stripe_shapes_both_match_their_manifests():
+    """The two opposite cases, end to end against their real manifest shapes.
+
+    Slack's prefix comes from the spec and ours from base_url; Stripe's comes
+    from base_url and the spec carries it in the path. Both must line up.
+    """
+    slack_m = {"base_url": "https://slack.com/api",
+               "streams": [{"path": "/users.list"}]}
+    slack_spec = {"swagger": "2.0", "basePath": "/api", "paths": {"/users.list": {}}}
+    assert set(sw.declared_paths(slack_m)) <= sw.spec_path_set(slack_spec)
+
+    stripe_m = {"base_url": "https://api.stripe.com/v1",
+                "streams": [{"path": "/customers"}]}
+    stripe_spec = {"openapi": "3.0.0", "servers": [{"url": "https://api.stripe.com/"}],
+                   "paths": {"/v1/customers": {}}}
+    assert set(sw.declared_paths(stripe_m)) <= sw.spec_path_set(stripe_spec)
+
+
+# ── Spec parsing (JSON or YAML) ──────────────────────────────────────────────
+
+
+def test_parse_spec_reads_json():
+    assert sw.parse_spec('{"paths": {"/a": {}}}') == {"paths": {"/a": {}}}
+
+
+def test_parse_spec_reads_yaml():
+    """Asana, Intercom and Microsoft Graph publish YAML only."""
+    spec = sw.parse_spec("openapi: 3.0.0\nbasePath: /api/1.0\npaths:\n  /tasks: {}\n")
+    assert spec["paths"] == {"/tasks": {}}
+    assert sw.spec_path_set(spec) == {"/api/1.0/tasks"}
+
+
+def test_parse_spec_returns_none_for_neither():
+    """Degrades to fingerprint-only rather than raising."""
+    assert sw.parse_spec("<html><body>not a spec</body></html>") is None
+
+
+def test_parse_spec_does_not_construct_arbitrary_objects():
+    """A spec is third-party input; full YAML load would be an RCE seam."""
+    hostile = "!!python/object/apply:os.system ['echo pwned']"
+    assert sw.parse_spec(hostile) is None
+
+
+def test_a_yaml_spec_still_yields_a_fingerprint_signal():
+    """Unparseable or YAML, movement must still be detected."""
+    manifest = {"base_url": "https://x.test", "source_watch": {"spec_url": SPEC_URL},
+                "streams": [{"path": "/a"}]}
+    f = fetcher({SPEC_URL: (200, {}, "<html>not a spec</html>")})
+    signals = sw.probe_spec("x", manifest, f, {"x": {"spec_sha256": "c" * 64}})
+    assert [s.severity for s in signals if s.kind == "spec"] == ["warn"]
+    # No endpoint claim can be made without parsed paths, so none is made.
+    assert [s for s in signals if s.severity == "critical"] == []
 
 
 # ── Changelog probe ──────────────────────────────────────────────────────────
@@ -463,7 +608,13 @@ def test_shipped_watch_blocks_are_well_formed():
             if probe["from"] == "header":
                 assert probe.get("name"), f"{cid}: header probe without a name"
             else:
-                assert probe.get("pointer"), f"{cid}: json probe without a pointer"
+                # An EMPTY pointer is valid and meaningful: it passes the whole
+                # document through, which is how a vendor's full supported-
+                # version list reaches the check. Require the key to be present
+                # and a list, not to be non-empty.
+                assert isinstance(probe.get("pointer"), list), (
+                    f"{cid}: json probe needs a pointer list (may be empty)"
+                )
         for key in ("spec_url", "changelog_url"):
             if watch.get(key):
                 assert str(watch[key]).startswith("https://"), f"{cid}: {key} not https"

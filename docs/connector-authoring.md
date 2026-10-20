@@ -284,11 +284,11 @@ is the half that looks outward.
   "headers": { "X-GitHub-Api-Version": "2022-11-28" },
 
   "source_watch": {
-    // Where the vendor advertises their current API version, unauthenticated.
+    // Where the vendor advertises their supported API versions, unauthenticated.
     "version_probe": {
       "url": "https://api.github.com/versions",
       "from": "json",          // "json" | "header"
-      "pointer": [0]           // newest-first list → index 0
+      "pointer": []            // [] = the whole document; see below
       // for "header": "name": "X-GitHub-Api-Version-Selected"
     },
     // The vendor's published OpenAPI document.
@@ -305,15 +305,46 @@ enforces it means the watched value cannot drift from the one in use. Set
 `api_version` explicitly only for a vendor whose version is neither sent nor
 in the URL.
 
-**`spec_url` comparison is shape-based.** Your stream paths are joined onto
-the `base_url` path and all `{placeholders}` collapsed, then matched against
-the same normalisation of the vendor's paths. Both steps are necessary and
-both were found by running against real specs: Stripe's spec lists
-`/v1/customers` while the manifest declares `/customers`, and GitHub's spec
-calls our `/users/{owner}/repos` endpoint `/users/{username}/repos`. Without
-the normalisation every connector reports all its endpoints deleted, every
-day — and a monitor that cries wolf daily gets muted, which is worse than
-having none.
+**Resolve the probe to the vendor's whole supported-version list where you
+can** — an empty `pointer` passes the document straight through. That list is
+what separates the two situations worth telling apart:
+
+| Vendor state | Severity |
+|---|---|
+| Our pinned version is the newest supported | `info` |
+| A newer version exists, ours still supported | `warn` |
+| Our pinned version is no longer listed | `critical` |
+
+A `header` probe, or a `pointer` that narrows to a single value, yields only
+what the vendor serves *now*. That cannot establish whether our version is
+still accepted, so a mismatch there is capped at `warn`. `critical` is
+reserved for evidence of actual breakage — reporting a healthy connector as
+critical trains everyone to ignore the alert that matters.
+
+**`spec_url` comparison is shape-based, and the prefix can come from either
+side.** All `{placeholders}` collapse to `{}`, because the name inside the
+braces is each author's choice — GitHub's spec calls our
+`/users/{owner}/repos` endpoint `/users/{username}/repos`. Then the two base
+prefixes are reconciled, and vendors split evenly on where theirs lives:
+
+- **Swagger 2** carries it in `basePath`, with relative paths. Slack:
+  `basePath: "/api"` + `/users.list`. Mailchimp: `/3.0` + `/lists`.
+- **OpenAPI 3** carries it in `servers[].url`, and the paths hold whatever
+  remains. Twilio: server `https://api.twilio.com` + `/2010-04-01/...`.
+  Stripe: server `https://api.stripe.com/` + `/v1/customers`.
+
+Our side contributes the path component of `base_url`. Get this wrong in
+either direction and every endpoint reports as deleted, every day: prepending
+our prefix unconditionally broke Slack and Mailchimp, omitting it broke
+Stripe. Verify a new `spec_url` against `declared_paths()` before committing
+it.
+
+**YAML specs work.** JSON is tried first, then `yaml.safe_load` — Asana,
+Intercom and Microsoft Graph publish YAML only. Anything that parses to
+something other than a mapping is treated as unparseable, which matters
+because YAML happily reads an HTML error page as a plain string. An
+unparseable spec degrades to fingerprint-only: movement is still detected,
+but no per-endpoint claim is made.
 
 **`changelog_url` must be a feed, not a web page.** The check fingerprints the
 document, so an HTML changelog page reports "changed" on every run as its

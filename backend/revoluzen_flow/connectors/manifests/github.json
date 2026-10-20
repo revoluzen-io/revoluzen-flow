@@ -15,8 +15,8 @@
     "version_probe": {
       "url": "https://api.github.com/versions",
       "from": "json",
-      "pointer": [0],
-      "notes": "Unauthenticated. Returns the supported REST API versions, newest first."
+      "pointer": [],
+      "notes": "Unauthenticated; returns the full supported-version list, newest first. An empty pointer passes the whole list through so the check can tell 'a newer version exists, ours still supported' (warn) from 'ours is no longer listed' (critical). Do not narrow this to [0] — comparing only the newest reports a healthy connector as broken."
     },
     "spec_url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
   },

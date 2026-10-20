@@ -49,10 +49,24 @@ follows the compatibility rules documented there.
     customer's own internal APIs too
 
   Connectors opt in with a `source_watch` block in their runtime manifest
-  (`docs/connector-authoring.md`); GitHub and Stripe ship with one. A
-  connector without one is reported as `unwatched` rather than healthy.
-  Read the state at `GET /api/connectors/source-watch`, which makes no
-  outbound call of its own.
+  (`docs/connector-authoring.md`). Eight ship with one — Asana, GitHub,
+  Intercom, Mailchimp, PagerDuty, Slack, Stripe and Twilio — each verified
+  against the vendor's live spec before being added. A connector without a
+  block is reported as `unwatched` rather than healthy. Read the state at
+  `GET /api/connectors/source-watch`, which makes no outbound call of its own.
+
+  Version severity reflects what the evidence supports: `critical` only when
+  the vendor no longer lists the version a connector pins, `warn` when a newer
+  version exists but ours is still supported, `info` when we pin the newest.
+  A probe narrowed to a single value cannot establish support at all, so it is
+  capped at `warn`. GitHub currently reports `warn` — 2026-03-10 has shipped
+  and 2022-11-28 remains supported.
+
+  Spec comparison reconciles base prefixes from either side, since Swagger 2
+  puts them in `basePath` (Slack `/api`, Mailchimp `/3.0`) while OpenAPI 3
+  puts them in `servers[].url` (Stripe `/`, Twilio none). JSON and YAML specs
+  are both read; an unparseable one degrades to fingerprint-only rather than
+  asserting that endpoints vanished.
 
 - `.github/workflows/connector-attest.yml` re-runs the connector acceptance
   suite twice weekly and on manifest or fixture changes. A green CAT result

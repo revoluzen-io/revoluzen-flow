@@ -1,14 +1,23 @@
 {
-  "generated_at": "2026-10-20T17:15:35.577107+00:00",
+  "generated_at": "2026-10-20T17:33:32.789915+00:00",
   "signals": [
+    {
+      "connector_id": "asana",
+      "fingerprint": "07ab7185b4776f3c854781d07b39e2c37418e0549fef390721982ff659657ac1",
+      "kind": "spec",
+      "observed": "07ab7185b477",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    },
     {
       "connector_id": "github",
       "fingerprint": null,
       "kind": "api_version",
       "observed": "2026-03-10",
       "pinned": "2022-11-28",
-      "severity": "critical",
-      "summary": "vendor advertises API version '2026-03-10'; this connector is pinned to '2022-11-28'"
+      "severity": "warn",
+      "summary": "vendor has released API version '2026-03-10'; this connector pins '2022-11-28', which is still supported"
     },
     {
       "connector_id": "github",
@@ -17,7 +26,43 @@
       "observed": "3177ad6a86ca",
       "pinned": null,
       "severity": "info",
-      "summary": "spec unchanged"
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "intercom",
+      "fingerprint": "02e060b5791ea80bb3ed1695360bf9618a3edb1c7298b86ef0c3deb5484fd4c7",
+      "kind": "spec",
+      "observed": "02e060b5791e",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "mailchimp",
+      "fingerprint": "6b5c10c4c6f2aa02e9af34c38e49a495c1838c66944c43aedc1ceff89ad44489",
+      "kind": "spec",
+      "observed": "6b5c10c4c6f2",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "pagerduty",
+      "fingerprint": "cae2dba21d683a8e8663bb771b295c6aa196549564925b403b006cb99320e539",
+      "kind": "spec",
+      "observed": "cae2dba21d68",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "slack_api",
+      "fingerprint": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7",
+      "kind": "spec",
+      "observed": "742a5c977180",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
     },
     {
       "connector_id": "stripe",
@@ -26,12 +71,20 @@
       "observed": "7cff4cc46d06",
       "pinned": null,
       "severity": "info",
-      "summary": "spec unchanged"
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "twilio",
+      "fingerprint": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87",
+      "kind": "spec",
+      "observed": "bfdf249a1298",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
     }
   ],
   "unwatched": [
     "airtable",
-    "asana",
     "confluence",
     "datadog",
     "dynamics365",
@@ -42,15 +95,12 @@
     "google_ads",
     "google_analytics",
     "hubspot",
-    "intercom",
     "jira",
     "linkedin_ads",
-    "mailchimp",
     "monday",
     "ms_teams",
     "netsuite",
     "notion",
-    "pagerduty",
     "pipedrive",
     "quickbooks",
     "rabbitmq",
@@ -60,12 +110,10 @@
     "sendgrid",
     "servicenow",
     "shopify",
-    "slack_api",
-    "twilio",
     "workday",
     "zendesk",
     "zoho_crm"
   ],
-  "watched": 2,
-  "worst_severity": "critical"
+  "watched": 8,
+  "worst_severity": "warn"
 }

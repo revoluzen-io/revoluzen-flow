@@ -303,12 +303,17 @@ def _fingerprint(text: str) -> str:
 # ── Probes ───────────────────────────────────────────────────────────────────
 
 
-def _extract(payload: Any, headers: dict[str, str], probe: dict[str, Any]) -> str | None:
-    """Pull the vendor's current version out of a probe response.
+def _extract(payload: Any, headers: dict[str, str], probe: dict[str, Any]) -> Any:
+    """Pull what the vendor advertises out of a probe response.
 
-    Two shapes cover essentially every vendor that advertises this at all:
+    Returns the raw value, which may be a **list** of supported versions or a
+    single version string — the distinction drives severity, see
+    `probe_api_version`.
+
+    Shapes:
       {"from": "header", "name": "X-GitHub-Api-Version"}
       {"from": "json", "pointer": ["versions", -1, "version"]}
+      {"from": "json", "pointer": []}    -> the whole document
     """
     src = str(probe.get("from") or "header").lower()
     if src == "header":
@@ -326,8 +331,87 @@ def _extract(payload: Any, headers: dict[str, str], probe: dict[str, Any]) -> st
                 cur = cur[key] if isinstance(key, int) else cur[str(key)]
             except (KeyError, IndexError, TypeError):
                 return None
-        return None if cur is None else str(cur)
+        return cur
     return None
+
+
+def parse_spec(body: str) -> Any:
+    """Parse an API description that may be JSON or YAML.
+
+    Roughly half the vendors who publish a spec publish only YAML — Asana,
+    Intercom and Microsoft Graph among the ones this catalog connects to. JSON
+    is tried first because it is the common case and much faster; PyYAML is a
+    core dependency already used for exactly this in
+    `connectors/openapi_source.py`.
+
+    Returns `None` for anything that is not a mapping, which degrades the
+    check to fingerprint-only: movement is still detected, but not which
+    endpoint moved.
+
+    The not-a-mapping guard is load-bearing rather than defensive. YAML
+    parses an arbitrary document — an HTML error page, say — as a plain scalar
+    string without complaint, so a vendor serving a 200-with-error-page would
+    otherwise flow on as if it were a parsed spec.
+    """
+    parsed: Any = None
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        try:
+            import yaml  # local import — pyyaml is a core dep
+
+            # safe_load, not load: a spec is third-party input, and full YAML
+            # can construct arbitrary Python objects.
+            parsed = yaml.safe_load(body)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("source-watch: spec is neither JSON nor YAML (%s)", exc)
+            return None
+
+    return parsed if isinstance(parsed, dict) else None
+
+
+def spec_base_prefix(spec: dict[str, Any]) -> str:
+    """The path prefix a spec's own paths are relative to.
+
+    Vendors split evenly on this and get it from different fields, so both
+    have to be read or half the connectors mismatch:
+
+    * **Swagger 2** puts it in ``basePath``. Slack's spec has
+      ``basePath: "/api"`` with paths like ``/users.list``; Mailchimp's has
+      ``/3.0`` with ``/lists``.
+    * **OpenAPI 3** puts it in ``servers[].url``, and the paths already carry
+      whatever remains. Twilio's server is ``https://api.twilio.com`` with
+      paths like ``/2010-04-01/Accounts.json``; Stripe's is
+      ``https://api.stripe.com/`` with ``/v1/account``.
+
+    Getting this wrong is not a cosmetic problem. Prepending our own
+    ``base_url`` prefix unconditionally made Slack and Mailchimp report every
+    endpoint as deleted, while omitting it made Stripe do the same — a daily
+    critical on a healthy connector either way.
+    """
+    from urllib.parse import urlparse
+
+    base = spec.get("basePath")
+    if not base:
+        servers = spec.get("servers") or []
+        if servers and isinstance(servers[0], dict):
+            base = urlparse(str(servers[0].get("url") or "")).path
+    base = str(base or "").rstrip("/")
+    return base if base != "/" else ""
+
+
+def spec_path_set(spec: Any) -> set[str]:
+    """Every endpoint a spec declares, as full normalised paths."""
+    if not isinstance(spec, dict):
+        return set()
+    prefix = spec_base_prefix(spec)
+    out: set[str] = set()
+    for p in (spec.get("paths") or {}):
+        p = str(p)
+        if not p.startswith("/"):
+            p = "/" + p
+        out.add(normalize_path(prefix + p))
+    return out
 
 
 def probe_api_version(
@@ -353,15 +437,60 @@ def probe_api_version(
     except json.JSONDecodeError:
         payload = {}
 
-    observed = _extract(payload, headers, probe)
-    if observed is None:
+    raw = _extract(payload, headers, probe)
+    if raw is None or raw == []:
         return [SourceSignal(cid, "probe_error", "info",
                              "version probe succeeded but advertised no version")]
+
+    # A list means the vendor publishes the whole SUPPORTED SET, which is the
+    # only shape that can distinguish the two situations that matter:
+    #
+    #   * a newer version exists and ours is still supported — worth knowing,
+    #     not yet a problem
+    #   * our version is no longer in the set — we are on an unsupported API
+    #
+    # Collapsing those into "newest != ours → critical" was wrong, and wrong
+    # in the expensive direction. GitHub lists ["2026-03-10", "2022-11-28"]:
+    # both are supported, ours among them, nothing is broken. Alerting
+    # critical on that is the cry-wolf failure this module is supposed to
+    # avoid — and a critical that fires on a healthy connector trains everyone
+    # to ignore the one that fires on a broken one.
+    if isinstance(raw, list):
+        supported = [str(v) for v in raw if v is not None]
+        newest = supported[0] if supported else None
+        if not pinned:
+            return [SourceSignal(cid, "api_version", "info",
+                                 f"vendor supports {len(supported)} versions, "
+                                 f"newest {newest!r}; this connector pins none",
+                                 observed=newest)]
+        if not any(pinned.strip().lower() == s.strip().lower() for s in supported):
+            return [SourceSignal(
+                cid, "api_version", "critical",
+                f"this connector is pinned to API version {pinned!r}, which the "
+                f"vendor no longer lists as supported (supported: "
+                f"{', '.join(supported)})",
+                pinned=pinned, observed=newest,
+            )]
+        if newest and newest.strip().lower() != pinned.strip().lower():
+            return [SourceSignal(
+                cid, "api_version", "warn",
+                f"vendor has released API version {newest!r}; this connector "
+                f"pins {pinned!r}, which is still supported",
+                pinned=pinned, observed=newest,
+            )]
+        return [SourceSignal(cid, "api_version", "info",
+                             f"pinned to the newest supported version ({pinned})",
+                             pinned=pinned, observed=newest)]
+
+    # A scalar tells us what the vendor serves *now* but nothing about whether
+    # our version is still accepted, so a mismatch cannot be graded critical
+    # on this evidence alone.
+    observed = str(raw)
     if pinned and observed.strip().lower() != pinned.strip().lower():
         return [SourceSignal(
-            cid, "api_version", "critical",
+            cid, "api_version", "warn",
             f"vendor advertises API version {observed!r}; this connector is "
-            f"pinned to {pinned!r}",
+            f"pinned to {pinned!r} (support for it not confirmed by this probe)",
             pinned=pinned, observed=observed,
         )]
     return [SourceSignal(cid, "api_version", "info",
@@ -394,14 +523,7 @@ def probe_spec(
     # A missing path is the actionable finding — it names the stream that is
     # about to break. Report it whether or not the fingerprint moved, because
     # a first run has no fingerprint to compare against.
-    try:
-        spec = json.loads(body)
-        raw = (spec.get("paths") or {}).keys() if isinstance(spec, dict) else []
-        # Normalise the vendor's paths the same way as ours, so the comparison
-        # is shape-against-shape and not defeated by their parameter naming.
-        spec_paths = {normalize_path(p) for p in raw}
-    except json.JSONDecodeError:
-        spec_paths = set()
+    spec_paths = spec_path_set(parse_spec(body))
 
     if spec_paths:
         missing = [p for p in declared_paths(manifest) if p not in spec_paths]

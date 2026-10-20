@@ -4,6 +4,10 @@
   "description": "Slack Web API",
   "category": "saas",
   "base_url": "https://slack.com/api",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/web-api/slack_web_openapi_v2.json",
+    "notes": "Swagger 2 spec; its basePath is /api, which the check joins on. No unauthenticated version endpoint."
+  },
   "auth": {
     "type": "bearer",
     "token_param": "bot_token",

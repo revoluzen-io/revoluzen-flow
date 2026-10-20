@@ -4,6 +4,10 @@
   "description": "Asana REST API",
   "category": "saas",
   "base_url": "https://app.asana.com/api/1.0",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml",
+    "notes": "YAML spec; basePath /api/1.0. Parsed via the YAML fallback in parse_spec."
+  },
   "auth": {
     "type": "bearer",
     "token_param": "personal_access_token",

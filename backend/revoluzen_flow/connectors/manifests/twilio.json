@@ -4,6 +4,10 @@
   "description": "Twilio communications data — calls, messages, usage",
   "category": "saas",
   "base_url": "https://api.twilio.com/2010-04-01/Accounts/{account_sid}",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/json/twilio_api_v2010.json",
+    "notes": "OpenAPI 3; paths already carry the /2010-04-01 prefix. The date in base_url is the API version and is not separately advertised."
+  },
   "auth": {
     "type": "basic",
     "username_param": "account_sid",

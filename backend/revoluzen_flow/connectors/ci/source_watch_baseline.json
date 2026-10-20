@@ -1,12 +1,30 @@
 {
   "connectors": {
+    "asana": {
+      "spec_sha256": "07ab7185b4776f3c854781d07b39e2c37418e0549fef390721982ff659657ac1"
+    },
     "github": {
       "api_version": "2026-03-10",
       "spec_sha256": "3177ad6a86ca04c57a9bef3fc24e28a339efb8eb040c6f950af3d3ed2fee7fa3"
     },
+    "intercom": {
+      "spec_sha256": "02e060b5791ea80bb3ed1695360bf9618a3edb1c7298b86ef0c3deb5484fd4c7"
+    },
+    "mailchimp": {
+      "spec_sha256": "6b5c10c4c6f2aa02e9af34c38e49a495c1838c66944c43aedc1ceff89ad44489"
+    },
+    "pagerduty": {
+      "spec_sha256": "cae2dba21d683a8e8663bb771b295c6aa196549564925b403b006cb99320e539"
+    },
+    "slack_api": {
+      "spec_sha256": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7"
+    },
     "stripe": {
       "spec_sha256": "7cff4cc46d0654101a36a3302f7544640f5f73e4f3cad6f264f0e23c19fa1776"
+    },
+    "twilio": {
+      "spec_sha256": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87"
     }
   },
-  "updated_at": "2026-10-20T17:15:35.577107+00:00"
+  "updated_at": "2026-10-20T17:33:32.789915+00:00"
 }

@@ -5,6 +5,10 @@
   "description": "Mailchimp Marketing API",
   "category": "saas",
   "base_url": "https://{dc}.api.mailchimp.com/3.0",
+  "source_watch": {
+    "spec_url": "https://api.mailchimp.com/schema/3.0/Swagger.json?expand",
+    "notes": "Swagger 2 spec; basePath /3.0. Served by Mailchimp directly, unauthenticated."
+  },
   "auth": {
     "type": "basic",
     "username_param": "username",
