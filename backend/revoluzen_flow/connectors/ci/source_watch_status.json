@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20T09:20:59.036766+00:00",
+  "generated_at": "2026-10-20T17:15:35.577107+00:00",
   "signals": [
     {
       "connector_id": "github",
@@ -17,7 +17,7 @@
       "observed": "3177ad6a86ca",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "stripe",
@@ -26,7 +26,7 @@
       "observed": "7cff4cc46d06",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     }
   ],
   "unwatched": [
