@@ -9,7 +9,7 @@ If you've just installed Revoluzen Flow and want to run your first pipeline:
 
 1. On first launch, **create your admin account** (your email + a strong
    password) — that first account owns the instance. (Headless/scripted
-   deploy? Set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` to auto-create `admin@fpulse.local`
+   deploy? Set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` to auto-create `admin@revoluzen.local`
    with a random password in `INITIAL_ADMIN_PASSWORD.txt`, then rotate it.)
 2. Open **Workflows** from the top navigation, then create or open a
    pipeline to enter the canvas editor.

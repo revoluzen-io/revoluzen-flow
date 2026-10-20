@@ -30,11 +30,11 @@ python3 -m revoluzen_flow open
 
 **Recommended: install into a virtual environment** — it isolates Revoluzen Flow and
 avoids the Homebrew/Debian `externally-managed-environment` error. Inside the
-venv, plain `python`, `pip`, and `fpulse` all work:
+venv, plain `python`, `pip`, and `revoluzen` all work:
 
 ```bash
 python3 -m venv ~/revoluzen-flow-venv
-source ~/revoluzen-flow-venv/bin/activate        # Windows: fpulse-venv\Scripts\activate
+source ~/revoluzen-flow-venv/bin/activate        # Windows: revoluzen-flow-venv\Scripts\activate
 pip install --upgrade revoluzen-flow
 revoluzen open
 ```
@@ -163,7 +163,7 @@ installers create this for you automatically.)
 ```
 
 **macOS** — double-click `Start-RevoluzenFlow.command` in Finder (needs
-`pip install -e .` once so the `fpulse` command exists).
+`pip install -e .` once so the `revoluzen` command exists).
 
 **Linux** — add an application-menu entry:
 
@@ -207,16 +207,16 @@ $env:REVOLUZEN_FLOW_PORT          = 8010
 ```powershell
 .\stop.bat        # dev launcher
 .\stop.ps1        # dev launcher (PowerShell native)
-fpulse stop       # packaged install (any OS)
+revoluzen-flow stop       # packaged install (any OS)
 ```
 
-All three read **the same** `.revoluzen-flow/runtime/instance.json` and stop **only** the PIDs Revoluzen Flow itself recorded — and only after three independent signals all agree (PID still alive, still listening on the recorded port, command line still matches the uvicorn / Vite signature). They will never kill a foreign process on those ports, even with `--force` (which only skips the "stop previous instance?" prompt, never the safety checks). The packaged CLI and the dev scripts share the same on-disk format, so you can `start.ps1` your dev backend then later `fpulse stop` it from any other terminal and the second tool finds the first tool's instance correctly.
+All three read **the same** `.revoluzen-flow/runtime/instance.json` and stop **only** the PIDs Revoluzen Flow itself recorded — and only after three independent signals all agree (PID still alive, still listening on the recorded port, command line still matches the uvicorn / Vite signature). They will never kill a foreign process on those ports, even with `--force` (which only skips the "stop previous instance?" prompt, never the safety checks). The packaged CLI and the dev scripts share the same on-disk format, so you can `start.ps1` your dev backend then later `revoluzen-flow stop` it from any other terminal and the second tool finds the first tool's instance correctly.
 
 > Two Revoluzen Flow instances side-by-side? Just run `.\start.bat` a second time. The second instance sees the first one's runtime file, offers to either reuse those ports (after stopping the first) or auto-pick a new pair and run alongside it.
 
 ## First login
 
-The first time Revoluzen Flow starts, it asks you to **create your admin account** (your email + a strong password) — that first account owns the instance. There's no pre-made account and no password file to hunt for. (For a headless/scripted deploy that can't do the interactive first run, set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` to auto-create `admin@fpulse.local` with a random password in `INITIAL_ADMIN_PASSWORD.txt` instead; sign in and rotate it.)
+The first time Revoluzen Flow starts, it asks you to **create your admin account** (your email + a strong password) — that first account owns the instance. There's no pre-made account and no password file to hunt for. (For a headless/scripted deploy that can't do the interactive first run, set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` to auto-create `admin@revoluzen.local` with a random password in `INITIAL_ADMIN_PASSWORD.txt` instead; sign in and rotate it.)
 
 ## Run the first-pipeline demo (60 seconds)
 

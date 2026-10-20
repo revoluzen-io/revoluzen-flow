@@ -194,8 +194,8 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
       setLoading(true);
       try {
         const headers: Record<string, string> = {};
-        const token = localStorage.getItem('fpulse_token') || '';
-        const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+        const token = localStorage.getItem('revoluzen_flow_token') || '';
+        const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
         if (token) headers['Authorization'] = `Bearer ${token}`;
         headers['X-Workspace-Id'] = ws;
         const res = await fetch(`/api/ai/pre-run/${encodeURIComponent(workflowId)}`, {
@@ -225,8 +225,8 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
     (async () => {
       try {
         const headers: Record<string, string> = {};
-        const token = localStorage.getItem('fpulse_token') || '';
-        const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+        const token = localStorage.getItem('revoluzen_flow_token') || '';
+        const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
         if (token) headers['Authorization'] = `Bearer ${token}`;
         headers['X-Workspace-Id'] = ws;
         const res = await fetch(

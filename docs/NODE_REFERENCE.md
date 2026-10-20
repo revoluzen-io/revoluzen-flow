@@ -772,7 +772,7 @@ These nodes perform side effects (HTTP, email/Slack, file ops, SQL, deletes) or 
 | smtp_port | number | No | 587 | Inline SMTP port. |
 | smtp_user | text | No | "" | Inline SMTP username. |
 | smtp_pass | password | No | "" | Inline SMTP password. |
-| from | text | No | "" | From (falls back to user, then `fpulse@localhost`). |
+| from | text | No | "" | From (falls back to user, then `revoluzen-flow@localhost`). |
 
 **Output.** No data output — pass-through side effect.
 **Variables & parameters.** All string fields resolve `${param.x}` / `{{ }}`; `to`/`subject`/`body` also support `{column}`. Does not read/write `$vars`.

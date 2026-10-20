@@ -204,7 +204,7 @@ class PostgresBulkLoader:
         """
         cur = conn.cursor()
         try:
-            staging = "_fpulse_bulk_stage"
+            staging = "_revoluzen_flow_bulk_stage"
             col_defs = ", ".join(f"{_quote_ident(c)} text" for c in columns)
             cur.execute(f"CREATE TEMP TABLE {staging} ({col_defs}) ON COMMIT DROP")
             self._copy_into(cur, staging, columns, rows)

@@ -4,7 +4,7 @@
  *
  * Usage:
  *   <TableToolbar
- *     storageKey="fpulse_connections"
+ *     storageKey="revoluzen_flow_connections"
  *     data={connections}
  *     exportRowBuilder={(c) => ({ id: c.id, name: c.name, type: c.type, ... })}
  *     exportFilename="connections"

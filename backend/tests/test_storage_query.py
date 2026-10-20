@@ -98,7 +98,7 @@ def admin_client(app_v2, anon_client):
     c.headers["Authorization"] = f"Bearer {tok}"
     c.headers["X-Workspace-Id"] = WS
     c.cookies.set("session", tok)
-    c.cookies.set("fpulse_session", tok)
+    c.cookies.set("revoluzen_flow_session", tok)
     with c:
         yield c
 

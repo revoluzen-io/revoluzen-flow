@@ -69,5 +69,5 @@ Query parameters:
 | `?format=json` | Wraps it as `{"workflow_id", "filename", "markdown"}` for a UI that renders it inline. |
 | `?download=1` | Adds `Content-Disposition: attachment; filename="<slug>.md"`. |
 
-The renderer lives in `fpulse/ir/docs.py` (`render_workflow_markdown`) and is
+The renderer lives in `revoluzen_flow/ir/docs.py` (`render_workflow_markdown`) and is
 covered by `tests/test_workflow_documentation.py`.

@@ -3,7 +3,7 @@ import CustomEdge from './CustomEdge';
 import StickyNoteNode from './StickyNote';
 
 export const nodeTypes = {
-  fpulseNode: RevoluzenFlowNode,
+  revoluzenFlowNode: RevoluzenFlowNode,
   stickyNote: StickyNoteNode,
 };
 

@@ -171,7 +171,7 @@ industries, sovereignty-bound enterprises). Cloud LLM = data leaves
 the host = disqualifying for the segment that justifies Plus pricing.
 
 The local-first lock is documented in
-`project_fpulse_local_only_lock_2026-05-03.md` (project memory) and
+`project_revoluzen_flow_local_only_lock_2026-05-03.md` (project memory) and
 mirrored in `edition-matrix.md` + the trust posture endpoint.
 
 ### Why is the chat sometimes slow?

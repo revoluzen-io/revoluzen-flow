@@ -36,8 +36,8 @@ interface UpdateResult {
   upgrade_hint?: string; // e.g. "pip install --upgrade revoluzen-flow"
 }
 
-const CACHE_KEY = 'fpulse.updateCheck.cache';
-const DISMISS_KEY = 'fpulse.updateCheck.dismissed'; // stores the dismissed version string
+const CACHE_KEY = 'revoluzen-flow.updateCheck.cache';
+const DISMISS_KEY = 'revoluzen-flow.updateCheck.dismissed'; // stores the dismissed version string
 const TTL_MS = 24 * 60 * 60 * 1000; // 24h — at most one network check per browser per day
 
 function readCache(): UpdateResult | null {

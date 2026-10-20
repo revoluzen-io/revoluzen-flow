@@ -11,7 +11,7 @@ big methods.
 ```
 backend/revoluzen_flow/
 ├── main.py                        # FastAPI app, lifespan, app_state, route includes
-├── cli/__init__.py                # `fpulse` CLI entry (serve / run / list / backup / ...)
+├── cli/__init__.py                # `revoluzen` CLI entry (serve / run / list / backup / ...)
 ├── __main__.py                    # python -m revoluzen_flow → cli.main
 │
 ├── ir/                            # Intermediate Representation
@@ -345,7 +345,7 @@ Two stores added this session:
 Every router file follows the same template:
 
 ```python
-# fpulse/api/<resource>.py
+# revoluzen_flow/api/<resource>.py
 from fastapi import APIRouter, Depends, HTTPException, Request
 from revoluzen_flow.auth.deps import (
     current_workspace_id, require_auth, require_min_rank,

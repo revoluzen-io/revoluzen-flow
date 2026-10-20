@@ -29,7 +29,7 @@ const useReconciledModules = makeReconciledModulesHook([]);
  * engineering tools and gives the canvas its full width back.
  *
  * Drag behaviour unchanged — each tile sets the same
- * `application/fpulse-node` mime so the existing canvas drop handler
+ * `application/revoluzen-flow-node` mime so the existing canvas drop handler
  * Just Works. Click-to-insert also unchanged: add the node then fitView.
  */
 export default function ActivitiesRibbon() {
@@ -184,7 +184,7 @@ function NodeTile({
     <button
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData('application/fpulse-node', item.type);
+        e.dataTransfer.setData('application/revoluzen-flow-node', item.type);
         e.dataTransfer.effectAllowed = 'move';
       }}
       onClick={() => onAdd(item.type)}

@@ -10,8 +10,8 @@ from revoluzen_flow.monitoring.store import ExecutionRecord, ExecutionStore, Ste
 
 
 @pytest.fixture
-def output_store(_fpulse_test_db):
-    return StepOutputStore(_fpulse_test_db)
+def output_store(_revoluzen_flow_test_db):
+    return StepOutputStore(_revoluzen_flow_test_db)
 
 
 def execution(rows=None, days=0):
@@ -89,7 +89,7 @@ async def test_expired_export_is_refused_and_workspace_checked(monkeypatch, outp
 
 
 def test_scheduled_execution_captures_rows_under_history_id(
-    monkeypatch, output_store, _fpulse_test_db, sample_csv_file, temp_data_dir,
+    monkeypatch, output_store, _revoluzen_flow_test_db, sample_csv_file, temp_data_dir,
 ):
     from revoluzen_flow import main
     from revoluzen_flow.ir.schema import Workflow, Step, StepType, StepConnection
@@ -100,7 +100,7 @@ def test_scheduled_execution_captures_rows_under_history_id(
     ], connections=[StepConnection(from_step='source', to_step='filter')])
     workflows = Mock()
     workflows.get.return_value = SimpleNamespace(workflow=workflow)
-    history = ExecutionStore(_fpulse_test_db)
+    history = ExecutionStore(_revoluzen_flow_test_db)
     monkeypatch.setattr(main, 'app_state', {
         'store': workflows, 'execution_store': history,
         'step_output_store': output_store, 'data_dir': temp_data_dir,

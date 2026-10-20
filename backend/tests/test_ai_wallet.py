@@ -26,8 +26,8 @@ from revoluzen_flow.ai.wallet import (
 
 
 @pytest.fixture
-def wallet(_fpulse_test_db):
-    return WalletGuard(_db=_fpulse_test_db)
+def wallet(_revoluzen_flow_test_db):
+    return WalletGuard(_db=_revoluzen_flow_test_db)
 
 
 def test_wallet_allows_when_zero_usage(wallet):
@@ -124,8 +124,8 @@ def test_env_clamps_apply(monkeypatch):
 
 
 @pytest.fixture
-def promoter(_fpulse_test_db):
-    return DryRunPromoter(_db=_fpulse_test_db)
+def promoter(_revoluzen_flow_test_db):
+    return DryRunPromoter(_db=_revoluzen_flow_test_db)
 
 
 def test_promoter_forces_dry_run_below_threshold(promoter, monkeypatch):

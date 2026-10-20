@@ -60,8 +60,8 @@ export default function ProviderComparison({ onConfigure }: Props) {
     setError(null);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const token = localStorage.getItem('fpulse_token') || '';
-      const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+      const token = localStorage.getItem('revoluzen_flow_token') || '';
+      const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
       if (token) headers['Authorization'] = `Bearer ${token}`;
       headers['X-Workspace-Id'] = ws;
       // `force=1` tells the backend to bypass its 1 h price-cache and

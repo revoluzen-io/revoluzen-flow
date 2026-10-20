@@ -105,7 +105,7 @@ function previewWorkflowToFlow(wf: any, isRunning = false, stepResults?: Record<
     }
     return {
       id: s.id,
-      type: 'fpulseNode',
+      type: 'revoluzenFlowNode',
       position: { x: s.position?.x ?? 0, y: s.position?.y ?? 0 },
       data: {
         label: s.label || s.type,
@@ -1263,7 +1263,7 @@ function QuickAlertDialog({ pipelineId, pipelineName, onClose }: { pipelineId: s
                       <button
                         type="button"
                         onClick={() => {
-                          try { sessionStorage.setItem('fpulse_settings_jump_to', 'smtp'); } catch {}
+                          try { sessionStorage.setItem('revoluzen_flow_settings_jump_to', 'smtp'); } catch {}
                           onClose();
                           navigateToSubRoute('settings', 'notifications');
                         }}
@@ -1546,11 +1546,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // so the user's preference survives reloads. Same pattern as the
   // Executions page Stats button.
   const [showDashboard, setShowDashboard] = useState<boolean>(() => {
-    try { return localStorage.getItem('fpulse_workflows_show_stats') !== '0'; }
+    try { return localStorage.getItem('revoluzen_flow_workflows_show_stats') !== '0'; }
     catch { return true; }
   });
   useEffect(() => {
-    try { localStorage.setItem('fpulse_workflows_show_stats', showDashboard ? '1' : '0'); } catch {}
+    try { localStorage.setItem('revoluzen_flow_workflows_show_stats', showDashboard ? '1' : '0'); } catch {}
   }, [showDashboard]);
   const [sortBy, setSortBy] = useState<'name' | 'updated_at' | 'status'>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -1606,10 +1606,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const [compareIdx, setCompareIdx] = useState<number | null>(null);
   const [tagFilter, setTagFilter] = useState('');
   const [pipelineTags, setPipelineTags] = useState<Record<string, string[]>>(() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_pipeline_tags') || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_pipeline_tags') || '{}'); } catch { return {}; }
   });
   const [tagColors, setTagColors] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_tag_colors') || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_tag_colors') || '{}'); } catch { return {}; }
   });
   const [showTagMenu, setShowTagMenu] = useState<string | null>(null);
   const [newTagInput, setNewTagInput] = useState('');
@@ -1663,8 +1663,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       try {
         const r = await fetch('/api/storage/usage', {
           headers: {
-            'X-Workspace-Id': localStorage.getItem('fpulse_workspace_id') || 'default',
-            Authorization: `Bearer ${localStorage.getItem('fpulse_token') || ''}`,
+            'X-Workspace-Id': localStorage.getItem('revoluzen_flow_workspace_id') || 'default',
+            Authorization: `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}`,
           },
         });
         if (!r.ok) return;
@@ -1692,13 +1692,13 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const [detailData, setDetailData] = useState<any>(null);
   const [deleteModal, setDeleteModal] = useState<{ id: string; name: string } | null>(null);
   const [binItems, setBinItems] = useState<Array<{ id: string; name: string; deleted_at: string; project_id?: string; status?: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_bin') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_bin') || '[]'); } catch { return []; }
   });
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem('fpulse_deploy_columns');
+      const saved = localStorage.getItem('revoluzen_flow_deploy_columns');
       if (saved) return new Set(JSON.parse(saved));
     } catch {}
     return new Set(DEPLOY_COLUMNS.filter(c => c.default).map(c => c.key));
@@ -1732,7 +1732,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       const next = current.includes(tag) ? current.filter((t) => t !== tag) : [...current, tag];
       const updated = { ...prev, [pipelineId]: next };
       if (next.length === 0) delete updated[pipelineId];
-      localStorage.setItem('fpulse_pipeline_tags', JSON.stringify(updated));
+      localStorage.setItem('revoluzen_flow_pipeline_tags', JSON.stringify(updated));
       return updated;
     });
   };
@@ -1740,7 +1740,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const setTagColor = (tag: string, color: string) => {
     setTagColors((prev) => {
       const updated = { ...prev, [tag]: color };
-      localStorage.setItem('fpulse_tag_colors', JSON.stringify(updated));
+      localStorage.setItem('revoluzen_flow_tag_colors', JSON.stringify(updated));
       return updated;
     });
   };
@@ -1915,7 +1915,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
 
   const saveBin = (items: typeof binItems) => {
     setBinItems(items);
-    localStorage.setItem('fpulse_bin', JSON.stringify(items));
+    localStorage.setItem('revoluzen_flow_bin', JSON.stringify(items));
   };
 
   const confirmDelete = async () => {
@@ -2000,7 +2000,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // strip. Persists to localStorage so a user's preferred set of
   // metadata columns sticks across reloads. Same hook the Connections
   // page uses (useTableColumns).
-  const pipeColState = useTableColumns('fpulse_pipelines_cols', PIPELINE_COLUMNS);
+  const pipeColState = useTableColumns('revoluzen_flow_pipelines_cols', PIPELINE_COLUMNS);
   const [showPipeColumnPicker, setShowPipeColumnPicker] = useState(false);
   const pipeColumnPickerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -2308,7 +2308,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
-      localStorage.setItem('fpulse_deploy_columns', JSON.stringify([...next]));
+      localStorage.setItem('revoluzen_flow_deploy_columns', JSON.stringify([...next]));
       return next;
     });
   }, []);
@@ -2316,13 +2316,13 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const resetColumnsToDefault = useCallback(() => {
     const defaults = new Set(DEPLOY_COLUMNS.filter(c => c.default).map(c => c.key));
     setVisibleColumns(defaults);
-    localStorage.setItem('fpulse_deploy_columns', JSON.stringify([...defaults]));
+    localStorage.setItem('revoluzen_flow_deploy_columns', JSON.stringify([...defaults]));
   }, []);
 
   const selectAllColumns = useCallback(() => {
     const all = new Set(DEPLOY_COLUMNS.map(c => c.key));
     setVisibleColumns(all);
-    localStorage.setItem('fpulse_deploy_columns', JSON.stringify([...all]));
+    localStorage.setItem('revoluzen_flow_deploy_columns', JSON.stringify([...all]));
   }, []);
 
   const activeColumns = useMemo(() =>
@@ -4609,7 +4609,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 {/* Columns — opens a grouped checkbox popover that toggles
                     which metadata columns the user sees in the table.
                     Visibility persists to localStorage (key:
-                    fpulse_pipelines_cols). Mirrors the Connections page
+                    revoluzen_flow_pipelines_cols). Mirrors the Connections page
                     column picker. The Name + Select + Actions columns
                     are fixed and never listed here. */}
                 <div className="relative" ref={pipeColumnPickerRef}>
@@ -6612,7 +6612,7 @@ function DagLineagePreview({ workflow }: { workflow: any }) {
     const connections = wf?.connections || [];
     const ns: FlowNode[] = steps.map((s: any, i: number) => ({
       id: s.id,
-      type: 'fpulseNode',
+      type: 'revoluzenFlowNode',
       position: s.position || { x: 100 + (i % 5) * 260, y: 100 + Math.floor(i / 5) * 150 },
       data: {
         label: s.label || s.type || s.id,

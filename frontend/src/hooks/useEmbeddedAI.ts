@@ -9,8 +9,8 @@ async function aiRequest<T>(path: string, body: any): Promise<T> {
   // a future endpoint in this router ever needs to look up a saved
   // workflow or write an audit record, it already receives the
   // tenant boundary for free.
-  const token = localStorage.getItem('fpulse_token') || '';
-  const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+  const token = localStorage.getItem('revoluzen_flow_token') || '';
+  const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: {

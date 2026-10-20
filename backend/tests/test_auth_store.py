@@ -61,7 +61,7 @@ class TestUserStore:
     def test_default_admin_exists(self, user_store):
         admin = user_store.get_user("admin")
         assert admin is not None
-        assert admin.email == "admin@fpulse.local"
+        assert admin.email == "admin@revoluzen.local"
         assert admin.role == "admin"
 
     def test_default_admin_password(self, user_store):
@@ -95,7 +95,7 @@ class TestUserStore:
     def test_list_users(self, user_store):
         result = user_store.list_users()
         assert len(result) == 1  # admin
-        assert result[0]["email"] == "admin@fpulse.local"
+        assert result[0]["email"] == "admin@revoluzen.local"
 
     def test_update_user(self, user_store):
         updated = user_store.update_user("admin", {"name": "Super Admin"})

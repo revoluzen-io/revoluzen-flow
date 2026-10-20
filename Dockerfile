@@ -38,20 +38,20 @@ RUN pip install --no-cache-dir --user -r requirements.txt \
 FROM python:3.11-slim AS runtime
 
 # Non-root user — Revoluzen Flow never needs root.
-RUN groupadd -r fpulse && useradd -r -g fpulse -d /app -s /sbin/nologin fpulse
+RUN groupadd -r revoluzen && useradd -r -g revoluzen -d /app -s /sbin/nologin revoluzen
 
 WORKDIR /app
 
 # Resolved Python deps from builder. They were `pip install --user`ed into
-# /root/.local (builder runs as root) and copied here. The runtime user `fpulse`
+# /root/.local (builder runs as root) and copied here. The runtime user `revoluzen`
 # has HOME=/app (useradd -d /app), so Python's default user-site would be
 # /app/.local — the WRONG place. PYTHONUSERBASE points Python's user-site at the
 # real location so `python -m uvicorn` (and every dep) actually resolves;
 # without it the container starts and instantly dies with "No module named
 # uvicorn" while the image still builds clean.
-COPY --from=builder /root/.local /home/fpulse/.local
-ENV PATH=/home/fpulse/.local/bin:$PATH \
-    PYTHONUSERBASE=/home/fpulse/.local \
+COPY --from=builder /root/.local /home/revoluzen/.local
+ENV PATH=/home/revoluzen/.local/bin:$PATH \
+    PYTHONUSERBASE=/home/revoluzen/.local \
     PYTHONPATH=/app/backend \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -67,9 +67,9 @@ COPY backend/ /app/backend/
 COPY --from=frontend /build/dist /app/backend/revoluzen_flow/frontend_dist
 
 # Persistent data dir
-RUN mkdir -p /data && chown -R fpulse:fpulse /app /data /home/fpulse
+RUN mkdir -p /data && chown -R revoluzen:revoluzen /app /data /home/revoluzen
 
-USER fpulse
+USER revoluzen
 
 EXPOSE 8001
 

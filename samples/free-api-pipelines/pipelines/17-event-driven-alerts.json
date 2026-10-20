@@ -28,7 +28,7 @@
       "config": {
         "host": "localhost",
         "port": 1025,
-        "from": "noreply@fpulse.local",
+        "from": "noreply@revoluzen.local",
         "security": "none"
       },
       "description": "PLACEHOLDER — points at a local MailHog-style port (1025). Replace with a real SMTP host or run MailHog locally to actually receive the digest."
@@ -162,7 +162,7 @@
       "label": "Send digest (placeholder SMTP)",
       "params": {
         "connection_id": "SMTP (placeholder)",
-        "to": "ops@fpulse.local",
+        "to": "ops@revoluzen.local",
         "cc": "",
         "bcc": "",
         "subject": "Revoluzen Flow daily digest: duckdb/duckdb open issues",
@@ -208,7 +208,7 @@
         "url": "https://webhook.site/PLACEHOLDER-REPLACE-WITH-YOUR-URL",
         "method": "POST",
         "headers": {"Content-Type": "application/json"},
-        "body": "{\"metric\": \"fpulse.duckdb_issues\", \"critical_count\": {critical_count}, \"total_issues_24h\": {total_issues_24h}, \"run_at\": \"{run_at}\"}",
+        "body": "{\"metric\": \"revoluzen-flow.duckdb_issues\", \"critical_count\": {critical_count}, \"total_issues_24h\": {total_issues_24h}, \"run_at\": \"{run_at}\"}",
         "per_row": false,
         "timeout": 10,
         "_input_step_ids": ["tx_metric_project"]

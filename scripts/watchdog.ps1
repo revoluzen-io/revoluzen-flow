@@ -23,7 +23,7 @@
 #   .\watchdog.ps1
 #
 #   # Custom port / poll interval / data dir
-#   .\watchdog.ps1 -Port 8001 -IntervalSeconds 30 -DataDir "C:\fpulse-data"
+#   .\watchdog.ps1 -Port 8001 -IntervalSeconds 30 -DataDir "C:\revoluzen-flow-data"
 #
 #   # Dry-run — log everything, never restart (safe first pass)
 #   .\watchdog.ps1 -DryRun

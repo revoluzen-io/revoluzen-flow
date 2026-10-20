@@ -1,4 +1,4 @@
-Package: fpulse
+Package: revoluzen-flow
 Version: @@VERSION@@
 Section: utils
 Priority: optional

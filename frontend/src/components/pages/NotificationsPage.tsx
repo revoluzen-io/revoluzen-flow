@@ -155,7 +155,7 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string; icon
   //   `steward_finding_escalated` — a previously-known finding bumped
   //     to P1 via the learning layer's "ignored N times" escalation.
   // Clicking the row deep-links to the dashboard + auto-opens the
-  // Steward dropdown via the `fpulse:steward-open` event (see
+  // Steward dropdown via the `revoluzen-flow:steward-open` event (see
   // frontend/src/lib/notificationHref.ts).
   steward_finding: {
     label: 'Steward',
@@ -227,7 +227,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
   // so the sidebar bell (and any future consumer) can refresh its unread
   // count without waiting for the 30s poll. Listener lives in Sidebar.tsx.
   const broadcastChange = () => {
-    try { window.dispatchEvent(new CustomEvent('fpulse:notifications-changed')); } catch { /* no-op */ }
+    try { window.dispatchEvent(new CustomEvent('revoluzen-flow:notifications-changed')); } catch { /* no-op */ }
   };
 
   const handleMarkRead = async (id: string) => {

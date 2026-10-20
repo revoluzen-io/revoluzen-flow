@@ -23,7 +23,7 @@
  */
 import { useEffect, useState } from 'react';
 
-const DISMISS_KEY = 'fpulse:lan-banner-dismissed';
+const DISMISS_KEY = 'revoluzen-flow:lan-banner-dismissed';
 
 interface BindInfo {
   bind_host: string;

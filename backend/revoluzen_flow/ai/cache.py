@@ -7,7 +7,7 @@ Per docs/performance.md §6 and ai-boundary-contract.md §7:
   - Caches only safe derived summaries, NOT raw sensitive payloads
   - L2 (Redis) and L3 (SQLite) wrappers ship in Tier B; this is L1 only
 
-Default TTLs (from project_fpulse_ai_step0_locks.md §4) are surfaced as
+Default TTLs (from project_revoluzen_flow_ai_step0_locks.md §4) are surfaced as
 constants so callers don't hardcode magic numbers.
 """
 

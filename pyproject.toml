@@ -288,7 +288,7 @@ include = ["revoluzen_flow*"]
 
 [tool.setuptools.package-data]
 revoluzen_flow = [
-    "CHANGELOG.md",
+    "CHANGELOG.md", "README.md",
     "frontend_dist/*", "frontend_dist/**/*",
     "docs/*.md", "docs/**/*.md", "docs/**/*.txt", "docs/**/*.jsonl",
     "static/**/*",

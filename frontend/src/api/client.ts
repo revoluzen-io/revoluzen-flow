@@ -14,7 +14,7 @@ function emitBackendReachable(reachable: boolean, reason?: string) {
   _backendReachable = reachable;
   try {
     window.dispatchEvent(
-      new CustomEvent('fpulse:backend-reachable', { detail: { reachable, reason } }),
+      new CustomEvent('revoluzen-flow:backend-reachable', { detail: { reachable, reason } }),
     );
   } catch {
     /* CustomEvent unsupported — fall through */
@@ -28,7 +28,7 @@ function emitBackendReachable(reachable: boolean, reason?: string) {
  * Always prefer the `api` client; use this only when a raw fetch is required.
  */
 export function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const token = localStorage.getItem('fpulse_token');
+  const token = localStorage.getItem('revoluzen_flow_token');
   const workspaceId = currentWorkspaceId();
   const csrf = getCsrfCookie();
   return {
@@ -46,12 +46,12 @@ export function authHeaders(extra?: Record<string, string>): Record<string, stri
  * requests pass the server's CSRF guard. Empty string if not present.
  */
 function getCsrfCookie(): string {
-  const m = document.cookie.match(/(?:^|;\s*)fpulse_csrf=([^;]+)/);
+  const m = document.cookie.match(/(?:^|;\s*)revoluzen_flow_csrf=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : '';
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('fpulse_token');
+  const token = localStorage.getItem('revoluzen_flow_token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string> || {}),
@@ -102,23 +102,23 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     // the token and force-reloaded immediately, which silently discarded
     // unsaved canvas state, ConfigPanel drafts, and the Copilot chat. The
     // token is still cleared here (so subsequent calls fail fast), but the
-    // actual reload is delegated to a `fpulse:session-expired` window
+    // actual reload is delegated to a `revoluzen-flow:session-expired` window
     // event. App.tsx listens for it, checks the workflow store dirty flag,
     // and either auto-saves before reloading or asks the user. The
     // fallback timeout below guarantees we still reload even when the
     // listener isn't mounted (e.g. catastrophic render crash).
     if (res.status === 401 && token) {
-      localStorage.removeItem('fpulse_token');
-      localStorage.removeItem('fpulse_user');
+      localStorage.removeItem('revoluzen_flow_token');
+      localStorage.removeItem('revoluzen_flow_user');
       try {
-        window.dispatchEvent(new CustomEvent('fpulse:session-expired'));
+        window.dispatchEvent(new CustomEvent('revoluzen-flow:session-expired'));
       } catch {
         /* CustomEvent unavailable — fall through to reload fallback */
       }
       // Fallback: if no listener handled the event within 5s, hard-reload
       // anyway so a broken App.tsx can't strand the user on a bad session.
       window.setTimeout(() => {
-        if (localStorage.getItem('fpulse_token')) return; // someone logged back in
+        if (localStorage.getItem('revoluzen_flow_token')) return; // someone logged back in
         window.location.hash = '#dashboard';
         window.location.reload();
       }, 5000);
@@ -263,7 +263,7 @@ let _licenseCache: LicenseCacheEntry | null = null;
 let _licenseInflight: Promise<any> | null = null;
 // Diagnostic — counts every call to _getLicenseCached, and how many
 // were served from cache vs hit the network. Inspect via
-// `window.__fpulse_lic_diag` in DevTools to prove the cache is live.
+// `window.__revoluzen_flow_lic_diag` in DevTools to prove the cache is live.
 const _licDiag = { calls: 0, hits: 0, misses: 0, inflightShared: 0 };
 
 // Negative-cache payload returned when /api/plus/license 404s. The
@@ -302,7 +302,7 @@ async function _getLicenseCached(): Promise<any> {
       // Cache the negative result so we don't hammer the backend with
       // a request that will never succeed. The TTL is still honored so
       // a user activating Plus mid-session gets picked up on the next
-      // cache window (or immediately via the `fpulse:license-changed`
+      // cache window (or immediately via the `revoluzen-flow:license-changed`
       // event listener below, which clears the cache).
       const msg = String((err && (err.message || err)) || '');
       const isNotFound = /not\s*found|404/i.test(msg);
@@ -321,11 +321,11 @@ async function _getLicenseCached(): Promise<any> {
 }
 
 // Expose the diagnostic on window for browser console inspection.
-// `window.__fpulse_lic_diag` shows: calls (total), hits (cache served),
+// `window.__revoluzen_flow_lic_diag` shows: calls (total), hits (cache served),
 // misses (network), inflightShared (deduped). If misses == calls,
 // the cache isn't loading — likely an old bundle in the browser.
 if (typeof window !== 'undefined') {
-  (window as any).__fpulse_lic_diag = _licDiag;
+  (window as any).__revoluzen_flow_lic_diag = _licDiag;
 }
 
 /** Bust the in-memory license cache. Call after activate/deactivate so
@@ -338,7 +338,7 @@ export function clearLicenseCache(): void {
 // AdminPage activate/deactivate handlers (see App.tsx for the receiver
 // that also handles the localStorage-tier cache).
 if (typeof window !== 'undefined') {
-  window.addEventListener('fpulse:license-changed', () => {
+  window.addEventListener('revoluzen-flow:license-changed', () => {
     _licenseCache = null;
   });
 }
@@ -362,7 +362,7 @@ export const api = {
    * step while still attaching auth + workspace headers consistently.
    */
   postRaw: async <T = any>(path: string, body: BodyInit) => {
-    const token = localStorage.getItem('fpulse_token') || '';
+    const token = localStorage.getItem('revoluzen_flow_token') || '';
     const workspaceId = currentWorkspaceId();
     const cleanPath = path.startsWith('/api') ? path : `/api${path.startsWith('/') ? '' : '/'}${path}`;
     const res = await fetch(cleanPath, {
@@ -792,7 +792,7 @@ export const api = {
     // Multipart upload bypasses the JSON request() helper, so we
     // have to attach auth + workspace headers manually or the file
     // would land in the wrong tenant bucket on the backend.
-    const token = localStorage.getItem('fpulse_token') || '';
+    const token = localStorage.getItem('revoluzen_flow_token') || '';
     const workspaceId = currentWorkspaceId();
     const url = new URL(`${BASE}/upload`, window.location.origin);
     if (options?.replaces) {
@@ -1006,7 +1006,7 @@ export const api = {
     stepId: string,
     fmt: 'csv' | 'json',
   ): Promise<Blob> => {
-    const token = localStorage.getItem('fpulse_token');
+    const token = localStorage.getItem('revoluzen_flow_token');
     const workspaceId = currentWorkspaceId();
     const res = await fetch(
       `${BASE}/execute/execution/${executionId}/step/${stepId}/output/export?fmt=${fmt}`,
@@ -1077,11 +1077,11 @@ export const api = {
   register: (email: string, password: string, name?: string) =>
     request<any>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
   getMe: () => {
-    const token = localStorage.getItem('fpulse_token');
+    const token = localStorage.getItem('revoluzen_flow_token');
     return request<any>('/auth/me', { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
   },
   logout: () => {
-    const token = localStorage.getItem('fpulse_token');
+    const token = localStorage.getItem('revoluzen_flow_token');
     return request<any>('/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
   },
   listUsers: () => request<any[]>('/auth/users'),
@@ -1269,7 +1269,7 @@ export const api = {
   //
   // Cache is busted by:
   //   - clearLicenseCache() — called explicitly after activate/deactivate
-  //   - dispatching `fpulse:license-changed` event (App.tsx listens)
+  //   - dispatching `revoluzen-flow:license-changed` event (App.tsx listens)
   //   - logout (clears localStorage; in-memory cache is per-tab anyway)
   getLicenseStatus: () => _getLicenseCached(),
   activateLicense: (data: { org: string; email: string; seats?: number }) =>
@@ -1414,7 +1414,7 @@ export const api = {
   // ── Password policy + recovery ──
   // All public — the LoginPage and Register form call them before any
   // session token exists. The backend mirrors these helpers in
-  // fpulse/auth/password_policy.py; the two implementations agree on
+  // revoluzen_flow/auth/password_policy.py; the two implementations agree on
   // what counts as a strong password so the UI never shows "Strong"
   // on something the server will reject.
   getPasswordPolicy: () =>
@@ -1559,7 +1559,7 @@ export const api = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('fpulse_token') || ''}`,
+        'Authorization': `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}`,
       },
       body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
     }),

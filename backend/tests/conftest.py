@@ -14,7 +14,7 @@ Design choices:
     isolation, no cross-test pollution. ~50-100 ms per test; worth it
     for a clean slate each run.
   - Shared Database across stores in the same test: all store
-    fixtures in a single test depend on the same _fpulse_test_db, so
+    fixtures in a single test depend on the same _revoluzen_flow_test_db, so
     a workflow_store INSERT and an alert_store SELECT in the same
     test hit the same tables.
   - Path via pytest's built-in tmp_path: pytest handles cleanup, and
@@ -52,7 +52,7 @@ os.environ.setdefault("REVOLUZEN_FLOW_MODE", "dev")
 
 # Auto-seed the bootstrap admin for the test session. In production this is
 # OPT-IN (default off — the operator creates their own admin on first launch;
-# see UserStore._ensure_admin), but the existing suite assumes admin@fpulse.local
+# see UserStore._ensure_admin), but the existing suite assumes admin@revoluzen.local
 # exists, so we enable the opt-in flag here. A test that needs the empty-table /
 # no-auto-seed behaviour exercises UserStore._ensure_admin directly with the
 # flag cleared (see test_bootstrap_admin_optin.py).
@@ -108,17 +108,17 @@ from revoluzen_flow.intelligence.schema_history import SchemaHistoryStore
 # ── Shared DB ──
 
 @pytest.fixture
-def _fpulse_test_db(tmp_path):
+def _revoluzen_flow_test_db(tmp_path):
     """Per-test SQLite Database with full schema + migrations.
 
     Returns a live revoluzen_flow.storage.database.Database bound to a file
     inside pytest's tmp_path. Teardown closes all cached connections
     and drains the WAL. The tempfile is cleaned up by pytest.
 
-    Every store fixture in this file depends on _fpulse_test_db, so a
+    Every store fixture in this file depends on _revoluzen_flow_test_db, so a
     single test function sees one database shared across all stores.
     """
-    db = Database(str(tmp_path / "fpulse.db"))
+    db = Database(str(tmp_path / "revoluzen_flow.db"))
     # Sprint 1 / Gate 1: the checkpoint_store module-level singleton is
     # wired to the production DB at app startup. Tests that exercise it
     # via the executor (or directly) need the singleton bound to the
@@ -149,47 +149,47 @@ def _fpulse_test_db(tmp_path):
 # ── Store Fixtures ──
 
 @pytest.fixture
-def workflow_store(_fpulse_test_db):
-    return WorkflowStore(db=_fpulse_test_db)
+def workflow_store(_revoluzen_flow_test_db):
+    return WorkflowStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def lifecycle_store(_fpulse_test_db):
-    return LifecycleStore(db=_fpulse_test_db)
+def lifecycle_store(_revoluzen_flow_test_db):
+    return LifecycleStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def project_store(_fpulse_test_db):
-    return ProjectStore(db=_fpulse_test_db)
+def project_store(_revoluzen_flow_test_db):
+    return ProjectStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def schedule_store(_fpulse_test_db):
-    return ScheduleStore(db=_fpulse_test_db)
+def schedule_store(_revoluzen_flow_test_db):
+    return ScheduleStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def alert_store(_fpulse_test_db):
-    return AlertStore(db=_fpulse_test_db)
+def alert_store(_revoluzen_flow_test_db):
+    return AlertStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def execution_store(_fpulse_test_db):
-    return ExecutionStore(db=_fpulse_test_db)
+def execution_store(_revoluzen_flow_test_db):
+    return ExecutionStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def user_store(_fpulse_test_db):
-    return UserStore(db=_fpulse_test_db)
+def user_store(_revoluzen_flow_test_db):
+    return UserStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def variable_store(_fpulse_test_db):
-    return VariableStore(db=_fpulse_test_db)
+def variable_store(_revoluzen_flow_test_db):
+    return VariableStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def credential_store(_fpulse_test_db, monkeypatch):
+def credential_store(_revoluzen_flow_test_db, monkeypatch):
     # 2026-05-31: Disable encryption-at-rest for these unit tests so the
     # masking assertions (e.g. test_list_all_masks_secrets expects
     # "secret123" → "se***") are deterministic regardless of whether a
@@ -203,30 +203,30 @@ def credential_store(_fpulse_test_db, monkeypatch):
     except Exception:
         # main not imported yet — nothing to clear.
         pass
-    return CredentialStore(db=_fpulse_test_db)
+    return CredentialStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def connection_store(_fpulse_test_db):
-    return ConnectionStore(db=_fpulse_test_db)
+def connection_store(_revoluzen_flow_test_db):
+    return ConnectionStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def datastore(_fpulse_test_db):
+def datastore(_revoluzen_flow_test_db):
     """Y1 (2026-05-23): workspace datastore for the Storage page tests."""
     from revoluzen_flow.datastore.store import DataStore
-    return DataStore(db=_fpulse_test_db)
+    return DataStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def contract_store(_fpulse_test_db):
-    return SchemaContractStore(db=_fpulse_test_db)
+def contract_store(_revoluzen_flow_test_db):
+    return SchemaContractStore(db=_revoluzen_flow_test_db)
 
 
 @pytest.fixture
-def schema_history_store(_fpulse_test_db):
+def schema_history_store(_revoluzen_flow_test_db):
     """2026-05-27 — append-only audit log of managed-table schema versions."""
-    return SchemaHistoryStore(db=_fpulse_test_db)
+    return SchemaHistoryStore(db=_revoluzen_flow_test_db)
 
 
 # ── Data Fixtures ──

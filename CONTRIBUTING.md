@@ -36,7 +36,7 @@ and it deserves a real agreement rather than a draft with a TODO list in it.
 
 Open an issue on GitHub with:
 
-- Revoluzen Flow version (`fpulse --version`)
+- Revoluzen Flow version (`revoluzen --version`)
 - OS and Python version
 - Minimal reproduction steps
 - Actual vs expected behavior

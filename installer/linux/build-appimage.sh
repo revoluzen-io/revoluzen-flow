@@ -28,7 +28,7 @@ REPO_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 VERSION="$(grep -m1 -E '^version = "' "$REPO_ROOT/pyproject.toml" | sed -E 's/^version = "([^"]+)"/\1/')"
 [[ -n "$VERSION" ]] || { echo "could not read version from pyproject.toml"; exit 1; }
 ARCH="x86_64"
-PKG_NAME="fpulse"
+PKG_NAME="revoluzen-flow"
 
 echo
 echo "  Revoluzen Flow AppImage build"
@@ -48,9 +48,9 @@ mkdir -p "$OUTPUT_DIR" \
 
 # ── 1. Frontend ──
 # Build it, then STAGE it into the Python package. PyInstaller's
-# `--collect-all fpulse` below picks up backend/revoluzen_flow/frontend_dist/, so the
+# `--collect-all revoluzen-flow` below picks up backend/revoluzen_flow/frontend_dist/, so the
 # frozen bundle carries the UI where main.py actually looks for it
-# (fpulse/frontend_dist). Without staging, the app resolves no UI and serves
+# (revoluzen_flow/frontend_dist). Without staging, the app resolves no UI and serves
 # a 404 at / — it will say so loudly at startup.
 echo "  [1/4] Building + staging frontend..."
 ( cd "$REPO_ROOT/frontend" && npm install --silent && npm run build )
@@ -64,10 +64,10 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 ( cd "$REPO_ROOT" && \
   "$PYTHON" -m PyInstaller \
     --onedir --noconfirm --clean \
-    --name fpulse \
+    --name revoluzen-flow \
     --paths backend \
     --hidden-import revoluzen_flow.main \
-    --collect-all fpulse \
+    --collect-all revoluzen-flow \
     --collect-all duckdb \
     --collect-all fastapi \
     --collect-all uvicorn \
@@ -86,7 +86,7 @@ if ! find "$APPDIR/usr/lib/$PKG_NAME/runtime" -path '*/revoluzen_flow/frontend_d
   echo "       The package would install and serve a blank page. Refusing to build."
   exit 1
 fi
-ln -sf "../lib/$PKG_NAME/runtime/fpulse/fpulse" "$APPDIR/usr/bin/fpulse"
+ln -sf "../lib/$PKG_NAME/runtime/revoluzen-flow/revoluzen_flow" "$APPDIR/usr/bin/revoluzen"
 
 # ── 3. AppImage scaffolding ──
 echo "  [3/4] Writing AppRun + .desktop + icon..."
@@ -95,7 +95,7 @@ cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/sh
 HERE="$(dirname "$(readlink -f "${0}")")"
 export PATH="$HERE/usr/bin:$PATH"
-exec "$HERE/usr/bin/fpulse" serve "$@"
+exec "$HERE/usr/bin/revoluzen" serve "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
@@ -105,8 +105,8 @@ Type=Application
 Name=Revoluzen Flow
 GenericName=Data Pipeline Studio
 Comment=Local-first ETL/ELT pipeline studio
-Exec=fpulse
-Icon=fpulse
+Exec=revoluzen-flow
+Icon=revoluzen-flow
 Terminal=false
 Categories=Development;Database;
 EOF
@@ -114,9 +114,9 @@ cp "$APPDIR/$PKG_NAME.desktop" "$APPDIR/usr/share/applications/"
 
 # A placeholder transparent PNG so appimagetool is happy when no
 # icon file ships in the repo. Replace with real branding for release.
-if [[ -f "$SCRIPT_DIR/../windows/icons/fpulse.png" ]]; then
-  cp "$SCRIPT_DIR/../windows/icons/fpulse.png" "$APPDIR/$PKG_NAME.png"
-  cp "$SCRIPT_DIR/../windows/icons/fpulse.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$PKG_NAME.png"
+if [[ -f "$SCRIPT_DIR/../windows/icons/revoluzen-flow.png" ]]; then
+  cp "$SCRIPT_DIR/../windows/icons/revoluzen-flow.png" "$APPDIR/$PKG_NAME.png"
+  cp "$SCRIPT_DIR/../windows/icons/revoluzen-flow.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/$PKG_NAME.png"
 else
   # 1x1 transparent PNG (base64)
   /usr/bin/printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82' \

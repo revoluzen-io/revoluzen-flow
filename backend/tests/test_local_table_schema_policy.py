@@ -245,7 +245,7 @@ def test_allow_all_with_warning_accepts_drop_with_warning_severity(
 
 
 def test_schema_history_api_returns_chronological_versions(
-    ctx_factory, datastore, schema_history_store, _fpulse_test_db,
+    ctx_factory, datastore, schema_history_store, _revoluzen_flow_test_db,
 ):
     """End-to-end: write two evolutions, then call the API and verify
     chronological ordering + that the latest version reflects the

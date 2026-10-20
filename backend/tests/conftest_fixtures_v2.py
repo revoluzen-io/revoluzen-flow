@@ -52,7 +52,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture(scope="module")
 def data_dir() -> Generator[str, None, None]:
     """Fresh REVOLUZEN_FLOW_DATA_DIR per test module. Cleaned up after."""
-    d = tempfile.mkdtemp(prefix="fpulse_test_v2_")
+    d = tempfile.mkdtemp(prefix="revoluzen_flow_test_v2_")
     old = os.environ.get("REVOLUZEN_FLOW_DATA_DIR")
     os.environ["REVOLUZEN_FLOW_DATA_DIR"] = d
     # 2026-05-30 (P7): tests expect /docs and /openapi.json to be public
@@ -102,7 +102,7 @@ def db_fixture(data_dir: str) -> Generator[str, None, None]:
       3. Running migrations.
       4. Calling the internal init path (equivalent to app startup).
 
-    Yields the path to fpulse.db for inspection if tests need it.
+    Yields the path to revoluzen_flow.db for inspection if tests need it.
     """
     # Step 1 (2026-05-31): we used to wipe `sys.modules["revoluzen_flow.*"]` here
     # to force fresh imports against the fresh REVOLUZEN_FLOW_DATA_DIR. That
@@ -121,7 +121,7 @@ def db_fixture(data_dir: str) -> Generator[str, None, None]:
     # we re-trigger it explicitly via `_rebind_stores` below.
     # Step 2: run migrations explicitly (proves the migration runner works).
     backend_root = Path(__file__).parent.parent  # tests/.. == backend/
-    db_path = Path(data_dir) / "fpulse.db"
+    db_path = Path(data_dir) / "revoluzen_flow.db"
 
     try:
         from revoluzen_flow.storage.migrations import run_migrations
@@ -195,7 +195,7 @@ def client(app_v2) -> Generator[TestClient, None, None]:
 # E2 — Auth fixture: logs in, attaches token, exposes authed TestClient
 # ═════════════════════════════════════════════════════════════════════════
 
-DEV_ADMIN_EMAIL = "admin@fpulse.local"
+DEV_ADMIN_EMAIL = "admin@revoluzen.local"
 DEV_ADMIN_PASSWORD = "admin"
 
 LOGIN_PATHS = (
@@ -218,7 +218,7 @@ def _extract_token(response) -> Optional[str]:
         or body.get("jwt")
         or (body.get("user") or {}).get("token")
         or response.cookies.get("session")
-        or response.cookies.get("fpulse_session")
+        or response.cookies.get("revoluzen_flow_session")
     )
 
 
@@ -255,7 +255,7 @@ def _reset_bootstrap_admin_password(data_dir_path: str) -> bool:
     except ImportError:
         return False
 
-    db_path = os.path.join(data_dir_path, "fpulse.db")
+    db_path = os.path.join(data_dir_path, "revoluzen_flow.db")
     if not os.path.exists(db_path):
         return False
     try:
@@ -282,7 +282,7 @@ def admin_token(client: TestClient, app_v2, data_dir: str) -> str:
 
     The login runs through a DEDICATED throwaway client, never through
     `client`. `client` is the fixture documented as *unauthenticated*, and a
-    successful login sets `fpulse_session` + `fpulse_csrf` on the cookie jar of
+    successful login sets `revoluzen_flow_session` + `revoluzen_flow_csrf` on the cookie jar of
     whichever client issued it. Logging in through `client` therefore left it
     authenticated for the rest of the module, so any later test that used
     `client` to assert anonymous access was silently asserting against an
@@ -327,7 +327,7 @@ def authed_client(app_v2, admin_token: str) -> Generator[TestClient, None, None]
     c = TestClient(app_v2, base_url="http://localhost")
     c.headers["Authorization"] = f"Bearer {admin_token}"
     c.cookies.set("session", admin_token)
-    c.cookies.set("fpulse_session", admin_token)
+    c.cookies.set("revoluzen_flow_session", admin_token)
     try:
         yield c
     finally:
@@ -340,10 +340,10 @@ def authed_client(app_v2, admin_token: str) -> Generator[TestClient, None, None]
 
 ROLE_CREDS: dict[str, tuple[str, str]] = {
     "super_admin":     (DEV_ADMIN_EMAIL,           DEV_ADMIN_PASSWORD),
-    "workspace_admin": ("wsadmin@fpulse.local",    "Password123!"),
-    "data_engineer":   ("engineer@fpulse.local",   "Password123!"),
-    "analyst":         ("analyst@fpulse.local",    "Password123!"),
-    "viewer":          ("viewer@fpulse.local",     "Password123!"),
+    "workspace_admin": ("wsadmin@revoluzen.local",    "Password123!"),
+    "data_engineer":   ("engineer@revoluzen.local",   "Password123!"),
+    "analyst":         ("analyst@revoluzen.local",    "Password123!"),
+    "viewer":          ("viewer@revoluzen.local",     "Password123!"),
 }
 
 
@@ -438,7 +438,7 @@ def role_clients(
         if tok:
             c.headers["Authorization"] = f"Bearer {tok}"
             c.cookies.set("session", tok)
-            c.cookies.set("fpulse_session", tok)
+            c.cookies.set("revoluzen_flow_session", tok)
             clients[role] = c
 
     yield clients

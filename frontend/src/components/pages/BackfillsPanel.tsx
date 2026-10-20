@@ -110,8 +110,8 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
   useEffect(() => {
     let focused: string | null = null;
     try {
-      focused = sessionStorage.getItem('fpulse_focused_backfill_id');
-      if (focused) sessionStorage.removeItem('fpulse_focused_backfill_id');
+      focused = sessionStorage.getItem('revoluzen_flow_focused_backfill_id');
+      if (focused) sessionStorage.removeItem('revoluzen_flow_focused_backfill_id');
     } catch { /* ignore */ }
     if (focused) {
       setExpanded(focused);

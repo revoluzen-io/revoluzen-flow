@@ -10,7 +10,7 @@
 import { useDarkMode } from '../hooks/useDarkMode';
 
 // 2026-06-15 — palette re-sampled from the actual Revoluzen Flow logo mark
-// (public/fpulse-logo-mark.png): amber-gold "F", green top arrow, red
+// (public/revoluzen-flow-logo-mark.png): amber-gold "F", green top arrow, red
 // bottom arrow. The old palette's blue (#3B82F6) was never a brand colour.
 const BRAND_COLORS = [
   '#E0A030',   // gold  — the logo "F"

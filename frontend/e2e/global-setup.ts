@@ -8,13 +8,13 @@ import { dirname } from 'node:path';
  * `use.storageState`.
  *
  * Credentials come from env so nothing secret is committed:
- *   REVOLUZEN_FLOW_E2E_EMAIL     (default admin@fpulse.local)
+ *   REVOLUZEN_FLOW_E2E_EMAIL     (default admin@revoluzen.local)
  *   REVOLUZEN_FLOW_E2E_PASSWORD  (required if the app shows a login form)
  * Target app from REVOLUZEN_FLOW_URL (default http://localhost:5174).
  */
 const STATE_PATH = 'e2e/.auth/state.json';
 const BASE_URL = process.env.REVOLUZEN_FLOW_URL ?? 'http://localhost:5174';
-const EMAIL = process.env.REVOLUZEN_FLOW_E2E_EMAIL ?? 'admin@fpulse.local';
+const EMAIL = process.env.REVOLUZEN_FLOW_E2E_EMAIL ?? 'admin@revoluzen.local';
 const PASSWORD = process.env.REVOLUZEN_FLOW_E2E_PASSWORD ?? '';
 
 export default async function globalSetup(_config: FullConfig) {

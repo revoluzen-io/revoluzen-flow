@@ -31,7 +31,7 @@
 ## D-003 — Default table density
 **Question:** Compact / Comfortable / Spacious — which is the default when the user hasn't set a preference?
 
-**Decision:** **Comfortable** (current row height — `py-3`). Compact and Spacious are opt-in via the per-table density toggle, persisted in localStorage as `fpulse_table_density`.
+**Decision:** **Comfortable** (current row height — `py-3`). Compact and Spacious are opt-in via the per-table density toggle, persisted in localStorage as `revoluzen_flow_table_density`.
 
 **Rationale:** Comfortable matches the existing experience so the default-out-of-the-box reads consistent with what users have today. Power users get density via the toggle; new users aren't penalized with a too-tight or too-airy first impression.
 

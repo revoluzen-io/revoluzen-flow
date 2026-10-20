@@ -304,8 +304,8 @@ _PAGES: tuple[Topic, ...] = (
             "shipped connector is rated for schema coverage, auth method, incremental "
             "sync, pagination, error handling, and depth score (0-5). Use this when "
             "evaluating whether a given connector is production-grade for your use "
-            "case. All 33 connectors are open and unlocked in OSS — Plus does not "
-            "gate connector access."
+            "case. All 66 connectors are usable in OSS — Plus does not gate "
+            "connector access, though 9 carry a Plus tier label in the catalog."
         ),
         see_also=("doc.connectors",),
     ),

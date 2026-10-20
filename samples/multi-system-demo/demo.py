@@ -38,11 +38,11 @@ def password():
 def configs():
     pw = password()
     result = {
-        "sqlserver": ("mssql", {"host": "127.0.0.1", "port": 21433, "database": "fpulse_demo", "user": "sa", "password": pw, "odbc_driver": "ODBC Driver 18 for SQL Server"}),
-        "postgres": ("postgresql", {"host": "127.0.0.1", "port": 25432, "database": "fpulse_demo", "user": "demo", "password": pw}),
-        "mysql": ("mysql", {"host": "127.0.0.1", "port": 23306, "database": "fpulse_demo", "user": "demo", "password": pw}),
+        "sqlserver": ("mssql", {"host": "127.0.0.1", "port": 21433, "database": "revoluzen_flow_demo", "user": "sa", "password": pw, "odbc_driver": "ODBC Driver 18 for SQL Server"}),
+        "postgres": ("postgresql", {"host": "127.0.0.1", "port": 25432, "database": "revoluzen_flow_demo", "user": "demo", "password": pw}),
+        "mysql": ("mysql", {"host": "127.0.0.1", "port": 23306, "database": "revoluzen_flow_demo", "user": "demo", "password": pw}),
         "api": ("rest_api", {"base_url": "http://127.0.0.1:28080", "auth_type": "none"}),
-        "s3": ("s3", {"endpoint": "http://127.0.0.1:29000", "access_key": "fpulse_demo", "secret_key": pw, "region": "us-east-1", "bucket": "revoluzen_flow-demo"}),
+        "s3": ("s3", {"endpoint": "http://127.0.0.1:29000", "access_key": "revoluzen_flow_demo", "secret_key": pw, "region": "us-east-1", "bucket": "revoluzen_flow-demo"}),
     }
     override = RUNTIME / "sqlserver-config.json"
     if override.exists():
@@ -57,12 +57,12 @@ def prepare():
     (ROOT / "fixtures.json").write_text(json.dumps(ROWS, indent=2) + "\n")
     (ROOT / "pipelines").mkdir(exist_ok=True)
     for index, (source, target, name) in enumerate(zip(SYSTEMS, TARGETS, NAMES), 19):
-        src = {"connector_type": "database", "connection_id": f"Demo {source}", "source_mode": "query", "query": "SELECT id, region, quantity, unit_price, status FROM fpulse_demo_input"}
+        src = {"connector_type": "database", "connection_id": f"Demo {source}", "source_mode": "query", "query": "SELECT id, region, quantity, unit_price, status FROM revoluzen_flow_demo_input"}
         if source == "api":
             src = {"connector_type": "rest_api", "connection_id": "Demo api", "path": "/orders", "pagination": "none", "max_retries": 0}
         elif source == "s3":
             src = {"connector_type": "s3", "connection_id": "Demo s3", "bucket": "revoluzen_flow-demo", "key": "input/shipments.json", "format": "json"}
-        dest = {"connector_type": "warehouse", "connection_id": f"Demo {target}", "table": f"fpulse_demo_{index}_summary", "schema": "dbo" if target == "sqlserver" else ("fpulse_demo" if target == "mysql" else "public"), "mode": "create"}
+        dest = {"connector_type": "warehouse", "connection_id": f"Demo {target}", "table": f"revoluzen_flow_demo_{index}_summary", "schema": "dbo" if target == "sqlserver" else ("revoluzen_flow_demo" if target == "mysql" else "public"), "mode": "create"}
         if target == "s3":
             dest = {"connector_type": "s3", "connection_id": "Demo s3", "bucket": "revoluzen_flow-demo", "key": "output/inventory-summary.parquet", "format": "parquet"}
         elif target == "api":
@@ -97,20 +97,20 @@ def connect(system, database=True):
         return pyodbc.connect(f"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={cfg['host']},{cfg.get('port', 1433)};DATABASE={quoted(cfg['database'] if database else 'master')};UID={quoted(cfg.get('user') or cfg.get('username'))};PWD={quoted(cfg['password'])};TrustServerCertificate=yes;", autocommit=True, timeout=5)
     if system == "postgres":
         import psycopg2
-        return psycopg2.connect(host="127.0.0.1", port=25432, user="demo", password=pw, dbname="fpulse_demo", connect_timeout=5)
+        return psycopg2.connect(host="127.0.0.1", port=25432, user="demo", password=pw, dbname="revoluzen_flow_demo", connect_timeout=5)
     import pymysql
-    return pymysql.connect(host="127.0.0.1", port=23306, user="demo", password=pw, database="fpulse_demo", connect_timeout=5)
+    return pymysql.connect(host="127.0.0.1", port=23306, user="demo", password=pw, database="revoluzen_flow_demo", connect_timeout=5)
 
 
 def s3_client():
     import boto3
-    return boto3.client("s3", endpoint_url="http://127.0.0.1:29000", aws_access_key_id="fpulse_demo", aws_secret_access_key=password(), region_name="us-east-1")
+    return boto3.client("s3", endpoint_url="http://127.0.0.1:29000", aws_access_key_id="revoluzen_flow_demo", aws_secret_access_key=password(), region_name="us-east-1")
 
 
 def seed(skip_sqlserver=False, existing_sqlserver_database=False):
     database = configs()["sqlserver"][1]["database"]
-    if not existing_sqlserver_database and (not database.startswith("fpulse_demo") or not database.replace("_", "").isalnum()):
-        raise ValueError("SQL Server seeding requires a dedicated fpulse_demo database.")
+    if not existing_sqlserver_database and (not database.startswith("revoluzen_flow_demo") or not database.replace("_", "").isalnum()):
+        raise ValueError("SQL Server seeding requires a dedicated revoluzen_flow_demo database.")
     if not skip_sqlserver and not existing_sqlserver_database:
         conn = connect("sqlserver", database=False)
         try:
@@ -126,16 +126,16 @@ def seed(skip_sqlserver=False, existing_sqlserver_database=False):
         conn = connect(system)
         try:
             cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fpulse_demo_input'")
+            cur.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'revoluzen_flow_demo_input'")
             exists = cur.fetchone()[0] > 0
             if exists:
-                cur.execute("SELECT id, region, quantity, unit_price, status FROM fpulse_demo_input ORDER BY id")
+                cur.execute("SELECT id, region, quantity, unit_price, status FROM revoluzen_flow_demo_input ORDER BY id")
                 assert [tuple(row) for row in cur.fetchall()] == [tuple(row.values()) for row in ROWS], "Existing demo fixture differs; refusing to overwrite it."
                 print(f"Already seeded {system}")
                 continue
-            cur.execute("CREATE TABLE fpulse_demo_input (id INTEGER, region VARCHAR(30), quantity INTEGER, unit_price INTEGER, status VARCHAR(20))")
+            cur.execute("CREATE TABLE revoluzen_flow_demo_input (id INTEGER, region VARCHAR(30), quantity INTEGER, unit_price INTEGER, status VARCHAR(20))")
             marker = "?" if system == "sqlserver" else "%s"
-            cur.executemany("INSERT INTO fpulse_demo_input VALUES (" + ",".join([marker] * 5) + ")", [tuple(row.values()) for row in ROWS])
+            cur.executemany("INSERT INTO revoluzen_flow_demo_input VALUES (" + ",".join([marker] * 5) + ")", [tuple(row.values()) for row in ROWS])
             conn.commit()
         finally:
             conn.close()
@@ -186,7 +186,7 @@ def verify_destination(index, target):
         conn = connect(target)
         try:
             cur = conn.cursor()
-            cur.execute(f"SELECT region, total_amount FROM fpulse_demo_{index}_summary ORDER BY total_amount DESC")
+            cur.execute(f"SELECT region, total_amount FROM revoluzen_flow_demo_{index}_summary ORDER BY total_amount DESC")
             rows = [{"region": row[0], "total_amount": float(row[1])} for row in cur.fetchall()]
         finally:
             conn.close()

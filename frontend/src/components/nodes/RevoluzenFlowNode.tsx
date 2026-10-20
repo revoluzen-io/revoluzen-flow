@@ -884,7 +884,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
 
   return (
     <div
-      className={`fpulse-node ${statusClass} ${selected ? 'selected' : ''} ${isDeactivated ? 'deactivated' : isBlockedByUpstream ? 'blocked-upstream' : ''} ${nodeErrors?.length ? 'validation-error' : ''}`}
+      className={`revoluzen-flow-node ${statusClass} ${selected ? 'selected' : ''} ${isDeactivated ? 'deactivated' : isBlockedByUpstream ? 'blocked-upstream' : ''} ${nodeErrors?.length ? 'validation-error' : ''}`}
       onContextMenu={handleContextMenu}
     >
       {/* Category accent stripe — left edge, 4px wide, full height,
@@ -1270,7 +1270,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
                   // event the modal listens for.
                   setContextMenu(null);
                   setSelectedNode(id);
-                  try { window.dispatchEvent(new CustomEvent('fpulse-node-opened', { detail: { id } })); } catch { /* ignore */ }
+                  try { window.dispatchEvent(new CustomEvent('revoluzen-flow-node-opened', { detail: { id } })); } catch { /* ignore */ }
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-700 hover:bg-red-50 font-semibold"
               >
@@ -1345,7 +1345,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
               // opens the modal under the select-vs-open rebind).
               setContextMenu(null);
               setSelectedNode(id);
-              try { window.dispatchEvent(new CustomEvent('fpulse-node-opened', { detail: { id } })); } catch { /* ignore */ }
+              try { window.dispatchEvent(new CustomEvent('revoluzen-flow-node-opened', { detail: { id } })); } catch { /* ignore */ }
             }}
             className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800"
           >

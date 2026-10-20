@@ -72,8 +72,8 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
     // backend expects auth + workspace as query params. We read the
     // same localStorage keys the REST client uses, so the WS runs in
     // exactly the same tenant as the rest of the app.
-    const token = localStorage.getItem('fpulse_token') || '';
-    const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+    const token = localStorage.getItem('revoluzen_flow_token') || '';
+    const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
     const qs = new URLSearchParams({
       token,
       workspace_id: workspaceId,

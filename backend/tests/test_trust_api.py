@@ -70,7 +70,7 @@ class TestSupportedModels:
         result = trust_mod.supported_models()
         # 2026-05-19 tool-use floor revision: sub-7B models advertise tool
         # schemas but fail to drive the agent loop. See
-        # project_fpulse_local_llm_floor_revision_2026-05-19.
+        # project_revoluzen_flow_local_llm_floor_revision_2026-05-19.
         assert result["default_local_cpu"]["name"] == "qwen2.5:7b"
         assert result["default_local_cpu"]["provider"] == "ollama"
         assert result["default_local_cpu"]["tool_capable"] is True

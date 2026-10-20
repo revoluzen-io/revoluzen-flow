@@ -240,7 +240,7 @@ SANITIZATION_CASES = [
 
 # ── GATE-1 self-validation: core ETL depth ───────────────────────────────
 #
-# Per the launch scorecard in `project_fpulse_positioning_lock_2026-05-03.md`:
+# Per the launch scorecard in `project_revoluzen_flow_positioning_lock_2026-05-03.md`:
 #
 #   Gate 1: SCD2 + bulk loader + checkpoint + profile node green in eval harness.
 #

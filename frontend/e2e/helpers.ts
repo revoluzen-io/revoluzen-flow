@@ -4,7 +4,7 @@ import { type Page, expect } from '@playwright/test';
  * Shared helpers for the editor node E2E.
  *
  * Nodes are added by dispatching the SAME drag payload the palette uses
- * (`application/fpulse-node` = the stepType string — see ModulesPanel.tsx /
+ * (`application/revoluzen-flow-node` = the stepType string — see ModulesPanel.tsx /
  * Canvas.tsx onDrop), dropped on the react-flow pane. This is far more robust
  * than dragging palette tiles and works for every registered type.
  */
@@ -37,7 +37,7 @@ export async function addNode(page: Page, type: string, offset = 0): Promise<str
     const pane = document.querySelector('.react-flow__pane') as HTMLElement | null;
     if (!pane) return;
     const dt = new DataTransfer();
-    dt.setData('application/fpulse-node', t);
+    dt.setData('application/revoluzen-flow-node', t);
     const r = pane.getBoundingClientRect();
     // Lay nodes out left-to-right with generous X spacing (so source/target
     // handles never overlap for the drag) but a SMALL Y step, so even the 3rd
@@ -124,7 +124,7 @@ export async function addEdge(page: Page, sourceId: string, targetId: string) {
 }
 
 /** Open a node's config modal; waits for the config body. The app opens config
- *  on double-click (which selects the node AND dispatches fpulse-node-opened);
+ *  on double-click (which selects the node AND dispatches revoluzen-flow-node-opened);
  *  we also fire the event directly as a belt-and-suspenders fallback. */
 export async function openConfig(page: Page, id: string) {
   // Select the node (synthetic mousedown+click → app's setSelectedNode) then
@@ -137,22 +137,22 @@ export async function openConfig(page: Page, id: string) {
       el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
       el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }
-    window.dispatchEvent(new CustomEvent('fpulse-node-opened', { detail: { id: nid } }));
+    window.dispatchEvent(new CustomEvent('revoluzen-flow-node-opened', { detail: { id: nid } }));
   }, id);
-  await page.waitForSelector('[data-fpulse-config-body]', { timeout: 10_000 });
+  await page.waitForSelector('[data-revoluzen-flow-config-body]', { timeout: 10_000 });
 }
 
 /** Close the config modal (Escape clears selection → modal closes). */
 export async function closeConfig(page: Page) {
-  if (await page.locator('[data-fpulse-config-body]').count()) {
+  if (await page.locator('[data-revoluzen-flow-config-body]').count()) {
     await page.keyboard.press('Escape');
-    await page.locator('[data-fpulse-config-body]').first()
+    await page.locator('[data-revoluzen-flow-config-body]').first()
       .waitFor({ state: 'detached', timeout: 5_000 }).catch(() => { /* best-effort */ });
   }
 }
 
 export function configBody(page: Page) {
-  return page.locator('[data-fpulse-config-body]');
+  return page.locator('[data-revoluzen-flow-config-body]');
 }
 
 /** Assert the config rendered cleanly (no React error boundary). */

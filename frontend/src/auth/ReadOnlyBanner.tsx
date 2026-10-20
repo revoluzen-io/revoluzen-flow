@@ -12,7 +12,7 @@ interface Props {
 
 function getCurrentUser(): UserLike | null {
   try {
-    const raw = localStorage.getItem('fpulse_user');
+    const raw = localStorage.getItem('revoluzen_flow_user');
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -20,7 +20,7 @@ function getCurrentUser(): UserLike | null {
 }
 
 export default function ReadOnlyBanner({ environment }: Props) {
-  const tier = (localStorage.getItem('fpulse_tier') as 'free' | 'plus') || 'free';
+  const tier = (localStorage.getItem('revoluzen_flow_tier') as 'free' | 'plus') || 'free';
   const user = getCurrentUser();
 
   if (tier !== 'plus' || !user) return null;

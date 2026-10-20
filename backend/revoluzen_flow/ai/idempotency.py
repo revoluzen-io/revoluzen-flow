@@ -1,7 +1,7 @@
 """
 Idempotency keys + dedup store for agent write tools.
 
-Per locked format (`project_fpulse_ai_step0_locks.md` §2):
+Per locked format (`project_revoluzen_flow_ai_step0_locks.md` §2):
   {tier}.{user_id}.{action}.{target_id}.{semver}
 
 For agent-driven writes the LLM doesn't know `target_id` ahead of time —

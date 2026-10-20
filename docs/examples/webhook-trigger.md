@@ -76,7 +76,7 @@ Import), or build the two nodes in the editor and copy the params.
 
 The gateway endpoints below need your session token (`Authorization: Bearer
 <token>` — grab it from the browser DevTools → Application → Local Storage →
-`fpulse_token`, or from the login API). Assume the server is on the default
+`revoluzen_flow_token`, or from the login API). Assume the server is on the default
 `http://127.0.0.1:8001`.
 
 ```bash
@@ -131,7 +131,7 @@ is inconvenient for the caller.
 ## How this fits the "runs without stopping" model
 
 Revoluzen Flow's engine is batch/micro-batch, not a continuous stream processor. The
-**server + scheduler stay up 24/7** (run it as a service with `fpulse
+**server + scheduler stay up 24/7** (run it as a service with `revoluzen-flow
 install-service`, or in Docker with a restart policy). "Real-time" comes from
 two triggers:
 

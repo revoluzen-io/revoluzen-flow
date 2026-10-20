@@ -20,7 +20,7 @@ def main() -> None:
         "REVOLUZEN_FLOW_DATA_DIR",
         os.path.join(os.getcwd(), "data"),
     )
-    db_path = os.path.join(data_dir, "fpulse.db")
+    db_path = os.path.join(data_dir, "revoluzen_flow.db")
     if not os.path.exists(db_path):
         print(f"NO DB at {db_path}")
         return

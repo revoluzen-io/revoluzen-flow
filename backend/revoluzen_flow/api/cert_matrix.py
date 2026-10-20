@@ -695,6 +695,16 @@ def _summarize_manifest(path: Path) -> dict[str, Any]:
             row["cat_backed"] = True
     row["cat_green"] = cat_green
 
+    # 2026-10-20: per-connector attestation detail, so a connector that HAS
+    # been attested can show what it was attested on — date and check count —
+    # on its own row. A connector with no recorded fixtures carries no
+    # attestation fields at all rather than a zero: "no evidence" and
+    # "evidence of failure" are different claims and must not render alike.
+    if cat_green:
+        _entry = _CAT_STATUS_CACHE.get(cid_norm) or {}
+        row["attested_at"] = _entry.get("run_at")
+        row["attested_checks"] = int(_entry.get("passed", 0) or 0)
+
     row["depth_label"] = _depth_label(int(row["depth_score"]))
     # 2026-10-08: tier + visibility for v2 manifests. Verified requires the
     # depth-score signals AND a GREEN CAT run (`cat_green`); Production
@@ -738,15 +748,29 @@ def cert_matrix(include_hidden: bool = False) -> dict[str, Any]:
           "audited_at": "<iso>",
           "total": <int>,                                  # visible rows only
           "by_label": { "stub": N, "alpha": N, ... },      # depth labels
-          "by_tier":  { "production": N, "verified": N,    # 2026-06-02
-                        "beta": N, "experimental": N,
-                        "hidden": N },
           "by_category": { ... },
           "v2_total": <int>,
-          "production_total": <int>,
           "hidden_total": <int>,
           "rows": [ {...row...}, ... ]
         }
+
+    Deliberately NOT returned: an aggregate count of attested connectors
+    (`by_tier`, `production_total`, removed 2026-10-20). Attestation is
+    reported per connector — each row carries `tier` and `cat_green`, plus
+    `attested_at` + `attested_checks` once it has actually been attested.
+
+    An aggregate over those rows is a ratio, and the ratio misleads in the
+    one direction that matters. A connector reaches an attested tier only
+    once someone has recorded real vendor fixtures for it, so an unattested
+    connector means "nobody has recorded fixtures yet" — not "this connector
+    failed". Rendered as "N of M verified" those two read identically, and
+    the charitable reading is the one nobody makes. Per connector the claim
+    stays true: attested on this date, against this many checks; a connector
+    with no attestation makes no claim at all.
+
+    Removing the aggregate is the point, so don't reintroduce one here as a
+    convenience. A caller that wants a count can tally `rows` and own the
+    framing itself.
     """
     # Refresh the live-smoke allow-list on every call so tier computation
     # uses the most recent CI status (the file is rewritten by the
@@ -776,19 +800,14 @@ def cert_matrix(include_hidden: bool = False) -> dict[str, Any]:
     # Tally over ALL rows (including hidden) for the *_total aggregates,
     # then filter rows for the actual listing.
     by_label: dict[str, int] = {}
-    by_tier: dict[str, int] = {}
     by_category: dict[str, int] = {}
     v2_total = 0
-    prod_total = 0
     hidden_total = 0
     for r in rows:
         by_label[r["depth_label"]] = by_label.get(r["depth_label"], 0) + 1
-        by_tier[r["tier"]] = by_tier.get(r["tier"], 0) + 1
         by_category[r["category"]] = by_category.get(r["category"], 0) + 1
         if r["manifest_version"] >= 2:
             v2_total += 1
-        if r["depth_score"] >= 5:
-            prod_total += 1
         if r["tier"] == "hidden":
             hidden_total += 1
 
@@ -799,10 +818,8 @@ def cert_matrix(include_hidden: bool = False) -> dict[str, Any]:
         "audited_at": datetime.now(timezone.utc).isoformat(),
         "total": len(rows),
         "v2_total": v2_total,
-        "production_total": prod_total,
         "hidden_total": hidden_total,
         "by_label": by_label,
-        "by_tier": by_tier,
         "by_category": by_category,
         "rows": rows,
     }
@@ -883,4 +900,55 @@ def cert_matrix_detail(connector_id: str) -> dict[str, Any]:
         **summary,
         "per_stream": per_stream,
         "issues": issues,
+    }
+
+
+@router.get("/source-watch")
+def source_watch_status() -> dict[str, Any]:
+    """What we know about connector upstreams changing under us.
+
+    Two sources, deliberately kept apart because they carry different weight:
+
+    * ``scheduled`` — the last run of the daily maintainer probe
+      (`.github/workflows/source-watch.yml`), read from the committed status
+      file. It covers connectors that declare where to look, and says which
+      ones declare nothing.
+
+    * ``observed`` — deprecation and version headers harvested from responses
+      this instance actually received. Specific to this deployment, so it also
+      covers a customer's own internal APIs, which no probe of ours could know
+      about. Empty until the instance has run a REST pipeline.
+
+    This endpoint makes **no outbound request**. Probing a third party is
+    something a local-first tool does on an operator's instruction and a
+    maintainer's schedule, not as a side effect of someone opening a page. The
+    passive half is free because the responses had already arrived.
+    """
+    from revoluzen_flow.connectors import source_watch as sw
+
+    scheduled: dict[str, Any] = {"available": False}
+    try:
+        p = sw.status_path()
+        if p.is_file():
+            scheduled = json.loads(p.read_text(encoding="utf-8"))
+            scheduled["available"] = True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("source-watch: unreadable status file (%s)", exc)
+
+    try:
+        observed = [s.as_dict() for s in sw.observed_signals()]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("source-watch: passive sink unreadable (%s)", exc)
+        observed = []
+
+    return {
+        "scheduled": scheduled,
+        "observed": observed,
+        # Worst across both, so a caller can show one badge without having to
+        # know which detector found it.
+        "worst_severity": max(
+            [str(scheduled.get("worst_severity") or "info")]
+            + [str(s["severity"]) for s in observed],
+            key=lambda sev: {"info": 0, "warn": 1, "critical": 2}.get(sev, 0),
+        ),
     }

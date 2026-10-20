@@ -1,16 +1,16 @@
 {
   "_comment": "Connection configs that match the docker-compose.dev.yml services. Used by `python -m revoluzen_flow.connections.cli verify-all` to drive every supported provider against its emulator/container. Add or override entries via the CLI's --config flag.",
 
-  "postgresql": {"host": "localhost", "port": 5432, "database": "fpulse_test", "user": "postgres", "password": "postgres"},
-  "redshift":   {"host": "localhost", "port": 5432, "database": "fpulse_test", "user": "postgres", "password": "postgres"},
-  "cockroachdb":{"host": "localhost", "port": 5432, "database": "fpulse_test", "user": "postgres", "password": "postgres"},
-  "pgvector":   {"host": "localhost", "port": 5432, "database": "fpulse_test", "user": "postgres", "password": "postgres"},
+  "postgresql": {"host": "localhost", "port": 5432, "database": "revoluzen_flow_test", "user": "postgres", "password": "postgres"},
+  "redshift":   {"host": "localhost", "port": 5432, "database": "revoluzen_flow_test", "user": "postgres", "password": "postgres"},
+  "cockroachdb":{"host": "localhost", "port": 5432, "database": "revoluzen_flow_test", "user": "postgres", "password": "postgres"},
+  "pgvector":   {"host": "localhost", "port": 5432, "database": "revoluzen_flow_test", "user": "postgres", "password": "postgres"},
 
-  "mysql":   {"host": "localhost", "port": 3306, "database": "fpulse_test", "user": "root", "password": "root"},
-  "mariadb": {"host": "localhost", "port": 3307, "database": "fpulse_test", "user": "root", "password": "root"},
+  "mysql":   {"host": "localhost", "port": 3306, "database": "revoluzen_flow_test", "user": "root", "password": "root"},
+  "mariadb": {"host": "localhost", "port": 3307, "database": "revoluzen_flow_test", "user": "root", "password": "root"},
 
-  "mssql":   {"host": "localhost", "port": 1433, "database": "master", "user": "sa", "password": "Fpulse_Test_1!", "trust_server_certificate": true},
-  "synapse": {"host": "localhost", "port": 1433, "database": "master", "user": "sa", "password": "Fpulse_Test_1!", "trust_server_certificate": true},
+  "mssql":   {"host": "localhost", "port": 1433, "database": "master", "user": "sa", "password": "Revoluzen_Flow_Test_1!", "trust_server_certificate": true},
+  "synapse": {"host": "localhost", "port": 1433, "database": "master", "user": "sa", "password": "Revoluzen_Flow_Test_1!", "trust_server_certificate": true},
 
   "oracle": {"host": "localhost", "port": 1521, "service_name": "XEPDB1", "user": "system", "password": "oracle"},
   "db2":    {"host": "localhost", "port": 50000, "database": "TESTDB", "user": "db2inst1", "password": "db2inst1"},
@@ -53,8 +53,8 @@
   "prometheus": {"base_url": "http://localhost:9090"},
   "grafana":    {"base_url": "http://localhost:3000", "api_key": ""},
 
-  "ftp":  {"host": "localhost", "port": 21, "user": "fpulse", "password": "fpulse", "path": "/home/fpulse"},
-  "sftp": {"host": "localhost", "port": 2222, "user": "fpulse", "password": "fpulse", "path": "upload"},
+  "ftp":  {"host": "localhost", "port": 21, "user": "revoluzen-flow", "password": "revoluzen-flow", "path": "/home/revoluzen-flow"},
+  "sftp": {"host": "localhost", "port": 2222, "user": "revoluzen-flow", "password": "revoluzen-flow", "path": "upload"},
 
   "local_file": {"path": "."},
   "rest_api":   {"openapi_url": "https://petstore3.swagger.io/api/v3/openapi.json"},

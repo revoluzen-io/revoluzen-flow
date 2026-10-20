@@ -50,7 +50,7 @@ For from-source development: clone, install backend deps, install frontend deps,
 
 Revoluzen Flow is delivered as Docker images pinned in `docker-compose.yml`. The three components (Revoluzen Flow / Ollama runtime / Ollama models) are independently versioned per the Tested-with matrix in `changelog.md`.
 
-Standard flow: `git pull` → read CHANGELOG → `docker compose pull fpulse` → `docker compose up -d flow`. Diff `.env.example` for new variables.
+Standard flow: `git pull` → read CHANGELOG → `docker compose pull revoluzen-flow` → `docker compose up -d flow`. Diff `.env.example` for new variables.
 
 ## How do I back up Revoluzen Flow?
 

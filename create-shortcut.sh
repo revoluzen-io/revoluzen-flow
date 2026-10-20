@@ -5,15 +5,15 @@
 #   ./create-shortcut.sh            # create the menu entry
 #   ./create-shortcut.sh --remove   # remove it
 #
-# Requires the `fpulse` CLI on PATH (run `pip install -e .` once in this
+# Requires the `revoluzen` CLI on PATH (run `pip install -e .` once in this
 # folder). The .deb / .rpm / AppImage packages create their own launcher
 # and don't need this - it's the source-user equivalent of the Windows
 # Create-Shortcut.ps1.
 set -eu
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-ICON="$ROOT/installer/windows/icons/fpulse.png"
-DEST="$HOME/.local/share/applications/fpulse.desktop"
+ICON="$ROOT/installer/windows/icons/revoluzen-flow.png"
+DEST="$HOME/.local/share/applications/revoluzen-flow.desktop"
 
 if [ "${1:-}" = "--remove" ]; then
   rm -f "$DEST" && echo "Removed $DEST"

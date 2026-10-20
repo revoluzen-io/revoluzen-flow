@@ -93,6 +93,25 @@ class _SsrfGuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
 _GUARDED_OPENER = urllib.request.build_opener(_SsrfGuardedRedirectHandler)
 
 
+def _observe_response(url: str, headers: dict[str, str]) -> None:
+    """Hand a live response's headers to Source Watch's passive detector.
+
+    Imported lazily: `source_watch` needs `_GUARDED_OPENER` from this module
+    for its scheduled probes, so a module-level import here would be circular.
+
+    Swallows everything. This sits on the hot path of every connector fetch,
+    and a telemetry-shaped side concern must never be the reason a customer's
+    pipeline fails — including when `source_watch` is absent entirely, as in a
+    trimmed-down deployment.
+    """
+    try:
+        from .source_watch import observe_response
+
+        observe_response(url, headers)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 _MANIFEST_DIR = os.path.join(os.path.dirname(__file__), "manifests")
 
 # 2026-06-18 — writable, user-added connector store. Lives under the data dir
@@ -526,6 +545,16 @@ def _http_request(
     with _GUARDED_OPENER.open(req, timeout=60) as resp:
         resp_body = resp.read().decode("utf-8", errors="replace")
         resp_headers = dict(resp.headers.items())
+
+    # Passive upstream-change detection. Vendors announce breaking changes in
+    # RFC 8594 `Deprecation` / `Sunset` headers and echo the serving API
+    # version, on every response — addressed to this caller, about the
+    # endpoint it just called. Reading them here costs no request and needs no
+    # vendor account, which makes it the earliest warning available and the
+    # only one that works for a customer's own internal APIs. See
+    # `source_watch.observe_response`; it is guaranteed not to raise.
+    _observe_response(url, resp_headers)
+
     try:
         return json.loads(resp_body), resp_headers
     except json.JSONDecodeError:

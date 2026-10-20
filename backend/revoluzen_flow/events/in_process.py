@@ -167,7 +167,7 @@ class InProcessEventBus(EventBus):
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
         self._conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS fpulse_event_log (
+            CREATE TABLE IF NOT EXISTS revoluzen_flow_event_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 topic TEXT NOT NULL,
                 occurred_at TEXT NOT NULL,
@@ -176,8 +176,8 @@ class InProcessEventBus(EventBus):
             """
         )
         self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_fpulse_event_log_topic "
-            "ON fpulse_event_log(topic, id)"
+            "CREATE INDEX IF NOT EXISTS idx_revoluzen_flow_event_log_topic "
+            "ON revoluzen_flow_event_log(topic, id)"
         )
         self._conn.commit()
 
@@ -202,7 +202,7 @@ class InProcessEventBus(EventBus):
         with self._db_lock:
             assert self._conn is not None, "bus not started"
             cur = self._conn.execute(
-                "INSERT INTO fpulse_event_log (topic, occurred_at, payload) "
+                "INSERT INTO revoluzen_flow_event_log (topic, occurred_at, payload) "
                 "VALUES (?, ?, ?)",
                 (event.topic, event.occurred_at, line),
             )
@@ -273,7 +273,7 @@ class InProcessEventBus(EventBus):
         with self._db_lock:
             assert self._conn is not None, "bus not started"
             rows = self._conn.execute(
-                "SELECT id, payload FROM fpulse_event_log WHERE id > ? ORDER BY id ASC",
+                "SELECT id, payload FROM revoluzen_flow_event_log WHERE id > ? ORDER BY id ASC",
                 (since_id,),
             ).fetchall()
         out: list[Event] = []

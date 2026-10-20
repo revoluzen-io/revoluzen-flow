@@ -11,10 +11,10 @@ executor still runs.
 
 ## Exposed metrics
 
-  fpulse_events_total{topic="..."}              counter
-  fpulse_pipeline_run_duration_seconds          histogram (sum/count)
-  fpulse_step_duration_seconds{step_type="..."} histogram (sum/count)
-  fpulse_step_failures_total{step_type="..."}   counter
+  revoluzen_flow_events_total{topic="..."}              counter
+  revoluzen_flow_pipeline_run_duration_seconds          histogram (sum/count)
+  revoluzen_flow_step_duration_seconds{step_type="..."} histogram (sum/count)
+  revoluzen_flow_step_failures_total{step_type="..."}   counter
 
 The histograms are simple sum/count (computed mean) — full bucket
 distributions can be added later with `prometheus_client` if the
@@ -124,34 +124,34 @@ class MetricsConsumer:
         """Prometheus text exposition format. Mounted at /metrics."""
         with self._lock:
             lines: list[str] = []
-            lines.append("# HELP fpulse_events_total Total events observed by topic.")
-            lines.append("# TYPE fpulse_events_total counter")
+            lines.append("# HELP revoluzen_flow_events_total Total events observed by topic.")
+            lines.append("# TYPE revoluzen_flow_events_total counter")
             for topic, n in sorted(self._events_by_topic.items()):
-                lines.append(f'fpulse_events_total{{topic="{topic}"}} {n}')
+                lines.append(f'revoluzen_flow_events_total{{topic="{topic}"}} {n}')
 
-            lines.append("# HELP fpulse_step_duration_seconds Step execution duration.")
-            lines.append("# TYPE fpulse_step_duration_seconds summary")
+            lines.append("# HELP revoluzen_flow_step_duration_seconds Step execution duration.")
+            lines.append("# TYPE revoluzen_flow_step_duration_seconds summary")
             for step_type in sorted(self._step_duration_count):
                 sum_s = self._step_duration_sum_ms[step_type] / 1000.0
                 count = self._step_duration_count[step_type]
                 lines.append(
-                    f'fpulse_step_duration_seconds_sum{{step_type="{step_type}"}} {sum_s:.6f}'
+                    f'revoluzen_flow_step_duration_seconds_sum{{step_type="{step_type}"}} {sum_s:.6f}'
                 )
                 lines.append(
-                    f'fpulse_step_duration_seconds_count{{step_type="{step_type}"}} {count}'
+                    f'revoluzen_flow_step_duration_seconds_count{{step_type="{step_type}"}} {count}'
                 )
 
-            lines.append("# HELP fpulse_step_failures_total Failed steps by type.")
-            lines.append("# TYPE fpulse_step_failures_total counter")
+            lines.append("# HELP revoluzen_flow_step_failures_total Failed steps by type.")
+            lines.append("# TYPE revoluzen_flow_step_failures_total counter")
             for step_type, n in sorted(self._step_failures.items()):
-                lines.append(f'fpulse_step_failures_total{{step_type="{step_type}"}} {n}')
+                lines.append(f'revoluzen_flow_step_failures_total{{step_type="{step_type}"}} {n}')
 
-            lines.append("# HELP fpulse_pipeline_run_duration_seconds Pipeline run duration.")
-            lines.append("# TYPE fpulse_pipeline_run_duration_seconds summary")
+            lines.append("# HELP revoluzen_flow_pipeline_run_duration_seconds Pipeline run duration.")
+            lines.append("# TYPE revoluzen_flow_pipeline_run_duration_seconds summary")
             sum_s = self._run_duration_sum_ms / 1000.0
-            lines.append(f"fpulse_pipeline_run_duration_seconds_sum {sum_s:.6f}")
+            lines.append(f"revoluzen_flow_pipeline_run_duration_seconds_sum {sum_s:.6f}")
             lines.append(
-                f"fpulse_pipeline_run_duration_seconds_count {self._run_duration_count}"
+                f"revoluzen_flow_pipeline_run_duration_seconds_count {self._run_duration_count}"
             )
 
             return "\n".join(lines) + "\n"

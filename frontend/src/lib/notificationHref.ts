@@ -1,7 +1,7 @@
 // Maps a notification's link_type + link_id to an in-app hash route so
 // every notification surfaces a meaningful "open this" target. Keep the
 // mapping table in sync with what backend notifiers emit (see
-// fpulse/notifications/service.py — long_running, schedule_miss, lifecycle,
+// revoluzen_flow/notifications/service.py — long_running, schedule_miss, lifecycle,
 // etc., all set link_type already).
 //
 // Returning null means the notification is informational with nowhere
@@ -57,7 +57,7 @@ export function notificationHref(n: NotificationLike): string | null {
     // the relevant finding scrolled into view.
     case 'steward':
       try {
-        window.dispatchEvent(new CustomEvent('fpulse:steward-open', {
+        window.dispatchEvent(new CustomEvent('revoluzen-flow:steward-open', {
           detail: { finding_id: id },
         }));
       } catch {

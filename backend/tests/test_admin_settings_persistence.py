@@ -93,7 +93,7 @@ def test_web_access_write_survives_restart(tmp_path, monkeypatch):
     from revoluzen_flow.api.ai_web import WebAccessUpdate, set_web_access
     import revoluzen_flow.ai.web as web
 
-    db1 = Database(str(tmp_path / "fpulse.db"))
+    db1 = Database(str(tmp_path / "revoluzen_flow.db"))
     monkeypatch.setitem(app_state, "db", db1)
 
     asyncio.run(set_web_access(WebAccessUpdate(
@@ -132,7 +132,7 @@ def test_web_access_write_visible_to_other_worker_thread(tmp_path, monkeypatch):
     from revoluzen_flow.api.ai_web import WebAccessUpdate, set_web_access
     import revoluzen_flow.ai.web as web
 
-    db = Database(str(tmp_path / "fpulse.db"))
+    db = Database(str(tmp_path / "revoluzen_flow.db"))
     monkeypatch.setitem(app_state, "db", db)
     try:
         asyncio.run(set_web_access(WebAccessUpdate(enabled=True, provider="tavily")))
@@ -154,7 +154,7 @@ def test_web_access_clear_provider_survives_restart(tmp_path, monkeypatch):
     from revoluzen_flow.api.ai_web import WebAccessUpdate, set_web_access
     import revoluzen_flow.ai.web as web
 
-    db1 = Database(str(tmp_path / "fpulse.db"))
+    db1 = Database(str(tmp_path / "revoluzen_flow.db"))
     monkeypatch.setitem(app_state, "db", db1)
 
     # Start with a provider set...
@@ -179,7 +179,7 @@ def test_telemetry_consent_write_survives_restart(tmp_path):
     INSERT aborted and was swallowed. It must persist across a restart."""
     from revoluzen_flow.telemetry.consent import is_telemetry_enabled, set_telemetry_enabled
 
-    db1 = Database(str(tmp_path / "fpulse.db"))
+    db1 = Database(str(tmp_path / "revoluzen_flow.db"))
     set_telemetry_enabled(db1, True)
 
     db2 = _restart(db1)
@@ -194,7 +194,7 @@ def test_installation_id_is_stable_across_restart(tmp_path):
     read the SAME id back (else the receiver can't dedupe crash reports)."""
     from revoluzen_flow.telemetry.sender import get_installation_id
 
-    db1 = Database(str(tmp_path / "fpulse.db"))
+    db1 = Database(str(tmp_path / "revoluzen_flow.db"))
     iid1 = get_installation_id(db1)
     assert iid1 and len(iid1) >= 16
 
@@ -212,7 +212,7 @@ def test_notifications_config_write_survives_restart(tmp_path, monkeypatch):
     from revoluzen_flow.main import app_state
     from revoluzen_flow.api.notifications import _read_config, _write_config
 
-    db1 = Database(str(tmp_path / "fpulse.db"))
+    db1 = Database(str(tmp_path / "revoluzen_flow.db"))
     monkeypatch.setitem(app_state, "db", db1)
     _write_config({"long_running_threshold_min": 7, "notify_on_warning": True})
 

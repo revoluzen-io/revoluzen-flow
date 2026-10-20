@@ -264,6 +264,80 @@ anywhere — there's nothing on the web to find; paste the spec instead.
 
 ---
 
+## Watching the upstream for change
+
+A connector is a claim about somebody else's API, and they can change it
+without telling you. Declaring a `source_watch` block in the v1 runtime
+manifest is how a connector gets checked daily against its real upstream by
+[`source-watch.yml`](../.github/workflows/source-watch.yml).
+
+This is worth understanding as separate from the acceptance tests. CAT
+(`connector-attest.yml`) replays recorded cassettes, which proves your parsing
+and pagination still work **against the responses that were recorded**. It
+never contacts the vendor, so it cannot notice the vendor moving. Source Watch
+is the half that looks outward.
+
+```jsonc
+{
+  "id": "github",
+  "base_url": "https://api.github.com",
+  "headers": { "X-GitHub-Api-Version": "2022-11-28" },
+
+  "source_watch": {
+    // Where the vendor advertises their current API version, unauthenticated.
+    "version_probe": {
+      "url": "https://api.github.com/versions",
+      "from": "json",          // "json" | "header"
+      "pointer": [0]           // newest-first list → index 0
+      // for "header": "name": "X-GitHub-Api-Version-Selected"
+    },
+    // The vendor's published OpenAPI document.
+    "spec_url": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
+  }
+}
+```
+
+**You usually don't declare `api_version`.** It is resolved for you: from a
+version request header the manifest already sends (GitHub's
+`X-GitHub-Api-Version` above), else from the version segment of `base_url`
+(`https://api.stripe.com/v1` → `v1`). Reading the pin from the header that
+enforces it means the watched value cannot drift from the one in use. Set
+`api_version` explicitly only for a vendor whose version is neither sent nor
+in the URL.
+
+**`spec_url` comparison is shape-based.** Your stream paths are joined onto
+the `base_url` path and all `{placeholders}` collapsed, then matched against
+the same normalisation of the vendor's paths. Both steps are necessary and
+both were found by running against real specs: Stripe's spec lists
+`/v1/customers` while the manifest declares `/customers`, and GitHub's spec
+calls our `/users/{owner}/repos` endpoint `/users/{username}/repos`. Without
+the normalisation every connector reports all its endpoints deleted, every
+day — and a monitor that cries wolf daily gets muted, which is worse than
+having none.
+
+**`changelog_url` must be a feed, not a web page.** The check fingerprints the
+document, so an HTML changelog page reports "changed" on every run as its
+markup, timestamps and embedded tokens churn. Point it at RSS/Atom, or leave
+it out.
+
+**No credentials, ever.** All three probes are unauthenticated by design, so
+they run unattended for every connector. A version only visible on an
+authenticated response — Stripe's dated `Stripe-Version`, for instance —
+arrives instead through the passive detector: `Deprecation`, `Sunset` and
+version headers are harvested from responses the product already received,
+which costs no request and also covers your own internal APIs. See
+`backend/revoluzen_flow/connectors/source_watch.py`.
+
+Read the current state at `GET /api/connectors/source-watch`. That endpoint
+makes no outbound call — probing a third party happens on a maintainer's
+schedule or an operator's instruction, not because someone opened a page.
+
+A connector with no `source_watch` block is listed under `unwatched` rather
+than being assumed healthy: silence from something nobody watches is not good
+news.
+
+---
+
 ## See also
 
 - [extend/build-a-connector.md](extend/build-a-connector.md) — end-to-end tutorial, including hand-authoring

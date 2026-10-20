@@ -33,11 +33,18 @@ Legend: ✅ Supported · ◐ Partial / limited · ✕ Not in OSS
 |---|---|---|
 | Databases (Postgres, MySQL, SQL Server, plus 2 bulk-load dialects) | ✅ | Real drivers + tested query paths. |
 | Generic REST connector runtime | ✅ | Works against arbitrary REST APIs; author one from an OpenAPI spec. |
-| ~27 first-party SaaS connectors | ◐ | Shipped as **manifests** run through the generic adapter. They validate structurally but are **not** smoke-tested against live vendors (the cert matrix reports 0 Verified / 0 Production). Treat as Beta/Experimental. |
+| ~27 first-party SaaS connectors | ◐ | Shipped as **manifests** run through the generic adapter. They validate structurally, but only `github` has recorded acceptance fixtures; the rest are **not** verified against live vendors. Treat as Beta/Experimental unless the connector's own row shows an attestation date. |
 
-> The public README's "33 first-party connectors" counts these manifests.
-> Only ~6 are genuinely production-functional today. Prefer wording like
-> "6 production-tested connectors + 27 community/beta manifests + author your own."
+> **Which number means what.** The catalog ships 66 connectors
+> (`CONNECTION_TYPES`, excluding roadmap entries) — that is the count to
+> quote. The ~27 SaaS REST manifests graded above are a *subset* of those
+> 66, so the cert matrix's grades describe that subset and must never be
+> restated against the full catalog ("19 of our 66 are Beta" is wrong —
+> the matrix never looked at the other 39).
+>
+> Do not derive a verified-vs-total ratio from any of these numbers. The
+> API deliberately stops providing one, for the reason given in
+> `cert_matrix()`: unattested means no fixtures recorded, not tests failed.
 
 ## Explicitly NOT in Revoluzen Flow
 
@@ -62,7 +69,7 @@ source of truth for each:
    README says it "ships in the box." A reader can currently be told opposite
    things — decide whether base lineage is an OSS feature and align all three.
 2. **Connector count vs. readiness.** See the Connectors note above — the
-   headline "33 connectors / working connector in 90 seconds" overstates how
+   headline "66 connectors / working connector in 90 seconds" overstates how
    many integrations are actually verified.
 3. **Plus-only nodes shipping in the OSS repo.** `connectors/cdc.py`,
    `connectors/jdbc.py`, and `connectors/vector_db.py` are present and

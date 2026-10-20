@@ -173,7 +173,7 @@ To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/s
 
 ## Where do I find the SQLite database file?
 
-`<data_dir>/fpulse.db` — typically `data/fpulse.db` for from-source installs or inside the `revoluzen_flow_data` Docker volume for compose deployments.
+`<data_dir>/revoluzen_flow.db` — typically `data/revoluzen_flow.db` for from-source installs or inside the `revoluzen_flow_data` Docker volume for compose deployments.
 
 ## Where do I find pipeline checkpoint Parquet files?
 

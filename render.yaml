@@ -17,7 +17,7 @@
 
 services:
   - type: web
-    name: fpulse
+    name: revoluzen-flow
     runtime: docker
     plan: starter
     region: oregon
@@ -32,6 +32,6 @@ services:
       - key: REVOLUZEN_FLOW_PORT
         value: "8001"
     disk:
-      name: fpulse-data
+      name: revoluzen-flow-data
       mountPath: /data
       sizeGB: 1

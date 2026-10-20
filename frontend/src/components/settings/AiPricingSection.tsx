@@ -3,10 +3,10 @@
  *
  * Rates apply to the Est. Cost tile on Insights → Activity. The same
  * resolver (provider+model → input/cached/output rate) lives on the backend
- * at fpulse/ai/cost_rates.py so any compute server can recover the same
+ * at revoluzen_flow/ai/cost_rates.py so any compute server can recover the same
  * USD cost from a stored agent trace.
  *
- * Saves emit `fpulse-settings-changed` so ActivityPage refetches and the
+ * Saves emit `revoluzen-flow-settings-changed` so ActivityPage refetches and the
  * tile updates without a page reload.
  *
  * Cached-input rates are forward-compatible: the OSS trace store doesn't
@@ -279,7 +279,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
       if (updated?.rates) {
         setDraft(updated.rates);
         setLastSaved(updated.rates);
-        try { window.dispatchEvent(new Event('fpulse-settings-changed')); } catch { /* noop */ }
+        try { window.dispatchEvent(new Event('revoluzen-flow-settings-changed')); } catch { /* noop */ }
         await uiAlert('AI pricing saved. Activity tile now uses the new rates.');
       }
     } catch (e) {
@@ -302,7 +302,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
       if (reset?.rates) {
         setDraft(reset.rates);
         setLastSaved(reset.rates);
-        try { window.dispatchEvent(new Event('fpulse-settings-changed')); } catch { /* noop */ }
+        try { window.dispatchEvent(new Event('revoluzen-flow-settings-changed')); } catch { /* noop */ }
         await uiAlert('Rates reset to defaults.');
       }
     } catch (e) {

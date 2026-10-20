@@ -133,7 +133,7 @@ jobs:
         # 2026-05-31: this job used to install only `pydantic+fastapi+
         # httpx+pytest`. The pytest import path `from revoluzen_flow.api.
         # security_headers import SecurityHeadersMiddleware` triggers
-        # `fpulse/api/__init__.py`, which eagerly imports ALL 30+ router
+        # `revoluzen_flow/api/__init__.py`, which eagerly imports ALL 30+ router
         # modules — those need cryptography, bcrypt, python-jose, pyyaml,
         # croniter, etc. Without the full requirements.txt set, the
         # import dies during pytest collection (~11s, exit 1) and the

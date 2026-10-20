@@ -160,7 +160,7 @@ class _GraphBase:
 def _download_to_temp(content: bytes, suggested_name: str) -> str:
     """Write API response bytes to a temp file preserving the source extension."""
     suffix = os.path.splitext(suggested_name)[1] or ".bin"
-    fd, tmp_path = tempfile.mkstemp(prefix="fpulse_dl_", suffix=suffix)
+    fd, tmp_path = tempfile.mkstemp(prefix="revoluzen_flow_dl_", suffix=suffix)
     with os.fdopen(fd, "wb") as f:
         f.write(content)
     return tmp_path
@@ -268,7 +268,7 @@ class SharePointSinkNode(_GraphBase, BaseNode):
         # Render the relation to a temp file via FileSinkNode (so format = extension)
         from revoluzen_flow.nodes.file_node import FileSinkNode
         suffix = os.path.splitext(item_path)[1] or ".csv"
-        fd, tmp_path = tempfile.mkstemp(prefix="fpulse_up_", suffix=suffix)
+        fd, tmp_path = tempfile.mkstemp(prefix="revoluzen_flow_up_", suffix=suffix)
         os.close(fd)
         sink = FileSinkNode({"file_path": tmp_path, "format": "auto",
                              "_input_step_ids": upstream})
@@ -375,7 +375,7 @@ class OneDriveSinkNode(_OneDriveBase, BaseNode):
 
         from revoluzen_flow.nodes.file_node import FileSinkNode
         suffix = os.path.splitext(item_path)[1] or ".csv"
-        fd, tmp = tempfile.mkstemp(prefix="fpulse_up_", suffix=suffix)
+        fd, tmp = tempfile.mkstemp(prefix="revoluzen_flow_up_", suffix=suffix)
         os.close(fd)
         FileSinkNode({"file_path": tmp, "format": "auto",
                       "_input_step_ids": upstream}).execute(ctx)
@@ -507,7 +507,7 @@ class GoogleDriveSinkNode(_GDriveBase, BaseNode):
 
         from revoluzen_flow.nodes.file_node import FileSinkNode
         suffix = os.path.splitext(file_name)[1] or ".csv"
-        fd, tmp = tempfile.mkstemp(prefix="fpulse_up_", suffix=suffix)
+        fd, tmp = tempfile.mkstemp(prefix="revoluzen_flow_up_", suffix=suffix)
         os.close(fd)
         FileSinkNode({"file_path": tmp, "format": "auto",
                       "_input_step_ids": upstream}).execute(ctx)
@@ -518,7 +518,7 @@ class GoogleDriveSinkNode(_GDriveBase, BaseNode):
 
         token = self._get_token(config)
         # Multipart upload (metadata + media in one request)
-        boundary = "fpulse_boundary_a1b2c3"
+        boundary = "revoluzen_flow_boundary_a1b2c3"
         metadata = {"name": file_name}
         if parent_id:
             metadata["parents"] = [parent_id]
@@ -650,7 +650,7 @@ class DropboxSinkNode(_DropboxBase, BaseNode):
 
         from revoluzen_flow.nodes.file_node import FileSinkNode
         suffix = os.path.splitext(path)[1] or ".csv"
-        fd, tmp = tempfile.mkstemp(prefix="fpulse_up_", suffix=suffix)
+        fd, tmp = tempfile.mkstemp(prefix="revoluzen_flow_up_", suffix=suffix)
         os.close(fd)
         FileSinkNode({"file_path": tmp, "format": "auto",
                       "_input_step_ids": upstream}).execute(ctx)
@@ -779,7 +779,7 @@ class BoxSinkNode(_BoxBase, BaseNode):
 
         from revoluzen_flow.nodes.file_node import FileSinkNode
         suffix = os.path.splitext(file_name)[1] or ".csv"
-        fd, tmp = tempfile.mkstemp(prefix="fpulse_up_", suffix=suffix)
+        fd, tmp = tempfile.mkstemp(prefix="revoluzen_flow_up_", suffix=suffix)
         os.close(fd)
         FileSinkNode({"file_path": tmp, "format": "auto",
                       "_input_step_ids": upstream}).execute(ctx)
@@ -790,7 +790,7 @@ class BoxSinkNode(_BoxBase, BaseNode):
 
         token = self._get_token(config)
         # Box multipart upload to /files/content
-        boundary = "fpulse_box_boundary"
+        boundary = "revoluzen_flow_box_boundary"
         attrs = json.dumps({"name": file_name, "parent": {"id": parent_id}})
         payload = (
             f"--{boundary}\r\n"

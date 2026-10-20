@@ -1,15 +1,15 @@
 """Diagnostic: dump users from the Revoluzen Flow SQLite DB.
 
 Usage:
-    python inspect_users.py                  # uses $REVOLUZEN_FLOW_DATA_DIR/fpulse.db
-    python inspect_users.py /path/to/fpulse.db
+    python inspect_users.py                  # uses $REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db
+    python inspect_users.py /path/to/revoluzen_flow.db
     REVOLUZEN_FLOW_DATA_DIR=/data python inspect_users.py
 
 Resolution order for the DB path:
     1. CLI arg (sys.argv[1])
     2. $REVOLUZEN_FLOW_DB environment variable (explicit DB path)
-    3. $REVOLUZEN_FLOW_DATA_DIR/fpulse.db
-    4. ./data/samples/fpulse.db (repo default)
+    3. $REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db
+    4. ./data/samples/revoluzen_flow.db (repo default)
 """
 import sqlite3, json, sys, os
 
@@ -21,10 +21,10 @@ def _resolve_db_path() -> str:
         return os.environ["REVOLUZEN_FLOW_DB"]
     data_dir = os.environ.get("REVOLUZEN_FLOW_DATA_DIR")
     if data_dir:
-        return os.path.join(data_dir, "fpulse.db")
+        return os.path.join(data_dir, "revoluzen_flow.db")
     # Repo default — relative to this script's repo root.
     here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(here, "..", "data", "samples", "fpulse.db")
+    return os.path.join(here, "..", "data", "samples", "revoluzen_flow.db")
 
 
 DB = os.path.abspath(_resolve_db_path())

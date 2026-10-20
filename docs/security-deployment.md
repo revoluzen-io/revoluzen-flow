@@ -38,10 +38,10 @@ without a proxy you also lose HSTS.
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name fpulse.example.com;
+    server_name revoluzen.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/fpulse.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/fpulse.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/revoluzen.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/revoluzen.example.com/privkey.pem;
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_session_cache   shared:SSL:10m;
 
@@ -68,7 +68,7 @@ server {
 # Redirect plain HTTP
 server {
     listen 80;
-    server_name fpulse.example.com;
+    server_name revoluzen.example.com;
     return 301 https://$server_name$request_uri;
 }
 ```
@@ -76,7 +76,7 @@ server {
 ### Caddy
 
 ```caddy
-fpulse.example.com {
+revoluzen.example.com {
     reverse_proxy 127.0.0.1:8001 {
         header_up X-Forwarded-Proto https
         header_up X-Real-IP        {remote}
@@ -123,14 +123,14 @@ mode and how to fix it.
 
 ```bash
 # Recommended layout (POSIX)
-sudo useradd --system --home /var/lib/fpulse --shell /usr/sbin/nologin fpulse
-sudo install -d -m 0700 -o fpulse -g fpulse /var/lib/fpulse
-sudo install -d -m 0700 -o fpulse -g fpulse /var/lib/fpulse/backups
+sudo useradd --system --home /var/lib/revoluzen-flow --shell /usr/sbin/nologin revoluzen-flow
+sudo install -d -m 0700 -o revoluzen-flow -g revoluzen-flow /var/lib/revoluzen-flow
+sudo install -d -m 0700 -o revoluzen-flow -g revoluzen-flow /var/lib/revoluzen-flow/backups
 ```
 
 **On Windows**, Revoluzen Flow does not enforce the perm check — NTFS ACLs are
 the operator's responsibility. Place the data directory under the
-service-account profile (`%LOCALAPPDATA%\fpulse` for a logged-in user,
+service-account profile (`%LOCALAPPDATA%\revoluzen-flow` for a logged-in user,
 or under the service account's profile for a service install); NTFS
 defaults there are owner-only.
 
@@ -198,7 +198,7 @@ at the proxy layer (though it does no harm if you do):
 - `X-XSS-Protection: 0` (modern guidance: rely on CSP)
 - `Strict-Transport-Security: max-age=31536000; includeSubDomains` —
   only over TLS
-- `Server: fpulse` (the original uvicorn/Starlette identifier is
+- `Server: revoluzen-flow` (the original uvicorn/Starlette identifier is
   stripped; `X-Powered-By` is dropped entirely)
 
 A clean Nessus / OWASP ZAP / Mozilla Observatory scan of an Revoluzen Flow

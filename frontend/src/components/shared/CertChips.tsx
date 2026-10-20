@@ -63,6 +63,14 @@ interface CertRow {
   // F5 — curated + auto-inferred connector gaps; rendered as a tooltip
   // on the cert label chip so the operator sees them before adopting.
   known_gaps?: string[];
+  // 2026-10-20 — attestation evidence, present only on connectors whose
+  // acceptance suite has actually been run against recorded vendor
+  // responses. Absent (not zero) everywhere else: a connector nobody has
+  // recorded fixtures for has not failed anything, and must not render
+  // like it did.
+  cat_green?: boolean;
+  attested_at?: string;
+  attested_checks?: number;
 }
 
 let _certCache: Record<string, CertRow> | null = null;
@@ -170,6 +178,15 @@ const CHIP_BASE =
 const ROLE_CHIP_CLS = 'bg-indigo-50 text-indigo-700 border-indigo-200';
 const CAP_CHIP_CLS = 'bg-slate-50 text-slate-700 border-slate-200';
 
+/** Short, locale-independent date for the attestation chip ("20 Oct 2026").
+ *  Falls back to the raw string if the backend ever sends something
+ *  unparseable, rather than rendering "Invalid Date" next to a trust claim. */
+function formatAttestedDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 function TickIcon() {
   return (
     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -230,6 +247,25 @@ export default function CertChips({ certRow, compact = false, showHover = true }
       <span className={`${CHIP_BASE} ${labelCls}`} title={hoverTitle}>
         {labelText}
       </span>
+      {/* Attestation chip — shown only for a connector whose acceptance
+          suite replayed green against recorded vendor responses. Carries
+          the date and check count, because an attestation with no "as of"
+          is not an attestation. Connectors without one render nothing
+          here: silence, not a zero or a "not verified" badge, which would
+          read as a failed test rather than an untaken one. */}
+      {certRow.cat_green && certRow.attested_at && (
+        <span
+          className={`${CHIP_BASE} bg-teal-50 text-teal-700 border-teal-300`}
+          title={
+            `Acceptance suite replayed green against recorded vendor responses.\n` +
+            `Attested: ${new Date(certRow.attested_at).toLocaleString()}\n` +
+            (certRow.attested_checks ? `Checks passed: ${certRow.attested_checks}\n` : '') +
+            `Re-attested automatically; a run older than 14 days stops counting.`
+          }
+        >
+          <TickIcon /> Attested {formatAttestedDate(certRow.attested_at)}
+        </span>
+      )}
       {!compact && (
         <>
           {certRow.roles?.map((role) => (

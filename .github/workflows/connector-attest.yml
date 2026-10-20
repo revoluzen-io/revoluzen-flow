@@ -1,0 +1,93 @@
+name: Connector attestation (CAT)
+
+# Keeps the Verified tier alive.
+#
+# `cert_matrix._cat_green()` only counts a CAT run that is GREEN *and* less
+# than 14 days old — a stale run auto-demotes, on the reasoning that recorded
+# cassettes rot against a changed vendor API. Nothing re-ran CAT, so every
+# connector decayed back to Beta two weeks after it was certified and the
+# matrix permanently read "0 Verified". That was never connectors failing; it
+# was nobody re-running the suite.
+#
+# Twice a week leaves room for one missed run before the 14-day window closes.
+# A manifest or fixture change re-attests immediately, because editing either
+# changes what the recorded run was taken against.
+
+on:
+  schedule:
+    - cron: '0 3 * * 1,4'          # Mon + Thu 03:00 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/revoluzen_flow/connectors/manifests/**'
+      - 'backend/tests/fixtures/connectors/**'
+      - 'backend/revoluzen_flow/connectors/cat.py'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: connector-attest
+  cancel-in-progress: false
+
+jobs:
+  attest:
+    name: Re-run CAT and refresh cat_status.json
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run the acceptance suite
+        id: cat
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import json, sys
+          from revoluzen_flow.connectors import cat
+
+          certifiable = cat.discover_certifiable()
+          if not certifiable:
+              print("No connector has recorded fixtures — nothing to attest.")
+              print("Record cassettes under backend/tests/fixtures/connectors/<id>/.")
+              sys.exit(0)
+
+          result = cat.run_cat_batch(write=True)
+          rows = result.get("connectors", {})
+          print(json.dumps(result, indent=2, default=str))
+
+          red = [cid for cid, r in rows.items() if int(r.get("failed", 1)) != 0]
+          if red:
+              # A connector that was Verified and has gone red is the signal this
+              # job exists to surface: the vendor changed something under us.
+              print(f"::error::CAT red for: {', '.join(sorted(red))}")
+              sys.exit(1)
+
+          verified = [c for c, r in rows.items() if r.get("cat_level") in ("verified", "production")]
+          print(f"::notice::CAT green — {len(verified)} of {len(rows)} attested: {', '.join(sorted(verified))}")
+          PY
+
+      - name: Commit the refreshed status
+        run: |
+          status=backend/revoluzen_flow/connectors/ci/cat_status.json
+          if git diff --quiet -- "$status"; then
+            echo "cat_status.json unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name  "Revoluzen"
+          git config user.email "hello@revoluzen.io"
+          git add "$status"
+          git commit -m "chore(connectors): refresh CAT attestation status [skip ci]"
+          git push

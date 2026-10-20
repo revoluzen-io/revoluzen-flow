@@ -43,7 +43,7 @@ Per `edition-matrix.md` line 58. Revoluzen Flow refuses to start in worker-only 
 
 ### Persistence: SQLite
 
-OSS uses SQLite as the single source of truth. The database file lives at `<data_dir>/fpulse.db`. Schema currently at v23.
+OSS uses SQLite as the single source of truth. The database file lives at `<data_dir>/revoluzen_flow.db`. Schema currently at v23.
 
 WAL mode is enforced for concurrent reads + 1 writer. `synchronous=NORMAL` for the WAL-safe value (~30% faster than FULL). 64 MB page cache, 256 MB read mmap window.
 
@@ -63,7 +63,7 @@ Revoluzen Flow Enterprise is a paid extension that adds multi-worker horizontal 
 
 ## Anti-patterns
 
-- ❌ "Just run `docker compose up --scale fpulse=4`" on OSS — the worker-role guard refuses because multi-worker is Plus only. Running multiple OSS containers against the same SQLite would corrupt state.
+- ❌ "Just run `docker compose up --scale revoluzen-flow=4`" on OSS — the worker-role guard refuses because multi-worker is Plus only. Running multiple OSS containers against the same SQLite would corrupt state.
 - ❌ "Switch OSS to Postgres" — there's no migration path in OSS. Postgres is a Plus optimization. Stay on SQLite for OSS.
 - ❌ "Use Kubernetes to autoscale OSS" — same problem; multi-pod OSS is not supported. Plus supports k8s deployment.
 - ❌ Telling a Free user to set `REVOLUZEN_FLOW_ROLE=worker` — that mode is for the Plus multi-worker setup, refused in OSS.

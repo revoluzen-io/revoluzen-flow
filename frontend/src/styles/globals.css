@@ -33,24 +33,24 @@
     justify-content: flex-end;
   }
 }
-.editor-workspace > [data-fpulse-panel] { max-width: calc((100% - 560px) / 2); }
+.editor-workspace > [data-revoluzen-flow-panel] { max-width: calc((100% - 560px) / 2); }
 .canvas-tools { max-width: calc(100% - 16px); overflow-x: auto; }
 .canvas-tools > * { flex-shrink: 0; }
-.fpulse-global-nav { row-gap: 4px; }
-.fpulse-global-nav > * { max-width: 100%; }
+.revoluzen-flow-global-nav { row-gap: 4px; }
+.revoluzen-flow-global-nav > * { max-width: 100%; }
 .config-overlay { top: var(--editor-top, 145px); }
 
 @media (max-width: 1279px) {
   .editor-workspace { padding-inline: 40px; }
-  .editor-workspace > [data-fpulse-panel] {
+  .editor-workspace > [data-revoluzen-flow-panel] {
     position: absolute;
     top: 0;
     bottom: 0;
     z-index: 30;
     max-width: min(360px, calc(100% - 80px));
   }
-  .editor-workspace > [data-fpulse-panel="nodes"] { left: 0; }
-  .editor-workspace > [data-fpulse-panel="chat"] { right: 0; }
+  .editor-workspace > [data-revoluzen-flow-panel="nodes"] { left: 0; }
+  .editor-workspace > [data-revoluzen-flow-panel="chat"] { right: 0; }
   .editor-workspace .cursor-col-resize { display: none; }
   .config-overlay { left: 40px !important; right: 40px !important; }
   .config-overlay > div:not(.config-surface) { display: none; }
@@ -61,12 +61,12 @@
   .config-overlay { left: 8px !important; right: 8px !important; }
   .editor-workspace .react-flow__minimap { display: none; }
 }
-[data-fpulse-config-body] :is(p, label, small, [class*="text-[10px]"], [class*="text-[11px]"]) {
+[data-revoluzen-flow-config-body] :is(p, label, small, [class*="text-[10px]"], [class*="text-[11px]"]) {
   font-size: 12px;
   line-height: 1.5;
 }
-[data-fpulse-config-body] :is(input, select, textarea) { font-size: 14px; }
-.config-surface [data-fpulse-config-body] > :first-child { flex-wrap: wrap; }
+[data-revoluzen-flow-config-body] :is(input, select, textarea) { font-size: 14px; }
+.config-surface [data-revoluzen-flow-config-body] > :first-child { flex-wrap: wrap; }
 
 html, body, #root {
   height: 100%;
@@ -111,7 +111,7 @@ html, body, #root {
   overflow: visible !important;
 }
 
-.fpulse-node {
+.revoluzen-flow-node {
   position: relative;
   background: white;
   /* 2026-06-02 polish round 2 (clarity pass):
@@ -133,7 +133,7 @@ html, body, #root {
   overflow: visible;
 }
 
-.fpulse-node:hover {
+.revoluzen-flow-node:hover {
   border-color: #D4880A;
   /* Stronger hover elevation — translateY -2px (was -1px), bigger
      shadow blur. Feels more interactive without becoming gaudy. */
@@ -145,16 +145,16 @@ html, body, #root {
 }
 
 /* Show delete button on hover */
-.fpulse-node .node-delete-btn {
+.revoluzen-flow-node .node-delete-btn {
   opacity: 0;
   transition: opacity 0.2s;
 }
-.fpulse-node:hover .node-delete-btn {
+.revoluzen-flow-node:hover .node-delete-btn {
   opacity: 1;
 }
-.fpulse-node:focus-within .node-delete-btn { opacity: 1; }
+.revoluzen-flow-node:focus-within .node-delete-btn { opacity: 1; }
 
-.fpulse-node.selected {
+.revoluzen-flow-node.selected {
   /* 2026-06-02 — strengthened selected state. Previous design used
      a 3px low-opacity ring outside the 1.5px border, which read as
      "fuzzy" rather than "selected" at zoom-out. New design uses a
@@ -169,7 +169,7 @@ html, body, #root {
     0 2px 8px rgba(0,0,0,0.06);
 }
 
-.fpulse-node.running {
+.revoluzen-flow-node.running {
   /* Rolling gold gradient outline (see ::before) — the node's own border
      goes transparent so the animated ring IS the visible outer line. The
      node-pulse box-shadow keeps the soft amber breathing glow underneath. */
@@ -180,7 +180,7 @@ html, body, #root {
 /* The rolling ring itself: a conic gold gradient masked down to a 2px band
    on the node's outer edge, rotated via --fp-angle so the highlight sweeps
    around the border continuously. */
-.fpulse-node.running::before {
+.revoluzen-flow-node.running::before {
   content: "";
   position: absolute;
   inset: -1.5px;              /* sit on the node's outer edge */
@@ -195,26 +195,26 @@ html, body, #root {
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
           mask-composite: exclude;
-  animation: fpulse-border-roll 2.4s linear infinite;
+  animation: revoluzen-flow-border-roll 2.4s linear infinite;
   pointer-events: none;
   z-index: 2;
 }
 
-.fpulse-node.success {
+.revoluzen-flow-node.success {
   border-color: #10b981;
   box-shadow:
     0 0 0 2px rgba(16,185,129,0.12),
     0 2px 8px rgba(16,185,129,0.08);
 }
 
-.fpulse-node.error {
+.revoluzen-flow-node.error {
   border-color: #ef4444;
   box-shadow:
     0 0 0 2px rgba(239,68,68,0.12),
     0 2px 8px rgba(239,68,68,0.08);
 }
 
-.fpulse-node.validation-error {
+.revoluzen-flow-node.validation-error {
   border-color: #ef4444 !important;
   box-shadow:
     0 0 0 2.5px rgba(239,68,68,0.18),
@@ -316,13 +316,13 @@ html, body, #root {
   }
   /* Freeze the running-node ring + pulse — the static gold gradient outline
      still marks the node as running, without motion. */
-  .fpulse-node.running,
-  .fpulse-node.running::before {
+  .revoluzen-flow-node.running,
+  .revoluzen-flow-node.running::before {
     animation: none;
   }
 }
 
-.fpulse-node.deactivated {
+.revoluzen-flow-node.deactivated {
   background:
     repeating-linear-gradient(
       135deg,
@@ -336,11 +336,11 @@ html, body, #root {
   border-width: 2px;
   box-shadow: 0 0 0 2px rgba(245,158,11,0.10);
 }
-.fpulse-node.deactivated:hover {
+.revoluzen-flow-node.deactivated:hover {
   border-color: #d97706;
   box-shadow: 0 0 0 2px rgba(245,158,11,0.18), 0 2px 8px rgba(245,158,11,0.12);
 }
-.dark .fpulse-node.deactivated {
+.dark .revoluzen-flow-node.deactivated {
   background:
     repeating-linear-gradient(
       135deg,
@@ -357,13 +357,13 @@ html, body, #root {
       than the deactivated styling (slate dashed, no amber) so the
       user can still tell the difference between "I turned this
       off" and "this would run if its parent were enabled". ── */
-.fpulse-node.blocked-upstream {
+.revoluzen-flow-node.blocked-upstream {
   background: #f8fafc;
   border-color: #cbd5e1;
   border-style: dashed;
   opacity: 0.65;
 }
-.dark .fpulse-node.blocked-upstream {
+.dark .revoluzen-flow-node.blocked-upstream {
   background: #0f172a;
   border-color: #475569;
   opacity: 0.55;
@@ -374,17 +374,17 @@ html, body, #root {
 }
 
 /* Animated edge flow */
-@keyframes fpulse-edge-flow {
+@keyframes revoluzen-flow-edge-flow {
   to { stroke-dashoffset: -24; }
 }
 
 /* 2026-06-02 Phase 2 — halo pulse for the shadow path of LIVE edges
    (source node currently running). Pairs with the faster
-   fpulse-edge-flow speed on the main path to produce an unmistakable
+   revoluzen-flow-edge-flow speed on the main path to produce an unmistakable
    "this edge is in flight right now" signal. Pure opacity pulse so
    it does not interfere with the marching-dash effect of the main
    path on top. */
-@keyframes fpulse-edge-halo {
+@keyframes revoluzen-flow-edge-halo {
   0%, 100% { opacity: 0.25; stroke-width: 6; }
   50%      { opacity: 0.50; stroke-width: 9; }
 }
@@ -409,23 +409,23 @@ html, body, #root {
   inherits: false;
 }
 
-@keyframes fpulse-border-roll {
+@keyframes revoluzen-flow-border-roll {
   to { --fp-angle: 360deg; }
 }
 
 /* Execution animation — green glow pulse on running nodes */
-@keyframes fpulse-exec-glow {
+@keyframes revoluzen-flow-exec-glow {
   0%, 100% { box-shadow: 0 0 4px 2px rgba(34,197,94,0.2), 0 2px 8px rgba(0,0,0,0.06); }
   50% { box-shadow: 0 0 16px 6px rgba(34,197,94,0.5), 0 4px 16px rgba(34,197,94,0.15); }
 }
 
-.fpulse-executing {
-  animation: fpulse-exec-glow 1.5s ease-in-out infinite !important;
+.revoluzen-flow-executing {
+  animation: revoluzen-flow-exec-glow 1.5s ease-in-out infinite !important;
   border-color: #22c55e !important;
 }
 
 /* Edge flow animation during execution */
-@keyframes fpulse-data-flow {
+@keyframes revoluzen-flow-data-flow {
   from { stroke-dashoffset: 24; }
   to { stroke-dashoffset: 0; }
 }
@@ -434,11 +434,11 @@ html, body, #root {
   stroke: #22c55e !important;
   stroke-width: 3 !important;
   stroke-dasharray: 8 4;
-  animation: fpulse-data-flow 0.6s linear infinite;
+  animation: revoluzen-flow-data-flow 0.6s linear infinite;
 }
 
 /* Handle glow on node hover */
-.fpulse-node:hover .react-flow__handle {
+.revoluzen-flow-node:hover .react-flow__handle {
   box-shadow: 0 0 6px rgba(59,125,216,0.4);
 }
 
@@ -919,16 +919,16 @@ html, body, #root {
 /* ════════════════════════════════════
    9. NODE CARDS (React Flow) — L1 surface
    ════════════════════════════════════ */
-.dark .fpulse-node {
+.dark .revoluzen-flow-node {
   background: #111827;
   border-color: rgba(255,255,255,0.1);
   box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3);
 }
-.dark .fpulse-node:hover {
+.dark .revoluzen-flow-node:hover {
   border-color: #f59e0b;
   box-shadow: 0 4px 20px rgba(245,166,35,0.15), 0 2px 8px rgba(0,0,0,0.4);
 }
-.dark .fpulse-node.selected {
+.dark .revoluzen-flow-node.selected {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(96,165,250,0.15), 0 4px 20px rgba(96,165,250,0.1);
 }

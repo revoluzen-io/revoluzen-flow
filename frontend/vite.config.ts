@@ -116,9 +116,9 @@ export default defineConfig({
     },
   },
   server: {
-    // Bind to all interfaces so both 'localhost' and 'fpulse.local' resolve.
+    // Bind to all interfaces so both 'localhost' and 'revoluzen.local' resolve.
     // An external Electron shell's WebContentsView connects to localhost:5174 - keeping
-    // host: 'fpulse.local' alone made that connection refuse. true === '0.0.0.0' in Vite.
+    // host: 'revoluzen.local' alone made that connection refuse. true === '0.0.0.0' in Vite.
     host: true,
     port: FRONTEND_PORT,
     // 2026-05-29: strictPort fails loudly if the chosen port is already

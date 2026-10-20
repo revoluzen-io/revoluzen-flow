@@ -1,6 +1,6 @@
 ; Revoluzen Flow — Inno Setup script
 ; Build:
-;   ISCC.exe installer\windows\fpulse.iss
+;   ISCC.exe installer\windows\revoluzen-flow.iss
 ; Produces: installer\windows\output\RevoluzenFlow-Setup-<ver>.exe
 
 #define MyAppName "Revoluzen Flow"
@@ -32,11 +32,11 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
 ArchitecturesInstallIn64BitMode=x64
-; 2026-06-08: fpulse.ico is now generated at installer/windows/icons/ by
+; 2026-06-08: revoluzen-flow.ico is now generated at installer/windows/icons/ by
 ; make-icon.ps1 (re-run it if the file is ever missing). The icon
 ; references below + in [Files] / [Icons] are live.
-UninstallDisplayIcon={app}\icons\fpulse.ico
-SetupIconFile=icons\fpulse.ico
+UninstallDisplayIcon={app}\icons\revoluzen-flow.ico
+SetupIconFile=icons\revoluzen-flow.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -48,26 +48,26 @@ Name: "openafter";         Description: "Open Revoluzen Flow in browser when ins
 
 [Files]
 ; The frozen Python runtime + bundled backend, produced by PyInstaller
-; into ..\..\dist\fpulse\ ahead of running ISCC.
-Source: "{#ProjectRoot}\dist\fpulse\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; into ..\..\dist\revoluzen-flow\ ahead of running ISCC.
+Source: "{#ProjectRoot}\dist\revoluzen-flow\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; The compiled frontend from npm run build
 Source: "{#ProjectRoot}\frontend\dist\*"; DestDir: "{app}\frontend\dist"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Branding + docs
-Source: "icons\fpulse.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
+Source: "icons\revoluzen-flow.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 Source: "{#ProjectRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\LICENSE";   DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ProjectRoot}\NOTICE";    DestDir: "{app}"; Flags: ignoreversion isreadme
 
 [Icons]
-; Icons carry the Revoluzen Flow brand icon (installer/windows/icons/fpulse.ico).
+; Icons carry the Revoluzen Flow brand icon (installer/windows/icons/revoluzen-flow.ico).
 ; The main shortcut opens the browser DIRECTLY — no Python, no revoluzen.exe.
 ; If Edge is present it opens a chromeless --app window (no address bar);
 ; otherwise it falls back to the default browser. The background service
 ; already serves the port, so this is purely a viewer.
-Name: "{group}\Revoluzen Flow";                Filename: "{code:AppLauncher}"; Parameters: "{code:AppLauncherArgs}"; IconFilename: "{app}\icons\fpulse.ico"; Comment: "Open Revoluzen Flow"
+Name: "{group}\Revoluzen Flow";                Filename: "{code:AppLauncher}"; Parameters: "{code:AppLauncherArgs}"; IconFilename: "{app}\icons\revoluzen-flow.ico"; Comment: "Open Revoluzen Flow"
 Name: "{group}\Revoluzen Flow — Stop service"; Filename: "{cmd}"; Parameters: "/C ""{app}\{#MyAppExeName}"" uninstall-service && pause"
 Name: "{group}\Uninstall Revoluzen Flow";       Filename: "{uninstallexe}"
-Name: "{commondesktop}\Revoluzen Flow";        Filename: "{code:AppLauncher}"; Parameters: "{code:AppLauncherArgs}"; Tasks: desktopicon; IconFilename: "{app}\icons\fpulse.ico"; Comment: "Open Revoluzen Flow"
+Name: "{commondesktop}\Revoluzen Flow";        Filename: "{code:AppLauncher}"; Parameters: "{code:AppLauncherArgs}"; Tasks: desktopicon; IconFilename: "{app}\icons\revoluzen-flow.ico"; Comment: "Open Revoluzen Flow"
 
 [Run]
 ; Register the OS-native service so it survives reboot + auto-restarts.

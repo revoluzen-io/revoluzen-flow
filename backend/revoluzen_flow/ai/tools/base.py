@@ -11,7 +11,7 @@ Every tool declares:
   - handler (async callable receiving validated inputs)
   - requires_idempotency_key (True for write tiers)
 
-Tier semantics (per ai-boundary-contract.md + project_fpulse_ai_operational_architecture.md):
+Tier semantics (per ai-boundary-contract.md + project_revoluzen_flow_ai_operational_architecture.md):
   - READ:               permissive RBAC, no confirmation, standard audit
   - SAFE_WRITE:         standard RBAC, inline preview, standard audit
   - HIGH_IMPACT_WRITE:  strict RBAC, required confirmation card, elevated audit, dry-run by default

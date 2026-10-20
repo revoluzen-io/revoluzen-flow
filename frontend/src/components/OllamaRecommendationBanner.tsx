@@ -14,7 +14,7 @@
  * floor. llama3.1:8b and phi-4 are equally supported alternatives.
  * One-click pull uses the same endpoint AIProviderForm uses.
  *
- * Dismissal is sticky (localStorage key `fpulse_qwen_banner_dismissed`).
+ * Dismissal is sticky (localStorage key `revoluzen_flow_qwen_banner_dismissed`).
  * Does not nag once dismissed; the AI Provider settings page still shows
  * the recommended-models picker for users who want to switch later.
  *
@@ -31,7 +31,7 @@ import {
   OLLAMA_CPU_RECOMMENDATION,
 } from '../util/aiModels';
 
-const DISMISS_KEY = 'fpulse_qwen_banner_dismissed';
+const DISMISS_KEY = 'revoluzen_flow_qwen_banner_dismissed';
 
 type BannerReason = 'no-models' | 'below-floor' | 'oversized-model' | null;
 
@@ -133,7 +133,7 @@ export default function OllamaRecommendationBanner() {
   const message = done
     ? `${OLLAMA_CPU_RECOMMENDATION} installed — switching active model.`
     : reason === 'no-models'
-      ? `Ollama is your AI provider but no models are installed. Pull ${OLLAMA_CPU_RECOMMENDATION} (~6 GB) — reliable tool-use floor for the Revoluzen Flow Copilot.`
+      ? `Ollama is your AI provider but no models are installed. Pull ${OLLAMA_CPU_RECOMMENDATION} (~6 GB) — reliable tool-use floor for the Copilot.`
       : reason === 'below-floor'
         ? `${activeModel} is below the tool-use floor — small models advertise tool support but return greetings instead of calling tools. Pull ${OLLAMA_CPU_RECOMMENDATION} (~6 GB) for reliable agent answers.`
         : `${activeModel} is too heavy for CPU agents (minutes per turn). ${OLLAMA_CPU_RECOMMENDATION} is the recommended floor with reliable tool-use on CPU.`;

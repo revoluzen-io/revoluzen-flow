@@ -20,7 +20,7 @@ def client() -> TestClient:
 
     class _User:
         id = "t"
-        email = "t@fpulse.local"
+        email = "t@revoluzen.local"
         role = "super_admin"
         is_active = True
 

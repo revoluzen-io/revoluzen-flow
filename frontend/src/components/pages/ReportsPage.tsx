@@ -90,7 +90,7 @@ export default function ReportsPage({
   // to 'dev' for cold sessions / Free tier (no PROD).
   const [env, setEnv] = useState<ReportEnv>(() => {
     try {
-      const stored = (localStorage.getItem('fpulse_env') || 'dev').toLowerCase();
+      const stored = (localStorage.getItem('revoluzen_flow_env') || 'dev').toLowerCase();
       return stored === 'prod' ? 'prod' : 'dev';
     } catch { return 'dev'; }
   });
@@ -169,8 +169,8 @@ export default function ReportsPage({
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const token = localStorage.getItem('fpulse_token');
-      const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+      const token = localStorage.getItem('revoluzen_flow_token');
+      const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
       // Build URL with optional scope_id for project/pipeline/user-pick scopes.
       // The backend report generator reads `scope_type` (=scope) and
       // `scope_id` to filter; legacy scopes (admin/user) ignore scope_id.
@@ -200,7 +200,7 @@ export default function ReportsPage({
       const blob = await res.blob();
       const disposition = res.headers.get('content-disposition') || '';
       const m = /filename="([^"]+)"/.exec(disposition);
-      const filename = m ? m[1] : `fpulse-inventory.${format}`;
+      const filename = m ? m[1] : `revoluzen-flow-inventory.${format}`;
       // Storage wiring Phase 1 — backend writes a copy of the report
       // into the workspace Storage tree and returns the new object id
       // in X-Storage-Object-Id. The download still fires immediately
@@ -216,7 +216,7 @@ export default function ReportsPage({
       a.remove();
       URL.revokeObjectURL(url);
       if (storageObjectId) {
-        try { sessionStorage.setItem('fpulse_storage_highlight_object', storageObjectId); } catch { /* ignore */ }
+        try { sessionStorage.setItem('revoluzen_flow_storage_highlight_object', storageObjectId); } catch { /* ignore */ }
         toast.success(`Downloaded ${filename}`, 'Saved to Storage — open the Storage page to find it later');
       } else {
         toast.success(`Downloaded ${filename}`);
@@ -232,8 +232,8 @@ export default function ReportsPage({
   const handleView = async () => {
     setViewing(true);
     try {
-      const token = localStorage.getItem('fpulse_token');
-      const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+      const token = localStorage.getItem('revoluzen_flow_token');
+      const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
       const params = new URLSearchParams({ format: 'json', scope, env });
       if ((scope === 'project' || scope === 'pipeline' || scope === 'user') && scopeTargetId) {
         params.set('scope_id', scopeTargetId);

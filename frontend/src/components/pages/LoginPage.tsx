@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
 import { WORKSPACES_ENABLED, DEFAULT_WORKSPACE_ID } from '../../config/edition';
+import { APP_VERSION } from '../../appMeta';
 
 interface LoginPageProps {
   onLogin: (user: any) => void;
@@ -92,7 +93,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       });
 
     // Deep-link entry into the reset flow via query string, e.g.
-    //   https://fpulse.example/?reset_token=ABCDEF
+    //   https://revoluzen.example/?reset_token=ABCDEF
     // This is the path an admin uses when they copy a reset link out
     // of the Auth Queue page and share it with the locked-out user.
     // We verify the token server-side before flipping into reset mode
@@ -125,16 +126,16 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       const token = params.get('token');
       const emailParam = params.get('email');
       if (token) {
-        localStorage.setItem('fpulse_token', token);
+        localStorage.setItem('revoluzen_flow_token', token);
         window.history.replaceState(null, '', window.location.pathname);
         // Fetch user details with the new token
         api.getMe().then((user: any) => {
-          localStorage.setItem('fpulse_user', JSON.stringify(user));
+          localStorage.setItem('revoluzen_flow_user', JSON.stringify(user));
           onLogin(user);
         }).catch(() => {
           // Fallback — create minimal user shim from email
           const shim = { email: emailParam || '', name: emailParam || '' };
-          localStorage.setItem('fpulse_user', JSON.stringify(shim));
+          localStorage.setItem('revoluzen_flow_user', JSON.stringify(shim));
           onLogin(shim);
         });
       }
@@ -243,8 +244,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       } else {
         result = await api.register(email, password, name);
       }
-      localStorage.setItem('fpulse_token', result.token);
-      localStorage.setItem('fpulse_user', JSON.stringify(result.user));
+      localStorage.setItem('revoluzen_flow_token', result.token);
+      localStorage.setItem('revoluzen_flow_user', JSON.stringify(result.user));
       // Schema v2: persist the user's workspace memberships and pick a
       // current workspace. Landing rules (order matters):
       //   1. The shared "default" workspace WHEN the user is a member of
@@ -260,7 +261,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       // If the landing is ever wrong, the Sidebar workspace switcher (shown
       // whenever the user has >1 workspace, DEV or PROD) recovers it — a
       // user must never have data they can't reach. We never leave
-      // fpulse_workspace_id unset because the api client reads it on every
+      // revoluzen_flow_workspace_id unset because the api client reads it on every
       // request.
       // OSS is single-operator: always land in the one shared `default`
       // workspace (the block below only runs when workspaces are enabled in a
@@ -268,15 +269,15 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       // empty Personal scope.
       const workspaces: any[] = Array.isArray(result.workspaces) ? result.workspaces : [];
       if (WORKSPACES_ENABLED && workspaces.length > 0) {
-        localStorage.setItem('fpulse_workspaces', JSON.stringify(workspaces));
+        localStorage.setItem('revoluzen_flow_workspaces', JSON.stringify(workspaces));
         const wsId = (w: any) => w.workspace_id || w.id;
         const chosen =
           workspaces.find((w) => wsId(w) === 'default') ||
           workspaces.find((w) => w.is_personal) ||
           workspaces[0];
-        localStorage.setItem('fpulse_workspace_id', wsId(chosen) || DEFAULT_WORKSPACE_ID);
+        localStorage.setItem('revoluzen_flow_workspace_id', wsId(chosen) || DEFAULT_WORKSPACE_ID);
       } else {
-        localStorage.setItem('fpulse_workspace_id', DEFAULT_WORKSPACE_ID);
+        localStorage.setItem('revoluzen_flow_workspace_id', DEFAULT_WORKSPACE_ID);
       }
       onLogin(result.user);
     } catch (err: any) {
@@ -291,9 +292,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         {/* Logo */}
         <div className="text-center mb-10">
           <div className="w-16 h-16 rounded-2xl shadow-lg mx-auto mb-5 bg-white overflow-hidden">
-            <img src="/fpulse-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
+            <img src="/revoluzen-flow-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-800">Revoluzen Flow <span className="text-base align-middle font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 text-slate-600">OSS</span></h1>
+          <h1 className="text-3xl font-bold text-slate-800">Revoluzen Flow</h1>
           {/* 2026-06-03 — tagline rewritten to match readme.md lead +
               the About page card. The login screen is the FIRST thing
               every new user sees; leading with "AI-native" set up the
@@ -644,7 +645,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-5">
-          Revoluzen Flow v1.0.0 · Local-first pipeline engine by Revoluzen
+          Revoluzen Flow v{APP_VERSION} · Local-first pipeline engine by Revoluzen
         </p>
       </div>
     </div>

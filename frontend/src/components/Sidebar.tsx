@@ -17,7 +17,7 @@ import StewardBadge from './StewardBadge';
 // in lockstep with the backend's __version__ and the Docker tag. Imported
 // by anywhere the version is shown (Sidebar chip, LoginPage footer,
 // Settings → About, HelpPage footer).
-const APP_VERSION = '1.0.0';
+import { APP_VERSION } from '../appMeta';
 
 type Environment = 'dev' | 'prod';
 
@@ -272,7 +272,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
 
   // ── Workspace switcher ──
   const [workspaces, setWorkspaces] = useState<any[]>([]);
-  const [currentWsId, setCurrentWsId] = useState(() => localStorage.getItem('fpulse_workspace_id') || 'default');
+  const [currentWsId, setCurrentWsId] = useState(() => localStorage.getItem('revoluzen_flow_workspace_id') || 'default');
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
   const wsDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -297,7 +297,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
 
   const switchWorkspace = (wsId: string) => {
     setCurrentWsId(wsId);
-    localStorage.setItem('fpulse_workspace_id', wsId);
+    localStorage.setItem('revoluzen_flow_workspace_id', wsId);
     setWsDropdownOpen(false);
     // Reload the page to pick up the new workspace context
     window.location.reload();
@@ -350,7 +350,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
   // cache; the bell missed it. We also refresh immediately on a hidden→
   // visible transition so the user sees an accurate count the instant
   // they return to the tab.
-  // Also listens for `fpulse:notifications-changed` (dispatched by the
+  // Also listens for `revoluzen-flow:notifications-changed` (dispatched by the
   // NotificationsPage on mark/clear/delete) so the bell count reflects
   // mutations without waiting for the next poll. Per P1 #6.
   useEffect(() => {
@@ -376,11 +376,11 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
     };
     if (!document.hidden) startPolling();
     document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('fpulse:notifications-changed', refreshUnread);
+    window.addEventListener('revoluzen-flow:notifications-changed', refreshUnread);
     return () => {
       stopPolling();
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('fpulse:notifications-changed', refreshUnread);
+      window.removeEventListener('revoluzen-flow:notifications-changed', refreshUnread);
     };
   }, [refreshUnread, user]);
 
@@ -518,7 +518,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
   });
 
   return (
-    <div className={`fpulse-global-nav min-h-16 flex flex-wrap items-center px-2 sm:px-4 gap-1 shrink-0 relative transition-colors ${
+    <div className={`revoluzen-flow-global-nav min-h-16 flex flex-wrap items-center px-2 sm:px-4 gap-1 shrink-0 relative transition-colors ${
       isProd
         ? dark
           ? 'bg-[#1e3a5f] border-b-2 border-blue-400'
@@ -551,7 +551,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             the brand image stays crisp regardless of plate color
             (the plate may now be slate gradient or dark slate). */}
         <div className="logo-flip w-9 h-9 rounded-lg overflow-hidden bg-white shrink-0">
-          <img src="/fpulse-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
+          <img src="/revoluzen-flow-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
         </div>
 
         {/* Brand text — adapts to plate bg. Dark plate (PROD or dark
@@ -560,11 +560,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
         <span className={`text-xl font-bold hidden sm:inline tracking-tight leading-none ${
           isProd || dark ? 'text-white' : 'text-slate-800'
         }`}>
-          Revoluzen Flow{isPlus
-            ? <span className="text-amber-500">+</span>
-            : <span className={`ml-1 text-[10px] font-bold uppercase tracking-wider align-middle px-1.5 py-0.5 rounded ${
-                isProd || dark ? 'bg-white/10 text-slate-200' : 'bg-slate-200 text-slate-700'
-              }`}>OSS</span>}
+          Revoluzen Flow{isPlus && <span className="text-amber-500">+</span>}
         </span>
       </div>
 
@@ -921,7 +917,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
           The server tier is already communicated by the brand mark
           ("Revoluzen Flow" vs "Revoluzen Flow") at the far left of the nav. A separate
           PLUS pill next to the env switcher was redundant and, worse,
-          misleading for accounts like `dev_free@fpulse.local`: a developer
+          misleading for accounts like `dev_free@revoluzen.local`: a developer
           named "Dev Free" seeing a gold "PLUS" badge next to their avatar
           read as "this user is Plus tier", which doesn't exist as a concept.
           Tier is server-global, not per-user. If we ever need to surface

@@ -80,8 +80,8 @@ CASES: list[dict[str, Any]] = [
     {"prompt": "what can you help with", "expected_path": P_FAST, "expected_intent": "help"},
 
     # ─── Product info ────────────────────────────────────────────────
-    {"prompt": "what is revoluzen-flow?", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
-    {"prompt": "tell me about revoluzen_flow", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
+    {"prompt": "what is revoluzen-flow?", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
+    {"prompt": "tell me about revoluzen_flow", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
 
     # ─── List intents ────────────────────────────────────────────────
     {"prompt": "list pipelines", "expected_path": P_FAST, "expected_intent": "list_pipelines", "items": _PIPELINES_3},
@@ -269,11 +269,11 @@ CASES: list[dict[str, Any]] = [
     {"prompt": "give me a tour", "expected_path": P_FAST, "expected_intent": "help.walkthrough"},
     {"prompt": "show me around", "expected_path": P_FAST, "expected_intent": "help.walkthrough"},
 
-    # what_is_fpulse paraphrases
-    {"prompt": "what does this do", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
-    {"prompt": "what does this product do", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
-    {"prompt": "explain revoluzen-flow", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
-    {"prompt": "what is this tool", "expected_path": P_FAST, "expected_intent": "what_is_fpulse"},
+    # what_is_revoluzen_flow paraphrases
+    {"prompt": "what does this do", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
+    {"prompt": "what does this product do", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
+    {"prompt": "explain revoluzen-flow", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
+    {"prompt": "what is this tool", "expected_path": P_FAST, "expected_intent": "what_is_revoluzen_flow"},
 
     # about_revoluzen paraphrases
     {"prompt": "what does revoluzen do", "expected_path": P_FAST, "expected_intent": "about_revoluzen"},

@@ -32,7 +32,7 @@ def client():
         admin.password_hash = User.hash_password(OLD)
         app_state["user_store"]._save_user(admin)
         tok = c.post("/api/auth/login", json={
-            "email": "admin@fpulse.local", "password": OLD,
+            "email": "admin@revoluzen.local", "password": OLD,
         }).json()["token"]
         c.headers.update({"Authorization": f"Bearer {tok}"})
         yield c
@@ -52,12 +52,12 @@ class TestChangeMyPassword:
         })
         # New password logs in
         good = client.post("/api/auth/login", json={
-            "email": "admin@fpulse.local", "password": NEW,
+            "email": "admin@revoluzen.local", "password": NEW,
         })
         assert good.status_code == 200
         # Old password rejected
         bad = client.post("/api/auth/login", json={
-            "email": "admin@fpulse.local", "password": OLD,
+            "email": "admin@revoluzen.local", "password": OLD,
         })
         assert bad.status_code == 401
 

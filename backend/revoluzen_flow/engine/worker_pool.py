@@ -155,7 +155,7 @@ class PersistentQueue:
     def __init__(self, db_path: str = ""):
         if not db_path:
             data_dir = os.environ.get("REVOLUZEN_FLOW_DATA_DIR", ".")
-            db_path = os.path.join(data_dir, ".fpulse_queue.db")
+            db_path = os.path.join(data_dir, ".revoluzen_flow_queue.db")
         self._db_path = db_path
         self._init_db()
 

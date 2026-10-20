@@ -22,8 +22,8 @@ from revoluzen_flow.engine.step_output_store import (
 
 
 @pytest.fixture
-def store(_fpulse_test_db):
-    return StepOutputStore(db=_fpulse_test_db)
+def store(_revoluzen_flow_test_db):
+    return StepOutputStore(db=_revoluzen_flow_test_db)
 
 
 class TestRecordAndRead:
@@ -154,7 +154,7 @@ class TestCaps:
 
 
 class TestPruning:
-    def test_prune_drops_old_samples_keeps_counts_and_schema(self, store, _fpulse_test_db):
+    def test_prune_drops_old_samples_keeps_counts_and_schema(self, store, _revoluzen_flow_test_db):
         # Insert a recent + an old row by hand-stamping captured_at.
         store.record(
             execution_id="exec-recent",
@@ -172,11 +172,11 @@ class TestPruning:
         )
         # Backdate the "old" row past the TTL window.
         old_ts = (datetime.now(timezone.utc) - timedelta(days=SAMPLE_TTL_DAYS + 5)).isoformat()
-        _fpulse_test_db.execute(
+        _revoluzen_flow_test_db.execute(
             "UPDATE step_outputs SET captured_at = ? WHERE execution_id = ?",
             (old_ts, "exec-old"),
         )
-        _fpulse_test_db.commit()
+        _revoluzen_flow_test_db.commit()
 
         pruned = store.prune_samples()
         assert pruned == 1
@@ -192,14 +192,14 @@ class TestPruning:
         assert recent["sample_pruned"] is False
         assert recent["sample_rows"] == [{"i": 1}, {"i": 2}]
 
-    def test_prune_is_idempotent(self, store, _fpulse_test_db):
+    def test_prune_is_idempotent(self, store, _revoluzen_flow_test_db):
         store.record(execution_id="exec-old", step_id="s1", row_count=1, sample_rows=[{"i": 1}])
         old_ts = (datetime.now(timezone.utc) - timedelta(days=SAMPLE_TTL_DAYS + 5)).isoformat()
-        _fpulse_test_db.execute(
+        _revoluzen_flow_test_db.execute(
             "UPDATE step_outputs SET captured_at = ? WHERE execution_id = ?",
             (old_ts, "exec-old"),
         )
-        _fpulse_test_db.commit()
+        _revoluzen_flow_test_db.commit()
 
         first = store.prune_samples()
         second = store.prune_samples()

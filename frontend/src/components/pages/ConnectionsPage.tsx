@@ -810,7 +810,7 @@ const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     ], hint: 'Required when using SASL_* security protocol' },
     { key: 'username', label: 'Username', type: 'text', placeholder: '', hint: 'For SASL authentication' },
     { key: 'password', label: 'Password', type: 'password', placeholder: '' },
-    { key: 'group_id', label: 'Consumer Group', type: 'text', placeholder: 'fpulse-consumer', hint: 'Default consumer group ID' },
+    { key: 'group_id', label: 'Consumer Group', type: 'text', placeholder: 'revoluzen-flow-consumer', hint: 'Default consumer group ID' },
   ],
   rabbitmq: [
     { key: 'host', label: 'Host', type: 'text', placeholder: 'rabbitmq.example.com', required: true },
@@ -1300,14 +1300,14 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // button. Persisted to localStorage so the user's preference
   // survives reloads.
   const [showDashboard, setShowDashboard] = useState<boolean>(() => {
-    try { return localStorage.getItem('fpulse_connections_show_stats') !== '0'; }
+    try { return localStorage.getItem('revoluzen_flow_connections_show_stats') !== '0'; }
     catch { return true; }
   });
   useEffect(() => {
-    try { localStorage.setItem('fpulse_connections_show_stats', showDashboard ? '1' : '0'); } catch {}
+    try { localStorage.setItem('revoluzen_flow_connections_show_stats', showDashboard ? '1' : '0'); } catch {}
   }, [showDashboard]);
   const [projects, setProjects] = useState<Project[]>([]);
-  const colState = useTableColumns('fpulse_connections_cols', CONN_COLUMNS);
+  const colState = useTableColumns('revoluzen_flow_connections_cols', CONN_COLUMNS);
   const canCreate = useCan('create', environment);
   const canDelete = useCan('delete', environment);
   const isPlusTier = tier === 'plus';
@@ -1360,7 +1360,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // Acknowledgment is persisted to localStorage as a Set of types so the
   // modal only appears once per connector per browser.
   const [pendingBetaType, setPendingBetaType] = useState<string | null>(null);
-  const ACK_BETA_KEY = 'fpulse-beta-acks';
+  const ACK_BETA_KEY = 'revoluzen-flow-beta-acks';
   const getBetaAcks = (): Set<string> => {
     try {
       const raw = localStorage.getItem(ACK_BETA_KEY);
@@ -2097,7 +2097,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               primaryCta={canCreate ? { label: '+ Create First Connection', onClick: () => setView('create') } : undefined}
               // 2026-05-29: surface the "you can build it yourself" path on
               // the empty state itself. The most common new-user reaction to
-              // "33 connectors in the catalog" is "is mine in there?" — and
+              // "66 connectors in the catalog" is "is mine in there?" — and
               // when it's not, the old-ETL-tool reflex is to file a ticket
               // and wait. We want the reflex to be "open Author Connector".
               // The two secondary CTAs cover both paths: build in-product

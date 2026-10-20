@@ -5,9 +5,9 @@
 > **Scope:** OSS. Plus may extend the grammar with governance-specific categories later (reserved namespace, section 10).
 >
 > **Companion memory:**
-> - `project_fpulse_north_star_reasoning_workspace_2026-05-19.md`
-> - `project_fpulse_v1_demo_prerun_impact_card_2026-05-19.md`
-> - `project_fpulse_local_llm_floor_revision_2026-05-19.md`
+> - `project_revoluzen_flow_north_star_reasoning_workspace_2026-05-19.md`
+> - `project_revoluzen_flow_v1_demo_prerun_impact_card_2026-05-19.md`
+> - `project_revoluzen_flow_local_llm_floor_revision_2026-05-19.md`
 
 ---
 
@@ -235,7 +235,7 @@ Test pipelines are hand-crafted to provoke specific warning types. Pipeline hash
 
 ## 12. Async & Structured Generation Pattern
 
-Per `project_fpulse_local_llm_floor_revision_2026-05-19.md`:
+Per `project_revoluzen_flow_local_llm_floor_revision_2026-05-19.md`:
 
 - LLM `explanation` generation runs async; never block the executor, ingestion, or UI thread.
 - All LLM calls use structured generation (Ollama `format: "json"`, or Instructor / Outlines on top).
@@ -253,12 +253,12 @@ Per `project_fpulse_local_llm_floor_revision_2026-05-19.md`:
 ## 14. References
 
 **Memory:**
-- `project_fpulse_north_star_reasoning_workspace_2026-05-19.md` — the North Star this grammar serves
-- `project_fpulse_v1_demo_prerun_impact_card_2026-05-19.md` — the v1.0 demo this grammar makes possible
-- `project_fpulse_local_llm_floor_revision_2026-05-19.md` — Tier 2 model floor
-- `project_fpulse_positioning_lock_2026-05-03.md` — "Governed data system with AI inside"
-- `project_fpulse_local_only_lock_2026-05-03.md` — local-first principle
-- `project_fpulse_oss_resilience_table_stakes_2026-05-10.md` — OSS gets table-stakes resilience
+- `project_revoluzen_flow_north_star_reasoning_workspace_2026-05-19.md` — the North Star this grammar serves
+- `project_revoluzen_flow_v1_demo_prerun_impact_card_2026-05-19.md` — the v1.0 demo this grammar makes possible
+- `project_revoluzen_flow_local_llm_floor_revision_2026-05-19.md` — Tier 2 model floor
+- `project_revoluzen_flow_positioning_lock_2026-05-03.md` — "Governed data system with AI inside"
+- `project_revoluzen_flow_local_only_lock_2026-05-03.md` — local-first principle
+- `project_revoluzen_flow_oss_resilience_table_stakes_2026-05-10.md` — OSS gets table-stakes resilience
 
 **Existing primitives this builds on:**
 - Schema propagation

@@ -93,7 +93,7 @@ def admin_client(app_v2, anon_client):
         pytest.skip(f"login returned no token: {r.text[:200]}")
 
     # The login above was driven through anon_client, and the BFF login plants
-    # an HttpOnly fpulse_session cookie that TestClient keeps in its jar.
+    # an HttpOnly revoluzen_flow_session cookie that TestClient keeps in its jar.
     # require_auth accepts that cookie as well as the bearer header, so leaving
     # it would make anon_client silently authenticated and the anonymous-access
     # assertions below would pass against a logged-in session.
@@ -102,7 +102,7 @@ def admin_client(app_v2, anon_client):
     c = TestClient(app_v2, base_url=LOOPBACK_BASE)
     c.headers["Authorization"] = f"Bearer {tok}"
     c.cookies.set("session", tok)
-    c.cookies.set("fpulse_session", tok)
+    c.cookies.set("revoluzen_flow_session", tok)
     with c:
         yield c
 

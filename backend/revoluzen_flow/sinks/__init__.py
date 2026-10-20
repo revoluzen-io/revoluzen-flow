@@ -15,7 +15,7 @@ sink ``BaseNode`` classes):
   • ``revoluzen_flow.sinks`` is the shared concern surface for *all* external
     sinks — email, webhook, api, kafka, slack. The dedupe store lives
     here because the storage is shared (a single ``sink_idempotency``
-    table inside ``fpulse.db``) and the lookup helper is shared (one
+    table inside ``revoluzen_flow.db``) and the lookup helper is shared (one
     ``compute_row_hash`` + ``should_skip`` pair used by every sink
     class).
 

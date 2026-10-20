@@ -148,7 +148,7 @@ function Test-CmdlineMatches {
     $clSlash = $cl.Replace('\', '/')
     switch ($Kind) {
         'backend' {
-            return ($cl -match 'uvicorn' -and $cl -match 'fpulse\.main')
+            return ($cl -match 'uvicorn' -and $cl -match 'revoluzen-flow\.main')
         }
         'frontend' {
             # Repo path REQUIRED for frontend (no exception). "vite" alone

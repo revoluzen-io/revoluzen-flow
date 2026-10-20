@@ -179,7 +179,7 @@ try {
 import os, sys, tempfile, uuid
 os.environ.setdefault('REVOLUZEN_FLOW_MODE', 'dev')
 import duckdb
-tmp = tempfile.mkdtemp(prefix='fpulse-smoke-')
+tmp = tempfile.mkdtemp(prefix='revoluzen-flow-smoke-')
 parquet_path = os.path.join(tmp, f'part-000-{uuid.uuid4().hex[:8]}.parquet')
 conn = duckdb.connect()
 try:

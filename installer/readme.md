@@ -42,7 +42,7 @@ Each installer bundles:
 
 ```
 installer/windows/
-├── fpulse.iss             # Inno Setup script — input
+├── revoluzen-flow.iss             # Inno Setup script — input
 ├── build.ps1              # one-command build wrapper
 ├── icons/                 # branding (the .ico file Inno embeds)
 └── output/                # RevoluzenFlow-Setup-1.0.0.exe lands here
@@ -66,7 +66,7 @@ What `build.ps1` does:
    pinned to Python 3.12 from `..\..\.venv` so the bundled runtime
    matches CI.
 3. Runs `npm run build` in `frontend/` so `frontend/dist/` is fresh.
-4. Calls `ISCC.exe fpulse.iss` to compile the installer.
+4. Calls `ISCC.exe revoluzen-flow.iss` to compile the installer.
 5. Optionally signs the result (`signtool.exe`) if `-CertThumbprint`
    is passed.
 
@@ -112,8 +112,8 @@ which writes the LaunchAgent under `~/Library/LaunchAgents/`.
 
 ```
 installer/linux/
-├── build-deb.sh           # produces fpulse_1.0.0_amd64.deb
-├── build-rpm.sh           # produces fpulse-1.0.0.x86_64.rpm
+├── build-deb.sh           # produces revoluzen_flow_1.0.0_amd64.deb
+├── build-rpm.sh           # produces revoluzen-flow-1.0.0.x86_64.rpm
 ├── build-appimage.sh      # produces RevoluzenFlow-1.0.0-x86_64.AppImage
 └── debian/                # .deb metadata (control, postinst, prerm, ...)
 ```
@@ -154,7 +154,7 @@ Two paths, depending on how the user installed:
 
 | Install path | Update command |
 |---|---|
-| `pip install revoluzen-flow` | `pip install -U fpulse` |
+| `pip install revoluzen-flow` | `pip install -U revoluzen-flow` |
 | Packaged installer | Download new installer; run it. The installer detects the existing install, stops the service, swaps files, restarts. |
 | Docker | `docker compose pull && docker compose up -d` |
 
@@ -188,7 +188,7 @@ from env vars (`REVOLUZEN_FLOW_WIN_CERT_THUMBPRINT`, `REVOLUZEN_FLOW_MACOS_SIGN_
 |---|---|---|---|---|
 | **Windows** | `%PROGRAMFILES%\RevoluzenFlow\` | `%LOCALAPPDATA%\RevoluzenFlow\data` | Scheduled Task `RevoluzenFlow` | `%LOCALAPPDATA%\RevoluzenFlow\logs\` |
 | **macOS** | `/Applications/RevoluzenFlow.app/` | `~/Library/Application Support/RevoluzenFlow` | `~/Library/LaunchAgents/com.revoluzen.flow.plist` | `~/Library/Logs/RevoluzenFlow/` |
-| **Linux** | `/usr/lib/fpulse/` + symlink in `/usr/bin/fpulse` | `~/.local/share/fpulse` | `~/.config/systemd/user/fpulse.service` | `journalctl --user -u fpulse` |
+| **Linux** | `/usr/lib/revoluzen-flow/` + symlink in `/usr/bin/revoluzen` | `~/.local/share/revoluzen-flow` | `~/.config/systemd/user/revoluzen-flow.service` | `journalctl --user -u revoluzen-flow` |
 
 These paths match what `revoluzen install-service` / `_default_data_dir()`
 in `backend/revoluzen_flow/cli/install_service.py` use, so the CLI-installed

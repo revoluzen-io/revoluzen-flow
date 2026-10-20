@@ -19,33 +19,33 @@ from revoluzen_flow.engine.checkpoint_store import Checkpoint, CheckpointStore
 
 
 @pytest.fixture
-def checkpoint_store(_fpulse_test_db):
-    return CheckpointStore(db=_fpulse_test_db)
+def checkpoint_store(_revoluzen_flow_test_db):
+    return CheckpointStore(db=_revoluzen_flow_test_db)
 
 
 # ── Schema migration v23 ─────────────────────────────────────────────
 
 
 class TestSchemaMigrationV23:
-    def test_pipeline_checkpoints_table_exists(self, _fpulse_test_db):
+    def test_pipeline_checkpoints_table_exists(self, _revoluzen_flow_test_db):
         # Database() in conftest runs migrations to current SCHEMA_VERSION.
-        row = _fpulse_test_db.fetchone(
+        row = _revoluzen_flow_test_db.fetchone(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='pipeline_checkpoints'"
         )
         assert row is not None, "pipeline_checkpoints table missing — migration v23 did not run"
 
-    def test_status_check_constraint(self, _fpulse_test_db):
+    def test_status_check_constraint(self, _revoluzen_flow_test_db):
         """Inserting an invalid status string must raise."""
         with pytest.raises(Exception):
-            _fpulse_test_db.execute(
+            _revoluzen_flow_test_db.execute(
                 "INSERT INTO pipeline_checkpoints "
                 "(workflow_id, run_id, step_id, status) VALUES (?, ?, ?, ?)",
                 ("wf", "run", "s1", "garbage"),
             )
-            _fpulse_test_db.commit()
+            _revoluzen_flow_test_db.commit()
 
-    def test_indexes_present(self, _fpulse_test_db):
-        rows = _fpulse_test_db.fetchall(
+    def test_indexes_present(self, _revoluzen_flow_test_db):
+        rows = _revoluzen_flow_test_db.fetchall(
             "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='pipeline_checkpoints'"
         )
         names = {r["name"] for r in rows}

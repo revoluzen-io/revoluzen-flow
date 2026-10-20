@@ -71,10 +71,10 @@ const GROUP_PAGE_SIZE = 60;
 const RECENT_MAX = 8;
 
 function recentKey(connectionId: string): string {
-  return `fpulse_catalog_recent_${connectionId}`;
+  return `revoluzen_flow_catalog_recent_${connectionId}`;
 }
 function collapsedKey(connectionId: string): string {
-  return `fpulse_catalog_collapsed_${connectionId}`;
+  return `revoluzen_flow_catalog_collapsed_${connectionId}`;
 }
 
 function readRecent(connectionId: string): CatalogItem[] {

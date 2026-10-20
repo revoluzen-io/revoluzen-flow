@@ -1,7 +1,7 @@
 """
 Tool-tier RBAC for the agent loop.
 
-Per architecture (`project_fpulse_ai_operational_architecture.md`):
+Per architecture (`project_revoluzen_flow_ai_operational_architecture.md`):
   Authorization = "Is the user allowed to attempt this action?"
   Policy        = "Is this action allowed in this context right now?"
 

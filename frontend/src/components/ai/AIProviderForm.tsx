@@ -437,7 +437,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
       // importantly the floating Copilot dock's AgentChatPanel) refreshes
       // its status header without a full page reload.
       try {
-        window.dispatchEvent(new CustomEvent('fpulse:ai_config_changed', {
+        window.dispatchEvent(new CustomEvent('revoluzen-flow:ai_config_changed', {
           detail: { provider: row.provider, model: row.model },
         }));
       } catch { /* ignore */ }

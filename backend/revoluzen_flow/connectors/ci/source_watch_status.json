@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-10-20T09:20:59.036766+00:00",
+  "signals": [
+    {
+      "connector_id": "github",
+      "fingerprint": null,
+      "kind": "api_version",
+      "observed": "2026-03-10",
+      "pinned": "2022-11-28",
+      "severity": "critical",
+      "summary": "vendor advertises API version '2026-03-10'; this connector is pinned to '2022-11-28'"
+    },
+    {
+      "connector_id": "github",
+      "fingerprint": "3177ad6a86ca04c57a9bef3fc24e28a339efb8eb040c6f950af3d3ed2fee7fa3",
+      "kind": "spec",
+      "observed": "3177ad6a86ca",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    },
+    {
+      "connector_id": "stripe",
+      "fingerprint": "7cff4cc46d0654101a36a3302f7544640f5f73e4f3cad6f264f0e23c19fa1776",
+      "kind": "spec",
+      "observed": "7cff4cc46d06",
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec fingerprint recorded for the first time"
+    }
+  ],
+  "unwatched": [
+    "airtable",
+    "asana",
+    "confluence",
+    "datadog",
+    "dynamics365",
+    "elasticsearch",
+    "facebook_ads",
+    "freshdesk",
+    "gitlab",
+    "google_ads",
+    "google_analytics",
+    "hubspot",
+    "intercom",
+    "jira",
+    "linkedin_ads",
+    "mailchimp",
+    "monday",
+    "ms_teams",
+    "netsuite",
+    "notion",
+    "pagerduty",
+    "pipedrive",
+    "quickbooks",
+    "rabbitmq",
+    "redis",
+    "salesforce",
+    "sap_odata",
+    "sendgrid",
+    "servicenow",
+    "shopify",
+    "slack_api",
+    "twilio",
+    "workday",
+    "zendesk",
+    "zoho_crm"
+  ],
+  "watched": 2,
+  "worst_severity": "critical"
+}

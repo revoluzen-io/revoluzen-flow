@@ -68,7 +68,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
   // then refreshed from /auth/me so we never show stale role/env data after
   // an admin has updated the user behind their back.
   const [user, setUser] = useState<any>(() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_user') || 'null'); }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null'); }
     catch { return null; }
   });
 
@@ -94,7 +94,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
         if (cancelled) return;
         setUser(fresh);
         // Keep localStorage in sync so the rest of the app sees the same data
-        localStorage.setItem('fpulse_user', JSON.stringify(fresh));
+        localStorage.setItem('revoluzen_flow_user', JSON.stringify(fresh));
       })
       .catch(() => { /* token may be invalid — let App.tsx handle re-login */ });
     return () => { cancelled = true; };
@@ -121,7 +121,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
       const res = await api.updateMyProfile({ name: nameDraft.trim() });
       if (res.updated && res.user) {
         setUser(res.user);
-        localStorage.setItem('fpulse_user', JSON.stringify(res.user));
+        localStorage.setItem('revoluzen_flow_user', JSON.stringify(res.user));
         onProfileUpdated?.(res.user);
         setEditingName(false);
         setProfileMsg({ type: 'ok', text: 'Profile updated.' });
@@ -217,7 +217,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
 
   // Env-aware header treatment — every page in the app flips to a dark
   // slate-900 banner with a red PROD chip when environment === 'prod'
-  // (see feedback_fpulse_page_header_standard.md). Account page was the
+  // (see feedback_revoluzen_flow_page_header_standard.md). Account page was the
   // one exception; this restores cross-app consistency so an admin who
   // switches to PROD sees the same visual signal everywhere.
   const isProd = environment === 'prod';

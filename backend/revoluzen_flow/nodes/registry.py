@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 # imports (e.g. WorkflowExecutor held by a pre-wipe test module) read
 # from an empty Mv1 dict while the populated registry lives in Mv2 —
 # every execute_workflow() then raises "No node registered for type".
-_SENTINEL = "_fpulse_node_registry"
+_SENTINEL = "_revoluzen_flow_node_registry"
 if not hasattr(sys, _SENTINEL):
     setattr(sys, _SENTINEL, {})
 _REGISTRY: dict[StepType, type["BaseNode"]] = getattr(sys, _SENTINEL)

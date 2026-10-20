@@ -238,15 +238,15 @@ class TestCdcOffsets:
         save_cdc_offset(
             conn,
             workflow_id="wf1",
-            slot_name="fpulse_slot",
+            slot_name="revoluzen_flow_slot",
             last_lsn=12345,
-            publication="fpulse_pub",
+            publication="revoluzen_flow_pub",
             event_count=100,
         )
-        row = load_cdc_offset(conn, "wf1", "fpulse_slot")
+        row = load_cdc_offset(conn, "wf1", "revoluzen_flow_slot")
         assert row is not None
         assert row["last_lsn"] == 12345
-        assert row["publication"] == "fpulse_pub"
+        assert row["publication"] == "revoluzen_flow_pub"
         assert row["event_count"] == 100
 
     def test_save_is_idempotent_upsert(self, conn):

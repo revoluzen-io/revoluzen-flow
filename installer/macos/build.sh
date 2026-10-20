@@ -65,10 +65,10 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 ( cd "$REPO_ROOT" && \
   "$PYTHON" -m PyInstaller \
     --onedir --noconfirm --clean \
-    --name fpulse \
+    --name revoluzen-flow \
     --paths backend \
     --hidden-import revoluzen_flow.main \
-    --collect-all fpulse \
+    --collect-all revoluzen-flow \
     --collect-all duckdb \
     --collect-all fastapi \
     --collect-all uvicorn \
@@ -78,11 +78,11 @@ PYTHON="$REPO_ROOT/.venv/bin/python"
 # ── 3. Assemble .app bundle ──
 echo "  [3/4] Assembling .app bundle + Info.plist..."
 
-# Tiny launcher that exec's the bundled fpulse with `serve`
+# Tiny launcher that exec's the bundled revoluzen-flow with `serve`
 cat > "$APP_BUNDLE/Contents/MacOS/RevoluzenFlow" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(cd "$(dirname "$0")" && pwd)"
-exec "$HERE/../Resources/fpulse/fpulse" serve
+exec "$HERE/../Resources/revoluzen-flow/revoluzen_flow" serve
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/RevoluzenFlow"
 
@@ -95,7 +95,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key>          <string>com.revoluzen.flow</string>
   <key>CFBundleName</key>                <string>Revoluzen Flow</string>
   <key>CFBundleDisplayName</key>         <string>Revoluzen Flow</string>
-  <key>CFBundleIconFile</key>            <string>fpulse</string>
+  <key>CFBundleIconFile</key>            <string>revoluzen-flow</string>
   <key>CFBundleVersion</key>             <string>$VERSION</string>
   <key>CFBundleShortVersionString</key>  <string>$VERSION</string>
   <key>CFBundlePackageType</key>         <string>APPL</string>
@@ -106,12 +106,12 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-# Brand icon: build fpulse.icns from the logo. sips + iconutil are macOS
+# Brand icon: build revoluzen-flow.icns from the logo. sips + iconutil are macOS
 # built-ins, so no extra tooling. The Info.plist above points
-# CFBundleIconFile at "fpulse" (-> fpulse.icns in Resources).
-LOGO="$REPO_ROOT/frontend/public/fpulse-logo-mark.png"
+# CFBundleIconFile at "revoluzen-flow" (-> revoluzen-flow.icns in Resources).
+LOGO="$REPO_ROOT/frontend/public/revoluzen-flow-logo-mark.png"
 if [[ -f "$LOGO" ]] && command -v iconutil >/dev/null 2>&1; then
-  ICONSET="$BUILD_DIR/fpulse.iconset"
+  ICONSET="$BUILD_DIR/revoluzen-flow.iconset"
   rm -rf "$ICONSET"; mkdir -p "$ICONSET"
   sips -z 16   16   "$LOGO" --out "$ICONSET/icon_16x16.png"      >/dev/null
   sips -z 32   32   "$LOGO" --out "$ICONSET/icon_16x16@2x.png"   >/dev/null
@@ -123,8 +123,8 @@ if [[ -f "$LOGO" ]] && command -v iconutil >/dev/null 2>&1; then
   sips -z 512  512  "$LOGO" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
   sips -z 512  512  "$LOGO" --out "$ICONSET/icon_512x512.png"    >/dev/null
   sips -z 1024 1024 "$LOGO" --out "$ICONSET/icon_512x512@2x.png" >/dev/null
-  iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/fpulse.icns"
-  echo "      brand icon: fpulse.icns generated"
+  iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/revoluzen-flow.icns"
+  echo "      brand icon: revoluzen-flow.icns generated"
 else
   echo "      (logo or iconutil missing - .app will use the default icon)"
 fi
@@ -173,7 +173,7 @@ if [[ -n "$NOTARIZE" ]]; then
   echo "  Notarizing — this can take 5-15 min..."
   xcrun notarytool submit "$PRODUCT_PKG" \
     --apple-id "$APPLE_ID" --team-id "$TEAM_ID" \
-    --keychain-profile fpulse-notary --wait
+    --keychain-profile revoluzen-flow-notary --wait
   xcrun stapler staple "$PRODUCT_PKG"
 fi
 

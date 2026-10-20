@@ -163,13 +163,13 @@ class TestPutCopyPipeline:
         assert result.rows_loaded == 2
         sqls = _execed_sqls(fake_driver.next_conn)
         # Stage create
-        assert any("CREATE STAGE IF NOT EXISTS" in s and "fpulse_bulk" in s for s in sqls)
+        assert any("CREATE STAGE IF NOT EXISTS" in s and "revoluzen_flow_bulk" in s for s in sqls)
         # PUT
-        assert any(s.startswith("PUT 'file://") and "@~/fpulse_bulk" in s for s in sqls)
+        assert any(s.startswith("PUT 'file://") and "@~/revoluzen_flow_bulk" in s for s in sqls)
         # COPY INTO target
         assert any("COPY INTO " in s and '"public"."customers"' in s for s in sqls)
         # Remove from stage
-        assert any(s.startswith("REMOVE @~/fpulse_bulk/") for s in sqls)
+        assert any(s.startswith("REMOVE @~/revoluzen_flow_bulk/") for s in sqls)
         assert fake_driver.next_conn.committed
 
     def test_create_drops_then_creates_then_copies(self, fake_driver, tmp_path):
@@ -192,7 +192,7 @@ class TestPutCopyPipeline:
         )
         copy_idx = next(
             i for i, e in enumerate(events)
-            if e["kind"] == "execute" and "COPY INTO" in e["sql"] and "FROM @~/fpulse_bulk" in e["sql"]
+            if e["kind"] == "execute" and "COPY INTO" in e["sql"] and "FROM @~/revoluzen_flow_bulk" in e["sql"]
         )
         assert truncate_idx < copy_idx
 
@@ -210,7 +210,7 @@ class TestMerge:
         # Temp table created.
         assert any("CREATE TEMPORARY TABLE" in s and "REVOLUZEN_FLOW_BULK_STAGE" in s for s in sqls)
         # COPY INTO targets the staging table (not the real table).
-        copy_sqls = [s for s in sqls if "COPY INTO" in s and "FROM @~/fpulse_bulk" in s]
+        copy_sqls = [s for s in sqls if "COPY INTO" in s and "FROM @~/revoluzen_flow_bulk" in s]
         assert len(copy_sqls) == 1
         assert "REVOLUZEN_FLOW_BULK_STAGE" in copy_sqls[0]
         assert '"public"."customers"' not in copy_sqls[0]
@@ -311,7 +311,7 @@ class TestErrorPath:
             plugin.load(_make_request(mode="append", staging_dir=str(tmp_path)))
 
         assert fake_driver.next_conn.rolled_back
-        # REMOVE @~/fpulse_bulk/... must still run even on failure so the
+        # REMOVE @~/revoluzen_flow_bulk/... must still run even on failure so the
         # user stage doesn't accumulate orphan files.
         sqls = _execed_sqls(fake_driver.next_conn)
-        assert any(s.startswith("REMOVE @~/fpulse_bulk/") for s in sqls)
+        assert any(s.startswith("REMOVE @~/revoluzen_flow_bulk/") for s in sqls)

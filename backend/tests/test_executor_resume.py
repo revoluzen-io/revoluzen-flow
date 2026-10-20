@@ -23,7 +23,7 @@ from revoluzen_flow.engine.checkpoint_store import get_checkpoint_store
 
 class TestWorkflowResume:
     def test_resume_short_circuits_cached_steps(
-        self, sample_csv_file, temp_data_dir, _fpulse_test_db,
+        self, sample_csv_file, temp_data_dir, _revoluzen_flow_test_db,
     ):
         """First run populates the step cache. Second run with
         resume_from_run_id loads s1 from snapshot — verified by checking
@@ -66,7 +66,7 @@ class TestWorkflowResume:
         assert second.step_results["s2"].duration_ms == 0.0
 
     def test_resume_partial_failure_continues_from_first_failure(
-        self, sample_csv_file, temp_data_dir, _fpulse_test_db,
+        self, sample_csv_file, temp_data_dir, _revoluzen_flow_test_db,
     ):
         """Manually simulate a partial-failure run: only s1 succeeded,
         s2 failed (no parquet for s2). On resume, s1 loads from cache,

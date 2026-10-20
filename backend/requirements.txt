@@ -129,10 +129,10 @@ starlette>=0.40
 requests>=2.31
 prometheus-client>=0.19
 
-# 2026-06-18: pywebview powers `fpulse app` — the native desktop window
+# 2026-06-18: pywebview powers `revoluzen-flow app` — the native desktop window
 # (resizable, sized-to-fit, no browser chrome). On Windows it uses the
 # built-in WebView2 runtime via pythonnet (pulled automatically). If
-# unavailable, `fpulse app` falls back to a Chromium --app window, so this
+# unavailable, `revoluzen-flow app` falls back to a Chromium --app window, so this
 # is effectively required only for the best desktop experience.
 pywebview>=5.0
 

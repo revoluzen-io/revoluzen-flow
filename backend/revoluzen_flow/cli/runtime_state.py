@@ -201,7 +201,7 @@ def _port_holder_pid(port: int) -> int:
     return 0
 
 
-def is_owned_fpulse(pid: int, expected_port: int, kind: str,
+def is_owned_revoluzen_flow(pid: int, expected_port: int, kind: str,
                      cwd_marker: str = "") -> bool:
     """The three-signal ownership check.
 
@@ -259,13 +259,13 @@ def is_owned_fpulse(pid: int, expected_port: int, kind: str,
 
 def stop_owned_process(pid: int, expected_port: int, kind: str,
                         cwd_marker: str = "", timeout: float = 5.0) -> bool:
-    """Stop a process if and only if is_owned_fpulse confirms ownership.
+    """Stop a process if and only if is_owned_revoluzen_flow confirms ownership.
 
     Tries a graceful terminate first, escalates to kill if the process
     doesn't exit within ``timeout``. Returns True on success, False if
     the ownership check rejected the kill.
     """
-    if not is_owned_fpulse(pid, expected_port, kind, cwd_marker):
+    if not is_owned_revoluzen_flow(pid, expected_port, kind, cwd_marker):
         return False
     try:
         import psutil  # type: ignore

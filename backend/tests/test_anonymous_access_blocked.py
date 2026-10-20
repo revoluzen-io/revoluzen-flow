@@ -26,7 +26,7 @@ def _really_anonymous(client: TestClient):
     Every assertion here is of the form "an unauthenticated caller must be
     refused", so the whole file is worthless if the client carries a session.
     It silently did: `admin_token` used to log in through this same
-    module-scoped `client`, which left `fpulse_session` on its cookie jar, so
+    module-scoped `client`, which left `revoluzen_flow_session` on its cookie jar, so
     these tests passed or failed depending on whether an authenticated fixture
     had been instantiated first. The fixture no longer does that, and this
     guard keeps the file honest if anything reintroduces it -- a security test

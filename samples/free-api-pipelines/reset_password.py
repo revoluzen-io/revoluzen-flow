@@ -2,11 +2,11 @@
 
 Usage (from the backend dir so the imports resolve):
     cd backend
-    python ..\\samples\\free-api-pipelines\\reset_password.py admin@fpulse.local NewPass123!
+    python ..\\samples\\free-api-pipelines\\reset_password.py admin@revoluzen.local NewPass123!
 
 After running, log into the UI with that email/password to confirm, then run:
     cd ..\\samples\\free-api-pipelines
-    .\\import.ps1 -Email admin@fpulse.local -Password "NewPass123!"
+    .\\import.ps1 -Email admin@revoluzen.local -Password "NewPass123!"
 """
 
 from __future__ import annotations

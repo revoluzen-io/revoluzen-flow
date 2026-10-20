@@ -552,7 +552,7 @@ def cmd_seed_admin(args):
     looks_dev = env in ("dev", "development", "local", "test", "ci")
     if not looks_dev and not args.force:
         print(
-            f"Refusing to seed admin: this resets admin@fpulse.local to the "
+            f"Refusing to seed admin: this resets admin@revoluzen.local to the "
             f"known password 'admin' and bypasses the password policy, so it "
             f"only runs when the environment explicitly says dev. Got "
             f"REVOLUZEN_FLOW_ENV={env or '<unset>'!r}, REVOLUZEN_FLOW_MODE={mode or '<unset>'!r}. "
@@ -575,7 +575,7 @@ def cmd_seed_admin(args):
     from revoluzen_flow.auth.store import UserStore
     from revoluzen_flow.auth.models import User
 
-    db = Database(os.path.join(data_dir, "fpulse.db"))
+    db = Database(os.path.join(data_dir, "revoluzen_flow.db"))
     try:
         users = UserStore(db=db)
         admin = users.get_user("admin")
@@ -592,7 +592,7 @@ def cmd_seed_admin(args):
         admin.is_active = True
         users._save_user(admin)
         print(
-            "Revoluzen Flow dev-seed: admin@fpulse.local password reset to 'admin'.\n"
+            "Revoluzen Flow dev-seed: admin@revoluzen.local password reset to 'admin'.\n"
             "Run scripts/seed-test-users.ps1 to create the 4 test users.",
         )
     finally:
@@ -780,7 +780,7 @@ def cmd_reconcile_audit(args):
         sys.exit(2)
 
     from revoluzen_flow.storage.database import Database
-    db = Database(os.path.join(data_dir, "fpulse.db"))
+    db = Database(os.path.join(data_dir, "revoluzen_flow.db"))
 
     pg = None
     if pg_url:
@@ -1155,11 +1155,11 @@ def cmd_backup(args):
         out = f"revoluzen_flow-backup-{ts}.tar.gz"
     out_path = os.path.abspath(out)
 
-    db_src = os.path.join(data_dir, "fpulse.db")
+    db_src = os.path.join(data_dir, "revoluzen_flow.db")
     with tempfile.TemporaryDirectory() as staging:
         # 1. SQLite online-backup → atomic .db copy that won't tear under WAL writes
         if os.path.exists(db_src):
-            db_dst = os.path.join(staging, "fpulse.db")
+            db_dst = os.path.join(staging, "revoluzen_flow.db")
             src = sqlite3.connect(db_src)
             try:
                 dst = sqlite3.connect(db_dst)
@@ -1174,12 +1174,12 @@ def cmd_backup(args):
         # 2. tar.gz: the online-backup'd DB + everything else (uploads,
         # step-cache parquets, sample data). The original .db is replaced
         # by the snapshot when we walk data_dir below.
-        snapshot_db_path = os.path.join(staging, "fpulse.db") if os.path.exists(db_src) else None
+        snapshot_db_path = os.path.join(staging, "revoluzen_flow.db") if os.path.exists(db_src) else None
 
         with tarfile.open(out_path, "w:gz") as tar:
             for root, _dirs, files in os.walk(data_dir):
                 for name in files:
-                    if name in {"fpulse.db", "fpulse.db-wal", "fpulse.db-shm"}:
+                    if name in {"revoluzen_flow.db", "revoluzen_flow.db-wal", "revoluzen_flow.db-shm"}:
                         # Skip live DB files; we add the online-backup'd copy below.
                         continue
                     fpath = os.path.join(root, name)
@@ -1189,7 +1189,7 @@ def cmd_backup(args):
                     except (OSError, FileNotFoundError) as exc:
                         print(f"  Skipped {arcname}: {exc}", file=sys.stderr)
             if snapshot_db_path:
-                tar.add(snapshot_db_path, arcname="fpulse.db")
+                tar.add(snapshot_db_path, arcname="revoluzen_flow.db")
 
     size_mb = os.path.getsize(out_path) / (1024 * 1024)
     print(f"Backup written to {out_path} ({size_mb:.1f} MB)")

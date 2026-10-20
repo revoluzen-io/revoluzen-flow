@@ -18,6 +18,7 @@ import { useDarkMode } from '../hooks/useDarkMode';
 // See `ensureNamedAndPersist` below for the migration shim.
 import TierChip from './shared/TierChip';
 import HubTabs, { WORKFLOWS_TABS } from './HubTabs';
+import { APP_VERSION } from '../appMeta';
 
 export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?: string; environment?: 'dev' | 'prod' }) {
   const dark = useDarkMode();
@@ -158,7 +159,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     // Unsaved-draft path (or backend-export-failed fallback). Mark
     // scope clearly so /import can recognise it isn't a full export.
     const pipeline = {
-      revoluzen_flow_version: '1.0.0',
+      revoluzen_flow_version: APP_VERSION,
       format_version: 2,
       export_type: 'pipeline',
       scope: 'canvas_draft',
@@ -193,7 +194,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
   // 2026-05-23 (Y8) — shared importer used by both the file-input
   // ("Import from JSON file") and the Storage page's "Open in Editor"
   // handoff. Storage stores the raw bytes in sessionStorage under
-  // `fpulse_pending_import` and routes here; we pick the JSON up on
+  // `revoluzen_flow_pending_import` and routes here; we pick the JSON up on
   // mount via the effect below and run the same logic.
   const processImportedJson = async (data: any, sourceLabel?: string) => {
     try {
@@ -300,7 +301,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
 
         // 2026-05-22 — run the legacy-node migration on imported
         // steps (audit O5 / R3). The backend has the canonical
-        // migration (fpulse/ir/migrations.py) but it only fires on
+        // migration (revoluzen_flow/ir/migrations.py) but it only fires on
         // workflow-store load/save paths. The Toolbar JSON import
         // bypasses that, so older sample files would have landed on
         // the canvas with legacy types.
@@ -383,7 +384,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
   };
 
   // 2026-05-23 (Y8) — Storage → Editor handoff. The StoragePreviewDrawer
-  // sets sessionStorage['fpulse_pending_import'] to the raw JSON text
+  // sets sessionStorage['revoluzen_flow_pending_import'] to the raw JSON text
   // and navigates to #editor. We pick it up here on mount, run it
   // through the same import path the file-input uses, and clear the
   // key so it doesn't fire again on the next render.
@@ -391,15 +392,15 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     let pending: string | null = null;
     let source: string | null = null;
     try {
-      pending = sessionStorage.getItem('fpulse_pending_import');
-      source = sessionStorage.getItem('fpulse_pending_import_source');
+      pending = sessionStorage.getItem('revoluzen_flow_pending_import');
+      source = sessionStorage.getItem('revoluzen_flow_pending_import_source');
     } catch {
       return;
     }
     if (!pending) return;
     try {
-      sessionStorage.removeItem('fpulse_pending_import');
-      sessionStorage.removeItem('fpulse_pending_import_source');
+      sessionStorage.removeItem('revoluzen_flow_pending_import');
+      sessionStorage.removeItem('revoluzen_flow_pending_import_source');
     } catch { /* ignore */ }
     try {
       const data = JSON.parse(pending);
@@ -437,7 +438,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
       const hasError = results.some((r: any) => r?.status === 'error');
       const allCanvasNodesSucceeded = latest.nodes.length > 0 && latest.nodes.every((n) => n.data?.status === 'success');
       if (!hasError && allCanvasNodesSucceeded) {
-        try { localStorage.setItem('fpulse_storage_tab', 'tables'); } catch { /* ignore */ }
+        try { localStorage.setItem('revoluzen_flow_storage_tab', 'tables'); } catch { /* ignore */ }
         navigateTo('storage');
       }
     }
@@ -654,7 +655,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
             {/*
               2026-05-22 — switched from the AI sparks / lightning-bolt
               polygon to a pencil glyph. The canonical icon table
-              (memory rule `feedback_fpulse_icon_consistency.md`,
+              (memory rule `feedback_revoluzen_flow_icon_consistency.md`,
               2026-05-12) says Editor = pencil; the lightning bolt is
               the AI / sparks symbol and was misleading the user into
               reading the Editor page header as "AI-powered Editor"
@@ -1157,7 +1158,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
           // Surface a deep-link the user can follow once Executions
           // page picks up the new Backfills tab.
           try {
-            sessionStorage.setItem('fpulse_focused_backfill_id', backfillId);
+            sessionStorage.setItem('revoluzen_flow_focused_backfill_id', backfillId);
           } catch { /* ignore */ }
         }}
       />

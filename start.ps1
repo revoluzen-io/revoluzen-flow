@@ -13,12 +13,12 @@
 #   - Hard-coded ports are never assumed free. Always probe first.
 #   - A process is NEVER killed unless we recorded its PID in our own
 #     ownership file AND it still passes the 3-signal identity check.
-#   - "vite" / "fpulse" in a stranger's command line is NOT enough.
+#   - "vite" / "revoluzen-flow" in a stranger's command line is NOT enough.
 #   - -Force skips ONLY the interactive prompt; ownership rules apply.
 #
 # What changed from v1 (reviewer audit 2026-06-06):
 #   v1 inspected the holder's command line via wmic and offered to kill
-#   anything matching "vite|fpulse". That's a heuristic ownership claim,
+#   anything matching "vite|revoluzen-flow". That's a heuristic ownership claim,
 #   not a real one - another developer's Vite project on 5174 could pass
 #   the check and get killed. v2 keeps a runtime ownership file that
 #   records the PIDs we ourselves spawned. We only stop those.
@@ -181,7 +181,7 @@ Write-Host ""
 # the very first npm-run-dev. PIDs get filled in after the children bind.
 $instance = @{
     schema_version = 1
-    instance_id    = "fpulse-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+    instance_id    = "revoluzen-flow-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
     frontend_port  = $frontendPort
     backend_port   = $backendPort
     frontend_pid   = 0

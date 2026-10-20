@@ -274,5 +274,5 @@ def mcp_discovery() -> dict[str, Any]:
         "transport": "http+jsonrpc",
         "auth": "bearer-optional",
         "tool_tiers_exposed": [t.value for t in _allowed_tiers()],
-        "documentation": "https://docs.fpulse.io/mcp",
+        "documentation": "https://docs.revoluzen.io/mcp",
     }

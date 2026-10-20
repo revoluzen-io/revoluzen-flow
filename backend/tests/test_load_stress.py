@@ -14,7 +14,7 @@ Marked as ``stress`` so CI (and local dev) can deselect them via
 gates running fast.
 
 FIXED (2026-07-03): store-based tests now take the shared ``db``
-fixture (the conftest ``_fpulse_test_db`` — a per-test migrated
+fixture (the conftest ``_revoluzen_flow_test_db`` — a per-test migrated
 SQLite Database) and construct stores as ``WorkflowStore(db=db)``.
 Previously the bare ``WorkflowStore()`` / ``ProjectStore()``
 constructions left ``store._db = None`` and NPE'd at the first
@@ -54,13 +54,13 @@ from revoluzen_flow.engine.executor import WorkflowExecutor
 
 
 @pytest.fixture
-def db(_fpulse_test_db):
+def db(_revoluzen_flow_test_db):
     """Alias for the conftest per-test migrated SQLite Database.
 
     Stores in these load tests are constructed with ``db=db`` so they
     bind to a real schema instead of NPE-ing on a ``None`` connection.
     """
-    return _fpulse_test_db
+    return _revoluzen_flow_test_db
 
 
 # ═══════════════════════════════════════════

@@ -16,7 +16,7 @@
 # docs/deployment.md.
 # ─────────────────────────────────────────────────────────────────────────
 
-app = "fpulse"
+app = "revoluzen-flow"
 primary_region = "iad"
 
 [build]

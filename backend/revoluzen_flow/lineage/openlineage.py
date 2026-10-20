@@ -167,7 +167,7 @@ def to_openlineage_run_event(
     # Row-count facet - non-standard but commonly added; many tools
     # render it as "rows produced this run."
     if step_run.get("rows_out", 0) > 0:
-        run_facets["fpulse_runtime_stats"] = {
+        run_facets["revoluzen_flow_runtime_stats"] = {
             "_producer": _producer(),
             "_schemaURL": OPENLINEAGE_SCHEMA_URL,
             "rows_in":  step_run.get("rows_in", 0),

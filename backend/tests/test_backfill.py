@@ -188,8 +188,8 @@ class TestParamBinding:
 
 
 class TestBackfillStore:
-    def test_parent_and_children_roundtrip(self, _fpulse_test_db):
-        store = BackfillStore(db=_fpulse_test_db)
+    def test_parent_and_children_roundtrip(self, _revoluzen_flow_test_db):
+        store = BackfillStore(db=_revoluzen_flow_test_db)
         parent = BackfillRun(
             pipeline_id="wf1",
             window_start="2026-01-01T00:00:00+00:00",
@@ -219,8 +219,8 @@ class TestBackfillStore:
         # Children sorted by window_start ascending
         assert loaded_children[0].window_start < loaded_children[-1].window_start
 
-    def test_parent_aggregate_rollup_after_child_status_change(self, _fpulse_test_db):
-        store = BackfillStore(db=_fpulse_test_db)
+    def test_parent_aggregate_rollup_after_child_status_change(self, _revoluzen_flow_test_db):
+        store = BackfillStore(db=_revoluzen_flow_test_db)
         parent = BackfillRun(
             pipeline_id="wf1",
             window_start="2026-01-01T00:00:00+00:00",
@@ -251,8 +251,8 @@ class TestBackfillStore:
         assert reloaded.failed_windows == 1
         assert reloaded.status == BackfillStatus.PARTIAL
 
-    def test_cancel_marks_parent_cancelled(self, _fpulse_test_db):
-        store = BackfillStore(db=_fpulse_test_db)
+    def test_cancel_marks_parent_cancelled(self, _revoluzen_flow_test_db):
+        store = BackfillStore(db=_revoluzen_flow_test_db)
         parent = BackfillRun(
             pipeline_id="wf1",
             window_start="2026-01-01T00:00:00+00:00",
@@ -307,12 +307,12 @@ def _make_param_backed_workflow(window_start_name: str = "window_start",
 
 class TestOrchestrator:
     def test_seven_day_backfill_dispatches_seven_executions(
-        self, _fpulse_test_db, sample_csv_file, temp_data_dir,
+        self, _revoluzen_flow_test_db, sample_csv_file, temp_data_dir,
     ):
-        store = BackfillStore(db=_fpulse_test_db)
+        store = BackfillStore(db=_revoluzen_flow_test_db)
         executor = WorkflowExecutor(data_dir=temp_data_dir)
         from revoluzen_flow.monitoring.store import ExecutionStore
-        exe_store = ExecutionStore(db=_fpulse_test_db)
+        exe_store = ExecutionStore(db=_revoluzen_flow_test_db)
         workflow = _make_param_backed_workflow()
 
         # Set up the backfill: 2026-01-01 → 2026-01-07 with daily windows.
@@ -369,13 +369,13 @@ class TestOrchestrator:
             assert len(backfill_runs) == 7
 
     def test_stop_on_failure_halts_remaining_windows(
-        self, _fpulse_test_db, temp_data_dir,
+        self, _revoluzen_flow_test_db, temp_data_dir,
     ):
         """With on_failure=stop, the first failing window halts the run."""
-        store = BackfillStore(db=_fpulse_test_db)
+        store = BackfillStore(db=_revoluzen_flow_test_db)
         executor = WorkflowExecutor(data_dir=temp_data_dir)
         from revoluzen_flow.monitoring.store import ExecutionStore
-        exe_store = ExecutionStore(db=_fpulse_test_db)
+        exe_store = ExecutionStore(db=_revoluzen_flow_test_db)
 
         # Pipeline that hits a missing file — every window will fail.
         workflow = Workflow(

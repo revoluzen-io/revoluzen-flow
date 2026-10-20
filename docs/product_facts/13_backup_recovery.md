@@ -11,7 +11,7 @@ Per `edition-matrix.md` line 73, backup capabilities split as follows.
 **Where to find it:** Settings → Backup → "Create backup now". Pick destination (local filesystem, S3, Azure, GCS). Authentication via the regular Credentials page (S3 needs an `s3` credential type, etc.).
 
 **What gets backed up:**
-- The SQLite database (`fpulse.db`) — pipelines, projects, schedules, alerts, connections, credentials (encrypted ciphertext), executions, audit log, RAG index
+- The SQLite database (`revoluzen_flow.db`) — pipelines, projects, schedules, alerts, connections, credentials (encrypted ciphertext), executions, audit log, RAG index
 - The `data/` directory — Parquet checkpoints, eval results, staging files
 
 **What does NOT get backed up automatically:**
@@ -35,7 +35,7 @@ Per `docs/deployment.md`:
 
 **Volume corrupted** — restore from the most recent tarball. Standard flow:
 1. Stop Revoluzen Flow: `docker compose down`
-2. Restore the data tarball: `docker run --rm -v revoluzen_flow_data:/data -v $(pwd):/backup alpine tar xzf /backup/fpulse-20260504.tar.gz -C /data`
+2. Restore the data tarball: `docker run --rm -v revoluzen_flow_data:/data -v $(pwd):/backup alpine tar xzf /backup/revoluzen-flow-20260504.tar.gz -C /data`
 3. Restore the master key file to `~/.revoluzen-flow/secret.key` (or wherever `REVOLUZEN_FLOW_MASTER_KEY_FILE` points)
 4. Start: `docker compose up -d`
 
@@ -57,13 +57,13 @@ This is the trade-off of local-first encryption: no central key recovery service
 ```bash
 # 03:30 daily — full data tarball
 0 3 * * * docker run --rm -v revoluzen_flow_data:/data -v /backups:/backup alpine \
-    tar czf /backup/fpulse-$(date +\%Y\%m\%d).tar.gz -C /data .
+    tar czf /backup/revoluzen-flow-$(date +\%Y\%m\%d).tar.gz -C /data .
 
 # 04:00 daily — master key copy
 0 4 * * * cp ~/.revoluzen-flow/secret.key /backups/secret.key.$(date +\%Y\%m\%d)
 
 # 05:00 weekly — push to remote
-0 5 * * 0 aws s3 sync /backups/ s3://fpulse-backups/
+0 5 * * 0 aws s3 sync /backups/ s3://revoluzen-flow-backups/
 ```
 
 Plus customers get this scheduled inside Revoluzen Flow via the Backup page UI; OSS users set this up in their operating system's task scheduler — cron on Linux/macOS, Task Scheduler on Windows.

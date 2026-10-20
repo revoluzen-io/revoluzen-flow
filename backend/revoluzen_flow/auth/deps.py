@@ -71,13 +71,13 @@ def _audit_denied(user, request: Request, required: str) -> None:
         pass
 
 
-_SESSION_COOKIE = "fpulse_session"
-_CSRF_COOKIE = "fpulse_csrf"
+_SESSION_COOKIE = "revoluzen_flow_session"
+_CSRF_COOKIE = "revoluzen_flow_csrf"
 
 
 def _extract_token(request: Request) -> str:
     """Session token from ``Authorization: Bearer`` (CLI / service /
-    programmatic / legacy browser) OR the HttpOnly ``fpulse_session`` cookie
+    programmatic / legacy browser) OR the HttpOnly ``revoluzen_flow_session`` cookie
     (the BFF browser flow). Dual-auth by design: both are accepted so moving
     the browser onto cookies never breaks non-browser clients."""
     auth = request.headers.get("Authorization", "")

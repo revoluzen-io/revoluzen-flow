@@ -69,11 +69,11 @@ def _construct_from_env() -> EventBus:
 
 
 def _default_event_db() -> str:
-    """Path to the OSS events DB. Co-located with the main fpulse.db
+    """Path to the OSS events DB. Co-located with the main revoluzen_flow.db
     so users running Revoluzen Flow don't end up with stray files in
     unexpected places."""
     data_dir = os.environ.get("REVOLUZEN_FLOW_DATA_DIR") or "."
-    return str(Path(data_dir) / "fpulse_events.db")
+    return str(Path(data_dir) / "revoluzen_flow_events.db")
 
 
 def _set_event_bus(bus: EventBus | None) -> None:

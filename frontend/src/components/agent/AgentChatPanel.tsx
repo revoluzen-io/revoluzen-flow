@@ -277,7 +277,7 @@ export default function AgentChatPanel() {
     // localStorage hand-off (existing pattern for cross-component nav)
     // and just acknowledge in chat.
     if (action.kind === 'navigate') {
-      const evt = new CustomEvent('fpulse-agent-navigate', { detail: action });
+      const evt = new CustomEvent('revoluzen-flow-agent-navigate', { detail: action });
       window.dispatchEvent(evt);
       // If the action carries a follow-up prompt ("then_ask"), the bot
       // is mid-conversation: navigate + auto-continue with the next
@@ -419,7 +419,7 @@ export default function AgentChatPanel() {
         );
         let counts: Record<string, number> = {};
         try {
-          counts = JSON.parse(localStorage.getItem('fpulse_prompt_frequency') || '{}');
+          counts = JSON.parse(localStorage.getItem('revoluzen_flow_prompt_frequency') || '{}');
         } catch { /* ignore */ }
         const ordered = [...list].sort((a, b) => {
           const ca = counts[a.prompt] || 0;
@@ -493,13 +493,13 @@ export default function AgentChatPanel() {
   }, [refreshStatus]);
 
   // Cross-component sync: when AIProviderForm saves a new config it
-  // dispatches `fpulse:ai_config_changed` on `window`. We listen and
+  // dispatches `revoluzen-flow:ai_config_changed` on `window`. We listen and
   // refresh the dock's provider/model/budget header so the user sees the
   // new model immediately — no full page reload required.
   useEffect(() => {
     const onConfigChanged = () => { void refreshStatus(true); };
-    window.addEventListener('fpulse:ai_config_changed', onConfigChanged);
-    return () => window.removeEventListener('fpulse:ai_config_changed', onConfigChanged);
+    window.addEventListener('revoluzen-flow:ai_config_changed', onConfigChanged);
+    return () => window.removeEventListener('revoluzen-flow:ai_config_changed', onConfigChanged);
   }, [refreshStatus]);
 
   const handlePull = useCallback(async () => {
@@ -829,10 +829,10 @@ export default function AgentChatPanel() {
     setInput(s.prompt);
     setDockTab('chat');
     try {
-      const raw = localStorage.getItem('fpulse_prompt_frequency') || '{}';
+      const raw = localStorage.getItem('revoluzen_flow_prompt_frequency') || '{}';
       const counts = JSON.parse(raw) as Record<string, number>;
       counts[s.prompt] = (counts[s.prompt] || 0) + 1;
-      localStorage.setItem('fpulse_prompt_frequency', JSON.stringify(counts));
+      localStorage.setItem('revoluzen_flow_prompt_frequency', JSON.stringify(counts));
     } catch { /* localStorage unavailable — non-fatal */ }
   }, []);
 
@@ -883,7 +883,7 @@ export default function AgentChatPanel() {
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <div className="text-sm font-bold flex items-center gap-2 flex-wrap">
-              <span>Revoluzen Flow Copilot</span>
+              <span>Copilot</span>
               <button
                 type="button"
                 onClick={() => setProviderConfigOpen(true)}
@@ -1459,7 +1459,7 @@ export default function AgentChatPanel() {
           <div className="space-y-3">
             <div className="text-xs text-slate-600 px-3 py-2 leading-relaxed">
               <div className="font-semibold text-slate-800 mb-1">
-                Hi — I'm your Revoluzen Flow Copilot.
+                Hi — I'm your Copilot.
               </div>
               Ask anything about your pipelines, connections, executions, or metrics.
               I can also help build, diagnose failures, and summarize runs. Try one of

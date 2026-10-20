@@ -428,13 +428,18 @@ async def inventory_summary(
 #     exist in their installation)
 _DOC_CATALOG: list[dict] = [
     {
+        # docs/README.md, NOT the repo-root README. The repo README is the
+        # GitHub landing page: it opens with centred raw HTML (logo, badges)
+        # which the in-app viewer escapes by design, so a reader got a wall of
+        # markup instead of an index. docs/README.md is purpose-written for
+        # this entry — it opens "the entry point to every document available
+        # from the Help page" and carries the guide tables.
         "path": "README.md",
         "title": "Documentation Overview",
         "audience": "Everyone",
         "summary": "Entry point — map of every available document.",
         "admin_only": False,
         "plus_only": False,
-        "repo_root": True,
     },
     {
         "path": "quickstart.md",

@@ -29,7 +29,7 @@ export const MULTI_INPUT_NODES: ReadonlySet<string> = new Set([
   'scd2',
   'lookup',
   // 2026-06-03 — Transform admitted to the multi-input club. The backend
-  // (fpulse/nodes/transform.py) registers each directly-connected input's
+  // (revoluzen_flow/nodes/transform.py) registers each directly-connected input's
   // output as a named DuckDB table — the first incoming edge becomes
   // `source_table` / `input`, additional incoming edges become
   // sanitized-label tables you can reference in SQL
@@ -83,7 +83,7 @@ export type NodeArity = 'none' | 'one' | 'many';
 
 // ── Live-registry derivation (kills frontend/backend contract drift) ─────────
 // The backend publishes the authoritative input `arity` + `side_effects` for
-// every node on /api/node-types, cached by the app at `window.__fpulse_node_types`.
+// every node on /api/node-types, cached by the app at `window.__revoluzen_flow_node_types`.
 // We derive from THAT when it's loaded, falling back to the hand-maps below only
 // offline (unit tests). Same "registry-authoritative-when-loaded" pattern as
 // validateWorkflow — so this file no longer has to be hand-synced with the
@@ -98,7 +98,7 @@ function registryMeta(stepType: string): RegistryNodeMeta | undefined {
   let reg: RegistryNodeMeta[] | null = null;
   try {
     const g = typeof window !== 'undefined'
-      ? (window as unknown as { __fpulse_node_types?: unknown }).__fpulse_node_types
+      ? (window as unknown as { __revoluzen_flow_node_types?: unknown }).__revoluzen_flow_node_types
       : undefined;
     if (Array.isArray(g)) reg = g as RegistryNodeMeta[];
   } catch { reg = null; }
@@ -158,7 +158,7 @@ const CONTRACTS: Record<string, InputContract> = {
   // 2026-06-03 — Transform: 1 required (the primary table, registered as
   // `source_table` + `input`) + unbounded variadic extras (each registered
   // by sanitized node-label). Matches the backend's auto-register-all
-  // behavior in fpulse/nodes/transform.py lines 50-66.
+  // behavior in revoluzen_flow/nodes/transform.py lines 50-66.
   transform: { arity: 'many', required: 1, optional: 0, variadic: true },
   // Control-flow nodes that can run with or without input data
   append_variable: { arity: 'one', required: 0, optional: 1, variadic: false },

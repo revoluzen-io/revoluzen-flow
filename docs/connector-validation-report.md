@@ -13,7 +13,7 @@ Generated: `2026-08-23T12:31:49.927945+00:00`
 
 | Status | Name | Type | Message | Last UI Test |
 | --- | --- | --- | --- | --- |
-| not-run | `fpulse_test` | `mssql` | Use --test-saved to run live tests | 2026-08-23T12:22:09.879640Z |
+| not-run | `revoluzen_flow_test` | `mssql` | Use --test-saved to run live tests | 2026-08-23T12:22:09.879640Z |
 | not-run | `Mongo_DB_Test` | `mongodb` | Use --test-saved to run live tests | 2026-08-23T12:22:05.665413Z |
 | not-run | `JSONPlaceholder (public)` | `rest_api` | Use --test-saved to run live tests | - |
 | not-run | `mssql_test_stub` | `mssql` | Use --test-saved to run live tests | - |
@@ -124,7 +124,7 @@ Backend model types not exposed in the create-connection picker:
 [
   {
     "id": "d9880bfabd79",
-    "name": "fpulse_test",
+    "name": "revoluzen_flow_test",
     "type": "mssql",
     "status": "not-run",
     "message": "Use --test-saved to run live tests",
@@ -132,8 +132,8 @@ Backend model types not exposed in the create-connection picker:
     "last_test_at": "2026-08-23T12:22:09.879640Z",
     "config": {
       "host": "localhost",
-      "database": "fpulse_test",
-      "username": "fpulse_user_test",
+      "database": "revoluzen_flow_test",
+      "username": "revoluzen_flow_user_test",
       "password": "[set]",
       "trust_server_certificate": "true",
       "port": "1433"

@@ -99,13 +99,13 @@ def _init_metrics() -> bool:
     _REGISTRY = CollectorRegistry()
 
     _HTTP_REQUESTS_TOTAL = Counter(
-        "fpulse_http_requests_total",
+        "revoluzen_flow_http_requests_total",
         "Total HTTP requests, labelled by method, route, and status class",
         ["method", "route", "status_class"],
         registry=_REGISTRY,
     )
     _HTTP_REQUEST_DURATION = Histogram(
-        "fpulse_http_request_duration_seconds",
+        "revoluzen_flow_http_request_duration_seconds",
         "HTTP request duration in seconds, labelled by method and route",
         ["method", "route"],
         # Buckets tuned for an orchestrator: most requests <100ms,
@@ -114,53 +114,53 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _PROC_RSS_BYTES = Gauge(
-        "fpulse_process_rss_bytes",
+        "revoluzen_flow_process_rss_bytes",
         "Resident set size of the Revoluzen Flow process in bytes",
         registry=_REGISTRY,
     )
     _PROC_VMS_BYTES = Gauge(
-        "fpulse_process_vms_bytes",
+        "revoluzen_flow_process_vms_bytes",
         "Virtual memory size of the Revoluzen Flow process in bytes",
         registry=_REGISTRY,
     )
     _PROC_THREADS = Gauge(
-        "fpulse_process_threads",
+        "revoluzen_flow_process_threads",
         "Live thread count of the Revoluzen Flow process",
         registry=_REGISTRY,
     )
     _PROC_UPTIME_SECONDS = Gauge(
-        "fpulse_process_uptime_seconds",
+        "revoluzen_flow_process_uptime_seconds",
         "Wall-clock seconds since the Revoluzen Flow process started",
         registry=_REGISTRY,
     )
     _WARMUP_STATE = Gauge(
-        "fpulse_warmup_state",
+        "revoluzen_flow_warmup_state",
         "Background warmup task state: 0=not_applicable, 1=pending, 2=ok, 3=failed",
         registry=_REGISTRY,
     )
     _FLAG_STATE = Gauge(
-        "fpulse_feature_flag_enabled",
+        "revoluzen_flow_feature_flag_enabled",
         "1 if a feature flag is enabled, 0 if disabled",
         ["flag"],
         registry=_REGISTRY,
     )
     _WAL_PAGES = Gauge(
-        "fpulse_sqlite_wal_pages",
+        "revoluzen_flow_sqlite_wal_pages",
         "SQLite WAL pages currently waiting for checkpoint",
         registry=_REGISTRY,
     )
     _PG_CHECKED_IN = Gauge(
-        "fpulse_pg_pool_checked_in",
+        "revoluzen_flow_pg_pool_checked_in",
         "Postgres pool connections currently idle (checked in)",
         registry=_REGISTRY,
     )
     _PG_CHECKED_OUT = Gauge(
-        "fpulse_pg_pool_checked_out",
+        "revoluzen_flow_pg_pool_checked_out",
         "Postgres pool connections currently in use (checked out)",
         registry=_REGISTRY,
     )
     _AUDIT_DUAL_WRITE = Gauge(
-        "fpulse_audit_dual_write_total",
+        "revoluzen_flow_audit_dual_write_total",
         "Cumulative audit log dual-write outcomes by backend and result. "
         "During the Stage 3b validation period an operator should see "
         "sqlite_ok and pg_ok climbing together with similar slopes.",
@@ -168,7 +168,7 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _LIFECYCLE_DUAL_WRITE = Gauge(
-        "fpulse_lifecycle_dual_write_total",
+        "revoluzen_flow_lifecycle_dual_write_total",
         "Cumulative lifecycle_events dual-write outcomes by backend and result. "
         "Same meaning as the audit counter — sqlite_ok and pg_ok should "
         "climb in lockstep during the Stage 3b validation period.",
@@ -176,7 +176,7 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _ALERT_LOG_DUAL_WRITE = Gauge(
-        "fpulse_alert_logs_dual_write_total",
+        "revoluzen_flow_alert_logs_dual_write_total",
         "Cumulative alert_logs dual-write outcomes by backend and result. "
         "Third Stage 3b store — same 5-outcome shape as audit and "
         "lifecycle so operators can compare all three side-by-side.",
@@ -184,7 +184,7 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _LIFECYCLE_SHADOW_READ = Gauge(
-        "fpulse_lifecycle_shadow_read_total",
+        "revoluzen_flow_lifecycle_shadow_read_total",
         "Cumulative lifecycle_events shadow-read outcomes. 'match' and "
         "'mismatch' indicate whether PG agrees with SQLite on the same "
         "query. pg_failed/pg_skipped_* are operational signals. During "
@@ -194,7 +194,7 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _AUDIT_SHADOW_READ = Gauge(
-        "fpulse_audit_shadow_read_total",
+        "revoluzen_flow_audit_shadow_read_total",
         "Cumulative audit_log shadow-read outcomes. Same 5-outcome shape "
         "as lifecycle so operators can compare stores side-by-side. "
         "Enabled via REVOLUZEN_FLOW_AUDIT_SHADOW_READS=1.",
@@ -202,7 +202,7 @@ def _init_metrics() -> bool:
         registry=_REGISTRY,
     )
     _ALERT_LOG_SHADOW_READ = Gauge(
-        "fpulse_alert_logs_shadow_read_total",
+        "revoluzen_flow_alert_logs_shadow_read_total",
         "Cumulative alert_logs shadow-read outcomes. Third Stage 3b "
         "store — same 5-outcome shape as audit and lifecycle. Enabled "
         "via REVOLUZEN_FLOW_ALERT_LOGS_SHADOW_READS=1.",
@@ -217,8 +217,8 @@ def _init_metrics() -> bool:
 
 # ── Middleware that records every HTTP request ─────────────────────────
 class PrometheusMetricsMiddleware:
-    """ASGI middleware that increments fpulse_http_requests_total and
-    observes fpulse_http_request_duration_seconds for every request.
+    """ASGI middleware that increments revoluzen_flow_http_requests_total and
+    observes revoluzen_flow_http_request_duration_seconds for every request.
 
     No-op when prometheus_client isn't installed — the metrics objects
     won't exist, so we just pass through.
@@ -336,7 +336,7 @@ async def metrics_endpoint(request: Request):
 
     # Refresh dynamic gauges. Read app_state via app.state so we don't
     # depend on import order.
-    app_state: dict = getattr(request.app.state, "fpulse_state", None) or {}
+    app_state: dict = getattr(request.app.state, "revoluzen_flow_state", None) or {}
     _refresh_gauges(app_state)
 
     from prometheus_client import generate_latest, CONTENT_TYPE_LATEST

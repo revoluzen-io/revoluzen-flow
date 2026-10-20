@@ -2,7 +2,7 @@
 
 Step 4 of the Revoluzen Flow AI completion arc. Produces the 7-section preview
 shown to the user immediately before they submit a pipeline for review or
-deploy. Sections (per `project_fpulse_ai_completion.md` 4b):
+deploy. Sections (per `project_revoluzen_flow_ai_completion.md` 4b):
 
   1. change_diff       — diff against the last successful publish
   2. inventory         — connections / nodes / alerts summary (counts + names)

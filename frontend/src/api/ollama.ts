@@ -43,8 +43,8 @@ export interface OllamaPullProgress {
 }
 
 function _headers(): Record<string, string> {
-  const token = localStorage.getItem('fpulse_token') || '';
-  const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+  const token = localStorage.getItem('revoluzen_flow_token') || '';
+  const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'X-Workspace-Id': workspaceId,

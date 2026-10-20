@@ -13,7 +13,7 @@ Generated: `2026-08-23T12:31:59.496409+00:00`
 
 | Status | Name | Type | Message | Last UI Test |
 | --- | --- | --- | --- | --- |
-| fail | `fpulse_test` | `mssql` | MSSQL connection failed to localhost:1433 | 2026-08-23T12:22:09.879640Z |
+| fail | `revoluzen_flow_test` | `mssql` | MSSQL connection failed to localhost:1433 | 2026-08-23T12:22:09.879640Z |
 | fail | `Mongo_DB_Test` | `mongodb` | MongoDB connection failed | 2026-08-23T12:22:05.665413Z |
 | pass | `JSONPlaceholder (public)` | `rest_api` | REST API reachable: https://jsonplaceholder.typicode.com (HTTP 200) | - |
 | skipped | `mssql_test_stub` | `mssql` | Skipped empty/placeholder connection | - |
@@ -124,7 +124,7 @@ Backend model types not exposed in the create-connection picker:
 [
   {
     "id": "d9880bfabd79",
-    "name": "fpulse_test",
+    "name": "revoluzen_flow_test",
     "type": "mssql",
     "status": "fail",
     "message": "MSSQL connection failed to localhost:1433",
@@ -134,8 +134,8 @@ Backend model types not exposed in the create-connection picker:
     "last_test_at": "2026-08-23T12:22:09.879640Z",
     "config": {
       "host": "localhost",
-      "database": "fpulse_test",
-      "username": "fpulse_user_test",
+      "database": "revoluzen_flow_test",
+      "username": "revoluzen_flow_user_test",
       "password": "[set]",
       "trust_server_certificate": "true",
       "port": "1433"

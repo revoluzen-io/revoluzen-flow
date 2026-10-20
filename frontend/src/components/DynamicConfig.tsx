@@ -114,7 +114,7 @@ function isFieldEmpty(value: any): boolean {
 
 function getNodeMeta(stepType: string): { param_schema: ParamField[]; default_params: Record<string, any> } | null {
   try {
-    const all: any[] = (window as any).__fpulse_node_types || [];
+    const all: any[] = (window as any).__revoluzen_flow_node_types || [];
     const meta = all.find((t) => t.type === stepType);
     if (meta) return { param_schema: meta.param_schema || [], default_params: meta.default_params || {} };
   } catch {}
@@ -702,7 +702,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
   // explicitly adds them; smart-defaults collapse under a chip; only
   // required fields show up-front. "Show all" toggle (per-node, persisted)
   // flattens everything for power users who want the old behavior.
-  const advancedKey = `fpulse.cfg.advanced.${stepType}`;
+  const advancedKey = `revoluzen-flow.cfg.advanced.${stepType}`;
   const [advanced, setAdvanced] = useState<boolean>(() => {
     try { return localStorage.getItem(advancedKey) === '1'; } catch { return false; }
   });

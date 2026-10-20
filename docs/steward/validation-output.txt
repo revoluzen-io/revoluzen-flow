@@ -1,7 +1,7 @@
 ======================================================================
 Revoluzen Flow Steward — end-to-end validation
 ======================================================================
-Workspace data: C:\Users\<user>\AppData\Local\Temp\fpulse-steward-validate-0g2xe9ip
+Workspace data: C:\Users\<user>\AppData\Local\Temp\revoluzen-flow-steward-validate-0g2xe9ip
 Workflows in test set: 9
 
 [1] Default settings (from a brand-new workspace):
@@ -78,11 +78,11 @@ Workflows in test set: 9
     12:17:19Z  emit     sig=e19bc34a14aa…  
     12:17:19Z  emit     sig=276640b6eb50…  
 
-[8] On-disk journal: C:\Users\<user>\AppData\Local\Temp\fpulse-steward-validate-0g2xe9ip\default\memory.jsonl
+[8] On-disk journal: C:\Users\<user>\AppData\Local\Temp\revoluzen-flow-steward-validate-0g2xe9ip\default\memory.jsonl
     Lines: 16
 
 ======================================================================
 ✓ All Steward learning behaviours validated end-to-end.
 ======================================================================
 
-Artifacts preserved at: C:\Users\<user>\AppData\Local\Temp\fpulse-steward-validate-0g2xe9ip
+Artifacts preserved at: C:\Users\<user>\AppData\Local\Temp\revoluzen-flow-steward-validate-0g2xe9ip

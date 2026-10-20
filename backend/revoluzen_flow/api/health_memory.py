@@ -281,7 +281,7 @@ async def memory_snapshot(request: Request, trace: bool = False) -> dict:
 
     # app_state is populated in main.py; we read it defensively in case this
     # endpoint is hit before lifespan startup completes.
-    app_state: dict = getattr(request.app.state, "fpulse_state", None) or {}
+    app_state: dict = getattr(request.app.state, "revoluzen_flow_state", None) or {}
     if not app_state:
         # Fallback for pre-Stage-1 code where app_state is still a module global.
         try:

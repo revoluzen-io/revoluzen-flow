@@ -126,7 +126,7 @@ ReactFlow config in `Canvas.tsx`:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-Panel widths are published as CSS vars (`--fpulse-nodes-panel-width`, `--fpulse-chat-panel-width`) so overlays (ConfigPanel backdrop) reflow with them. A `ResizeObserver` on the canvas wrapper recomputes `rfInstance.fitView()` debounced via `requestAnimationFrame`.
+Panel widths are published as CSS vars (`--revoluzen-flow-nodes-panel-width`, `--revoluzen-flow-chat-panel-width`) so overlays (ConfigPanel backdrop) reflow with them. A `ResizeObserver` on the canvas wrapper recomputes `rfInstance.fitView()` debounced via `requestAnimationFrame`.
 
 ## 1.3 Node model — one renderer for all node types
 
@@ -239,7 +239,7 @@ The locked rule (2026-05-09): every caller that may create a workflow row goes t
 
 **Resume from here** (right-click context menu) — cache-aware rerun; reuses upstream `stepResults` if their params are unchanged.
 
-WebSocket lifecycle: `useExecutionWS(workflowId)` opens `ws://host:8001/ws/execution/{wfId}?token=...&workspace_id=...`, parses incoming events, applies `.fpulse-executing` CSS class to running nodes, animates edges from completed → running steps.
+WebSocket lifecycle: `useExecutionWS(workflowId)` opens `ws://host:8001/ws/execution/{wfId}?token=...&workspace_id=...`, parses incoming events, applies `.revoluzen-flow-executing` CSS class to running nodes, animates edges from completed → running steps.
 
 ## 1.9 PreviewPanel (bottom 240px)
 
@@ -257,7 +257,7 @@ Clicking a node calls `setSelectedNode(nodeId)`, which triggers the ConfigPanel 
 
 - Centered modal, top 145px / bottom 240px (stops above PreviewPanel + below Toolbar)
 - Backdrop: `bg-slate-900/40 backdrop-blur-sm`; clicking it closes
-- Left/right inset tracks `--fpulse-nodes-panel-width` / `--fpulse-chat-panel-width` so the modal doesn't overlap the side panels
+- Left/right inset tracks `--revoluzen-flow-nodes-panel-width` / `--revoluzen-flow-chat-panel-width` so the modal doesn't overlap the side panels
 - **Full-bleed mode** (`fullBleed = stepType === 'data_wrangler'`): the modal extends edge-to-edge, side panels are hidden, the wrangler workspace owns the whole pane
 
 Every node has a `Parameters | Settings` tab bar:
@@ -466,7 +466,7 @@ Legacy per-format types (csv_source, json_sink, etc.) are remapped to generic eq
 - `connection_id` (connection-picker, optional)
 - `topic` (text, required)
 - `bootstrap_servers` (text, default `localhost:9092`)
-- `group_id` (text, default `fpulse-consumer`)
+- `group_id` (text, default `revoluzen-flow-consumer`)
 - `max_messages` (number, default 100)
 - `timeout_seconds` (number, default 10)
 - Frontend bonus: operation select (consume_from_earliest / latest / offset)
@@ -1115,7 +1115,7 @@ Estimated 2–3 weeks including backend, migrations, UI, validation. Worth doing
 
 ## Bucket D11/12/13 — progressive disclosure (shipped)
 
-[`modulesPanelData.ts`](../frontend/src/components/modulesPanelData.ts) `ModuleItem` gained an optional `level: 'beginner' | 'intermediate' | 'advanced'` (default `intermediate`). [`ModulesPanel.tsx`](../frontend/src/components/ModulesPanel.tsx) renders a compact `Basic | Standard | All` chip selector above the search; choice persists in `localStorage` (`fpulse.paletteLevel`). Default is `Standard`.
+[`modulesPanelData.ts`](../frontend/src/components/modulesPanelData.ts) `ModuleItem` gained an optional `level: 'beginner' | 'intermediate' | 'advanced'` (default `intermediate`). [`ModulesPanel.tsx`](../frontend/src/components/ModulesPanel.tsx) renders a compact `Basic | Standard | All` chip selector above the search; choice persists in `localStorage` (`revoluzen-flow.paletteLevel`). Default is `Standard`.
 
 Per-tier visibility:
 
@@ -1902,7 +1902,7 @@ When the user picks a value-requiring check (`in_range` / `regex` / `min_length`
 
 The reusable primitives (`<AuthSection>`, `<KeyValueRepeater>`, `<SecretInput>`, the four new Wrangler sub-step forms, `authVocabulary`, etc.) stay **inline in OSS** indefinitely. Extraction to a dedicated `frontend/src/components/forms/` module is **slated for Plus v2.0** — NOT shipped with Plus v1.0 GA (Nov 2026).
 
-Why: Plus v1.0 ships paid value (governance / RBAC / CDC / SCD2 backfill / checkpointing / OIDC / vault / sandbox / drift). Plus v2.0 is where custom-node-form authoring + white-label theming + an `@fpulse/forms` npm package become real customer-facing features that justify the refactor.
+Why: Plus v1.0 ships paid value (governance / RBAC / CDC / SCD2 backfill / checkpointing / OIDC / vault / sandbox / drift). Plus v2.0 is where custom-node-form authoring + white-label theming + an `@revoluzen_flow/forms` npm package become real customer-facing features that justify the refactor.
 
 Until then: don't touch primitive file locations. The Plus v2.0 form-SDK extraction decision is tracked in the internal Plus roadmap.
 

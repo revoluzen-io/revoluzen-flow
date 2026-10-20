@@ -64,7 +64,7 @@ def build_database(data_dir: str) -> tuple[Database, "PostgresDatabase | None"]:
     operator just sees a warning that PG was requested but unavailable.
     """
     # Always create SQLite — load-bearing for every store today.
-    sqlite_db = Database(os.path.join(data_dir, "fpulse.db"))
+    sqlite_db = Database(os.path.join(data_dir, "revoluzen_flow.db"))
 
     # PG is opt-in via env var.
     db_url = os.environ.get("REVOLUZEN_FLOW_DB_URL", "").strip()

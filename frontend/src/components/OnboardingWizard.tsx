@@ -5,7 +5,7 @@ interface OnboardingWizardProps {
   onSkip: () => void;
 }
 
-const STORAGE_KEY = 'fpulse_onboarding_done';
+const STORAGE_KEY = 'revoluzen_flow_onboarding_done';
 
 const templates = [
   {

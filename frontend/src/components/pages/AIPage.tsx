@@ -37,7 +37,7 @@ import { navigateTo } from '../../router';
  * `/api/ai/agent/status` so the user sees the active provider + model
  * + connection state at a glance without scrolling into the form
  * to find the dropdown values. Refreshes when the form fires
- * `fpulse:ai-provider-changed` so a Save in the form below updates
+ * `revoluzen-flow:ai-provider-changed` so a Save in the form below updates
  * the card without needing a page reload.
  */
 function ActiveProviderSummary({ dark }: { dark: boolean }) {
@@ -75,8 +75,8 @@ function ActiveProviderSummary({ dark }: { dark: boolean }) {
   useEffect(() => {
     refresh();
     const onChanged = () => { refresh(); };
-    window.addEventListener('fpulse:ai-provider-changed', onChanged);
-    return () => window.removeEventListener('fpulse:ai-provider-changed', onChanged);
+    window.addEventListener('revoluzen-flow:ai-provider-changed', onChanged);
+    return () => window.removeEventListener('revoluzen-flow:ai-provider-changed', onChanged);
   }, []);
 
   const configured = !!status?.available;
@@ -368,7 +368,7 @@ export default function AIPage({
             <div className="space-y-4">
               {/* "What's connected right now" summary — fetches
                   /api/ai/agent/status once on mount and listens for the
-                  fpulse:ai-provider-changed event so saving the form
+                  revoluzen-flow:ai-provider-changed event so saving the form
                   below updates this card without a reload. Saves the
                   user from scrolling into the dropdown to figure out
                   which provider is active. */}
@@ -432,7 +432,7 @@ export default function AIPage({
                     href="#help/docs/eval-harness.md"
                     onClick={(e) => {
                       e.preventDefault();
-                      try { sessionStorage.setItem('fpulse_docs_jump_to', 'eval-harness.md'); } catch { /* noop */ }
+                      try { sessionStorage.setItem('revoluzen_flow_docs_jump_to', 'eval-harness.md'); } catch { /* noop */ }
                       navigateTo('help');
                     }}
                     className={`inline-flex items-center gap-1 text-xs font-semibold mt-1.5 ${dark ? 'text-emerald-300 hover:text-emerald-200' : 'text-emerald-700 hover:text-emerald-900'}`}

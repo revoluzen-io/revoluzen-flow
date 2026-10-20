@@ -22,11 +22,11 @@ def test_extract_token_bearer():
 
 
 def test_extract_token_cookie():
-    assert deps._extract_token(_Req(cookies={"fpulse_session": "cook123"})) == "cook123"
+    assert deps._extract_token(_Req(cookies={"revoluzen_flow_session": "cook123"})) == "cook123"
 
 
 def test_extract_token_bearer_wins_over_cookie():
-    r = _Req(headers={"Authorization": "Bearer hdr"}, cookies={"fpulse_session": "cook"})
+    r = _Req(headers={"Authorization": "Bearer hdr"}, cookies={"revoluzen_flow_session": "cook"})
     assert deps._extract_token(r) == "hdr"
 
 
@@ -35,11 +35,11 @@ def test_extract_token_none():
 
 
 def test_csrf_bearer_is_exempt():
-    deps.csrf_protect(_Req(headers={"Authorization": "Bearer x"}, cookies={"fpulse_session": "s"}))
+    deps.csrf_protect(_Req(headers={"Authorization": "Bearer x"}, cookies={"revoluzen_flow_session": "s"}))
 
 
 def test_csrf_get_is_exempt():
-    deps.csrf_protect(_Req(method="GET", cookies={"fpulse_session": "s", "fpulse_csrf": "t"}))
+    deps.csrf_protect(_Req(method="GET", cookies={"revoluzen_flow_session": "s", "revoluzen_flow_csrf": "t"}))
 
 
 def test_csrf_no_cookie_session_is_exempt():
@@ -47,7 +47,7 @@ def test_csrf_no_cookie_session_is_exempt():
 
 
 def test_csrf_cookie_mutation_missing_token_blocked():
-    r = _Req(method="POST", cookies={"fpulse_session": "s", "fpulse_csrf": "t"})
+    r = _Req(method="POST", cookies={"revoluzen_flow_session": "s", "revoluzen_flow_csrf": "t"})
     with pytest.raises(HTTPException) as ei:
         deps.csrf_protect(r)
     assert ei.value.status_code == 403
@@ -55,12 +55,12 @@ def test_csrf_cookie_mutation_missing_token_blocked():
 
 def test_csrf_cookie_mutation_wrong_token_blocked():
     r = _Req(method="POST", headers={"X-CSRF-Token": "WRONG"},
-             cookies={"fpulse_session": "s", "fpulse_csrf": "t"})
+             cookies={"revoluzen_flow_session": "s", "revoluzen_flow_csrf": "t"})
     with pytest.raises(HTTPException):
         deps.csrf_protect(r)
 
 
 def test_csrf_cookie_mutation_valid_token_ok():
     r = _Req(method="POST", headers={"X-CSRF-Token": "t"},
-             cookies={"fpulse_session": "s", "fpulse_csrf": "t"})
+             cookies={"revoluzen_flow_session": "s", "revoluzen_flow_csrf": "t"})
     deps.csrf_protect(r)  # no raise

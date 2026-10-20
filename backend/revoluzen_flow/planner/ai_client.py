@@ -8,7 +8,7 @@ Local Ollama auto-detection: when no provider env vars are set, this module
 probes ``http://localhost:11434`` once per 5 minutes. If reachable with at
 least one model installed, ``resolve_provider`` returns ``("ollama", ...)``
 implicitly — no env var or restart needed. This is the OSS-launch-default
-posture per ``project_fpulse_ollama_first.md``.
+posture per ``project_revoluzen_flow_ollama_first.md``.
 """
 
 from __future__ import annotations

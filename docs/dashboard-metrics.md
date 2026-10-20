@@ -40,7 +40,7 @@ Auto-shows **only when there is something actionable**:
 
 If nothing's broken, the section doesn't render at all — the dashboard stays calm. When it does render it's **collapsed by default**: the header bar shows the count summary ("6 failures · Pool 92% · 2 approvals") so an operator can glance and assess severity without expanding. Click the header to open.
 
-State is sticky per browser via `localStorage.fpulse_dashboard_attention_open`.
+State is sticky per browser via `localStorage.revoluzen_flow_dashboard_attention_open`.
 
 **Each failed-pipeline row** carries:
 
@@ -49,7 +49,7 @@ State is sticky per browser via `localStorage.fpulse_dashboard_attention_open`.
 - a **View →** deep-link to the same run; and
 - a **Clear (×)** action — *acknowledge and hide* that failure. It **reappears** if the pipeline fails again (a new run) and clears for good once it runs clean. A **Clear all** footer dismisses every shown failure at once.
 
-Clear is an acknowledgement, not a delete — nothing in run history is removed. Acknowledgements are **per-browser** (`localStorage.fpulse.dashboard.dismissedFailures`), self-prune once they're no longer current, and the **welcome-banner headline reconciles with the card** — clearing the last failure flips the banner back to healthy in the same render.
+Clear is an acknowledgement, not a delete — nothing in run history is removed. Acknowledgements are **per-browser** (`localStorage.revoluzen-flow.dashboard.dismissedFailures`), self-prune once they're no longer current, and the **welcome-banner headline reconciles with the card** — clearing the last failure flips the banner back to healthy in the same render.
 
 ## Empty state — new workspace
 
@@ -248,7 +248,7 @@ Default pricing (unknown provider/model): 0.30 input · 0.15 cached · 0.60 outp
 - A **sticky "unsaved changes" banner** appears at the bottom of the section when the draft differs from the persisted state, with **Discard** and **Save** actions.
 - A **search box** filters the per-model overrides; entries are grouped by inferred provider (ANTHROPIC / OPENAI / OLLAMA / OTHER).
 - Numeric inputs are validated (min 0, max 1000, step 0.01); invalid cells render red.
-- Saving emits the `fpulse-settings-changed` event so any open Activity page re-fetches and the tile updates without a reload.
+- Saving emits the `revoluzen-flow-settings-changed` event so any open Activity page re-fetches and the tile updates without a reload.
 - **Reset to defaults** discards all overrides and re-emits the broadcast.
 
 ### Cost simulator

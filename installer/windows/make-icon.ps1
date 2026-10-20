@@ -1,4 +1,4 @@
-# make-icon.ps1 - generate installer/windows/icons/fpulse.ico from the
+# make-icon.ps1 - generate installer/windows/icons/revoluzen-flow.ico from the
 # Revoluzen Flow logo mark (2026-06-08).
 #
 # Produces a multi-size (16 / 32 / 48 / 256) PNG-in-ICO. Modern Windows
@@ -19,8 +19,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
-if (-not $Source)  { $Source  = Join-Path $PSScriptRoot '..\..\frontend\public\fpulse-logo-mark.png' }
-if (-not $OutFile) { $OutFile = Join-Path $PSScriptRoot 'icons\fpulse.ico' }
+if (-not $Source)  { $Source  = Join-Path $PSScriptRoot '..\..\frontend\public\revoluzen-flow-logo-mark.png' }
+if (-not $OutFile) { $OutFile = Join-Path $PSScriptRoot 'icons\revoluzen-flow.ico' }
 
 $Source = (Resolve-Path $Source).Path
 $outDir = Split-Path $OutFile -Parent
@@ -84,9 +84,9 @@ Write-Host "Wrote $OutFile ($bytes bytes; sizes $($sizes -join ', '))"
 
 # Also emit a 256x256 PNG next to the .ico. The Linux installers
 # (build-deb.sh / build-appimage.sh) already copy
-# installer/windows/icons/fpulse.png as the hicolor app icon, so this
+# installer/windows/icons/revoluzen-flow.png as the hicolor app icon, so this
 # one asset brands the Windows .ico AND the Linux packages.
-$pngOut = Join-Path $outDir 'fpulse.png'
+$pngOut = Join-Path $outDir 'revoluzen-flow.png'
 $srcPng = [System.Drawing.Image]::FromFile($Source)
 try {
     $pbmp = New-Object System.Drawing.Bitmap(256, 256)

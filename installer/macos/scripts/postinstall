@@ -9,7 +9,7 @@
 set -u
 
 TARGET_USER="${USER:-${SUDO_USER:-$(/usr/bin/stat -f%Su /dev/console)}}"
-REVOLUZEN_FLOW_BIN="/Applications/RevoluzenFlow.app/Contents/Resources/fpulse/fpulse"
+REVOLUZEN_FLOW_BIN="/Applications/RevoluzenFlow.app/Contents/Resources/revoluzen-flow/revoluzen_flow"
 
 if [ -x "$REVOLUZEN_FLOW_BIN" ]; then
   # Drop privileges and register the service in the user's LaunchAgents.

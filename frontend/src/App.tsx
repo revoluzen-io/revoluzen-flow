@@ -103,12 +103,12 @@ type Tier = 'free' | 'plus';
  * "false" still hides the widget, so users who don't want it can
  * dismiss permanently. Editor pages still hide it at the call site.
  *
- * Settings page toggles this via key "fpulse.ui.showCopilotWidget"
+ * Settings page toggles this via key "revoluzen-flow.ui.showCopilotWidget"
  * (string "true" / "false"). Absence → ON.
  */
 function shouldShowCopilotWidget(_tier: Tier): boolean {
   try {
-    const stored = localStorage.getItem('fpulse.ui.showCopilotWidget');
+    const stored = localStorage.getItem('revoluzen-flow.ui.showCopilotWidget');
     if (stored === 'true') return true;
     if (stored === 'false') return false;
   } catch {
@@ -139,7 +139,7 @@ export default function App() {
   // mount, so the worst case is one paint of the safe-default 'free' UI
   // before snapping to the real tier ~50ms later.
   const [tier, setTier] = useState<Tier>('free');
-  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('fpulse_onboarding_done'));
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('revoluzen_flow_onboarding_done'));
   const [searchOpen, setSearchOpen] = useState(false);
   const codeEditorOpen = useWorkflowStore((s) => s.codeEditorOpen);
   // 2026-05-28 — subscribe to workflow status + dirty so the editor
@@ -167,14 +167,14 @@ export default function App() {
   //   4. No window focus listener — focus fires on every Alt-Tab, every
   //      DevTools toggle, every multi-monitor click. Counted hundreds of
   //      duplicate /api/plus/license calls per session before this fix.
-  //   5. Explicit invalidation via a `fpulse:license-changed` custom event
+  //   5. Explicit invalidation via a `revoluzen-flow:license-changed` custom event
   //      so AdminPage's activate/deactivate handlers (and any future plan
   //      mutations) can force a refetch immediately.
   //   6. Logout already clears the cache (see handleLogout below).
   useEffect(() => {
     // Versioned cache key — bumping the suffix in future drops every
     // browser's stale entry without explicit migration code.
-    const CACHE_KEY = 'fpulse_tier_cache_v1';
+    const CACHE_KEY = 'revoluzen_flow_tier_cache_v1';
     const TTL_MS = 5 * 60 * 1000;
 
     // Bind cache to {userId, workspaceId} so a logout/login swap (or a
@@ -185,8 +185,8 @@ export default function App() {
     // exactly the wrong-tier-flash class of bug review #3 flagged.
     const ownerKey = (): string => {
       try {
-        const u = JSON.parse(localStorage.getItem('fpulse_user') || 'null');
-        const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+        const u = JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null');
+        const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
         const uid = (u && (u.id || u.email)) || 'anon';
         return `${uid}::${ws}`;
       } catch { return 'anon::default'; }
@@ -272,11 +272,11 @@ export default function App() {
       try { localStorage.removeItem(CACHE_KEY); } catch {}
       fetchAndCache();
     };
-    window.addEventListener('fpulse:license-changed', onLicenseChanged);
+    window.addEventListener('revoluzen-flow:license-changed', onLicenseChanged);
 
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('fpulse:license-changed', onLicenseChanged);
+      window.removeEventListener('revoluzen-flow:license-changed', onLicenseChanged);
     };
   }, []);
 
@@ -291,7 +291,7 @@ export default function App() {
   // change, which missed the click-Admin-from-DEV path).
   const DEV_ONLY_PAGES: Page[] = ['editor', 'projects'];
   useEffect(() => {
-    localStorage.setItem('fpulse_env', environment);
+    localStorage.setItem('revoluzen_flow_env', environment);
     if (environment === 'prod' && DEV_ONLY_PAGES.includes(page)) {
       navigate('dashboard');
       return;
@@ -334,15 +334,15 @@ export default function App() {
 
   // 2026-05-19 (P2 #11 of PAGE_BY_PAGE_AUDIT.md): the
   // restore-from-localStorage effect was dead code — main.tsx wipes the
-  // `fpulse_theme` key on every boot, so this branch could never fire.
+  // `revoluzen_flow_theme` key on every boot, so this branch could never fire.
   // Removed. Dark mode is currently unsupported. The `dark:` Tailwind classes
   // have since been stripped; fully removing the useDarkMode hook + `dark ? `
   // ternaries remains a separate refactor under the same audit item.
 
   // Check stored session on mount — validate token with backend
   useEffect(() => {
-    const stored = localStorage.getItem('fpulse_user');
-    const token = localStorage.getItem('fpulse_token');
+    const stored = localStorage.getItem('revoluzen_flow_user');
+    const token = localStorage.getItem('revoluzen_flow_token');
     if (stored && token) {
       // Optimistically set user from cache for instant render
       setUser(JSON.parse(stored));
@@ -358,8 +358,8 @@ export default function App() {
         .then((res) => {
           if (res.status === 401 || res.status === 403) {
             // Session expired or invalid — clear stale credentials
-            localStorage.removeItem('fpulse_token');
-            localStorage.removeItem('fpulse_user');
+            localStorage.removeItem('revoluzen_flow_token');
+            localStorage.removeItem('revoluzen_flow_user');
             setUser(null);
           }
         })
@@ -489,8 +489,8 @@ export default function App() {
       }
       navigate(mapped);
     };
-    window.addEventListener('fpulse-agent-navigate', onNav);
-    return () => window.removeEventListener('fpulse-agent-navigate', onNav);
+    window.addEventListener('revoluzen-flow-agent-navigate', onNav);
+    return () => window.removeEventListener('revoluzen-flow-agent-navigate', onNav);
   }, [navigate]);
 
   // Plus-tier consolidation: on PROD, Credentials is superseded by Vault.
@@ -499,7 +499,7 @@ export default function App() {
   // and DEV Plus users never see this redirect.
   useEffect(() => {
     if (page === 'credentials' && tier === 'plus' && environment === 'prod') {
-      const NOTICE_KEY = 'fpulse_creds_moved_notice_shown';
+      const NOTICE_KEY = 'revoluzen_flow_creds_moved_notice_shown';
       const notified = sessionStorage.getItem(NOTICE_KEY);
       if (!notified) {
         toast.info(
@@ -514,11 +514,11 @@ export default function App() {
 
   const handleLogin = (userData: any) => {
     // Always start a fresh session in DEV. Without this, the previous user's
-    // `fpulse_env` lingers in localStorage and the next sign-in lands directly
+    // `revoluzen_flow_env` lingers in localStorage and the next sign-in lands directly
     // in PROD — which is wrong on a shared machine and especially wrong when
     // the new user is a developer who shouldn't be deploying anything.
     setEnvironment('dev');
-    localStorage.setItem('fpulse_env', 'dev');
+    localStorage.setItem('revoluzen_flow_env', 'dev');
     setUser(userData);
     // Re-fetch the license tier on login. The login form may have been sitting
     // open across a license activate/deactivate, and we don't want the new
@@ -535,8 +535,8 @@ export default function App() {
   //   1. Tell the backend to invalidate the session token (best-effort — we
   //      still clear local state even if the call fails so a broken network
   //      can't leave the user trapped in a half-logged-in UI).
-  //   2. Wipe every auth-adjacent key from localStorage, INCLUDING fpulse_tier
-  //      and fpulse_env. We used to leave these around as "preferences", but
+  //   2. Wipe every auth-adjacent key from localStorage, INCLUDING revoluzen_flow_tier
+  //      and revoluzen_flow_env. We used to leave these around as "preferences", but
   //      that meant when an admin signed out and a developer signed in on the
   //      same machine, the developer landed in PROD with a stale `tier=plus`
   //      already in state — making the dashboard show Plus widgets for ~1
@@ -573,27 +573,27 @@ export default function App() {
       // Swallow — the token may already be expired or the backend down.
       // Local cleanup below is the source of truth for the UI.
     }
-    localStorage.removeItem('fpulse_token');
-    localStorage.removeItem('fpulse_auth_token');
-    localStorage.removeItem('fpulse_user');
-    localStorage.removeItem('fpulse_tier');
-    localStorage.removeItem('fpulse_tier_cache');
-    localStorage.removeItem('fpulse_tier_cache_v1');
-    localStorage.removeItem('fpulse_env');
+    localStorage.removeItem('revoluzen_flow_token');
+    localStorage.removeItem('revoluzen_flow_auth_token');
+    localStorage.removeItem('revoluzen_flow_user');
+    localStorage.removeItem('revoluzen_flow_tier');
+    localStorage.removeItem('revoluzen_flow_tier_cache');
+    localStorage.removeItem('revoluzen_flow_tier_cache_v1');
+    localStorage.removeItem('revoluzen_flow_env');
     // Workspace context (schema v2). Wipe both the cached membership list
     // AND the current-workspace pointer so the next login starts clean —
     // otherwise an admin who logs out leaves their personal workspace id
     // in storage, and the developer who logs in next would briefly see
     // "no projects" because the api client would send the wrong header
     // until LoginPage's success handler overwrites it.
-    localStorage.removeItem('fpulse_workspace_id');
-    localStorage.removeItem('fpulse_workspaces');
+    localStorage.removeItem('revoluzen_flow_workspace_id');
+    localStorage.removeItem('revoluzen_flow_workspaces');
     // Hard reload — see comment above for why surgical resets aren't enough.
     window.location.href = '/';
   };
 
   // Session-expiry listener — fires when api/client.ts catches a 401 and
-  // dispatches `fpulse:session-expired`. We attempt to autosave the canvas
+  // dispatches `revoluzen-flow:session-expired`. We attempt to autosave the canvas
   // before reloading so the user doesn't lose work to an expired token.
   // The fallback timeout in client.ts guarantees a reload even if this
   // handler crashes. Per docs/PAGE_BY_PAGE_AUDIT.md (P0 #8, 2026-05-19).
@@ -618,19 +618,19 @@ export default function App() {
       routerNavigateTo('dashboard');
       window.location.reload();
     };
-    window.addEventListener('fpulse:session-expired', onSessionExpired);
-    return () => window.removeEventListener('fpulse:session-expired', onSessionExpired);
+    window.addEventListener('revoluzen-flow:session-expired', onSessionExpired);
+    return () => window.removeEventListener('revoluzen-flow:session-expired', onSessionExpired);
   }, []);
 
   // Track recent pages for global search
   useEffect(() => {
-    const recent = JSON.parse(localStorage.getItem('fpulse_recent_pages') || '[]') as string[];
+    const recent = JSON.parse(localStorage.getItem('revoluzen_flow_recent_pages') || '[]') as string[];
     const updated = [page, ...recent.filter((p: string) => p !== page)].slice(0, 5);
-    localStorage.setItem('fpulse_recent_pages', JSON.stringify(updated));
+    localStorage.setItem('revoluzen_flow_recent_pages', JSON.stringify(updated));
   }, [page]);
 
   // 2026-05-19 (P1 #14 of PAGE_BY_PAGE_AUDIT.md): centralised
-  // backend-unreachable banner. Listens for `fpulse:backend-reachable`
+  // backend-unreachable banner. Listens for `revoluzen-flow:backend-reachable`
   // dispatched from api/client.ts — flips the state and renders a
   // sticky banner at the very top of the shell when the backend is
   // unreachable, with explanatory copy + a Retry that probes /api/health.
@@ -642,8 +642,8 @@ export default function App() {
       const detail = (e as CustomEvent).detail as { reachable: boolean; reason?: string };
       setBackendDown({ down: !detail.reachable, reason: detail.reason });
     };
-    window.addEventListener('fpulse:backend-reachable', onReachable);
-    return () => window.removeEventListener('fpulse:backend-reachable', onReachable);
+    window.addEventListener('revoluzen-flow:backend-reachable', onReachable);
+    return () => window.removeEventListener('revoluzen-flow:backend-reachable', onReachable);
   }, []);
   const retryBackend = async () => {
     try {
@@ -744,7 +744,7 @@ export default function App() {
         const selectedIds = new Set(selectedNodes.map((n) => n.id));
         const selectedEdges = store.edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target));
         const clipboard = {
-          fpulse_clipboard: true,
+          revoluzen_flow_clipboard: true,
           nodes: selectedNodes.map((n) => ({
             id: n.id,
             type: n.data.stepType,
@@ -766,7 +766,7 @@ export default function App() {
         navigator.clipboard.readText().then((text) => {
           try {
             const data = JSON.parse(text);
-            if (!data.fpulse_clipboard || !data.nodes?.length) return;
+            if (!data.revoluzen_flow_clipboard || !data.nodes?.length) return;
             const store = useWorkflowStore.getState();
             store.pushUndoState();
             const idMap: Record<string, string> = {};
@@ -779,7 +779,7 @@ export default function App() {
               idMap[n.id] = newId;
               return {
                 id: newId,
-                type: 'fpulseNode',
+                type: 'revoluzenFlowNode',
                 position: { x: n.position.x + offset, y: n.position.y + offset },
                 selected: true,
                 data: {
@@ -901,7 +901,7 @@ export default function App() {
     // signed in) and avoids a noisy 401 toast on an anonymous preview.
     const trimmed = projectName.trim() || 'My First Project';
     setActiveProjectName(trimmed);
-    if (localStorage.getItem('fpulse_token')) {
+    if (localStorage.getItem('revoluzen_flow_token')) {
       try {
         const created = await api.createProject({ name: trimmed });
         setActiveProjectId(created.id);
@@ -925,7 +925,7 @@ export default function App() {
       case 'run_workflow': useWorkflowStore.getState().runWorkflow(); break;
       // 2026-05-19 (P2 #11 of PAGE_BY_PAGE_AUDIT.md): the dark-mode
       // toggle case is left as a no-op (no class toggle, no localStorage
-      // write) because main.tsx force-clears `fpulse_theme` on every
+      // write) because main.tsx force-clears `revoluzen_flow_theme` on every
       // boot — the previous body worked for the current session and
       // then silently undid itself on reload, which was worse than the
       // action being broken. The matching GlobalSearch row that emitted
@@ -1125,7 +1125,7 @@ export default function App() {
             <Toolbar tier={tier} environment={environment} />
             {/* Editor row — nodes | (canvas + preview) | chat. Chat moved
                 to the right (May 10 2026) so it aligns with the floating
-                Revoluzen Flow Copilot button's bottom-right position on every
+                Copilot button's bottom-right position on every
                 other page — one consistent "AI lives on the right"
                 mental model across the app. */}
             <div className={`editor-workspace flex-1 flex overflow-hidden relative min-h-0 ${environment === 'prod' ? 'pointer-events-none opacity-75' : ''}`}>
@@ -1218,7 +1218,7 @@ export default function App() {
           EXCEPT the Editor, which has its own docked ChatPanel (restored
           2026-06-17). Suppressing it on the editor route keeps exactly one
           AI surface on the canvas. Default ON elsewhere for every tier;
-          explicit opt-out via localStorage `fpulse.ui.showCopilotWidget=false`;
+          explicit opt-out via localStorage `revoluzen-flow.ui.showCopilotWidget=false`;
           the widget's own "Configure AI Provider" banner handles the
           unconfigured-LLM case. */}
       {page !== 'editor' && shouldShowCopilotWidget(tier) && <FloatingAgentWidget />}

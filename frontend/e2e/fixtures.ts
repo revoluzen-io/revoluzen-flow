@@ -9,16 +9,16 @@ import { test as base, expect, Page, APIRequestContext } from '@playwright/test'
  * intended page. This version logs in via the real API
  * (`POST /api/auth/login` -> `{token,user}`) and injects the session into
  * localStorage before the SPA boots, exactly the way App.tsx restores a
- * session on mount (reads `fpulse_token` + `fpulse_user`, then validates via
+ * session on mount (reads `revoluzen_flow_token` + `revoluzen_flow_user`, then validates via
  * `/api/auth/me`). Robust against login markup changes and far faster than
  * typing into a form per test.
  *
  * Credentials come from the environment so no secret is committed:
- *   REVOLUZEN_FLOW_E2E_EMAIL     (default: admin@fpulse.local)
+ *   REVOLUZEN_FLOW_E2E_EMAIL     (default: admin@revoluzen.local)
  *   REVOLUZEN_FLOW_E2E_PASSWORD  (the bootstrap admin password)
  */
 
-const EMAIL = process.env.REVOLUZEN_FLOW_E2E_EMAIL || 'admin@fpulse.local';
+const EMAIL = process.env.REVOLUZEN_FLOW_E2E_EMAIL || 'admin@revoluzen.local';
 const PASSWORD = process.env.REVOLUZEN_FLOW_E2E_PASSWORD || '';
 
 export type Auth = { token: string; user: unknown };
@@ -42,9 +42,9 @@ export async function apiLogin(request: APIRequestContext): Promise<Auth> {
 export async function injectAuth(page: Page, auth: Auth): Promise<void> {
   await page.addInitScript((a) => {
     const typed = a as { token: string; user: unknown };
-    localStorage.setItem('fpulse_token', typed.token);
-    localStorage.setItem('fpulse_user', JSON.stringify(typed.user));
-    localStorage.setItem('fpulse_env', 'dev');
+    localStorage.setItem('revoluzen_flow_token', typed.token);
+    localStorage.setItem('revoluzen_flow_user', JSON.stringify(typed.user));
+    localStorage.setItem('revoluzen_flow_env', 'dev');
   }, auth);
 }
 

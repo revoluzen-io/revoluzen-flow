@@ -30,7 +30,7 @@ import BackfillsPanel from './BackfillsPanel';
 // PR 7 — Reason-code badge for step-level failures.
 //
 // The backend ``StepRunResult.error_type`` is now a typed enum
-// (StepErrorType in fpulse/ir/schema.py). We render a small coloured
+// (StepErrorType in revoluzen_flow/ir/schema.py). We render a small coloured
 // chip ahead of the error message so users can scan a list of failed
 // runs and tell "credential expired" apart from "DuckDB OOM" without
 // reading every error string. The label is friendly; the colour is
@@ -441,19 +441,19 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
   // sessionStorage so navigating away and back doesn't snap to Runs.
   const [mainView, setMainView] = useState<'runs' | 'backfills'>(() => {
     try {
-      const stashed = sessionStorage.getItem('fpulse_executions_main_view');
+      const stashed = sessionStorage.getItem('revoluzen_flow_executions_main_view');
       return stashed === 'backfills' ? 'backfills' : 'runs';
     } catch {
       return 'runs';
     }
   });
   useEffect(() => {
-    try { sessionStorage.setItem('fpulse_executions_main_view', mainView); } catch { /* ignore */ }
+    try { sessionStorage.setItem('revoluzen_flow_executions_main_view', mainView); } catch { /* ignore */ }
     // If Toolbar just submitted a backfill it stashed the id; auto-flip
     // to Backfills so the user sees their new run.
     if (mainView === 'runs') {
       try {
-        if (sessionStorage.getItem('fpulse_focused_backfill_id')) {
+        if (sessionStorage.getItem('revoluzen_flow_focused_backfill_id')) {
           setMainView('backfills');
         }
       } catch { /* ignore */ }
@@ -492,7 +492,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
       // need to block here.
     }
   }, [projectFilter]);
-  const { visibleColumns, activeColumns, toggleColumn, resetToDefaults, selectAll, isVisible } = useTableColumns('fpulse_executions_columns', EXEC_COLUMNS);
+  const { visibleColumns, activeColumns, toggleColumn, resetToDefaults, selectAll, isVisible } = useTableColumns('revoluzen_flow_executions_columns', EXEC_COLUMNS);
 
   useEffect(() => {
     loadData();
@@ -672,8 +672,8 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
     (async () => {
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const token = localStorage.getItem('fpulse_token') || '';
-        const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+        const token = localStorage.getItem('revoluzen_flow_token') || '';
+        const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
         if (token) headers['Authorization'] = `Bearer ${token}`;
         headers['X-Workspace-Id'] = ws;
         const res = await fetch('/api/ai/diagnose-error', {
@@ -1849,7 +1849,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 <button
                   type="button"
                   onClick={() => {
-                    try { localStorage.setItem('fpulse_storage_tab', 'outputs'); } catch { /* ignore */ }
+                    try { localStorage.setItem('revoluzen_flow_storage_tab', 'outputs'); } catch { /* ignore */ }
                     window.location.hash = 'storage';
                   }}
                   title={selectedExec.storage_outputs.map((o) => o.name).join('\n')}
@@ -2042,8 +2042,8 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                               setAiDiagnosisLoading(true);
                               try {
                                 const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-                                const token = localStorage.getItem('fpulse_token') || '';
-                                const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+                                const token = localStorage.getItem('revoluzen_flow_token') || '';
+                                const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
                                 if (token) headers['Authorization'] = `Bearer ${token}`;
                                 headers['X-Workspace-Id'] = ws;
                                 const res = await fetch('/api/ai/diagnose-error', {

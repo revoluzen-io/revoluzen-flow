@@ -227,17 +227,17 @@ class TestMatchProductInfo:
         "what does this do",
         "explain revoluzen-flow",
     ])
-    def test_what_is_fpulse(self, prompt):
+    def test_what_is_revoluzen_flow(self, prompt):
         intent = try_match(prompt)
         assert intent is not None
-        assert intent.name == "what_is_fpulse"
+        assert intent.name == "what_is_revoluzen_flow"
 
-    def test_what_is_fpulse_does_not_hijack_pipeline_question(self):
+    def test_what_is_revoluzen_flow_does_not_hijack_pipeline_question(self):
         # "what does this pipeline do" is in the excludes — must NOT route
-        # to what_is_fpulse. Should fall through to the LLM (it's a
+        # to what_is_revoluzen_flow. Should fall through to the LLM (it's a
         # reasoning question about a specific pipeline).
         intent = try_match("what does this pipeline do")
-        assert intent is None or intent.name != "what_is_fpulse"
+        assert intent is None or intent.name != "what_is_revoluzen_flow"
 
     @pytest.mark.parametrize("prompt", [
         "what tier am i on",

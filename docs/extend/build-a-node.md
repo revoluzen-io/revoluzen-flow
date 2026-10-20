@@ -88,7 +88,7 @@ In `backend/revoluzen_flow/ir/schema.py`, add `RISK_SCORER = "risk_scorer"` to t
 In `backend/tests/`, add `test_risk_scorer.py`:
 
 ```python
-def test_risk_scorer_filters_below_threshold(fpulse_test_db):
+def test_risk_scorer_filters_below_threshold(revoluzen_flow_test_db):
     node = RiskScorerNode()
     out = node.execute(
         ctx=None,

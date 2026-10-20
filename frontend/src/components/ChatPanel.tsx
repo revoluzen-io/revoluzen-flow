@@ -374,7 +374,7 @@ function getActionsForMessage(content: string, nodes: any[]): Array<{ text: stri
 // User-resizable panel — same pattern as ModulesPanel on the right.
 // Width persists across reloads via localStorage. Min/max keep the chat
 // usable (too narrow → wrapped messages; too wide → eats the canvas).
-const CHAT_PANEL_WIDTH_KEY = 'fpulse.chatPanelWidth';
+const CHAT_PANEL_WIDTH_KEY = 'revoluzen-flow.chatPanelWidth';
 const CHAT_PANEL_WIDTH_DEFAULT = 320;
 const CHAT_PANEL_WIDTH_MIN = 240;
 const CHAT_PANEL_WIDTH_MAX = 560;
@@ -456,7 +456,7 @@ export default function ChatPanel() {
   // Publish the live width as a CSS variable on :root so fixed-position
   // overlays (ConfigPanel) can match the right edge of the canvas
   // column instead of using a hardcoded offset. Mirrors the
-  // `--fpulse-nodes-panel-width` variable ModulesPanel publishes.
+  // `--revoluzen-flow-nodes-panel-width` variable ModulesPanel publishes.
   // When chatOpen=false the panel renders its 40px (w-10) rail, not
   // `panelWidth` — publish the effective width so ConfigPanel's
   // modal-centering overlay doesn't keep a ~320px ghost margin on the
@@ -464,7 +464,7 @@ export default function ChatPanel() {
   useEffect(() => {
     try {
       const effectiveWidth = chatOpen ? panelWidth : 40;
-      document.documentElement.style.setProperty('--fpulse-chat-panel-width', `${effectiveWidth}px`);
+      document.documentElement.style.setProperty('--revoluzen-flow-chat-panel-width', `${effectiveWidth}px`);
     } catch {}
   }, [panelWidth, chatOpen]);
 
@@ -605,7 +605,7 @@ export default function ChatPanel() {
 
   if (!chatOpen) {
     return (
-      <div data-fpulse-panel="chat" className="w-10 bg-slate-50 border-l border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
+      <div data-revoluzen-flow-panel="chat" className="w-10 bg-slate-50 border-l border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
         <button
           onClick={() => setChatOpen(true)}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
@@ -1025,7 +1025,7 @@ export default function ChatPanel() {
   /* ── Render ── */
   return (
     <div
-      data-fpulse-panel="chat"
+      data-revoluzen-flow-panel="chat"
       className={`flex flex-col shrink-0 border-l overflow-hidden relative ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-slate-50 border-pipe-200'}`}
       style={{ width: panelWidth }}
     >

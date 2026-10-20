@@ -215,8 +215,8 @@ Download from the [latest GitHub Release](https://github.com/revoluzen-technolog
 
 | Distro | Package | Install |
 |---|---|---|
-| Debian / Ubuntu 22.04+ | `fpulse_1.0.0_amd64.deb` | `sudo apt install ./fpulse_1.0.0_amd64.deb` |
-| Fedora / RHEL / Alma / Rocky 9+ | `fpulse-1.0.0-1.x86_64.rpm` | `sudo dnf install ./fpulse-1.0.0-1.x86_64.rpm` |
+| Debian / Ubuntu 22.04+ | `revoluzen_flow_1.0.0_amd64.deb` | `sudo apt install ./revoluzen_flow_1.0.0_amd64.deb` |
+| Fedora / RHEL / Alma / Rocky 9+ | `revoluzen-flow-1.0.0-1.x86_64.rpm` | `sudo dnf install ./revoluzen-flow-1.0.0-1.x86_64.rpm` |
 | Any Linux (glibc 2.27+) | `RevoluzenFlow-1.0.0-x86_64.AppImage` | `chmod +x ./RevoluzenFlow-*.AppImage && ./RevoluzenFlow-*.AppImage` |
 
 > **These packages are not GPG-signed**, so `apt` / `dnf` will note that the
@@ -269,7 +269,7 @@ Silicon only, so pip falls back to a source build that needs Rust and OpenSSL
 headers and fails with `openssl-sys: Could not find directory of OpenSSL
 installation`. Revoluzen Flow caps that dependency to the last Intel-compatible
 release on this platform. If you installed a build from before the cap
-(`fpulse` 1.0.0 or earlier), pull the working version first:
+(`revoluzen` 1.0.0 or earlier), pull the working version first:
 
 ```bash
 python3 -m pip install "cryptography<49"
@@ -288,7 +288,7 @@ docker compose up -d            # Revoluzen Flow only
 
 Open <http://localhost:8001> — on first launch Revoluzen Flow asks you to **create your admin account** (your email + a strong password; this first account owns the instance). Then open **Templates → First pipeline — CSV in, CSV out → Use Template → Run**. You'll see real output from a seeded sample dataset in under a minute — no Postgres, no API keys, no cloud account required.
 
-> **Automating a headless deploy** that can't do the interactive first run? Set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` and Revoluzen Flow auto-creates `admin@fpulse.local` with a random password — read it with `docker compose exec flow cat /data/INITIAL_ADMIN_PASSWORD.txt`, sign in, and rotate it.
+> **Automating a headless deploy** that can't do the interactive first run? Set `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` and Revoluzen Flow auto-creates `admin@revoluzen.local` with a random password — read it with `docker compose exec flow cat /data/INITIAL_ADMIN_PASSWORD.txt`, sign in, and rotate it.
 
 To upgrade later:
 
@@ -312,7 +312,7 @@ pull an image that isn't published yet:
 
 ```bash
 docker build -t revoluzen/flow:1.0.0 .
-docker run -d --name fpulse \
+docker run -d --name revoluzen-flow \
   -p 8001:8001 \
   -v revoluzen_flow_data:/data \
   -e REVOLUZEN_FLOW_DATA_DIR=/data \
@@ -325,7 +325,7 @@ Then open <http://localhost:8001>.
 
 `pip install -e .` and `python -m revoluzen_flow open` are **two separate commands** — install first,
 then run. The `.` means "the project in the current folder", so you must be
-**inside the cloned repo** when you run it. `fpulse` only exists *after* the
+**inside the cloned repo** when you run it. `revoluzen` only exists *after* the
 install succeeds (it's the optional command shortcut that install creates).
 
 **macOS / Linux:**

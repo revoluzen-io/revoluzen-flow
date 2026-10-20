@@ -707,7 +707,7 @@ Module order is dictated by data dependencies, not capability sequence.
 | `backend/scripts/validate_steward.py` | End-to-end demonstration script |
 | `frontend/src/components/StewardBadge.tsx` | Header badge + Findings/Memory/Settings dropdown |
 | `frontend/src/components/Sidebar.tsx` | Mounts the badge in the header |
-| `frontend/src/components/SaveDialog.tsx` | Dispatches `fpulse:steward-refresh` after save |
+| `frontend/src/components/SaveDialog.tsx` | Dispatches `revoluzen-flow:steward-refresh` after save |
 | `frontend/src/lib/notificationHref.ts` | Deep-link handler for `link_type: "steward"` |
 | `frontend/src/components/pages/NotificationsPage.tsx` | Steward notification icon/label mappings |
 | `frontend/src/components/pages/HelpPage.tsx` | User-facing Steward how-to guides |

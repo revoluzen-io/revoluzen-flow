@@ -203,7 +203,7 @@ export default function ConfigPanel() {
   //                              pan, scan, hover without an overlay
   //                              blocking the canvas.
   //
-  //   Double-click on canvas  →  dispatches `fpulse-node-opened`;
+  //   Double-click on canvas  →  dispatches `revoluzen-flow-node-opened`;
   //                              we set `open` and the modal renders.
   //
   //   Right-click "Open Settings" / "Fix configuration"
@@ -228,7 +228,7 @@ export default function ConfigPanel() {
       // and silently no-ops otherwise.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          const body = document.querySelector('[data-fpulse-config-body]') as HTMLElement | null;
+          const body = document.querySelector('[data-revoluzen-flow-config-body]') as HTMLElement | null;
           if (!body) return;
           body.scrollTop = 0;
           const candidates = body.querySelectorAll<HTMLElement>(
@@ -237,7 +237,7 @@ export default function ConfigPanel() {
           let first: HTMLElement | null = null;
           for (const el of candidates) {
             if (el.closest('[data-skip-autofocus]')) continue;
-            if (el.classList.contains('fpulse-rename-input')) continue;
+            if (el.classList.contains('revoluzen-flow-rename-input')) continue;
             first = el;
             break;
           }
@@ -248,8 +248,8 @@ export default function ConfigPanel() {
         });
       });
     };
-    window.addEventListener('fpulse-node-opened', handler);
-    return () => window.removeEventListener('fpulse-node-opened', handler);
+    window.addEventListener('revoluzen-flow-node-opened', handler);
+    return () => window.removeEventListener('revoluzen-flow-node-opened', handler);
   }, []);
 
   // Auto-close the modal when the user deselects (background click on canvas).
@@ -391,7 +391,7 @@ export default function ConfigPanel() {
   // 2026-06-03 — gate on BOTH selection AND explicit open state.
   // Single-click selects (sets selectedNodeId) but does not open the
   // modal; only double-click / context-menu / explicit "Open Settings"
-  // dispatch the `fpulse-node-opened` event that sets `open`.
+  // dispatch the `revoluzen-flow-node-opened` event that sets `open`.
   if (!node || !open) return null;
 
   const { stepType, params, label, category } = node.data as any;
@@ -458,7 +458,7 @@ export default function ConfigPanel() {
     if (upNode) {
       // xyflow Node.data is typed as Record<string, unknown> at the
       // library level — narrow to Revoluzen Flow's node-data shape here.
-      // Pre-existing untyped pattern; a proper FpulseNodeData type can
+      // Pre-existing untyped pattern; a proper RevoluzenFlowNodeData type can
       // replace these casts in a follow-up refactor.
       const ud = upNode.data as { label?: string; stepType?: string; params?: Record<string, string | undefined> };
       upstreamNodes.push({
@@ -591,8 +591,8 @@ export default function ConfigPanel() {
         edge (not overlapping its mt-1 / border-2).
 
         `left` tracks the live ModulesPanel (LEFT) width via
-        `--fpulse-nodes-panel-width`; `right` tracks the live ChatPanel
-        (RIGHT) width via `--fpulse-chat-panel-width`. Both are published
+        `--revoluzen-flow-nodes-panel-width`; `right` tracks the live ChatPanel
+        (RIGHT) width via `--revoluzen-flow-chat-panel-width`. Both are published
         from their respective panel components on every resize tick so
         this overlay reflows with them. */}
     {/* Backdrop — dims AND blurs the canvas behind the config so the editor
@@ -608,9 +608,9 @@ export default function ConfigPanel() {
       } ${
         fullBleed
           ? 'left-0 right-0'
-          : 'left-[var(--fpulse-nodes-panel-width,290px)] right-[var(--fpulse-chat-panel-width,320px)]'
+          : 'left-[var(--revoluzen-flow-nodes-panel-width,290px)] right-[var(--revoluzen-flow-chat-panel-width,320px)]'
       }`}
-      style={{ bottom: 'var(--fpulse-preview-panel-height, 240px)' }}
+      style={{ bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }}
       onClick={() => setSelectedNode(null)}
     />
 
@@ -625,9 +625,9 @@ export default function ConfigPanel() {
       } ${
         fullBleed
           ? 'left-0 right-0'
-          : 'left-[var(--fpulse-nodes-panel-width,290px)] right-[var(--fpulse-chat-panel-width,320px)]'
+          : 'left-[var(--revoluzen-flow-nodes-panel-width,290px)] right-[var(--revoluzen-flow-chat-panel-width,320px)]'
       }`}
-      style={{ bottom: 'var(--fpulse-preview-panel-height, 240px)' }}
+      style={{ bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }}
     >
       {/* Left side — connected upstream nodes (centered-modal layout only;
           the docked properties panel has no room for the side rails). */}
@@ -680,7 +680,7 @@ export default function ConfigPanel() {
 
           Outer wrapper provides the brand-gradient border (1.5px) — the
           inner div holds the actual content on a white background. The
-          gradient is the same indigo→purple→pink as the Revoluzen Flow Copilot
+          gradient is the same indigo→purple→pink as the Copilot
           pill so the panel reads as part of the same product family. */}
       {/*
         2026-05-22 — height bound. The parent wrapper is already
@@ -734,7 +734,7 @@ export default function ConfigPanel() {
         />
       )}
       <div
-        data-fpulse-config-body
+        data-revoluzen-flow-config-body
         className="w-full h-full bg-white rounded-[13px] flex flex-col overflow-auto"
       >
 
@@ -2575,7 +2575,7 @@ function FamilyAwareSourceFields({ family, params, set, prefix = '' }: FamilyFie
             <TextInput value={params[k('topic')] || ''} onChange={(v) => set({ [k('topic')]: v })} placeholder="orders.events" />
           </Field>
           <Field label="Consumer Group / Subscription">
-            <TextInput value={params.consumer_group || ''} onChange={(v) => set({ consumer_group: v })} placeholder="fpulse-1" />
+            <TextInput value={params.consumer_group || ''} onChange={(v) => set({ consumer_group: v })} placeholder="revoluzen-flow-1" />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Starting Offset">
@@ -3202,7 +3202,7 @@ function ConnectionPicker({
   };
 
   const openConnectionsPage = () => {
-    try { sessionStorage.setItem('fpulse_return_to', window.location.hash); } catch {}
+    try { sessionStorage.setItem('revoluzen_flow_return_to', window.location.hash); } catch {}
     navigateTo('connections');
   };
 
@@ -4232,7 +4232,7 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
     (async () => {
       try {
         const res = await fetch(`/api/sync-state/${encodeURIComponent(workflowId)}/${encodeURIComponent(nodeId)}`, {
-          headers: { 'Authorization': `Bearer ${localStorage.getItem('fpulse_token') || ''}` },
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}` },
         });
         if (!res.ok) return;
         const body = await res.json();
@@ -4251,7 +4251,7 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
     try {
       await fetch(`/api/sync-state/${encodeURIComponent(workflowId)}/${encodeURIComponent(nodeId)}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('fpulse_token') || ''}` },
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}` },
       });
       setStored(null);
     } finally {
@@ -4336,7 +4336,7 @@ function DbSourceConfig({ params, nodeId, onChange, hideConnection }: ConfigProp
   const objectLabel = isNoSqlConnection ? 'Collection' : 'Table';
   const parentLabel = isNoSqlConnection ? 'Database' : 'Schema';
   const browseLabel = isNoSqlConnection ? 'Browse collections' : 'Browse tables';
-  // The backend (`fpulse/nodes/db_source.py`) reads `params.source_mode`
+  // The backend (`revoluzen_flow/nodes/db_source.py`) reads `params.source_mode`
   // with values `query` / `table` (and `procedure` for call mode), NOT
   // the older `operation` key with `execute_query` / `read_table` etc.
   // The drift caused Test Node to fail with "no SQL query provided"
@@ -7075,8 +7075,8 @@ function LocalFileUploader({ currentPath, onUploaded }: { currentPath: string; o
     try {
       const form = new FormData();
       form.append('file', file);
-      const token = localStorage.getItem('fpulse_token');
-      const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+      const token = localStorage.getItem('revoluzen_flow_token');
+      const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
       const headers: Record<string, string> = { 'X-Workspace-Id': workspaceId };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       // If this node already has a workspace upload, ask the backend to
@@ -7558,7 +7558,7 @@ function KafkaSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <Field label="Consumer Group ID *">
-        <TextInput value={params.group_id || ''} onChange={(v) => onChange(nodeId, { group_id: v })} placeholder="fpulse-consumer-group" />
+        <TextInput value={params.group_id || ''} onChange={(v) => onChange(nodeId, { group_id: v })} placeholder="revoluzen-flow-consumer-group" />
       </Field>
       {params.operation === 'consume_from_offset' && (
         <>
@@ -9866,7 +9866,7 @@ function CodeScriptConfig({ params, nodeId, onChange }: ConfigProps) {
    "Execution" was previously labelled "Settings" but collided visually
    with the outer top-level "Settings" tab on the same panel — renamed
    2026-05-09 to disambiguate. Same pattern applied to Delete Data below.
-   Backend: fpulse/nodes/flow_control.py CopyDataNode
+   Backend: revoluzen_flow/nodes/flow_control.py CopyDataNode
 */
 const COPY_TABS = ['Source', 'Sink', 'Mapping', 'Execution'] as const;
 type CopyTab = typeof COPY_TABS[number];
@@ -10810,7 +10810,7 @@ function SlackNotifyConfig({ params, nodeId, onChange }: ConfigProps) {
 
 /* ═══════════════════════════════════════════════════════
    Control flow & integration primitives
-   Backend: fpulse/nodes/control_extras.py
+   Backend: revoluzen_flow/nodes/control_extras.py
    ═══════════════════════════════════════════════════════ */
 
 function AppendVariableConfig({ params, nodeId, onChange }: ConfigProps) {

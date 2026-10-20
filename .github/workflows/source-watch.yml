@@ -1,0 +1,156 @@
+name: Source Watch (connector upstream drift)
+
+# Finds out that a vendor changed their API before a customer's pipeline does.
+#
+# Nothing else here can do that. `connector-attest.yml` replays recorded
+# cassettes, which proves our parsing still works against *the responses we
+# recorded* — by construction it never contacts the vendor, so it cannot
+# notice the vendor moving. `connectors/ci/live_smoke.yml` would be a real
+# sensor and its allow-list is empty. So until this job existed, the first
+# party to learn that a connector had broken was whoever it broke for.
+#
+# What this checks, none of which needs a vendor account:
+#   * the vendor advertises a newer API version than a connector is pinned to
+#   * an endpoint one of our streams reads is gone from the vendor's own spec
+#   * the vendor's published spec or changelog moved at all
+#
+# Daily, because an API version announcement has a deprecation window measured
+# in weeks and we want the whole window, not the tail of it.
+
+on:
+  schedule:
+    - cron: '0 5 * * *'          # 05:00 UTC daily
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      # A manifest edit can change what we are pinned to or which endpoints we
+      # read, so re-check immediately rather than waiting for the next day.
+      - 'backend/revoluzen_flow/connectors/manifests/**'
+      - 'backend/revoluzen_flow/connectors/source_watch.py'
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: source-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Probe connector upstreams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Probe upstreams
+        id: watch
+        working-directory: backend
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from revoluzen_flow.connectors import source_watch as sw
+
+          watched = sw.watched_connectors()
+          if not watched:
+              print("No connector declares a source_watch block — nothing to probe.")
+              print("Add one to a manifest; see source_watch.py for the fields.")
+              sys.exit(0)
+
+          print(f"Watching {len(watched)}: {', '.join(watched)}")
+          status = sw.run_source_watch(write=True)
+
+          interesting = [
+              s for s in status["signals"] if s["severity"] in ("warn", "critical")
+          ]
+          for s in status["signals"]:
+              print(f"[{s['severity']:8}] {s['connector_id']:14} "
+                    f"{s['kind']:12} {s['summary']}")
+
+          unwatched = status.get("unwatched") or []
+          if unwatched:
+              # Named, not counted: a connector nobody watches is not a
+              # connector that is fine. It is one we would not hear about.
+              print(f"::notice::{len(unwatched)} connector(s) have no upstream "
+                    f"watch: {', '.join(unwatched)}")
+
+          # Hand the findings to the next step as a file. Multi-line output
+          # through $GITHUB_OUTPUT needs delimiters and summaries can contain
+          # anything a vendor put in a header, so a file avoids the quoting
+          # problem entirely.
+          with open("../source-watch-findings.md", "w", encoding="utf-8") as fh:
+              if interesting:
+                  fh.write("| Severity | Connector | Signal | Detail |\n")
+                  fh.write("|---|---|---|---|\n")
+                  for s in interesting:
+                      detail = str(s["summary"]).replace("|", "\\|")
+                      fh.write(f"| {s['severity']} | `{s['connector_id']}` | "
+                               f"{s['kind']} | {detail} |\n")
+
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a", encoding="utf-8") as fh:
+              fh.write(f"worst={status['worst_severity']}\n")
+              fh.write(f"findings={len(interesting)}\n")
+          PY
+
+      - name: Commit the refreshed status
+        run: |
+          paths="backend/revoluzen_flow/connectors/ci/source_watch_status.json \
+                 backend/revoluzen_flow/connectors/ci/source_watch_baseline.json"
+          if git diff --quiet -- $paths; then
+            echo "No upstream movement since the last run."
+            exit 0
+          fi
+          git config user.name  "Revoluzen"
+          git config user.email "hello@revoluzen.io"
+          git add $paths
+          git commit -m "chore(connectors): refresh source-watch baseline [skip ci]"
+          git push
+
+      # The durable record. A failed job scrolls out of view; an issue stays
+      # until someone decides what to do about the vendor's change.
+      - name: Open or update the drift issue
+        if: steps.watch.outputs.findings != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="Connector upstream drift detected"
+          body="$(cat source-watch-findings.md)
+
+          Produced by \`.github/workflows/source-watch.yml\` on $(date -u +%Y-%m-%d).
+          Full signal list: \`backend/revoluzen_flow/connectors/ci/source_watch_status.json\`.
+
+          A \`critical\` row means a connector is pinned to an API version the
+          vendor has moved past, or reads an endpoint their published spec no
+          longer lists. A \`warn\` row means something upstream moved and is
+          worth a look."
+
+          existing=$(gh issue list --state open --search "$title in:title" \
+                       --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" \
+              --label connectors 2>/dev/null \
+              || gh issue create --title "$title" --body "$body"
+          fi
+
+      - name: Fail on a breaking upstream change
+        if: steps.watch.outputs.worst == 'critical'
+        run: |
+          echo "::error::A connector is pinned to an API version the vendor has \
+          moved past, or reads an endpoint missing from their spec. See the issue."
+          exit 1

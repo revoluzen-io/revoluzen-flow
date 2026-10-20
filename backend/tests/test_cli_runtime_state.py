@@ -26,7 +26,7 @@ import pytest
 
 from revoluzen_flow.cli.runtime_state import (
     RuntimeInstance,
-    is_owned_fpulse,
+    is_owned_revoluzen_flow,
     make_open_instance,
     read_runtime,
     remove_runtime,
@@ -146,20 +146,20 @@ class TestOwnershipCheckSafety:
         # A PID we are confident is dead (very large positive integer
         # that the OS hasn't issued; psutil should error or return
         # not-running).
-        assert is_owned_fpulse(999999999, expected_port=8001, kind="backend") is False
+        assert is_owned_revoluzen_flow(999999999, expected_port=8001, kind="backend") is False
 
     def test_zero_pid_returns_false(self):
         # Defensive - 0 means "I have no PID recorded"; never kill.
-        assert is_owned_fpulse(0, expected_port=8001, kind="backend") is False
+        assert is_owned_revoluzen_flow(0, expected_port=8001, kind="backend") is False
 
     def test_our_own_python_pid_is_not_owned_unless_cmdline_matches(self):
         # The currently-running pytest process is python but is NOT
         # uvicorn-revoluzen_flow. The cmdline check must reject it (and the
         # port check would too, since we're not listening on 8001).
-        assert is_owned_fpulse(os.getpid(), expected_port=8001, kind="backend") is False
+        assert is_owned_revoluzen_flow(os.getpid(), expected_port=8001, kind="backend") is False
 
     def test_stop_refuses_when_ownership_check_fails(self):
-        # Belt-and-braces: stop_owned_process MUST gate on is_owned_fpulse.
+        # Belt-and-braces: stop_owned_process MUST gate on is_owned_revoluzen_flow.
         # We pick a dead PID so even if the gating were broken, no real
         # damage would result (we'd just get an error trying to kill
         # the PID). The assertion is on the False return - the function

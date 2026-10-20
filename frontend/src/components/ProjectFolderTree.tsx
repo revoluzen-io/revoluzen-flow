@@ -118,7 +118,7 @@ interface Props {
 
 const UNASSIGNED_ID = '__unassigned__';
 
-const FOLDER_EXPANSION_KEY = 'fpulse_folders_expanded';
+const FOLDER_EXPANSION_KEY = 'revoluzen_flow_folders_expanded';
 
 function readFolderExpansion(): Set<string> {
   try {

@@ -54,7 +54,7 @@ class UserStore:
 
         Opt-in bootstrap (``REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1`` — for headless / Docker /
         CI deploys that can't do an interactive first run): generate a random
-        24-char password, create ``admin@fpulse.local``, and write the password
+        24-char password, create ``admin@revoluzen.local``, and write the password
         ONCE to ``INITIAL_ADMIN_PASSWORD.txt`` next to the SQLite db + log it.
         The operator reads it, signs in, rotates, deletes the file; we never
         read it back. WITHOUT the flag none of this happens — the DB stays empty
@@ -79,7 +79,7 @@ class UserStore:
                 initial_password = secrets.token_urlsafe(18)  # ~24 chars
                 admin = User(
                     id="admin",
-                    email="admin@fpulse.local",
+                    email="admin@revoluzen.local",
                     name="Admin",
                     password_hash=User.hash_password(initial_password),
                     role="admin",
@@ -125,20 +125,20 @@ class UserStore:
                 fh.write(
                     "Revoluzen Flow bootstrap developer credentials\n"
                     "=======================================\n"
-                    f"  email:    admin@fpulse.local\n"
+                    f"  email:    admin@revoluzen.local\n"
                     f"  password: {password}\n\n"
                     "Sign in, change this password from the Account page,\n"
                     "then DELETE this file. Revoluzen Flow never reads it back.\n"
                 )
             logger.warning(
-                "Revoluzen Flow: created bootstrap admin admin@fpulse.local. "
+                "Revoluzen Flow: created bootstrap admin admin@revoluzen.local. "
                 "Initial password written to %s. Sign in, rotate it, delete the file.",
                 target,
             )
         except OSError as exc:
             # File-system was read-only or similar — fall back to log-only.
             logger.warning(
-                "Revoluzen Flow: created bootstrap admin admin@fpulse.local. "
+                "Revoluzen Flow: created bootstrap admin admin@revoluzen.local. "
                 "Could not write password file (%s). One-time password: %s "
                 "— copy this NOW from the logs, it will not be shown again.",
                 exc, password,

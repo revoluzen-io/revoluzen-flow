@@ -27,11 +27,11 @@ import pytest
 
 PG_HOST = os.environ.get("REVOLUZEN_FLOW_TEST_PG_HOST", "127.0.0.1")
 PG_PORT = int(os.environ.get("REVOLUZEN_FLOW_TEST_PG_PORT", "5433"))
-PG_USER = os.environ.get("REVOLUZEN_FLOW_TEST_PG_USER", "fpulse_test")
-PG_PASS = os.environ.get("REVOLUZEN_FLOW_TEST_PG_PASS", "fpulse_test")
-PG_DB = os.environ.get("REVOLUZEN_FLOW_TEST_PG_DB", "fpulse_test")
-PG_SLOT = "fpulse_test_slot"
-PG_PUB = "fpulse_test_pub"
+PG_USER = os.environ.get("REVOLUZEN_FLOW_TEST_PG_USER", "revoluzen_flow_test")
+PG_PASS = os.environ.get("REVOLUZEN_FLOW_TEST_PG_PASS", "revoluzen_flow_test")
+PG_DB = os.environ.get("REVOLUZEN_FLOW_TEST_PG_DB", "revoluzen_flow_test")
+PG_SLOT = "revoluzen_flow_test_slot"
+PG_PUB = "revoluzen_flow_test_pub"
 
 psycopg2 = pytest.importorskip("psycopg2")
 # `psycopg2.extras` is a separate submodule — importorskip on the base

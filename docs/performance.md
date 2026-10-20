@@ -146,16 +146,16 @@ Prometheus metrics endpoint (existing, expanded in Step 1.5b for AI):
 
 | Metric | Type | Notes |
 |---|---|---|
-| `fpulse_http_requests_total` | counter | Per route, status |
-| `fpulse_http_request_duration_seconds` | histogram | Per route |
-| `fpulse_executions_total` | counter | Per status |
-| `fpulse_worker_memory_bytes` | gauge | Per worker (added in Tier B) |
-| `fpulse_ai_agent_runs_total` | counter | Per outcome (success/llm_failure/tool_failure/policy_block/timeout/user_rejection) |
-| `fpulse_ai_tokens_total` | counter | Per provider, per tier |
-| `fpulse_ai_tool_calls_total` | counter | Per tool, per tier, per outcome |
-| `fpulse_ai_cache_outcomes_total` | counter | hit / miss / stale |
-| `fpulse_ai_redactions_total` | counter | Per category |
-| `fpulse_auth_failures_total` | counter | Existing |
+| `revoluzen_flow_http_requests_total` | counter | Per route, status |
+| `revoluzen_flow_http_request_duration_seconds` | histogram | Per route |
+| `revoluzen_flow_executions_total` | counter | Per status |
+| `revoluzen_flow_worker_memory_bytes` | gauge | Per worker (added in Tier B) |
+| `revoluzen_flow_ai_agent_runs_total` | counter | Per outcome (success/llm_failure/tool_failure/policy_block/timeout/user_rejection) |
+| `revoluzen_flow_ai_tokens_total` | counter | Per provider, per tier |
+| `revoluzen_flow_ai_tool_calls_total` | counter | Per tool, per tier, per outcome |
+| `revoluzen_flow_ai_cache_outcomes_total` | counter | hit / miss / stale |
+| `revoluzen_flow_ai_redactions_total` | counter | Per category |
+| `revoluzen_flow_auth_failures_total` | counter | Existing |
 
 Cardinality discipline: no high-cardinality labels (no per-user, no per-pipeline-id labels). Per-tenant aggregates only.
 

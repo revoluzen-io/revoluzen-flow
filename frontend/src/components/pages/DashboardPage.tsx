@@ -89,7 +89,7 @@ interface Stats {
 
 function getUserTimezone(): string {
   try {
-    const raw = localStorage.getItem('fpulse-settings');
+    const raw = localStorage.getItem('revoluzen-flow-settings');
     if (raw) {
       const parsed = JSON.parse(raw);
       const tz = parsed?.general?.timezone;
@@ -689,7 +689,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   const p = isProd ? palette.prod : palette.dev;
 
   const user = (() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_user') || 'null'); }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null'); }
     catch { return null; }
   })();
   const role = canonicalRole(user?.role);
@@ -713,13 +713,13 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // operator can see "6 failures" at a glance without expanding;
   // expand only when triaging.
   const [attentionOpen, setAttentionOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('fpulse_dashboard_attention_open') === '1'; }
+    try { return localStorage.getItem('revoluzen_flow_dashboard_attention_open') === '1'; }
     catch { return false; }
   });
   const toggleAttention = () => {
     setAttentionOpen((v) => {
       const next = !v;
-      try { localStorage.setItem('fpulse_dashboard_attention_open', next ? '1' : '0'); } catch { /* ignore */ }
+      try { localStorage.setItem('revoluzen_flow_dashboard_attention_open', next ? '1' : '0'); } catch { /* ignore */ }
       return next;
     });
   };
@@ -731,7 +731,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // it also drops naturally once it succeeds (current-state /monitor/failed).
   // So "Clear" means "I've seen this one" — not "mute forever". Per-browser
   // by design: this is a local-first acknowledgement, not shared team state.
-  const DISMISSED_KEY = 'fpulse.dashboard.dismissedFailures';
+  const DISMISSED_KEY = 'revoluzen-flow.dashboard.dismissedFailures';
   const failureKey = (f: any): string =>
     String(f?.id || f?.run_id || f?.execution_id || f?.workflow_id || f?.name || '');
   const [dismissedFailures, setDismissedFailures] = useState<Set<string>>(() => {
@@ -911,11 +911,11 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       : [],
   });
   // Dashboard-scoped timezone. Persisted under its OWN localStorage key
-  // (`fpulse-dashboard-tz`) so changing it here doesn't override the global
+  // (`revoluzen-flow-dashboard-tz`) so changing it here doesn't override the global
   // Settings timezone. Falls back to the global Settings tz, then UTC.
   const [userTz, setUserTz] = useState<string>(() => {
     try {
-      const dash = localStorage.getItem('fpulse-dashboard-tz');
+      const dash = localStorage.getItem('revoluzen-flow-dashboard-tz');
       if (dash) return dash;
     } catch {}
     return getUserTimezone();
@@ -925,7 +925,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   const handleTzChange = (tz: string) => {
     setUserTz(tz);
     setTzMenuOpen(false);
-    try { localStorage.setItem('fpulse-dashboard-tz', tz); } catch {}
+    try { localStorage.setItem('revoluzen-flow-dashboard-tz', tz); } catch {}
   };
   // Close the timezone popover on outside click
   useEffect(() => {
@@ -956,11 +956,11 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // on this browser. Cleared only by clearing site data — intentional; a
   // soft reminder shouldn't need a re-opt-out every visit.
   const [prodCardDismissed, setProdCardDismissed] = useState<boolean>(() => {
-    try { return localStorage.getItem('fpulse_prod_info_dismissed') === '1'; }
+    try { return localStorage.getItem('revoluzen_flow_prod_info_dismissed') === '1'; }
     catch { return false; }
   });
   const dismissProdCard = () => {
-    try { localStorage.setItem('fpulse_prod_info_dismissed', '1'); } catch {}
+    try { localStorage.setItem('revoluzen_flow_prod_info_dismissed', '1'); } catch {}
     setProdCardDismissed(true);
   };
 
@@ -1011,8 +1011,8 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
         // gracefully to nulls if the endpoint is unavailable.
         fetch('/api/storage/summary', {
           headers: {
-            'X-Workspace-Id': localStorage.getItem('fpulse_workspace_id') || 'default',
-            Authorization: `Bearer ${localStorage.getItem('fpulse_token') || ''}`,
+            'X-Workspace-Id': localStorage.getItem('revoluzen_flow_workspace_id') || 'default',
+            Authorization: `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}`,
           },
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         api.getMonitorStats(24).catch(() => ({ total: 0, success: 0, failed: 0, running: 0, success_rate: 0, avg_duration_ms: 0 })),
@@ -1683,7 +1683,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
                 </div>
                 <div className="text-sm font-bold text-slate-800">Connect a source</div>
-                <div className="text-xs text-slate-500 mt-0.5">Database, REST API, S3, or any of 33 connectors.</div>
+                <div className="text-xs text-slate-500 mt-0.5">Database, REST API, S3, or any of 66 connectors.</div>
               </button>
             </div>
           </section>
@@ -1958,7 +1958,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                     onClick: () => onNavigate('pool'),
                   }] : []),
                   { label: 'DB size', value: dbBytes > 0 ? formatBytes(dbBytes) : '—', muted: dbBytes === 0,
-                    onClick: () => { try { sessionStorage.setItem('fpulse_settings_jump_to', 'storage'); } catch { /* ignore */ } onNavigate('settings'); } },
+                    onClick: () => { try { sessionStorage.setItem('revoluzen_flow_settings_jump_to', 'storage'); } catch { /* ignore */ } onNavigate('settings'); } },
                   { label: 'Uptime', value: uptimeSec > 0 ? formatUptime(uptimeSec) : '—', muted: uptimeSec === 0, onClick: () => onNavigate('admin') },
                 ]}
               />
@@ -2020,7 +2020,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
               accent="slate"
               onClick={() => {
                 if (environment !== 'prod') {
-                  try { sessionStorage.setItem('fpulse_settings_jump_to', 'storage'); } catch {}
+                  try { sessionStorage.setItem('revoluzen_flow_settings_jump_to', 'storage'); } catch {}
                 }
                 onNavigate(environment === 'prod' ? 'admin' : 'settings');
               }}

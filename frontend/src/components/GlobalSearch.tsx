@@ -97,7 +97,7 @@ function Icon({ name, className = '' }: { name: string; className?: string }) {
 /* ---- helpers ---- */
 function getRecentPages(): SearchItem[] {
   try {
-    const raw = localStorage.getItem('fpulse_recent_pages');
+    const raw = localStorage.getItem('revoluzen_flow_recent_pages');
     if (!raw) return [];
     const pages: string[] = JSON.parse(raw);
     return pages

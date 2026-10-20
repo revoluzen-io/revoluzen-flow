@@ -344,11 +344,11 @@ async def login(body: LoginRequest, request: Request, response: Response):
         csrf_token = _secrets.token_urlsafe(32)
         _secure = _rc.IS_SERVER_MODE  # require HTTPS for the cookie when exposed
         response.set_cookie(
-            "fpulse_session", session.token,
+            "revoluzen_flow_session", session.token,
             httponly=True, secure=_secure, samesite="lax", path="/",
         )
         response.set_cookie(
-            "fpulse_csrf", csrf_token,
+            "revoluzen_flow_csrf", csrf_token,
             httponly=False, secure=_secure, samesite="lax", path="/",
         )
         return {
@@ -802,11 +802,11 @@ async def logout(request: Request, response: Response):
     store = get_store()
     token = request.headers.get("Authorization", "").replace("Bearer ", "")
     if not token:
-        token = request.cookies.get("fpulse_session", "")
+        token = request.cookies.get("revoluzen_flow_session", "")
     if token:
         store.delete_session(token)
-    response.delete_cookie("fpulse_session", path="/")
-    response.delete_cookie("fpulse_csrf", path="/")
+    response.delete_cookie("revoluzen_flow_session", path="/")
+    response.delete_cookie("revoluzen_flow_csrf", path="/")
     return {"logged_out": True}
 
 
@@ -1048,7 +1048,7 @@ async def change_my_password(
     # on disk no longer corresponds to a valid credential AND would still
     # leak the original password to anyone with data-dir read access.
     # Delete it best-effort — never block the rotation on filesystem issues.
-    if fresh.email == "admin@fpulse.local":
+    if fresh.email == "admin@revoluzen.local":
         try:
             import os
             from revoluzen_flow.main import app_state

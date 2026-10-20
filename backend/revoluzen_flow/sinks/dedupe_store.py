@@ -21,7 +21,7 @@ and, on a fresh fire, records the hash with a TTL.
 
 Design notes
 ────────────
-* Storage is the operator's existing ``fpulse.db`` SQLite file — same
+* Storage is the operator's existing ``revoluzen_flow.db`` SQLite file — same
   WAL settings, same backup story. No new files, no new processes.
 
 * The table is scoped by ``(pipeline_id, sink_step_id, key_hash)`` so:

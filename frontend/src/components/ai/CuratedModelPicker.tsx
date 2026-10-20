@@ -209,7 +209,7 @@ export default function CuratedModelPicker({ provider, value, onChange, disabled
             })}
           </div>
           <div className="text-xs text-slate-400">
-            Pricing is approximate · see <a className="underline" href="#help" onClick={(e) => { e.preventDefault(); try { sessionStorage.setItem('fpulse_help_target_guide', 'Costs, providers'); } catch { /* ignore */ } navigateTo('help'); }}>Help → Costs, providers & rate limits</a> for the source of truth
+            Pricing is approximate · see <a className="underline" href="#help" onClick={(e) => { e.preventDefault(); try { sessionStorage.setItem('revoluzen_flow_help_target_guide', 'Costs, providers'); } catch { /* ignore */ } navigateTo('help'); }}>Help → Costs, providers & rate limits</a> for the source of truth
           </div>
         </>
       )}

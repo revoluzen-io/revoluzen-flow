@@ -126,7 +126,7 @@ export function regroupByIntent(modules: ModuleCategory[]): ModuleCategory[] {
 /** Backend node registry — fetched once, cached on window for the app lifetime. */
 export function useBackendNodeTypes(): { type: string; label: string; category: string; description?: string }[] | null {
   const [types, setTypes] = useState<{ type: string; label: string; category: string; description?: string }[] | null>(
-    () => (window as any).__fpulse_node_types ?? null
+    () => (window as any).__revoluzen_flow_node_types ?? null
   );
   useEffect(() => {
     if (types) return;
@@ -134,7 +134,7 @@ export function useBackendNodeTypes(): { type: string; label: string; category: 
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (Array.isArray(data)) {
-          (window as any).__fpulse_node_types = data;
+          (window as any).__revoluzen_flow_node_types = data;
           setTypes(data);
         }
       })

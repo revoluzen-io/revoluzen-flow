@@ -47,12 +47,12 @@ jobs:
       - name: Start backend (with dev-seeded test users)
         working-directory: backend
         run: |
-          mkdir -p /tmp/fpulse-e2e
-          # REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1: auto-seed admin@fpulse.local for the E2E
+          mkdir -p /tmp/revoluzen-flow-e2e
+          # REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1: auto-seed admin@revoluzen.local for the E2E
           # suite. Production defaults to NO auto-seed (the operator creates the
           # admin on first launch); this is the headless/CI opt-in, and the next
           # step reads the generated INITIAL_ADMIN_PASSWORD.txt.
-          REVOLUZEN_FLOW_DATA_DIR=/tmp/fpulse-e2e REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1 \
+          REVOLUZEN_FLOW_DATA_DIR=/tmp/revoluzen-flow-e2e REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1 \
             python -m uvicorn revoluzen_flow.main:app --host 0.0.0.0 --port 8001 \
             > /tmp/revoluzen-flow.log 2>&1 &
           for i in {1..60}; do
@@ -68,11 +68,11 @@ jobs:
           # (created on first backend start) and injects the session into
           # localStorage — no separate seed script needed. Pull the generated
           # password out of the data dir and mask it in the logs.
-          PWFILE=$(find /tmp/fpulse-e2e -name INITIAL_ADMIN_PASSWORD.txt | head -1)
-          if [ -z "$PWFILE" ]; then echo "bootstrap password file not found under /tmp/fpulse-e2e"; exit 1; fi
+          PWFILE=$(find /tmp/revoluzen-flow-e2e -name INITIAL_ADMIN_PASSWORD.txt | head -1)
+          if [ -z "$PWFILE" ]; then echo "bootstrap password file not found under /tmp/revoluzen-flow-e2e"; exit 1; fi
           PW=$(grep -m1 'password:' "$PWFILE" | awk '{print $2}')
           echo "::add-mask::$PW"
-          echo "REVOLUZEN_FLOW_E2E_EMAIL=admin@fpulse.local" >> "$GITHUB_ENV"
+          echo "REVOLUZEN_FLOW_E2E_EMAIL=admin@revoluzen.local" >> "$GITHUB_ENV"
           echo "REVOLUZEN_FLOW_E2E_PASSWORD=$PW" >> "$GITHUB_ENV"
 
       - name: Install frontend + Playwright

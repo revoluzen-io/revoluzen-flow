@@ -90,18 +90,29 @@ count + actions.
 
 **Bad:** "Revoluzen Flow supports 124 connectors out of the box."
 
-**Why wrong:** The actual count is **33 connectors visible by default**
-(4 database dialects + 2 bulk-load dialects + 27 SaaS manifests).
-Earlier marketing claimed 60+, then 45, then 43, then 37 — each pass
-counted a different thing without saying which. The 2026-07-16 pass
-measured the manifests on disk directly; see the definition below.
+**Why wrong:** The actual count is **66 connectors visible by default** —
+the New Connection picker's own number. `CONNECTION_TYPES` declares 80
+entries and `CONNECTOR_STATUS` marks 14 as `roadmap`, which the picker
+filters out: 80 − 14 = 66. Earlier marketing claimed 60+, then 45, then
+43, then 37, then 33 — each pass counted a different population without
+saying which. The 33 counted only SaaS manifests on disk and missed every
+database, warehouse and file connector.
 
-**Correct:** "Revoluzen Flow ships 33 connectors visible by default: 4
-database dialects (postgresql, mysql, mssql, sqlite) + 2 bulk-load
-dialects (Postgres COPY, Snowflake PUT+COPY) + 27 SaaS manifests. The
-cert matrix (`/api/connectors/cert-matrix`) shows live depth scores;
-today 8 are v2 beta (validation in progress), 27 are v1 functional,
-and 2 are v1 basic."
+**Correct:** "Revoluzen Flow ships 66 connectors visible by default:
+Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21
+· Operations & AI 11. Plus an OpenAPI import page to build your own."
+
+**Two traps when quoting this number:**
+
+- Say **"66 connectors"**, never *"66 open-source connectors"*. Nine
+  (sap, sap_hana, netsuite, workday, dynamics365, servicenow, salesforce,
+  teradata, db2) carry a Plus tier label in the catalog. There is no
+  license check behind it — it is a pricing posture, not a runtime gate —
+  but marketing them as paid while calling all 66 open-source is an
+  overclaim.
+- The cert matrix grades a **different population**: the SaaS REST
+  manifests only, not the 66 connection types. Never say "19 of our 66 are
+  Beta" — say "of the listed SaaS connectors".
 
 **Definition — count what a user can actually use.** 45 manifest JSON
 files exist on disk (37 unique slugs + 8 `.v2.json` overlays), but 10
@@ -220,7 +231,7 @@ and the prompt signing check as its safety layers."
 
 ### 14. Don't say "run multiple OSS containers for scaling"
 
-**Bad:** "Scale by running `docker compose up --scale fpulse=4`."
+**Bad:** "Scale by running `docker compose up --scale revoluzen-flow=4`."
 
 **Why wrong:** The worker-role guard in OSS refuses to start in
 multi-worker mode. Running multiple OSS containers against the same

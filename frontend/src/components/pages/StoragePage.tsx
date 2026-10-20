@@ -218,7 +218,7 @@ function readInitialTab(): StorageTab {
   // 2026-05-25 — matched the cross-page convention used by Settings /
   // Insights / Help: navigating back into Storage lands on the default
   // sub-tab (Files), not whatever the user last clicked.
-  // The previous implementation persisted to `localStorage.fpulse_storage_tab`
+  // The previous implementation persisted to `localStorage.revoluzen_flow_storage_tab`
   // which made the page feel "stuck" — a user who used Managed Tables
   // once would land there forever, even when they came in fresh
   // expecting the file inventory.
@@ -226,12 +226,12 @@ function readInitialTab(): StorageTab {
   // Two opt-ins preserved:
   //   1. Hash subroute (`#storage/tables`, `#storage/outputs`) — for
   //      shareable URLs and deep links from other pages.
-  //   2. One-shot sessionStorage breadcrumb (`fpulse_storage_initial_tab`)
+  //   2. One-shot sessionStorage breadcrumb (`revoluzen_flow_storage_initial_tab`)
   //      cleared on read — matches the HelpPage pattern.
   try {
-    const breadcrumb = sessionStorage.getItem('fpulse_storage_initial_tab');
+    const breadcrumb = sessionStorage.getItem('revoluzen_flow_storage_initial_tab');
     if (breadcrumb) {
-      sessionStorage.removeItem('fpulse_storage_initial_tab');
+      sessionStorage.removeItem('revoluzen_flow_storage_initial_tab');
       if (breadcrumb === 'files' || breadcrumb === 'tables' || breadcrumb === 'outputs') {
         return breadcrumb;
       }
@@ -323,8 +323,8 @@ export default function StoragePage({
   const [filesSearch, setFilesSearch] = useState('');
   const [tablesSearch, setTablesSearch] = useState('');
   const [outputsSearch, setOutputsSearch] = useState('');
-  const filesColState = useTableColumns('fpulse_storage_files', FILE_COLUMNS);
-  const tablesColState = useTableColumns('fpulse_storage_tables', TABLE_COLUMNS);
+  const filesColState = useTableColumns('revoluzen_flow_storage_files', FILE_COLUMNS);
+  const tablesColState = useTableColumns('revoluzen_flow_storage_tables', TABLE_COLUMNS);
   const [previewObj, setPreviewObj] = useState<StorageObject | null>(null);
   const [previewResourceKind, setPreviewResourceKind] = useState<'object' | 'table'>('object');
   // Z22 (2026-05-23) — Managed Table edit metadata dialog. Set when
@@ -336,7 +336,7 @@ export default function StoragePage({
   // value the user dragged to so the page's bottom-padding tracks it.
   const [previewHeight, setPreviewHeight] = useState<number>(() => {
     try {
-      const raw = localStorage.getItem('fpulse_storage_preview_height');
+      const raw = localStorage.getItem('revoluzen_flow_storage_preview_height');
       const parsed = raw ? parseInt(raw, 10) : NaN;
       return Number.isFinite(parsed) && parsed >= 220 ? Math.min(parsed, 1200) : 440;
     } catch {
@@ -600,9 +600,9 @@ export default function StoragePage({
         toast.error('Couldn\'t create a pipeline from this file.');
         return;
       }
-      sessionStorage.setItem('fpulse_pending_import', JSON.stringify(res.workflow));
+      sessionStorage.setItem('revoluzen_flow_pending_import', JSON.stringify(res.workflow));
       sessionStorage.setItem(
-        'fpulse_pending_import_source',
+        'revoluzen_flow_pending_import_source',
         `storage:clean:${obj.name}`,
       );
       toast.success(`Opening Data Prep for ${obj.name}...`);
@@ -977,7 +977,7 @@ export default function StoragePage({
           onHeightChange={(h) => {
             setPreviewHeight(h);
             try {
-              localStorage.setItem('fpulse_storage_preview_height', String(h));
+              localStorage.setItem('revoluzen_flow_storage_preview_height', String(h));
             } catch {
               // localStorage disabled — height resets next mount, harmless.
             }

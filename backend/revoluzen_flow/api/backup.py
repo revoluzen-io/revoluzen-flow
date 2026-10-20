@@ -93,7 +93,7 @@ async def create_backup(
     """Create a backup of the Revoluzen Flow database. Admin only."""
     db = _get_db()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    backup_key = f"fpulse_backup_{timestamp}.db"
+    backup_key = f"revoluzen_flow_backup_{timestamp}.db"
 
     provider_config = config.model_dump() if config else {"provider": "local"}
     provider = _get_provider(provider_config)

@@ -333,7 +333,7 @@ jobs:
     # is still uploaded as an artifact, but a low pass rate doesn't
     # red-light the CI badge for end users browsing the repo. Tighten
     # back to a blocking gate once each category clears 0.85. See
-    # fpulse/eval/cases.py for the open work.
+    # revoluzen_flow/eval/cases.py for the open work.
     name: AI eval harness (observability, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true

@@ -87,7 +87,7 @@ Tool-trained models (Llama 3.1+, Qwen 2.5, Mistral Nemo, Firefunction, Command-R
 ## Operations
 
 **Q: Where does Revoluzen Flow store data?**
-SQLite database at `$REVOLUZEN_FLOW_DATA_DIR/fpulse.db` (default `./data/fpulse.db`). Uploads live in `$REVOLUZEN_FLOW_DATA_DIR/uploads/`. DuckDB spill in `$REVOLUZEN_FLOW_DATA_DIR/duckdb_spill/`.
+SQLite database at `$REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db` (default `./data/revoluzen_flow.db`). Uploads live in `$REVOLUZEN_FLOW_DATA_DIR/uploads/`. DuckDB spill in `$REVOLUZEN_FLOW_DATA_DIR/duckdb_spill/`.
 
 **Q: How do I back up Revoluzen Flow?**
 Local snapshots happen automatically (Settings → Storage → Backups). For off-site backup, configure S3, Azure Blob, or GCS in **Settings → Backups** — the rotation policy is configurable.

@@ -273,7 +273,7 @@ def test_pre_publish_returns_seven_sections(monkeypatch):
     assert resp.status_code == 200
     body = resp.json()
 
-    # All 7 expected top-level fields per project_fpulse_ai_completion.md §4b
+    # All 7 expected top-level fields per project_revoluzen_flow_ai_completion.md §4b
     for k in (
         "workflow_id", "workflow_name", "target_environment",
         "snapshot_hash", "risk_level", "sections",

@@ -234,7 +234,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
       // immediately so a duplicate-source flagged by THIS save shows up
       // without waiting for the 60s poll. Steward off → setting=false →
       // event is a no-op consumer-side. Cheap to always dispatch.
-      window.dispatchEvent(new CustomEvent('fpulse:steward-refresh'));
+      window.dispatchEvent(new CustomEvent('revoluzen-flow:steward-refresh'));
 
       // 2026-05-22 (audit D3): upsert instead of create. The previous
       // code did `api.createSchedule` / `api.createAlertRule` on

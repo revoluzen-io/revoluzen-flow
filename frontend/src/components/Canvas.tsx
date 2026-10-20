@@ -246,21 +246,21 @@ function ExecutionOverlay({
     <>
       {/* CSS for pulse animation is injected via style tag */}
       <style>{`
-        @keyframes fpulse-glow {
+        @keyframes revoluzen-flow-glow {
           0%, 100% { box-shadow: 0 0 4px 2px rgba(34,197,94,0.3); }
           50% { box-shadow: 0 0 16px 6px rgba(34,197,94,0.6); }
         }
-        .fpulse-executing {
-          animation: fpulse-glow 1.5s ease-in-out infinite;
+        .revoluzen-flow-executing {
+          animation: revoluzen-flow-glow 1.5s ease-in-out infinite;
         }
-        @keyframes fpulse-flow {
+        @keyframes revoluzen-flow-flow {
           from { stroke-dashoffset: 24; }
           to { stroke-dashoffset: 0; }
         }
         .react-flow__edge.executing .react-flow__edge-path {
           stroke: #22c55e;
           stroke-dasharray: 8 4;
-          animation: fpulse-flow 0.6s linear infinite;
+          animation: revoluzen-flow-flow 0.6s linear infinite;
         }
       `}</style>
     </>
@@ -270,7 +270,7 @@ function ExecutionOverlay({
 export default function Canvas() {
   const dark = useDarkMode();
   // Live editor preferences from Settings → General. Reacts to
-  // `fpulse-settings-changed` window event so the canvas updates without
+  // `revoluzen-flow-settings-changed` window event so the canvas updates without
   // a page reload when the user saves Settings.
   const editorPrefs = useEditorPreferences();
   // Use individual selectors to prevent unnecessary re-renders
@@ -537,7 +537,7 @@ export default function Canvas() {
       const stepState = stepStates[node.id];
       if (!stepState) return node;
 
-      const className = stepState.type === 'step_started' ? 'fpulse-executing' : '';
+      const className = stepState.type === 'step_started' ? 'revoluzen-flow-executing' : '';
       const badge = stepState.type === 'step_completed' && stepState.row_count !== undefined
         ? `${stepState.row_count} rows`
         : stepState.type === 'step_error'
@@ -636,7 +636,7 @@ export default function Canvas() {
   // dedicated double-click handler exists to:
   //   1. Be the discoverable gesture for "I want to edit this node",
   //      which is the most-frequent canvas action.
-  //   2. Dispatch a `fpulse-node-opened` window event the ConfigPanel
+  //   2. Dispatch a `revoluzen-flow-node-opened` window event the ConfigPanel
   //      listens to so it can scroll itself into view + focus the
   //      first editable field when invoked explicitly (vs the passive
   //      selection from single-click).
@@ -646,7 +646,7 @@ export default function Canvas() {
     (_event, node) => {
       setSelectedNode(node.id);
       try {
-        window.dispatchEvent(new CustomEvent('fpulse-node-opened', { detail: { id: node.id } }));
+        window.dispatchEvent(new CustomEvent('revoluzen-flow-node-opened', { detail: { id: node.id } }));
       } catch { /* ignore — event dispatch is a polish hook, never block selection */ }
     },
     [setSelectedNode],
@@ -664,7 +664,7 @@ export default function Canvas() {
   const onDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
-      const type = e.dataTransfer.getData('application/fpulse-node');
+      const type = e.dataTransfer.getData('application/revoluzen-flow-node');
       if (!type) return;
 
       // Convert screen coordinates to flow coordinates (handles zoom & pan)

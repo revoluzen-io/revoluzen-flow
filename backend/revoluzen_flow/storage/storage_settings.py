@@ -177,7 +177,7 @@ def validate_path(candidate: str) -> dict[str, Any]:
     # Write probe.
     writable = False
     try:
-        with tempfile.NamedTemporaryFile(prefix=".fpulse_probe_", dir=abs_path, delete=True) as _:
+        with tempfile.NamedTemporaryFile(prefix=".revoluzen_flow_probe_", dir=abs_path, delete=True) as _:
             writable = True
     except OSError as exc:
         issues.append(f"Not writable: {exc}")

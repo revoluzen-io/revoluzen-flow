@@ -50,7 +50,7 @@ def client():
         user_store._save_user(admin)
 
         login = c.post("/api/auth/login", json={
-            "email": "admin@fpulse.local",
+            "email": "admin@revoluzen.local",
             "password": admin_password,
         })
         assert login.status_code == 200, f"test admin login failed: {login.text}"

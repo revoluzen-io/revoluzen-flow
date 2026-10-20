@@ -71,8 +71,8 @@ def _resolve_db_path() -> Path:
     """Mirror the resolution main.py does."""
     data_dir = os.environ.get("REVOLUZEN_FLOW_DATA_DIR", "").strip()
     if data_dir:
-        return Path(data_dir).expanduser() / "fpulse.db"
-    return Path("data") / "fpulse.db"
+        return Path(data_dir).expanduser() / "revoluzen_flow.db"
+    return Path("data") / "revoluzen_flow.db"
 
 
 def _backup_dir() -> Path:
@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m revoluzen_flow.security.migrate_existing",
         description="Re-encrypt legacy plaintext credentials + AI API keys.",
     )
-    p.add_argument("--db", help="Path to fpulse.db. Defaults to REVOLUZEN_FLOW_DATA_DIR/fpulse.db.")
+    p.add_argument("--db", help="Path to revoluzen_flow.db. Defaults to REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db.")
     p.add_argument("--dry-run", action="store_true", help="Report what would change; don't write.")
     p.add_argument("--no-backup", action="store_true", help="Skip the JSONL backup snapshot.")
     p.add_argument("--backup-dir", help="Override the default migration_backups directory.")

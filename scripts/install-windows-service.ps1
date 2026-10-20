@@ -136,8 +136,8 @@ $args = "-m uvicorn revoluzen_flow.main:app --host $bindHost --port 8001"
 & $NssmPath set $ServiceName AppEnvironmentExtra "PYTHONPATH=$backend" "REVOLUZEN_FLOW_DATA_DIR=$dataDir" | Out-Null
 
 # Log redirection — both stdout + stderr to rotating files
-& $NssmPath set $ServiceName AppStdout        (Join-Path $logDir "fpulse.out.log") | Out-Null
-& $NssmPath set $ServiceName AppStderr        (Join-Path $logDir "fpulse.err.log") | Out-Null
+& $NssmPath set $ServiceName AppStdout        (Join-Path $logDir "revoluzen-flow.out.log") | Out-Null
+& $NssmPath set $ServiceName AppStderr        (Join-Path $logDir "revoluzen-flow.err.log") | Out-Null
 & $NssmPath set $ServiceName AppRotateFiles   1            | Out-Null
 & $NssmPath set $ServiceName AppRotateBytes   10485760    | Out-Null   # 10 MB
 
@@ -170,7 +170,7 @@ Write-Host "  Useful commands:" -ForegroundColor Cyan
 Write-Host "    sc.exe query   $ServiceName"      -ForegroundColor DarkGray
 Write-Host "    sc.exe start   $ServiceName"      -ForegroundColor DarkGray
 Write-Host "    sc.exe stop    $ServiceName"      -ForegroundColor DarkGray
-Write-Host "    Get-Content '$logDir\fpulse.out.log' -Wait -Tail 20" -ForegroundColor DarkGray
+Write-Host "    Get-Content '$logDir\revoluzen-flow.out.log' -Wait -Tail 20" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  Uninstall:" -ForegroundColor Cyan
 Write-Host "    .\install-windows-service.ps1 -Uninstall" -ForegroundColor DarkGray

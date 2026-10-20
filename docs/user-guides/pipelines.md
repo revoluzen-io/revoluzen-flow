@@ -378,7 +378,7 @@ Revoluzen Flow Enterprise adds production governance on top of the OSS lifecycle
 | **Activate/Deactivate** | Pause a deployed pipeline without un-deploying; approval-gated in PROD |
 | **Audit log** | Every approval, deploy, rollback, activate event is persisted with retention controls |
 
-[Learn more about Revoluzen Flow Enterprise →](https://revoluzen.io/flow#fpulse-plus)
+[Learn more about Revoluzen Flow Enterprise →](https://revoluzen.io/flow#revoluzen-flow-plus)
 
 ---
 

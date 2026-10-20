@@ -24,7 +24,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 |---|:-:|:-:|
 | Pipeline canvas (drag-drop) | ✅ | ✅ |
 | 40 node types across 6 categories | ✅ | ✅ |
-| 33 connectors visible by default (4 database dialects via Database Source/Sink + 2 bulk-load dialects (Postgres COPY, Snowflake PUT+COPY) + 27 SaaS manifests). 10 further manifests ship Hidden by tier flag for slug reservation only and are not counted here — see `docs/product_facts/08_connectors.md`. Cert matrix at `/api/connectors/cert-matrix` reports live depth scores: 8 v2 beta, 27 v1 functional, 2 v1 basic. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
+| 66 connectors visible by default (Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 80 declared types minus 14 marked roadmap. Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "66 connectors", not "66 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 66 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
 | Expression engine (`$json`, `$now`, `$('Node')`) | ✅ | ✅ |
 | SQL Transform (DuckDB-backed) | ✅ | ✅ |
 | Templates (27 OSS) | ✅ | ✅ + private marketplace |

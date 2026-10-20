@@ -173,17 +173,17 @@ def test_metrics_render_prometheus_format():
         text = metrics.render()
 
         # Counter lines.
-        assert "# TYPE fpulse_events_total counter" in text
-        assert 'fpulse_events_total{topic="revoluzen_flow.step.completed"} 1' in text
-        assert 'fpulse_events_total{topic="revoluzen_flow.step.failed"} 1' in text
+        assert "# TYPE revoluzen_flow_events_total counter" in text
+        assert 'revoluzen_flow_events_total{topic="revoluzen_flow.step.completed"} 1' in text
+        assert 'revoluzen_flow_events_total{topic="revoluzen_flow.step.failed"} 1' in text
         # Step duration summary.
-        assert 'fpulse_step_duration_seconds_sum{step_type="filter"} 0.200000' in text
-        assert 'fpulse_step_duration_seconds_count{step_type="filter"} 1' in text
+        assert 'revoluzen_flow_step_duration_seconds_sum{step_type="filter"} 0.200000' in text
+        assert 'revoluzen_flow_step_duration_seconds_count{step_type="filter"} 1' in text
         # Failure counter.
-        assert 'fpulse_step_failures_total{step_type="api_source"} 1' in text
+        assert 'revoluzen_flow_step_failures_total{step_type="api_source"} 1' in text
         # Pipeline run summary.
-        assert "fpulse_pipeline_run_duration_seconds_sum 1.500000" in text
-        assert "fpulse_pipeline_run_duration_seconds_count 1" in text
+        assert "revoluzen_flow_pipeline_run_duration_seconds_sum 1.500000" in text
+        assert "revoluzen_flow_pipeline_run_duration_seconds_count 1" in text
     finally:
         bus.close()
 

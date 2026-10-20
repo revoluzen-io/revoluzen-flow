@@ -28,7 +28,7 @@ interface RoleGateProps {
 
 function getCurrentUser(): UserLike | null {
   try {
-    const raw = localStorage.getItem('fpulse_user');
+    const raw = localStorage.getItem('revoluzen_flow_user');
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
@@ -36,11 +36,11 @@ function getCurrentUser(): UserLike | null {
 }
 
 function getCurrentTier(): 'free' | 'plus' {
-  return (localStorage.getItem('fpulse_tier') as 'free' | 'plus') || 'free';
+  return (localStorage.getItem('revoluzen_flow_tier') as 'free' | 'plus') || 'free';
 }
 
 function getCurrentEnv(): Environment {
-  return (localStorage.getItem('fpulse_env') as Environment) || 'dev';
+  return (localStorage.getItem('revoluzen_flow_env') as Environment) || 'dev';
 }
 
 export default function RoleGate({ action, env, children, fallback = null }: RoleGateProps) {

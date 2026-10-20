@@ -2,12 +2,12 @@
  * useEditorPreferences — single source of truth for the General-tab
  * settings that the editor canvas consumes.
  *
- * Reads from `localStorage['fpulse-settings']` on mount, then listens
- * for the `fpulse-settings-changed` window event so the editor reacts
+ * Reads from `localStorage['revoluzen-flow-settings']` on mount, then listens
+ * for the `revoluzen-flow-settings-changed` window event so the editor reacts
  * live when the user saves Settings without needing a page reload.
  *
  * Settings page dispatches the event from handleSave():
- *     window.dispatchEvent(new CustomEvent('fpulse-settings-changed'));
+ *     window.dispatchEvent(new CustomEvent('revoluzen-flow-settings-changed'));
  *
  * Defaults match what SettingsPage initializes its useState calls with,
  * so a fresh install with no saved preferences gets sensible behavior.
@@ -89,8 +89,8 @@ function isCanvasLabelDensity(v: unknown): v is CanvasLabelDensity {
   return v === 'clean' || v === 'metrics' || v === 'verbose';
 }
 
-const STORAGE_KEY = 'fpulse-settings';
-export const SETTINGS_CHANGED_EVENT = 'fpulse-settings-changed';
+const STORAGE_KEY = 'revoluzen-flow-settings';
+export const SETTINGS_CHANGED_EVENT = 'revoluzen-flow-settings-changed';
 
 function readPreferences(): EditorPreferences {
   if (typeof window === 'undefined') return DEFAULTS;
@@ -136,7 +136,7 @@ function readPreferences(): EditorPreferences {
 
 /**
  * Hook returning live editor preferences. Re-reads when SettingsPage
- * dispatches `fpulse-settings-changed`, so the canvas reacts without
+ * dispatches `revoluzen-flow-settings-changed`, so the canvas reacts without
  * a page reload.
  */
 export function useEditorPreferences(): EditorPreferences {
@@ -186,7 +186,7 @@ export function broadcastEditorPreferencesChanged(): void {
  * Mutate one general-tab preference and broadcast the change.
  * Used by inline canvas controls (density toggle, outline button)
  * so they don't have to round-trip through SettingsPage. Keeps the
- * `fpulse-settings.general.*` shape SettingsPage owns.
+ * `revoluzen-flow-settings.general.*` shape SettingsPage owns.
  */
 export function setGeneralPreference<K extends keyof EditorPreferences>(
   key: K,

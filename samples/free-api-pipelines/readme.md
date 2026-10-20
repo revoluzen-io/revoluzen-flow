@@ -104,7 +104,7 @@ For #17, the placeholder URLs/hosts (`hooks.slack.com/services/PLACEHOLDER/REPLA
 
 The importer reuses an **existing** SQL Server connection — it looks it up by name (or ID) via the Revoluzen Flow API and rewrites each pipeline payload to point at the real connection ID before POSTing. You do **not** need to import `mssql.json` if you already have a working connection.
 
-### Default flow (you already have a connection named `fpulse_test`)
+### Default flow (you already have a connection named `revoluzen_flow_test`)
 
 ```powershell
 # From the repo root:
@@ -113,7 +113,7 @@ pwsh .\import.ps1
 ```
 
 That's it. The script will:
-1. `GET /api/connections` and find the row where name or id matches `fpulse_test`
+1. `GET /api/connections` and find the row where name or id matches `revoluzen_flow_test`
 2. Swap `conn_mssql_prod` → real connection ID inside each pipeline JSON in-memory
 3. `POST /api/workflows` for all 18 pipelines
 

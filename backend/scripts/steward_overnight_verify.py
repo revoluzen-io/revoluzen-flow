@@ -26,7 +26,7 @@ from pathlib import Path
 # ── Spin up an isolated FastAPI app pointed at a tmp data dir ───────
 
 
-_tmp = Path(tempfile.mkdtemp(prefix="fpulse_verify_"))
+_tmp = Path(tempfile.mkdtemp(prefix="revoluzen_flow_verify_"))
 
 import revoluzen_flow.main as main_mod
 main_mod.app_state = {"data_dir": str(_tmp)}

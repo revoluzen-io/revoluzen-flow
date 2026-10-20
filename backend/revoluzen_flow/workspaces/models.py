@@ -39,7 +39,7 @@ WORKSPACE_ROLES = (ROLE_VIEWER, ROLE_DEVELOPER, ROLE_ADMIN, ROLE_SUPER_ADMIN)
 
 # Slug rule — url-safe lowercase, dashes only. Used in workspace
 # switcher URLs and to namespace future per-workspace export files
-# (e.g. `acme-corp.fpulsepkg`). Enforced at create/update time.
+# (e.g. `acme-corp.rzpkg`). Enforced at create/update time.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,62}$")
 
 

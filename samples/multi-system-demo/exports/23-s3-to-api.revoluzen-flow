@@ -17,7 +17,7 @@
         "params": {
           "connector_type": "s3",
           "connection_id": "multidemo_s3",
-          "bucket": "fpulse-demo",
+          "bucket": "revoluzen-flow-demo",
           "key": "input/shipments.json",
           "format": "json"
         },

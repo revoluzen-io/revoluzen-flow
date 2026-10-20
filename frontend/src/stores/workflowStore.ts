@@ -527,7 +527,7 @@ const NODE_PRESETS: Record<string, { base: string; label: string; params: Record
 };
 
 function workflowToNodesEdges(workflow: any): { nodes: Node[]; edges: Edge[] } {
-  // Seed nodes with dimensions matching `.fpulse-node` CSS (width: 150px,
+  // Seed nodes with dimensions matching `.revoluzen-flow-node` CSS (width: 150px,
   // typical rendered height ~46px). xyflow v12 won't render edges until
   // every endpoint node has known dimensions; without these fields it
   // waits on a ResizeObserver round-trip, and on first paint after
@@ -537,7 +537,7 @@ function workflowToNodesEdges(workflow: any): { nodes: Node[]; edges: Edge[] } {
   // overrides these once it arrives.
   const nodes: Node[] = (workflow.steps || []).map((step: any) => ({
     id: step.id,
-    type: 'fpulseNode',
+    type: 'revoluzenFlowNode',
     position: { x: step.position?.x ?? 300, y: step.position?.y ?? 0 },
     width: 150,
     height: 46,
@@ -1950,7 +1950,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
     let category = NODE_CATEGORY[lookupType] || 'transform';
     try {
-      const backendTypes: any[] = (window as any).__fpulse_node_types || [];
+      const backendTypes: any[] = (window as any).__revoluzen_flow_node_types || [];
       const meta = backendTypes.find((t) => t.type === lookupType);
       if (meta) {
         if (meta.base_type) stepType = meta.base_type;
@@ -1976,7 +1976,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
     const node: Node = {
       id,
-      type: 'fpulseNode',
+      type: 'revoluzenFlowNode',
       position: pos,
       data: {
         label,

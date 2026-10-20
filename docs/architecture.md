@@ -36,7 +36,7 @@ Revoluzen Flow is a single-process Python application with a React frontend. Pip
 - **DuckDB execution.** All data processing happens in-process via DuckDB. Fast, zero-config, scales comfortably on a tuned single node. See [scaling](scaling.md).
 - **Rule-based planner.** Natural language to pipeline IR happens via deterministic rules — no LLM required. AI is an optional accelerator.
 - **Per-node preview.** Each node can be executed independently for instant feedback in the editor.
-- **SQLite persistence.** A small set of stores (workflows, projects, schedules, alerts, executions, users, variables, credentials, connections, AI config, schema contracts) live in a single database file at `$REVOLUZEN_FLOW_DATA_DIR/fpulse.db`.
+- **SQLite persistence.** A small set of stores (workflows, projects, schedules, alerts, executions, users, variables, credentials, connections, AI config, schema contracts) live in a single database file at `$REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db`.
 - **WebSocket for live data.** Execution logs stream through a single WebSocket per pipeline run.
 - **Priority-aware worker pool.** Pipelines run on a thread-backed pool with five priority lanes (P1 highest, P5 lowest) and a resource governor.
 

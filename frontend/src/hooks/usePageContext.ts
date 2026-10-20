@@ -2,7 +2,7 @@
  * usePageContext — every page registers its current context so the agent
  * widget can include it in tool calls without per-page glue.
  *
- * Pattern (per project_fpulse_ai_operational_architecture.md "Pass IDs/handles,
+ * Pattern (per project_revoluzen_flow_ai_operational_architecture.md "Pass IDs/handles,
  * not payloads" + ai-boundary-contract.md §1 layered context model):
  *
  *   At the top of a page:
@@ -111,7 +111,7 @@ export function usePageContext(input: {
 }): void {
   const env: 'dev' | 'prod' =
     input.environment ??
-    ((localStorage.getItem('fpulse_environment') as 'dev' | 'prod' | null) || 'dev');
+    ((localStorage.getItem('revoluzen_flow_environment') as 'dev' | 'prod' | null) || 'dev');
 
   // Stable string keys for dependency tracking — avoids referential-equality
   // re-publishes when callers pass freshly-constructed arrays each render.

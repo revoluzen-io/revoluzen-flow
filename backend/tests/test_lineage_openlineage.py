@@ -151,7 +151,7 @@ class TestFacets:
 
     def test_run_facet_carries_row_counts(self):
         ev = to_openlineage_run_event(_step_run(rows_in=5, rows_out=10000))
-        stats = ev["run"]["facets"]["fpulse_runtime_stats"]
+        stats = ev["run"]["facets"]["revoluzen_flow_runtime_stats"]
         assert stats["rows_in"] == 5
         assert stats["rows_out"] == 10000
 

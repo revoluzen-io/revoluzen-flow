@@ -33,7 +33,7 @@ different machinery underneath.
 # Prereq: pip install revoluzen-flow, pip install -e ., or a packaged build
 python -m revoluzen_flow install-service
 # Custom port + data dir:
-python -m revoluzen_flow install-service --port 8002 --data-dir /var/lib/fpulse
+python -m revoluzen_flow install-service --port 8002 --data-dir /var/lib/revoluzen-flow
 ```
 
 On Windows, prefer `py -m revoluzen_flow install-service` if you installed with
@@ -72,8 +72,8 @@ launchctl list | grep com.revoluzen.flow
 log show --predicate 'subsystem == "com.revoluzen.flow"' --last 1h
 
 # Linux
-systemctl --user status fpulse
-journalctl --user -u fpulse -f
+systemctl --user status revoluzen-flow
+journalctl --user -u revoluzen-flow -f
 # Survive logout:
 sudo loginctl enable-linger $USER
 ```
@@ -119,7 +119,7 @@ The script:
 - Locates your project venv (`.venv\Scripts\python.exe`)
 - Registers a service called `RevoluzenFlow`
 - Sets working dir, `PYTHONPATH`, `REVOLUZEN_FLOW_DATA_DIR`
-- Redirects stdout/stderr to `logs/fpulse.out.log` / `logs/fpulse.err.log` (10 MB rotating)
+- Redirects stdout/stderr to `logs/revoluzen-flow.out.log` / `logs/revoluzen-flow.err.log` (10 MB rotating)
 - Configures restart-on-crash (5s delay, up to 99 retries)
 - Sets startup type to Automatic
 - Starts the service immediately
@@ -130,7 +130,7 @@ The script:
 sc.exe query   RevoluzenFlow
 sc.exe start   RevoluzenFlow
 sc.exe stop    RevoluzenFlow
-Get-Content .\logs\fpulse.out.log -Wait -Tail 20
+Get-Content .\logs\revoluzen-flow.out.log -Wait -Tail 20
 .\scripts\install-windows-service.ps1 -Uninstall
 ```
 
@@ -160,7 +160,7 @@ which is the right default for desktop installs but not for a VPS
 that nobody is logged into.
 
 For a VPS / root-managed deploy, write
-`/etc/systemd/system/fpulse.service`:
+`/etc/systemd/system/revoluzen-flow.service`:
 
 ```ini
 [Unit]
@@ -169,16 +169,16 @@ After=network.target
 
 [Service]
 Type=simple
-User=fpulse
-Group=fpulse
-WorkingDirectory=/opt/fpulse/backend
-Environment=PYTHONPATH=/opt/fpulse/backend
-Environment=REVOLUZEN_FLOW_DATA_DIR=/var/lib/fpulse
+User=revoluzen-flow
+Group=revoluzen-flow
+WorkingDirectory=/opt/revoluzen-flow/backend
+Environment=PYTHONPATH=/opt/revoluzen-flow/backend
+Environment=REVOLUZEN_FLOW_DATA_DIR=/var/lib/revoluzen-flow
 # 2026-06-02 hardening: default to loopback (127.0.0.1). If this service
 # host is reachable from a trusted private network and you want LAN
 # access, change to --host 0.0.0.0 OR set Environment=REVOLUZEN_FLOW_ALLOW_LAN=1.
 # Background on the choice: docs/install/security-hardening.md
-ExecStart=/opt/fpulse/.venv/bin/python -m uvicorn revoluzen_flow.main:app --host 127.0.0.1 --port 8001
+ExecStart=/opt/revoluzen-flow/.venv/bin/python -m uvicorn revoluzen_flow.main:app --host 127.0.0.1 --port 8001
 Restart=on-failure
 RestartSec=5s
 
@@ -190,9 +190,9 @@ Then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now fpulse
-sudo systemctl status fpulse
-journalctl -u fpulse -f
+sudo systemctl enable --now revoluzen-flow
+sudo systemctl status revoluzen-flow
+journalctl -u revoluzen-flow -f
 ```
 
 ---
@@ -247,10 +247,10 @@ fix is `npm run build` and restart the service.
 
 | You installed via | You update by |
 |---|---|
-| `pip install revoluzen-flow` | `python -m pip install -U fpulse && python -m revoluzen_flow install-service` (re-registers against the new binary) |
+| `pip install revoluzen-flow` | `python -m pip install -U revoluzen-flow && python -m revoluzen_flow install-service` (re-registers against the new binary) |
 | Packaged installer | Download new installer + run it. Stops service, swaps files, restarts. |
 | Docker | `docker compose pull && docker compose up -d` |
-| NSSM / system systemd | Update binary in place, then `sc.exe stop RevoluzenFlow; sc.exe start RevoluzenFlow` (Win) or `sudo systemctl restart fpulse` (Linux). |
+| NSSM / system systemd | Update binary in place, then `sc.exe stop RevoluzenFlow; sc.exe start RevoluzenFlow` (Win) or `sudo systemctl restart revoluzen-flow` (Linux). |
 
 The data dir is preserved across every update path above. Pipelines,
 run history, credentials, and managed tables all survive.

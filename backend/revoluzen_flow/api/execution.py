@@ -1502,7 +1502,7 @@ async def preview_source(payload: dict, request: Request):
 
     data_dir = get_data_dir()
     workspace_id = current_workspace_id(request)
-    app_state = getattr(request.app.state, "fpulse_state", None) or {}
+    app_state = getattr(request.app.state, "revoluzen_flow_state", None) or {}
     if not app_state:
         from revoluzen_flow.main import app_state as _app_state
         app_state = _app_state

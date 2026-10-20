@@ -17,7 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import AgentChatPanel from './AgentChatPanel';
 import { useAgentChatStore } from '../../hooks/useAgentChatStore';
 
-const WIDTH_KEY = 'fpulse_copilot_width';
+const WIDTH_KEY = 'revoluzen_flow_copilot_width';
 const MIN_WIDTH = 320;
 const MAX_WIDTH = 900;
 const DEFAULT_WIDTH = 420;
@@ -50,7 +50,7 @@ export default function FloatingAgentWidget() {
       let found = false;
       asides.forEach((el) => {
         const aria = el.getAttribute('aria-label') || '';
-        if (aria === 'Revoluzen Flow Copilot') return;
+        if (aria === 'Copilot') return;
         const r = (el as HTMLElement).getBoundingClientRect();
         if (r.width > 200 && r.height > 200 && r.right >= vw - 4 && r.bottom >= window.innerHeight - 4) {
           found = true;
@@ -89,7 +89,7 @@ export default function FloatingAgentWidget() {
   useEffect(() => {
     if (!open || resizing) return;
     const onMouseDown = (e: MouseEvent) => {
-      const aside = document.querySelector('aside[aria-label="Revoluzen Flow Copilot"]');
+      const aside = document.querySelector('aside[aria-label="Copilot"]');
       if (!aside) return;
       const target = e.target as Node | null;
       if (!target) return;
@@ -166,7 +166,7 @@ export default function FloatingAgentWidget() {
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
           </svg>
-          Revoluzen Flow Copilot
+          Copilot
           {turns.length > 0 && (
             <span
               className="ml-1 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold bg-white text-indigo-600 rounded-full"
@@ -187,7 +187,7 @@ export default function FloatingAgentWidget() {
         `}
         style={{ width: `${width}px` }}
         aria-hidden={!open}
-        aria-label="Revoluzen Flow Copilot"
+        aria-label="Copilot"
       >
         <div className="relative h-full flex flex-col shadow-2xl border-l border-slate-200 bg-white">
           {/* Resize handle — 6px-wide invisible strip on the left edge.

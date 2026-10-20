@@ -1,11 +1,11 @@
 {
-  "id": "fpulse_test",
-  "name": "fpulse_test",
+  "id": "revoluzen_flow_test",
+  "name": "revoluzen_flow_test",
   "type": "mssql",
   "config": {
     "host": "localhost",
     "port": 1433,
-    "database": "fpulse_test",
+    "database": "revoluzen_flow_test",
     "user": "REPLACE_ME",
     "password": "REPLACE_ME",
     "schema": "dbo"

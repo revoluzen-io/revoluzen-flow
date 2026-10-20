@@ -95,7 +95,7 @@ via `0.0.0.0` default) was addressed in `backend/revoluzen_flow/api/local_harden
 | Distribution = `pip install revoluzen-flow` — packaging + extras are done; publishing to PyPI is the remaining step. | Doesn't give the "double-click an app icon" feel. |
 | No code-signing recursion — there's no app bundle. | Browser is still the front-end (UX criticism partially unaddressed). |
 | Tools like Jupyter, Streamlit, Meltano use this and it works. | No system tray / native menu. |
-| Auto-open browser to tokenised URL = same UX as Jupyter. | Updates via `pip install -U fpulse` — fine for devs, awkward for non-devs. |
+| Auto-open browser to tokenised URL = same UX as Jupyter. | Updates via `pip install -U revoluzen-flow` — fine for devs, awkward for non-devs. |
 
 ### Recommendation for the 1.1 decision
 
@@ -115,7 +115,7 @@ let evidence drive the desktop investment, not aesthetics.
 ### Implementation notes when desktop work starts (any path)
 
 - Backend bind: ephemeral port chosen at launch, written to
-  `~/.config/fpulse/runtime.json` mode 0600 alongside a one-time
+  `~/.config/revoluzen-flow/runtime.json` mode 0600 alongside a one-time
   launch token. Frontend reads the file to discover both.
 - Heartbeat: frontend pings backend every 5 s; backend self-shuts
   after 15 s of no heartbeat. Closes the zombie-process hazard.

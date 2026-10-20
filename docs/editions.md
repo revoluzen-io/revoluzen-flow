@@ -46,7 +46,7 @@ Everything below ships in this build, unrestricted.
 
 ## Default storage and runtime
 
-- Persistence: SQLite database at `$REVOLUZEN_FLOW_DATA_DIR/fpulse.db`
+- Persistence: SQLite database at `$REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db`
 - Execution engine: in-process DuckDB
 - Worker model: priority-aware in-process worker pool with five priority lanes
 - Default concurrency: `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` (defaults to 4)

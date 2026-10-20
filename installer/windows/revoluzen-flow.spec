@@ -1,12 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
 """Revoluzen Flow — PyInstaller spec (Windows directory or single-file freeze).
 
-Produces ``dist/fpulse/revoluzen.exe`` — a self-contained CLI + server that the
-Inno Setup script (fpulse.iss) packages into the installer.
+Produces ``dist/revoluzen-flow/revoluzen.exe`` — a self-contained CLI + server that the
+Inno Setup script (revoluzen-flow.iss) packages into the installer.
 Set REVOLUZEN_FLOW_ONEFILE=1 for a single executable, or use build-portable.ps1.
 
 Run from the repo root:
-    .venv\\Scripts\\python -m PyInstaller installer\\windows\\fpulse.spec --noconfirm --clean
+    .venv\\Scripts\\python -m PyInstaller installer\\windows\\revoluzen-flow.spec --noconfirm --clean
 
 Why a spec instead of the inline ``--collect-all`` flags: this app pulls in
 pandas / pyarrow / duckdb / cryptography / reportlab / tzdata / fastavro and
@@ -25,8 +25,8 @@ BACKEND = os.path.join(REPO, "backend")
 import sys
 sys.path.insert(0, BACKEND)
 ONEFILE = os.environ.get("REVOLUZEN_FLOW_ONEFILE") == "1"
-ENTRY = os.path.join(BACKEND, "fpulse", "__main__.py")
-ICON = os.path.join(HERE, "icons", "fpulse.ico")
+ENTRY = os.path.join(BACKEND, "revoluzen-flow", "__main__.py")
+ICON = os.path.join(HERE, "icons", "revoluzen-flow.ico")
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
@@ -35,7 +35,7 @@ datas, binaries, hiddenimports = [], [], []
 # Collect WHOLESALE (code + data files + native libs + submodules) for the
 # packages that ship data/native payloads or that we import dynamically.
 _COLLECT = [
-    "fpulse",        # our app — brings connectors/*.json, static/, seed_data/, every submodule
+    "revoluzen-flow",        # our app — brings connectors/*.json, static/, seed_data/, every submodule
     "duckdb",        # native engine lib
     "pyarrow",       # native + data
     "pandas",
@@ -47,7 +47,7 @@ _COLLECT = [
     "openpyxl",
     "pydantic",
     "cryptography",
-    "webview",       # pywebview — native `fpulse app` window (its JS bridge files)
+    "webview",       # pywebview — native `revoluzen-flow app` window (its JS bridge files)
     "clr_loader",    # pythonnet runtime loader used by the WebView2 backend
 ]
 for pkg in _COLLECT:
@@ -58,13 +58,13 @@ for pkg in _COLLECT:
 
 # pywebview's Windows backend loads via pythonnet (clr); these are imported
 # dynamically and must be forced in. If the freeze ever can't bundle them,
-# `fpulse app` still falls back to a Chromium --app window at runtime.
+# `revoluzen-flow app` still falls back to a Chromium --app window at runtime.
 hiddenimports += [
     "clr", "webview.platforms.edgechromium", "webview.platforms.winforms",
 ]
 
 # Submodules imported by name (PyInstaller's static analysis can miss these).
-for pkg in ("fpulse", "uvicorn", "fastapi", "starlette", "anyio"):
+for pkg in ("revoluzen-flow", "uvicorn", "fastapi", "starlette", "anyio"):
     hiddenimports += collect_submodules(pkg)
 
 # uvicorn[standard] picks its loop/http/ws implementations at runtime, plus a
@@ -109,15 +109,15 @@ exe = EXE(
     a.binaries if ONEFILE else [],
     a.datas if ONEFILE else [],
     exclude_binaries=not ONEFILE,
-    name="fpulse",
+    name="revoluzen-flow",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,                  # UPX can trip antivirus heuristics; keep off
-    console=True,               # fpulse is a CLI/server
+    console=True,               # revoluzen-flow is a CLI/server
     disable_windowed_traceback=False,
     icon=(ICON if os.path.exists(ICON) else None),
 )
 
 if not ONEFILE:
-    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="fpulse")
+    coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="revoluzen-flow")

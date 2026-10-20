@@ -25,7 +25,7 @@ with a sample connection" — it drives the **real** input pipeline, so React's
 ```powershell
 # point at your app + provide login creds (nothing is committed)
 $env:REVOLUZEN_FLOW_URL = "http://localhost:5174"
-$env:REVOLUZEN_FLOW_E2E_EMAIL = "admin@fpulse.local"
+$env:REVOLUZEN_FLOW_E2E_EMAIL = "admin@revoluzen.local"
 $env:REVOLUZEN_FLOW_E2E_PASSWORD = "<your password>"
 
 npm run test:e2e            # headless

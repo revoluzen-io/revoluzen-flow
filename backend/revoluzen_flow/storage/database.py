@@ -914,7 +914,7 @@ class Database:
     def __init__(self, db_path: str | None = None):
         if db_path is None:
             data_dir = os.environ.get("REVOLUZEN_FLOW_DATA_DIR", os.path.join(os.getcwd(), "data"))
-            db_path = os.path.join(data_dir, "fpulse.db")
+            db_path = os.path.join(data_dir, "revoluzen_flow.db")
 
         self.db_path = db_path
         self._local = threading.local()

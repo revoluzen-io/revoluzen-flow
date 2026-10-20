@@ -379,7 +379,7 @@ information worth interrupting for.
 Clicking a Steward row in the bell:
 
 1. Navigates to `#dashboard`.
-2. Dispatches `fpulse:steward-open` — the StewardBadge listens for
+2. Dispatches `revoluzen-flow:steward-open` — the StewardBadge listens for
    this event and auto-opens its dropdown on the Findings tab.
 3. The user lands in context with the relevant finding visible, not
    on a generic landing page.
@@ -421,7 +421,7 @@ Accessible from the **Settings tab** of the Steward dropdown, or via
 |----------------------------------|---------|--------|------------------------------------------------------------------------------|
 | `enabled`                        | `true`  | bool   | Master kill-switch. Hides the badge and short-circuits scans when false.     |
 | `min_severity`                   | `"p3"`  | p1/p2/p3 | Hide findings below this severity. P3 shows everything.                    |
-| `scan_on_save`                   | `true`  | bool   | Re-scan on every workflow save (dispatched via `fpulse:steward-refresh`).   |
+| `scan_on_save`                   | `true`  | bool   | Re-scan on every workflow save (dispatched via `revoluzen-flow:steward-refresh`).   |
 | `auto_stale_days`                | `30`    | 1–365  | Untouched-finding age before it auto-transitions to `stale` status.         |
 | `escalate_after_n_occurrences`   | `5`     | 2–50   | Persistent-scan count at which severity bumps one step.                     |
 | `notify_on_finding`              | `true`  | bool   | Write Steward findings to the in-app notification bell (with de-dup).      |

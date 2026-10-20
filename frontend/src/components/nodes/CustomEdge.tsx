@@ -185,7 +185,7 @@ export default function CustomEdge({
           opacity: isBlocked || isSkipped ? 0.04 : (isRunning ? 0.35 : 0.12),
           // Pulse the halo while running — pairs with the marching
           // dashes on the main path for unmistakable "live" signal.
-          animation: isRunning ? 'fpulse-edge-halo 1.2s ease-in-out infinite' : 'none',
+          animation: isRunning ? 'revoluzen-flow-edge-halo 1.2s ease-in-out infinite' : 'none',
         }}
       />
       {/* Main animated path.
@@ -209,8 +209,8 @@ export default function CustomEdge({
           animation: isBlocked || isSkipped
             ? 'none'
             : (isRunning
-                ? 'fpulse-edge-flow 0.6s linear infinite'
-                : 'fpulse-edge-flow 1.5s linear infinite'),
+                ? 'revoluzen-flow-edge-flow 0.6s linear infinite'
+                : 'revoluzen-flow-edge-flow 1.5s linear infinite'),
           opacity: isBlocked ? 0.55 : (isSkipped ? 0.5 : 1),
         }}
       />

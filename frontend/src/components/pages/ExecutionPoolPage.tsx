@@ -198,14 +198,14 @@ export default function ExecutionPoolPage({
   const [statusFilter, setStatusFilter] = useState<'all' | 'success' | 'error' | 'timed_out' | 'cancelled'>('all');
   const [priorityFilter, setPriorityFilter] = useState<'all' | 1 | 2 | 3 | 4 | 5>('all');
   const [triggerFilter, setTriggerFilter] = useState<'all' | string>('all');
-  const runColState = useTableColumns('fpulse_pool_runs_cols', RUN_COLUMNS);
+  const runColState = useTableColumns('revoluzen_flow_pool_runs_cols', RUN_COLUMNS);
   const [searchQuery, setSearchQuery] = useState('');
   // Pool is visible to every authenticated user (developers need to see
   // queue pressure on their runs), but creating / editing alert rules is
   // admin-only. `isAdmin` gates the "New Alert Rule" button below and
   // the per-row delete action in the rules list.
   const currentUser = (() => {
-    try { return JSON.parse(localStorage.getItem('fpulse_user') || 'null'); }
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null'); }
     catch { return null; }
   })();
   const isAdmin = canAccessAdmin(currentUser);

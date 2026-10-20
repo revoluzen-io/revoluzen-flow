@@ -2,7 +2,7 @@
 Handle / reference store for the agent loop.
 
 Implements the "pass IDs not payloads" pattern from
-docs/ai-boundary-contract.md §6 and project_fpulse_ai_operational_architecture.md
+docs/ai-boundary-contract.md §6 and project_revoluzen_flow_ai_operational_architecture.md
 ("Pass IDs/handles, not payloads").
 
 Pattern:

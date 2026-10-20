@@ -2,7 +2,7 @@ name: Publish to TestPyPI (rehearsal)
 
 # Manual only. This is the dress rehearsal for a real PyPI release.
 #
-# Why bother: PyPI refuses re-uploads of a version. If `fpulse 1.0.0` goes up
+# Why bother: PyPI refuses re-uploads of a version. If `revoluzen-flow 1.0.0` goes up
 # broken, it cannot be replaced — only yanked, and 1.0.0 is burned forever.
 # TestPyPI is a throwaway index with the same API and the same trusted-
 # publishing flow, so a mistake there costs nothing.
@@ -128,10 +128,10 @@ jobs:
         # The part a local wheel can never prove: index resolution, the
         # download, and the installed artifact actually serving the app.
         #
-        # IMPORTANT: fetch ONLY the fpulse wheel from TestPyPI (--no-deps), then
+        # IMPORTANT: fetch ONLY the revoluzen-flow wheel from TestPyPI (--no-deps), then
         # install it with dependencies resolved from *real* PyPI. TestPyPI is not
         # a mirror — it is full of unrelated, often-broken sdists uploaded under
-        # common names by other people. Resolving fpulse's deps against it (even
+        # common names by other people. Resolving revoluzen-flow's deps against it (even
         # as an --extra-index-url) lets pip pick one of those broken sdists and
         # die building it (e.g. "FileNotFoundError: DESCRIPTION.txt"). Real PyPI
         # has the correct dep set — which is also exactly what an end user gets.
@@ -141,7 +141,7 @@ jobs:
           cd /tmp
           python -m venv /tmp/venv
           /tmp/venv/bin/pip install --quiet --upgrade pip
-          # 1. Download ONLY the fpulse wheel from TestPyPI, no dependencies.
+          # 1. Download ONLY the revoluzen-flow wheel from TestPyPI, no dependencies.
           #    Retry until the freshly uploaded release is indexed.
           for i in $(seq 1 10); do
             /tmp/venv/bin/pip download --quiet --no-deps --only-binary=:all: \

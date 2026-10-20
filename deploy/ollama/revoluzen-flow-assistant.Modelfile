@@ -1,13 +1,13 @@
 # Revoluzen Flow Assistant — local Ollama Modelfile
 #
 # Build with:
-#   ollama create fpulse-assistant -f deploy/ollama/fpulse-assistant.Modelfile
+#   ollama create revoluzen-flow-assistant -f deploy/ollama/revoluzen-flow-assistant.Modelfile
 #
-# Then point Revoluzen Flow at it by setting AI_MODEL=fpulse-assistant
+# Then point Revoluzen Flow at it by setting AI_MODEL=revoluzen-flow-assistant
 # (or pick it via the Insights → AI Provider page).
 #
 # Hardware target: GPU or modern Apple Silicon. CPU-only laptops will
-# work but expect 30-90s per turn — see project_fpulse_cloud_first_shift.md.
+# work but expect 30-90s per turn — see project_revoluzen_flow_cloud_first_shift.md.
 
 FROM llama3.1
 

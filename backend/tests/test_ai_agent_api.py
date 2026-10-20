@@ -414,7 +414,7 @@ def test_agent_response_includes_replay_safe_trace_fields(monkeypatch):
     client = TestClient(app)
     resp = client.post("/api/ai/agent", json=_request_body())
     step = resp.json()["steps"][0]
-    # All 12 fields from project_fpulse_ai_step0_locks.md §3
+    # All 12 fields from project_revoluzen_flow_ai_step0_locks.md §3
     for field_name in [
         "step_id", "tool_name", "tool_tier", "input_hash", "output_hash",
         "timestamp", "latency_ms", "tokens_in", "tokens_out",

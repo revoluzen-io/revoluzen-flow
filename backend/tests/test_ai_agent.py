@@ -600,7 +600,7 @@ def test_trace_step_includes_replay_safe_fields():
     runner = AgentRunner(registry=_registry_read_only(), llm_client=fake)
     result = asyncio.run(runner.run(page_context=_ctx(), user_intent="x"))
     step = result.steps[0]
-    # Fields from project_fpulse_ai_step0_locks.md §3
+    # Fields from project_revoluzen_flow_ai_step0_locks.md §3
     assert step.step_id
     assert step.tool_name
     assert step.tool_tier in {"read", "safe_write", "high_impact_write"}

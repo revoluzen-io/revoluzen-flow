@@ -61,10 +61,10 @@ try {
     & $python tools/package_preflight.py --strict
     if ($LASTEXITCODE -ne 0) { throw "Packaging preflight failed" }
     if ($env:REVOLUZEN_FLOW_ONEFILE -eq "1") { throw "Use build-portable.ps1 for single-file builds" }
-    # Use the spec (installer\windows\fpulse.spec) — it collects the data
+    # Use the spec (installer\windows\revoluzen-flow.spec) — it collects the data
     # files + dynamically-imported submodules that the old inline
     # --collect-all command missed (pandas/pyarrow/tzdata/reportlab/etc.).
-    & $python -m PyInstaller --noconfirm --clean "$installerDir\fpulse.spec"
+    & $python -m PyInstaller --noconfirm --clean "$installerDir\revoluzen-flow.spec"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
 
     # Self-validate the freeze BEFORE packaging: import the full server
@@ -72,13 +72,13 @@ try {
     # is missing the build fails here (loud) instead of shipping a broken
     # installer.
     Write-Host "  Validating freeze (revoluzen.exe selftest)..." -ForegroundColor Yellow
-    & "$repoRoot\dist\fpulse\revoluzen.exe" selftest
+    & "$repoRoot\dist\revoluzen-flow\revoluzen.exe" selftest
     if ($LASTEXITCODE -ne 0) {
         throw "Frozen build failed selftest - bundle is incomplete (see [X] lines above)"
     }
 }
 finally { Pop-Location }
-Write-Host "  Backend frozen + selftest passed: $repoRoot\dist\fpulse\" -ForegroundColor Green
+Write-Host "  Backend frozen + selftest passed: $repoRoot\dist\revoluzen-flow\" -ForegroundColor Green
 
 # ── 3. Compile the installer ──
 Write-Host ""
@@ -86,7 +86,7 @@ Write-Host "  [3/4] Compiling installer with Inno Setup..." -ForegroundColor Yel
 if (-not (Get-Command $InnoPath -ErrorAction SilentlyContinue)) {
     throw "ISCC.exe not on PATH. Install Inno Setup 6 from https://jrsoftware.org/isinfo.php"
 }
-& $InnoPath "$installerDir\fpulse.iss"
+& $InnoPath "$installerDir\revoluzen-flow.iss"
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 $exe = Get-ChildItem "$installerDir\output\RevoluzenFlow-Setup-*.exe" | Select-Object -First 1
 Write-Host "  Installer built: $($exe.FullName)" -ForegroundColor Green

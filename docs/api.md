@@ -334,5 +334,5 @@ files are written together inside a file lock and cannot drift.
 | `SMTP_PORT` | `587` | SMTP port |
 | `SMTP_USER` | _(empty)_ | SMTP username |
 | `SMTP_PASS` | _(empty)_ | SMTP password |
-| `SMTP_FROM` | `fpulse@localhost` | Sender address |
+| `SMTP_FROM` | `revoluzen-flow@localhost` | Sender address |
 | `SMTP_TLS` | `true` | Enable STARTTLS |

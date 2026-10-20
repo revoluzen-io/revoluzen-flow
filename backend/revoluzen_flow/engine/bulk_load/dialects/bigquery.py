@@ -15,7 +15,7 @@ Pipeline:
   2. `client.load_table_from_file(...)` with `WriteDisposition` set per
      mode: WRITE_TRUNCATE for 'truncate', WRITE_APPEND for 'append',
      WRITE_EMPTY for 'create'.
-  3. Mode='merge' loads into `<target>__fpulse_stage_<uuid>` then
+  3. Mode='merge' loads into `<target>__revoluzen_flow_stage_<uuid>` then
      `MERGE INTO target USING staging` keyed on `primary_key`, then
      drops the staging table.
 
@@ -163,7 +163,7 @@ class BigQueryBulkLoader:
             if not request.primary_key:
                 raise ValueError("bigquery: mode='merge' requires primary_key")
             # Stage to a temp table, then MERGE into target.
-            stage_table = f"{request.table}__fpulse_stage_{uuid.uuid4().hex[:8]}"
+            stage_table = f"{request.table}__revoluzen_flow_stage_{uuid.uuid4().hex[:8]}"
             stage_qualified = _qualified_table(dataset, stage_table)
             try:
                 self._load_to_table(client, driver, parquet_path, stage_qualified, "WRITE_TRUNCATE")

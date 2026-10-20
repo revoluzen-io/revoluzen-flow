@@ -32,9 +32,15 @@ report, fixture file). No "we made it more reliable" hand-waving.
 
 ### 1. Live-smoke CI for the first 10 connectors → Verified tier
 
-**Why:** the cert matrix today reports 0 Verified. The tier system
-ships in 1.0 but the Verified row is empty. The fastest way to make
-the "honest catalog" story credible is to fill it with real entries.
+**Why:** only `github` has recorded fixtures today, so it is the only
+connector the cert matrix can report as attested. The tier system ships
+in 1.0, but a tier nothing reaches describes nothing. The fastest way to
+make the "honest catalog" story credible is to fill it with real entries.
+
+Note the distinction this sprint rests on: the other connectors are not
+failing their acceptance suites, they have never been given one. That is
+also why the matrix publishes no aggregate — see
+`cert_matrix()` in `backend/revoluzen_flow/api/cert_matrix.py`.
 
 **Scope:** the 10 connectors from the post-launch roadmap (already
 specced in `docs/roadmap/oss-1-1.md`):
@@ -58,8 +64,10 @@ specced in `docs/roadmap/oss-1-1.md`):
 - A green run in `.github/workflows/connector-smoke.yml` (already shipped — just needs entries)
 - A cert-matrix output showing `tier: verified`
 
-**Public artifact:** `GET /api/connectors/cert-matrix` shows
-`"by_tier": {"verified": 10, "beta": 9, ...}` instead of `{"verified": 0, ...}`.
+**Public artifact:** `GET /api/connectors/cert-matrix` returns each of
+these 10 with `"tier": "verified"` and an `"attested_at"` timestamp on
+its own row. There is no aggregate field to watch tick upwards — the
+evidence is the set of rows carrying a recent attestation date.
 
 **Effort:** ~2 weeks (1 engineer). Most connectors are
 infrastructure-only (containers) so no vendor account paperwork.

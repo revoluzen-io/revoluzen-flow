@@ -7,7 +7,7 @@ fires `.github/workflows/release.yml`, which publishes:
 |-------------------|--------------------------------------|-------------------|
 | Docker image      | `revoluzen/flow:<version>` + `:latest` on Docker Hub | ✅ enabled |
 | GitHub release    | release page with notes from CHANGELOG | ✅ enabled |
-| PyPI sdist+wheel  | `fpulse` on pypi.org                 | ⏸️  gated — see below |
+| PyPI sdist+wheel  | `revoluzen` on pypi.org                 | ⏸️  gated — see below |
 
 ## Cutting a release
 
@@ -62,7 +62,7 @@ Rotate the token annually or on staff changes.
 
 ## Enabling PyPI publishing
 
-**`fpulse` is not on PyPI yet.** Until it is, the README's headline
+**`revoluzen` is not on PyPI yet.** Until it is, the README's headline
 `pip install revoluzen-flow` fails for every reader, as does every
 `pip install revoluzen-flow[postgres]`-style command in the docs. The name is
 unclaimed — nobody can take it from us — but nothing installs until this
@@ -71,16 +71,16 @@ is done.
 1. **Add a PENDING publisher on pypi.org**
    ([docs](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)).
 
-   `fpulse` does not exist on PyPI yet, and **you cannot create an empty
+   `revoluzen` does not exist on PyPI yet, and **you cannot create an empty
    project** — there is no "new project" button. Instead you pre-register
    who is allowed to create it, and the project springs into existence on
    the first successful upload. Go to **Your account → Publishing → Add a
    new pending publisher** (NOT the per-project "Publishing" tab — that
    only exists once the project does).
 
-   - PyPI Project Name: `fpulse`
+   - PyPI Project Name: `revoluzen`
    - Owner: `revoluzen`
-   - Repository name: `fpulse`  ← the repo name, exactly. `revoluzen-flow` or
+   - Repository name: `revoluzen`  ← the repo name, exactly. `revoluzen-flow` or
      `revoluzen-flow` will fail.
    - Workflow name: `release.yml`  ← the filename of the workflow doing the
      upload. Each workflow needs its own publisher: `publish-testpypi.yml`
@@ -106,7 +106,7 @@ add a token secret instead.
 
 ### The wheel must carry the UI
 
-`fpulse` is one pip package that serves its own React app. The app builds
+`revoluzen` is one pip package that serves its own React app. The app builds
 to `frontend/dist`, **outside** the Python package, so setuptools cannot
 see it. The `pypi` job therefore builds the frontend, runs
 `scripts/stage_frontend.py` to copy it to `backend/revoluzen_flow/frontend_dist`

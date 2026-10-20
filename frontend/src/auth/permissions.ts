@@ -1,5 +1,5 @@
 /**
- * Frontend permissions — mirrors backend ROLE_PERMISSIONS in fpulse/auth/models.py.
+ * Frontend permissions — mirrors backend ROLE_PERMISSIONS in revoluzen_flow/auth/models.py.
  *
  * This is UI gating only; the backend middleware is the real enforcement.
  * The goal here is to hide things users can't use so the UI is clean,

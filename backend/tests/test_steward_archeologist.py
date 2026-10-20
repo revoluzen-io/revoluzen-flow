@@ -49,7 +49,7 @@ def _source_node(node_id: str, *, connection_id: str, table: str, step_type: str
     }
 
 
-def _fpulse_step(step_id: str, *, type_: str, params: dict[str, Any]):
+def _revoluzen_flow_step(step_id: str, *, type_: str, params: dict[str, Any]):
     """Revoluzen Flow step format (authoritative on-disk shape). Used to pin
     the 2026-06-06 fix where the Archeologist was blind to real
     workflows because it only knew the React Flow shape."""
@@ -147,7 +147,7 @@ class TestSourceSignature:
         assert _source_signature({}, workspace_id="any") is None
         assert _source_signature({"retry_count": 3}, workspace_id="any") is None
 
-    def test_detector_handles_fpulse_step_format(self):
+    def test_detector_handles_revoluzen_flow_step_format(self):
         """2026-06-06 regression — Revoluzen Flow stores steps as
         ``{id, type, params}`` at top-level. The detector was
         previously hard-coded to React Flow's nested ``data.stepType``
@@ -156,22 +156,22 @@ class TestSourceSignature:
         from revoluzen_flow.steward.models import FindingKind
         workflows = [
             {"id": "wf-a", "name": "Alpha — Revoluzen Flow format", "nodes": [
-                _fpulse_step("s1", type_="source", params={
+                _revoluzen_flow_step("s1", type_="source", params={
                     "connector_type": "postgres",
                     "connection_id": "prod_pg",
                     "table": "orders",
                 }),
-                _fpulse_step("o1", type_="db_sink", params={
+                _revoluzen_flow_step("o1", type_="db_sink", params={
                     "connection_id": "warehouse", "table": "out_a",
                 }),
             ]},
             {"id": "wf-b", "name": "Bravo — Revoluzen Flow format", "nodes": [
-                _fpulse_step("s1", type_="source", params={
+                _revoluzen_flow_step("s1", type_="source", params={
                     "connector_type": "postgres",
                     "connection_id": "prod_pg",
                     "table": "orders",
                 }),
-                _fpulse_step("o1", type_="db_sink", params={
+                _revoluzen_flow_step("o1", type_="db_sink", params={
                     "connection_id": "warehouse", "table": "out_b",
                 }),
             ]},
@@ -195,12 +195,12 @@ class TestSourceSignature:
             ]},
             # Revoluzen Flow step shape — SAME source identity
             {"id": "wf-fp", "name": "Revoluzen Flow", "nodes": [
-                _fpulse_step("s1", type_="source", params={
+                _revoluzen_flow_step("s1", type_="source", params={
                     "connector_type": "postgres",
                     "connection_id": "prod_pg",
                     "table": "orders",
                 }),
-                _fpulse_step("o1", type_="db_sink", params={
+                _revoluzen_flow_step("o1", type_="db_sink", params={
                     "connection_id": "warehouse", "table": "out_fp",
                 }),
             ]},

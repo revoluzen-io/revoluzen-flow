@@ -219,7 +219,7 @@ def cleanup_workflow_cdc_slots(workflow: Any) -> int:
                 database=database,
                 user=params.get("user", ""),
                 password=params.get("password", ""),
-                slot=params.get("slot", "fpulse_slot"),
+                slot=params.get("slot", "revoluzen_flow_slot"),
             ):
                 dropped += 1
         except Exception:  # noqa: BLE001
@@ -259,8 +259,8 @@ class CdcSourceNode(BaseNode):
                 database=self.params["database"],
                 user=self.params["user"],
                 password=self.params["password"],
-                slot=self.params.get("slot", "fpulse_slot"),
-                publication=self.params.get("publication", "fpulse_pub"),
+                slot=self.params.get("slot", "revoluzen_flow_slot"),
+                publication=self.params.get("publication", "revoluzen_flow_pub"),
                 max_events=max_events,
             )
             return _events_to_relation(ctx.conn, events)

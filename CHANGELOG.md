@@ -10,6 +10,55 @@ follows the compatibility rules documented there.
 
 ## [Unreleased]
 
+### Changed
+
+- `GET /api/connectors/cert-matrix` no longer returns the `by_tier` or
+  `production_total` aggregates. Certification is reported per connector:
+  each row carries `tier` and `cat_green`, and an attested connector also
+  carries `attested_at` and `attested_checks`.
+
+  A connector reaches an attested tier only once real vendor responses have
+  been recorded for it, so an unattested connector means "no fixtures
+  recorded yet" — not "this connector failed". An aggregate renders those
+  two states identically, and the reading that wins is the wrong one.
+  Callers that want a count can tally `rows` and own the framing.
+
+- The Trust page drops the attestation totals and gains an **Attested**
+  column on the per-connector matrix, showing the date a connector's
+  acceptance suite last replayed green. Connectors without one show an
+  em-dash rather than a zero or a "not verified" badge.
+
+### Added
+
+- **Source Watch** — daily detection that a connector's upstream API changed,
+  in `backend/revoluzen_flow/connectors/source_watch.py` and
+  `.github/workflows/source-watch.yml`.
+
+  Nothing previously could notice this. The acceptance suite replays recorded
+  cassettes, which proves our parsing against *the responses we recorded* and
+  by construction never contacts the vendor; the live-smoke allow-list is
+  empty. So the first party to learn that a connector had broken was whoever
+  it broke for.
+
+  Four signals, none of which needs a vendor account:
+  - the vendor advertises a newer API version than a connector is pinned to
+  - an endpoint one of our streams reads is gone from the vendor's own spec
+  - the vendor's published spec or changelog moved at all
+  - RFC 8594 `Deprecation` / `Sunset` headers, harvested passively from
+    responses the product already received — no extra request, and it covers a
+    customer's own internal APIs too
+
+  Connectors opt in with a `source_watch` block in their runtime manifest
+  (`docs/connector-authoring.md`); GitHub and Stripe ship with one. A
+  connector without one is reported as `unwatched` rather than healthy.
+  Read the state at `GET /api/connectors/source-watch`, which makes no
+  outbound call of its own.
+
+- `.github/workflows/connector-attest.yml` re-runs the connector acceptance
+  suite twice weekly and on manifest or fixture changes. A green CAT result
+  older than 14 days stops counting, so without this every attested
+  connector silently decayed back to Beta.
+
 ## [1.0.1] — 2026-10-18
 
 First release published as **Revoluzen Flow**, by Revoluzen Technologies Pvt Ltd.
@@ -38,11 +87,23 @@ renames the project and its published artifacts.
 
 ### Notes for existing installs
 
-There is no automatic migration. An instance created before this release
-keeps its own data directory and environment variables; point the new
-`REVOLUZEN_FLOW_DATA_DIR` at the existing data directory to carry it over.
+**This is a clean break. There is no migration path, and none is planned.**
 
-Some identifiers deliberately keep their original spelling, because changing
-them would break stored data rather than text: the `fpulseNode` node type
-recorded inside saved workflows, the `fpulse.db` SQLite filename, session
-cookie names, and Prometheus metric names.
+The rename is total — nothing keeps the old spelling. In particular, these
+carry stored or externally-observed state, and all of them changed:
+
+- **Workflow node type** `fpulseNode` → `revoluzenFlowNode`. Recorded inside
+  every saved workflow, so pipelines saved by an earlier release will not
+  load.
+- **Database file** `fpulse.db` → `revoluzen_flow.db` (and
+  `fpulse_events.db` → `revoluzen_flow_events.db`). An existing data
+  directory will not be found; the instance starts empty.
+- **Session cookies** `fpulse_token` / `fpulse_session` / `fpulse_csrf` →
+  `revoluzen_flow_*`. Everyone is signed out once.
+- **Prometheus metrics** `fpulse_*` → `revoluzen_flow_*`. Existing
+  dashboards and alert rules stop matching.
+- **Bootstrap account** `admin@fpulse.local` → `admin@revoluzen.local`.
+- **CSS classes, DOM data-attributes and custom events** — internal, but
+  listed for anyone who has written custom styling against them.
+
+Treat an upgrade as a fresh install.

@@ -15,8 +15,8 @@ from revoluzen_flow.ir.schema import Step, StepType
 
 
 @pytest.fixture
-def step_output_store(_fpulse_test_db):
-    return StepOutputStore(db=_fpulse_test_db)
+def step_output_store(_revoluzen_flow_test_db):
+    return StepOutputStore(db=_revoluzen_flow_test_db)
 
 
 class TestSchemaFromSample:

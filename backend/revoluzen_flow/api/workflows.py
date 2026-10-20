@@ -2896,8 +2896,18 @@ async def export_pipeline(
     workspace_id: str = Depends(_safe_workspace_id),
     include_schedules: bool = False,
     include_alerts: bool = False,
+    deterministic: bool = False,
 ):
     """Export a pipeline as portable JSON (for sharing or backup).
+
+    ``deterministic=true`` makes the export byte-stable: the volatile
+    ``exported_at`` stamp is dropped, so re-exporting an unchanged pipeline
+    produces an identical file. Without it, every export differs from the
+    last even when nothing changed — which is what makes a committed export
+    useless in git, since each refresh shows a one-line timestamp diff and
+    reviewers cannot see the real change. Use it for exports you intend to
+    commit and review; leave it off for ad-hoc backups where knowing when
+    the snapshot was taken is the point.
 
     Scoped to the caller's workspace. Connection references are kept by
     id so the importer can re-map them via the connection_map field on
@@ -2936,7 +2946,7 @@ async def export_pipeline(
         include_alerts=include_alerts,
     )
 
-    return {
+    payload = {
         "revoluzen_flow_version": "1.0.1",
         # Bumped 2026-05-22 — parameters/folder/schedules/alerts contract.
         "format_version": 2,
@@ -2944,6 +2954,9 @@ async def export_pipeline(
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "pipeline": pipeline,
     }
+    if deterministic:
+        payload.pop("exported_at", None)
+    return payload
 
 
 def _doc_slug(name: str) -> str:

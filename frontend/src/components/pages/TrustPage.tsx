@@ -7,7 +7,7 @@
  *   - Linked from Insights → AI Provider (privacy badge)
  *   - Linked from the agent dock empty state
  *
- * Three pillars from project_fpulse_ai_operational_architecture.md:
+ * Three pillars from project_revoluzen_flow_ai_operational_architecture.md:
  *   1. Deterministic core, probabilistic support
  *   2. Data sovereignty
  *   3. Full observability
@@ -365,6 +365,11 @@ interface CertRow {
   v1_capability_score?: number;
   issues_count?: number;
   streams_count?: number;
+  // Attestation evidence — present only where the acceptance suite has been
+  // run against recorded vendor responses. See AttestedCell below.
+  cat_green?: boolean;
+  attested_at?: string;
+  attested_checks?: number;
 }
 
 interface CertMatrix {
@@ -372,6 +377,51 @@ interface CertMatrix {
   by_label?: Record<string, number>;
   total?: number;
   last_audited?: string;
+}
+
+/**
+ * Per-connector attestation state for the matrix table.
+ *
+ * There is deliberately no aggregate anywhere on this page — the API stopped
+ * returning one (see `cert_matrix()` in the backend). Attestation requires
+ * someone to have recorded real vendor responses for a connector, so the
+ * connectors without it have not failed a test; nobody has recorded their
+ * fixtures yet. Summed into "N of M verified" those two states are
+ * indistinguishable to a reader, and the uncharitable reading wins. Stated
+ * per connector, the claim is exactly as strong as the evidence behind it.
+ */
+function AttestedCell({ dark, row }: { dark: boolean; row: CertRow }) {
+  if (!row.cat_green || !row.attested_at) {
+    return (
+      <span
+        className={dark ? 'text-slate-600' : 'text-slate-400'}
+        title="No acceptance-test fixtures recorded for this connector yet. Not a failed test — an untaken one."
+      >
+        —
+      </span>
+    );
+  }
+  const d = new Date(row.attested_at);
+  const when = Number.isNaN(d.getTime())
+    ? row.attested_at
+    : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded border ${
+        dark
+          ? 'bg-teal-500/15 text-teal-300 border-teal-500/30'
+          : 'bg-teal-50 text-teal-700 border-teal-300'
+      }`}
+      title={
+        `Acceptance suite replayed green against recorded vendor responses.\n` +
+        (row.attested_checks ? `Checks passed: ${row.attested_checks}\n` : '') +
+        `Re-run automatically; a result older than 14 days stops counting.`
+      }
+    >
+      {when}
+      {row.attested_checks ? ` · ${row.attested_checks}/${row.attested_checks}` : ''}
+    </span>
+  );
 }
 
 function CertMatrixSection({
@@ -595,6 +645,7 @@ function CertMatrixSection({
                     <th className="text-left px-3 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider hidden sm:table-cell">Category</th>
                     <th className="text-left px-3 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider">Depth</th>
                     <th className="text-left px-3 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider">Status</th>
+                    <th className="text-left px-3 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider">Attested</th>
                     <th className="text-right px-3 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider hidden md:table-cell">Streams</th>
                   </tr>
                 </thead>
@@ -614,6 +665,14 @@ function CertMatrixSection({
                       <td className="px-3 py-2">
                         <DepthBadge dark={dark} label={r.depth_label} status={r.validation_status} />
                       </td>
+                      {/* Attestation is reported per connector and nowhere
+                          summed. A connector with recorded fixtures shows the
+                          date its acceptance suite last replayed green; one
+                          without shows an em-dash, which reads as "not
+                          claimed" rather than "failed". */}
+                      <td className="px-3 py-2 text-sm">
+                        <AttestedCell dark={dark} row={r} />
+                      </td>
                       <td className={`px-3 py-2 text-right hidden md:table-cell text-sm tabular-nums ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                         {r.streams_count ?? '—'}
                       </td>
@@ -621,7 +680,7 @@ function CertMatrixSection({
                   ))}
                   {visible.length === 0 && (
                     <tr>
-                      <td colSpan={5} className={`text-center py-6 text-sm ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+                      <td colSpan={6} className={`text-center py-6 text-sm ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                         No connectors match the current filter.
                       </td>
                     </tr>

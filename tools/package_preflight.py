@@ -49,11 +49,22 @@ def collect_checks(strict: bool = False) -> dict[str, list[str]]:
 
     project = py.get("project", {})
 
-    # 1) console entry point — `revoluzen_flow` must launch the app
-    if project.get("scripts", {}).get("revoluzen_flow"):
-        ok.append(f"entry point: revoluzen_flow = {project['scripts']['revoluzen_flow']}")
+    # 1) console entry point — something must launch the CLI.
+    # Matched by TARGET, not by name: the binary has been renamed before
+    # (fpulse -> revoluzen, plus the `rz` alias) and a name-keyed lookup
+    # silently stopped finding it, so this gate reported "no entry point"
+    # on a tree that had two.
+    scripts = project.get("scripts", {})
+    cli = {n: t for n, t in scripts.items() if str(t).startswith("revoluzen_flow.cli")}
+    if cli:
+        ok.append(
+            "entry point: " + ", ".join(f"{n} = {t}" for n, t in sorted(cli.items()))
+        )
     else:
-        fail.append("no [project.scripts].revoluzen-flow console entry point — `revoluzen_flow` won't exist")
+        fail.append(
+            "no [project.scripts] entry point targeting revoluzen_flow.cli — "
+            "the CLI won't be installed"
+        )
 
     # 2) version declared
     if project.get("version"):

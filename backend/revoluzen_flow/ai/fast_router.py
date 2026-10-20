@@ -1593,7 +1593,7 @@ _REVOLUZEN_FLOW_FOLLOWUPS = (
 )
 
 
-async def _render_what_is_fpulse(prompt: str, ctx: ToolContext) -> str:
+async def _render_what_is_revoluzen_flow(prompt: str, ctx: ToolContext) -> str:
     """Static product blurb — answered straight from positioning copy.
 
     Doesn't call the LLM, doesn't call any tool. Comes from the same
@@ -1919,7 +1919,7 @@ _INTENTS: tuple[FastIntent, ...] = (
     # Comes BEFORE list_pipelines etc. so generic product questions don't
     # accidentally match a list-* intent.
     FastIntent(
-        name="what_is_fpulse",
+        name="what_is_revoluzen_flow",
         triggers=(
             "what is revoluzen-flow", "what is revoluzen_flow", "what is f pulse",
             "what is this product", "what is the product", "what's this product",
@@ -1931,12 +1931,17 @@ _INTENTS: tuple[FastIntent, ...] = (
             "what product",
         ),
         # Don't hijack reasoning prompts about specific pipelines/nodes.
+        # NB: no bare-brand exclude here. It used to be the old company name,
+        # which was safe because it shared no word with the product. Company
+        # and product now both start "Revoluzen", so a bare "revoluzen"
+        # exclude matches every trigger below and kills the intent outright.
+        # Company questions are handled by `about_revoluzen`, whose own
+        # excludes keep product phrasing out.
         excludes=(
             "what does this pipeline", "what does this node", "what does this step",
             "what does this transform", "what does this filter",
-            "revoluzen",
         ),
-        handler=_render_what_is_fpulse,
+        handler=_render_what_is_revoluzen_flow,
     ),
     # ── Revoluzen product family knowledge ────────────────────────────
     # Locks the truth in the router so the LLM can't hallucinate. May 6 2026.
@@ -1949,7 +1954,11 @@ _INTENTS: tuple[FastIntent, ...] = (
             "who is behind", "who is behind this", "who is behind revoluzen_flow",
             "who is behind revoluzen-flow", "who is behind this product",
         ),
-        excludes=("revoluzen pulse", "revoluzen revoluzen-flow"),
+        # Keep product questions out of the company answer: "tell me about
+        # revoluzen-flow" contains the trigger "tell me about revoluzen".
+        excludes=(
+            "revoluzen pulse", "revoluzen-flow", "revoluzen_flow", "revoluzen flow",
+        ),
         static_answer=(
             "**Revoluzen** is the company that builds Revoluzen Flow — self-hosted, "
             "local-first data tooling that runs on your own infrastructure. "
@@ -3362,7 +3371,7 @@ _INTENTS: tuple[FastIntent, ...] = (
             "index; returns pipelines whose IR text contains the table "
             "name.\n\n"
             "2. **Manual grep** — pipeline IRs live in "
-            "`<data_dir>/fpulse.db` → `workflows` table. SQL:\n"
+            "`<data_dir>/revoluzen_flow.db` → `workflows` table. SQL:\n"
             "```sql\nSELECT id, name FROM workflows\n"
             "WHERE json_extract(ir, '$.steps') LIKE '%orders_table%';\n```\n\n"
             "3. **Help → Documentation → Lineage** — full Plus feature "
@@ -3400,7 +3409,7 @@ def try_match_scored(prompt: str) -> tuple[FastIntent, float, str] | None:
     when the highest-scoring intent clears MIN_CONFIDENCE, else None.
 
     Three phases (unchanged):
-      Phase 1 — STATIC intents (greet, help, what_is_fpulse, etc.).
+      Phase 1 — STATIC intents (greet, help, what_is_revoluzen_flow, etc.).
                 Bypass the reasoning gate; their answers are correct
                 regardless of phrasing.
       Phase 2 — Reasoning gate. "why" / "explain" / "compare" / etc.
@@ -3430,7 +3439,7 @@ def try_match_scored(prompt: str) -> tuple[FastIntent, float, str] | None:
     word_count = len(p_stripped.split())
 
     STATIC_INTENT_NAMES = {
-        "greet", "help", "what_is_fpulse", "what_tier", "my_role",
+        "greet", "help", "what_is_revoluzen_flow", "what_tier", "my_role",
         "upgrade_to_plus",
         "about_revoluzen",
         "who_created", "product_family",
@@ -3463,7 +3472,7 @@ def try_match_scored(prompt: str) -> tuple[FastIntent, float, str] | None:
     # 2026-06-15: a prompt stating a concrete data goal ("I need lookup from a
     # SQL Server table") must NOT be answered by a static help/info topic via
     # loose token overlap — it deserves a grounded, intent-aware LLM answer.
-    # Static intents are all informational (help.*, about_*, what_is_fpulse,
+    # Static intents are all informational (help.*, about_*, what_is_revoluzen_flow,
     # catalog-ish), so gating the whole phase is safe; operational dynamic
     # intents (list_pipelines, run, …) in Phase 3 are unaffected.
     has_task = _has_task_signal(p)
@@ -3570,7 +3579,7 @@ def find_hybrid_candidate(prompt: str) -> tuple[FastIntent, float, str] | None:
     # Same set the main classifier uses — don't hybrid-format greet/help
     # responses, they're pre-canned strings.
     STATIC_INTENT_NAMES = {
-        "greet", "help", "what_is_fpulse", "what_tier", "my_role",
+        "greet", "help", "what_is_revoluzen_flow", "what_tier", "my_role",
         "upgrade_to_plus",
         "about_revoluzen",
         "who_created", "product_family",

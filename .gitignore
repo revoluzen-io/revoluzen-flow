@@ -74,7 +74,7 @@ logs/
 # Launcher runtime (start.bat / start.ps1 write the resolved port pair
 # + spawned PIDs here; stop.bat reads it back to identify what to kill).
 # Per-checkout state, never committed.
-.revoluzen-flow/runtime/
+**/.revoluzen-flow/runtime/
 .env.runtime
 
 # 2026-06-01: Secrets — broaden coverage so a future accidental commit
@@ -106,7 +106,7 @@ backend/.revoluzen-flow_master.key
 *.exe
 *.dll
 *.dylib
-fpulse-bundle/
+revoluzen-flow-bundle/
 release/
 
 # Per-tool caches and incremental build state

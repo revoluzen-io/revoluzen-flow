@@ -34,13 +34,13 @@ def _step(name: str = "summarize_pipeline", outcome: str = "success") -> TraceSt
 
 
 @pytest.fixture
-def store(_fpulse_test_db):
-    return TraceStore(db=_fpulse_test_db)
+def store(_revoluzen_flow_test_db):
+    return TraceStore(db=_revoluzen_flow_test_db)
 
 
-def test_store_creates_schema_idempotently(_fpulse_test_db):
-    s1 = TraceStore(db=_fpulse_test_db)
-    s2 = TraceStore(db=_fpulse_test_db)  # second construction shouldn't error
+def test_store_creates_schema_idempotently(_revoluzen_flow_test_db):
+    s1 = TraceStore(db=_revoluzen_flow_test_db)
+    s2 = TraceStore(db=_revoluzen_flow_test_db)  # second construction shouldn't error
     assert s1.count() == 0
     assert s2.count() == 0
 

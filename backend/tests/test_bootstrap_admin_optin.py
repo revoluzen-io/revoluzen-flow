@@ -1,6 +1,6 @@
 """Revoluzen Flow does NOT auto-create an admin by default — the operator creates
 their own account on first launch (empty DB -> first_user_bootstrap -> the first
-/register becomes super_admin). Auto-seeding admin@fpulse.local is OPT-IN via
+/register becomes super_admin). Auto-seeding admin@revoluzen.local is OPT-IN via
 `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1`, for headless / Docker / CI deploys that can't do an
 interactive first run. This pins both halves.
 
@@ -34,7 +34,7 @@ def test_admin_autoseed_when_opted_in(tmp_path, monkeypatch):
     store = UserStore(db=_fresh_store(tmp_path, "optin.db"))
     admin = store.get_user("admin")
     assert admin is not None
-    assert admin.email == "admin@fpulse.local"
+    assert admin.email == "admin@revoluzen.local"
     assert admin.role == "admin"
 
 

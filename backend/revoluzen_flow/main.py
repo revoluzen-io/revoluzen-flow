@@ -49,6 +49,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
+from revoluzen_flow import app_meta
 from revoluzen_flow import feature_flags
 from revoluzen_flow.feature_flags import FeatureDisabledError
 
@@ -200,7 +201,7 @@ def _assert_writable_data_dir(data_dir: str) -> None:
     """Fail early with actionable diagnostics for an unusable data directory."""
     try:
         os.makedirs(data_dir, exist_ok=True)
-        with tempfile.NamedTemporaryFile(prefix=".fpulse-startup-", dir=data_dir, delete=True):
+        with tempfile.NamedTemporaryFile(prefix=".revoluzen-flow-startup-", dir=data_dir, delete=True):
             pass
     except Exception as exc:
         raise RuntimeError(
@@ -289,7 +290,7 @@ def _warn_if_bootstrap_password_lingers(data_dir: str) -> None:
     ``{data_dir}/INITIAL_ADMIN_PASSWORD.txt`` so a fresh operator can find
     it on first boot. The expected lifecycle is: sign in → rotate → delete
     the file. ``api/auth.py:change_my_password`` deletes it automatically
-    when the bootstrap admin (admin@fpulse.local) successfully rotates
+    when the bootstrap admin (admin@revoluzen.local) successfully rotates
     their password — but if the operator changed passwords through a
     different path, used a different admin email, or simply forgot, the
     file lingers indefinitely on disk in plaintext.
@@ -768,7 +769,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Populate app_state and expose via app.state so health_memory.py and
     # any future router can read state via Request without importing main.
     _populate_state(data_dir)
-    app.state.fpulse_state = app_state
+    app.state.revoluzen_flow_state = app_state
 
     # 0) Seed bundled demo data — copies revoluzen_flow/seed_data/orders.csv into
     # REVOLUZEN_FLOW_DATA_DIR/samples/orders.csv on first run. Idempotent: only
@@ -784,7 +785,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # present. The bootstrap flow writes a one-time admin password to disk
     # so a fresh operator can find it; once they've signed in and rotated,
     # the file should be deleted (api/auth.py:change_my_password does that
-    # automatically when admin@fpulse.local rotates). A lingering file is
+    # automatically when admin@revoluzen.local rotates). A lingering file is
     # a real security gap on shared hosts.
     try:
         _warn_if_bootstrap_password_lingers(data_dir)
@@ -931,7 +932,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         print(
             f"\n"
-            f"  Revoluzen Flow v1.0.0\n"
+            f"  Revoluzen Flow v{app_meta.VERSION}\n"
             f"  Open-source data pipeline builder\n"
             f"{_docs_line}"
             f"  Data:      {app_state['data_dir']}\n"
@@ -954,7 +955,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         asyncio.create_task(_send_telemetry(
             "startup",
             db=app_state["db"],
-            revoluzen_flow_version="1.0.0",
+            revoluzen_flow_version=app_meta.VERSION,
             app_state=app_state,
         ))
     except Exception as exc:  # noqa: BLE001 — never block startup on telemetry
@@ -1104,7 +1105,7 @@ _swagger_assets_present = os.path.isfile(
 app = FastAPI(
     title="Revoluzen Flow",
     description="AI-native, human-governed data pipeline builder",
-    version="1.0.0",
+    version=app_meta.VERSION,
     lifespan=lifespan,
     docs_url=None,
     redoc_url=None,
@@ -1124,6 +1125,39 @@ elif _api_docs_enabled and not _swagger_assets_present:
         "/docs and /redoc will return 404. Re-add revoluzen_flow/static/swagger-ui/.",
         _SWAGGER_STATIC_DIR,
     )
+
+@app.get("/.well-known/security.txt", include_in_schema=False)
+async def security_txt():
+    """RFC 9116 disclosure pointer.
+
+    Registered before the frontend catch-all mount at "/" so it is not
+    swallowed by the SPA. SECURITY.md already describes the policy; this is
+    the machine-readable pointer scanners and researchers look for first.
+
+    The URLs come from app_meta rather than being written out here, so a
+    repo move re-points this file along with every other in-app link. Expires
+    is computed per request (RFC 9116 requires the field, and a self-hosted
+    install has no publisher to refresh a baked-in date before it goes stale).
+    """
+    from datetime import datetime, timezone, timedelta
+
+    from fastapi.responses import PlainTextResponse
+
+    expires = (datetime.now(timezone.utc) + timedelta(days=365)).replace(
+        microsecond=0
+    ).isoformat().replace("+00:00", "Z")
+    body = "\n".join(
+        [
+            f"Contact: {app_meta.repo_url()}/security/advisories/new",
+            "Contact: mailto:security@revoluzen.io",
+            f"Expires: {expires}",
+            f"Policy: {app_meta.repo_url()}/blob/main/SECURITY.md",
+            "Preferred-Languages: en",
+            "",
+        ]
+    )
+    return PlainTextResponse(body, media_type="text/plain; charset=utf-8")
+
 
 # CORS configuration.
 #
@@ -1222,10 +1256,10 @@ async def _csrf_guard(request, call_next):
         if (
             not exempt
             and not request.headers.get("Authorization", "").startswith("Bearer ")
-            and request.cookies.get("fpulse_session")
+            and request.cookies.get("revoluzen_flow_session")
         ):
             sent = request.headers.get("X-CSRF-Token", "")
-            expected = request.cookies.get("fpulse_csrf", "")
+            expected = request.cookies.get("revoluzen_flow_csrf", "")
             if not (sent and expected and hmac.compare_digest(sent, expected)):
                 from starlette.responses import JSONResponse
                 return JSONResponse(
@@ -1272,7 +1306,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
             asyncio.create_task(_send_telemetry(
                 "crash",
                 db=db,
-                revoluzen_flow_version="1.0.0",
+                revoluzen_flow_version=app_meta.VERSION,
                 exception_type=f"{type(exc).__module__}.{type(exc).__name__}",
                 stack_trace=tb_text,
                 app_state=app_state,
@@ -1403,7 +1437,7 @@ async def health():
     from revoluzen_flow import runtime_config
     return {
         "status": "ok",
-        "version": "1.0.0",
+        "version": app_meta.VERSION,
         "product": "Revoluzen Flow",
         "mode": runtime_config.MODE,
     }
@@ -1569,7 +1603,7 @@ async def health_ready():
 
     result = {
         "status": "ok" if ready else "degraded",
-        "version": "1.0.0",
+        "version": app_meta.VERSION,
         "product": "Revoluzen Flow",
         "runtime": runtime_config.snapshot(),
         "persistence": checks.get("sqlite", {}),

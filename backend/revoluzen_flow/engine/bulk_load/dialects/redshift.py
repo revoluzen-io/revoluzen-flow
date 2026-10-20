@@ -24,7 +24,7 @@ upload + `pyarrow` for the Parquet writer.
 Connection config keys (from Revoluzen Flow `connections` store):
   host, port (default 5439), database, user, password,
   iam_role_arn (preferred), aws_access_key_id, aws_secret_access_key,
-  region, staging_bucket (required), staging_prefix (default 'fpulse_bulk/').
+  region, staging_bucket (required), staging_prefix (default 'revoluzen_flow_bulk/').
 """
 
 from __future__ import annotations
@@ -156,7 +156,7 @@ class RedshiftBulkLoader:
         bucket = config.get("staging_bucket")
         if not bucket:
             raise ValueError("redshift: connection config requires 'staging_bucket'")
-        prefix = config.get("staging_prefix", "fpulse_bulk/").rstrip("/") + "/"
+        prefix = config.get("staging_prefix", "revoluzen_flow_bulk/").rstrip("/") + "/"
 
         staging_dir = request.staging_dir or tempfile.gettempdir()
         os.makedirs(staging_dir, exist_ok=True)
@@ -182,7 +182,7 @@ class RedshiftBulkLoader:
                     if not request.primary_key:
                         raise ValueError("redshift: mode='merge' requires primary_key")
                     # Stage table → DELETE existing matches → INSERT all from staging.
-                    stage = f"{request.table}__fpulse_stage_{uuid.uuid4().hex[:8]}"
+                    stage = f"{request.table}__revoluzen_flow_stage_{uuid.uuid4().hex[:8]}"
                     stage_q = _qualified_table(request.schema_name or "public", stage)
                     try:
                         cur.execute(f"CREATE TEMP TABLE {stage_q} (LIKE {target})")

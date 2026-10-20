@@ -142,7 +142,7 @@ L1 → L3 is **~2 weeks total for OSS 1.2**. L4 is Plus territory.
 2. **Output ID stability** — what's the canonical ID for an Revoluzen Flow
    output? Today the lineage uses `step_id`, but for cross-tool
    correlation we need a deterministic URI like
-   `fpulse://workspace/<ws>/pipeline/<pl>/sink/<step>`. Lock the
+   `revoluzen-flow://workspace/<ws>/pipeline/<pl>/sink/<step>`. Lock the
    URI scheme before shipping L2.
 3. **Privacy** — OpenLineage events include column names. For
    organizations where column names are themselves sensitive (e.g.

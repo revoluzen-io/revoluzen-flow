@@ -35,7 +35,7 @@ def _is_csrf_403(r) -> bool:
 def test_cookie_post_without_csrf_token_is_blocked(client):
     r = client.post("/api/executions/backfill",
                     json={"pipeline_id": "p", "start_date": "2026-01-01", "end_date": "2026-01-02"},
-                    cookies={"fpulse_session": "sess"})
+                    cookies={"revoluzen_flow_session": "sess"})
     assert _is_csrf_403(r), f"expected CSRF 403, got {r.status_code}"
 
 
@@ -43,7 +43,7 @@ def test_cookie_post_with_matching_csrf_passes_the_guard(client):
     r = client.post("/api/executions/backfill",
                     json={"pipeline_id": "p", "start_date": "2026-01-01", "end_date": "2026-01-02"},
                     headers={"X-CSRF-Token": "tok"},
-                    cookies={"fpulse_session": "sess", "fpulse_csrf": "tok"})
+                    cookies={"revoluzen_flow_session": "sess", "revoluzen_flow_csrf": "tok"})
     assert not _is_csrf_403(r)  # guard passed; route may 401/validate, not CSRF-403
 
 
@@ -51,7 +51,7 @@ def test_bearer_post_is_csrf_exempt(client):
     r = client.post("/api/executions/backfill",
                     json={"pipeline_id": "p", "start_date": "2026-01-01", "end_date": "2026-01-02"},
                     headers={"Authorization": "Bearer invalid"},
-                    cookies={"fpulse_session": "sess"})
+                    cookies={"revoluzen_flow_session": "sess"})
     assert not _is_csrf_403(r)  # bearer is never CSRF-checked
 
 

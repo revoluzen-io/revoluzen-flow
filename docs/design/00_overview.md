@@ -74,7 +74,7 @@ when their providers/credentials are absent.
 │   └────────────────────────────────────────┴────────────────┘    │
 │                          │                                       │
 │   ┌──────────────────────▼──────────────────────────────────┐    │
-│   │  SQLite operational store (REVOLUZEN_FLOW_DATA_DIR/fpulse.db)   │    │
+│   │  SQLite operational store (REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db)   │    │
 │   │   workflows, runs, schedules, alerts, audit, sync_state,│    │
 │   │   storage_tables/columns/objects, vault_secrets, ...    │    │
 │   │   Schema version: 31 (auto-migrated on boot)            │    │

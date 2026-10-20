@@ -2,7 +2,7 @@
 Agent loop runner.
 
 Drives an Anthropic-style tool-use loop bounded by the locks in
-project_fpulse_ai_step0_locks.md:
+project_revoluzen_flow_ai_step0_locks.md:
   - Max 6 iterations
   - 30 second wall-clock per run
   - Budget-bounded prompt assembly
@@ -68,7 +68,7 @@ def _dry_run_promoter():
     except Exception:
         return None
 
-# Caps from project_fpulse_ai_step0_locks.md.
+# Caps from project_revoluzen_flow_ai_step0_locks.md.
 #
 # Wall-clock cap is provider-aware (May 4 2026; floor revised 2026-05-19).
 # Local Ollama on CPU runs the recommended floor (qwen2.5:7b / llama3.1:8b /
@@ -202,7 +202,7 @@ class AgentLLMClient(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Trace shape (matches project_fpulse_ai_step0_locks.md §3)
+# Trace shape (matches project_revoluzen_flow_ai_step0_locks.md §3)
 # ---------------------------------------------------------------------------
 
 

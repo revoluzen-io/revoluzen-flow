@@ -2,7 +2,7 @@
  * DensityToggle — Compact / Comfortable / Spacious switch.
  *
  * Phase 1 foundation. Per design decision D-003, default is Comfortable.
- * Stored per-page in localStorage under `fpulse_table_density:<scope>` so
+ * Stored per-page in localStorage under `revoluzen_flow_table_density:<scope>` so
  * different list pages can have independent preferences.
  *
  * Returns:
@@ -24,7 +24,7 @@ const DENSITY_OPTIONS: { value: Density; label: string; rowPad: string; cellPad:
   { value: 'spacious',    label: 'Spacious',    rowPad: 'py-4',   cellPad: 'px-4' },
 ];
 
-const STORAGE_KEY = 'fpulse_table_density:';
+const STORAGE_KEY = 'revoluzen_flow_table_density:';
 
 export function useDensity(scope: string, defaultValue: Density = 'compact') {
   const [density, setDensityState] = useState<Density>(() => {

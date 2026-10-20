@@ -50,7 +50,7 @@ async def register_consumer(
         "output_id":      "revoluzen_flow://workspace/<ws>/pipeline/<pl>/sink/<step>",
         "consumer_id":    "snowflake://prod-warehouse/analytics/orders_view",
         "consumer_type":  "snowflake_view" | "tableau_dashboard" |
-                          "python_notebook" | "fpulse_pipeline" | "other",
+                          "python_notebook" | "revoluzen_flow_pipeline" | "other",
         "last_read_at":   1717000000.0,           // optional, epoch seconds
         "attested_by":    "user@example.com",     // optional
         "notes":          "Read nightly by Analytics team"  // optional

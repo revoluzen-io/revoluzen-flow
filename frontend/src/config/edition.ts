@@ -32,7 +32,7 @@ export const DEFAULT_WORKSPACE_ID = 'default';
 export function currentWorkspaceId(): string {
   if (!WORKSPACES_ENABLED) return DEFAULT_WORKSPACE_ID;
   try {
-    return localStorage.getItem('fpulse_workspace_id') || DEFAULT_WORKSPACE_ID;
+    return localStorage.getItem('revoluzen_flow_workspace_id') || DEFAULT_WORKSPACE_ID;
   } catch {
     return DEFAULT_WORKSPACE_ID;
   }

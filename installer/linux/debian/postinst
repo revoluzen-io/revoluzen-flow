@@ -35,7 +35,7 @@ case "$1" in
 
       echo ""
       echo "  Revoluzen Flow installed. Open http://localhost:8001 in your browser."
-      echo "  Service status: systemctl --user status fpulse"
+      echo "  Service status: systemctl --user status revoluzen-flow"
       echo ""
     else
       # Headless / no $SUDO_USER (e.g. installed by automation). Tell

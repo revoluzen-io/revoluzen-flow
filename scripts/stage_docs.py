@@ -56,14 +56,19 @@ def main() -> int:
     if copied == 0:
         raise SystemExit("No docs staged; refusing to build docs-less wheel.")
 
-    changelog = REPO / "CHANGELOG.md"
-    if changelog.is_file():
-        shutil.copy2(changelog, PACKAGE_ROOT / "CHANGELOG.md")
-    else:
-        raise SystemExit("Missing CHANGELOG.md; refusing to build incomplete docs bundle.")
+    # Repo-root docs the Help catalog serves via `repo_root: True`. In a wheel
+    # these must sit beside the staged docs/ directory, because the API
+    # resolves them as `_docs_root().parent / path`. Missing one shows the
+    # reader "Document file missing on disk" — README.md used to do exactly
+    # that, since only CHANGELOG.md was staged here.
+    for name in ("CHANGELOG.md", "README.md"):
+        src_file = REPO / name
+        if not src_file.is_file():
+            raise SystemExit(f"Missing {name}; refusing to build incomplete docs bundle.")
+        shutil.copy2(src_file, PACKAGE_ROOT / name)
 
     print(f"Staged {copied} documentation files into {DEST}")
-    print(f"Staged CHANGELOG.md into {PACKAGE_ROOT}")
+    print(f"Staged CHANGELOG.md and README.md into {PACKAGE_ROOT}")
     print("Ready: python -m build")
     return 0
 

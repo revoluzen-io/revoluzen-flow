@@ -206,7 +206,7 @@ class MSSQLBulkLoader:
                 if not request.primary_key:
                     raise ValueError("mssql: mode='merge' requires primary_key")
                 # Stage to a temp table, then MERGE.
-                stage_table = f"##fpulse_stage_{uuid.uuid4().hex[:8]}"  # global temp
+                stage_table = f"##revoluzen_flow_stage_{uuid.uuid4().hex[:8]}"  # global temp
                 stage_q = stage_table  # global temps are referenced unqualified
                 cur = conn.cursor()
                 try:

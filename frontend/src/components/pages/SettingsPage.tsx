@@ -13,7 +13,7 @@ import ProviderComparison from '../agent/ProviderComparison';
 import AiPricingSection from '../settings/AiPricingSection';
 import PublishPolicyCard from '../settings/PublishPolicyCard';
 
-const APP_VERSION = '1.0.0';
+import { APP_VERSION } from '../../appMeta';
 
 function formatBytes(n: number): string {
   if (!n) return '0 B';
@@ -585,13 +585,13 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
   // Same pattern handles the Quick Alert dialog's "jump to SMTP" hint.
   useEffect(() => {
     try {
-      const target = sessionStorage.getItem('fpulse_settings_jump_to');
+      const target = sessionStorage.getItem('revoluzen_flow_settings_jump_to');
       if (!target) return;
       if (tab === 'general' && target === 'storage') {
-        sessionStorage.removeItem('fpulse_settings_jump_to');
+        sessionStorage.removeItem('revoluzen_flow_settings_jump_to');
         setTimeout(() => storageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
       } else if (tab === 'notifications' && target === 'smtp') {
-        sessionStorage.removeItem('fpulse_settings_jump_to');
+        sessionStorage.removeItem('revoluzen_flow_settings_jump_to');
         setTimeout(() => smtpRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
       }
     } catch {}
@@ -607,7 +607,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
     (async () => {
       // Local preferences
       try {
-        const raw = localStorage.getItem('fpulse-settings');
+        const raw = localStorage.getItem('revoluzen-flow-settings');
         if (raw) {
           const s = JSON.parse(raw);
           if (s.general && !cancelled) {
@@ -761,8 +761,8 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
   // /api/reports/docs/content, not as static files).
   const openDoc = (path: string) => {
     try {
-      sessionStorage.setItem('fpulse_help_initial_tab', 'reference');
-      sessionStorage.setItem('fpulse_docs_jump_to', path);
+      sessionStorage.setItem('revoluzen_flow_help_initial_tab', 'reference');
+      sessionStorage.setItem('revoluzen_flow_docs_jump_to', path);
     } catch {
       // sessionStorage disabled — navigation still works, just lands
       // on the default doc instead of the requested one.
@@ -930,7 +930,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
       editor: { defaultRunSafetyMode },
       ai: { safetyMode: aiSafetyMode },
     };
-    localStorage.setItem('fpulse-settings', JSON.stringify(localSettings));
+    localStorage.setItem('revoluzen-flow-settings', JSON.stringify(localSettings));
 
     // Notify other components (Canvas, PreRunBanner, etc.) that
     // localStorage editor preferences changed so they re-read without
@@ -1081,7 +1081,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                 {/* ── Default Run Safety Mode (May 3 2026) ────────────
                     Sets the initial value of the safety toggle on the
                     PreRunBanner for new pipelines. PreRunBanner reads
-                    `localStorage['fpulse-settings'].editor.defaultRunSafetyMode`
+                    `localStorage['revoluzen-flow-settings'].editor.defaultRunSafetyMode`
                     on mount before falling back to its built-in default. */}
                 <div className="mt-6">
                   <SectionHeader dark={dark}
@@ -1308,7 +1308,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
 
                 {/* ── AI Pricing — per-workspace rate table that feeds the
                     Insights → Activity Est. Cost tile. Saves broadcast
-                    `fpulse-settings-changed` so the tile updates without
+                    `revoluzen-flow-settings-changed` so the tile updates without
                     a reload. */}
                 <div className="mt-6">
                   <SectionHeader dark={dark}
@@ -1422,7 +1422,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                         <code className={`text-xs font-mono px-1.5 py-0.5 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_TRUSTED_PROXIES</code>
                       </div>
                       <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
-                        {(typeof window !== 'undefined' && (window as any).__fpulseTrustedProxies) || '(unset — direct exposure mode; rate limiter uses peer IP)'}
+                        {(typeof window !== 'undefined' && (window as any).__revoluzenFlowTrustedProxies) || '(unset — direct exposure mode; rate limiter uses peer IP)'}
                       </div>
                       <p className="text-xs text-slate-400 mt-1">Set to <code>1</code> when running behind nginx/Caddy/Cloudflare so the rate limiter sees the real client IP.</p>
                     </div>
@@ -1569,7 +1569,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                               type="text"
                               value={storageLocationDraft}
                               onChange={(e) => { setStorageLocationDraft(e.target.value); setStorageLocationProbe(null); }}
-                              placeholder="/srv/fpulse/data"
+                              placeholder="/srv/revoluzen-flow/data"
                               className={`mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border focus:outline-none focus:ring-2 ${dark ? 'bg-slate-900 border-white/[0.06] text-slate-200 focus:ring-violet-500/40' : 'bg-white border-slate-200 text-slate-700 focus:ring-violet-400'}`}
                             />
                             <p className={`mt-1 text-[11px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
@@ -2096,7 +2096,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     be misleading. */}
                 {(() => {
                   try {
-                    const raw = localStorage.getItem('fpulse_user');
+                    const raw = localStorage.getItem('revoluzen_flow_user');
                     if (!raw) return null;
                     const u = JSON.parse(raw) as { name?: string; email?: string; role?: string; environments?: string[] };
                     if (!u?.email) return null;
@@ -2146,7 +2146,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       the sidebar pattern so the logo PNG stays crisp
                       regardless of light/dark mode. */}
                   <div className="w-16 h-16 rounded-2xl overflow-hidden bg-white shadow-lg mx-auto mb-4 ring-1 ring-slate-200">
-                    <img src="/fpulse-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
+                    <img src="/revoluzen-flow-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
                   </div>
                   <h2 className={`text-xl font-bold ${dark ? 'text-slate-100' : 'text-slate-800'}`}>{isPlus ? 'Revoluzen Flow Enterprise' : 'Revoluzen Flow'}</h2>
                   {/* 2026-06-02 — tagline rewritten to match readme.md
@@ -2161,7 +2161,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   {/* 2026-06-02 — stat tiles replaced with HONEST,
                       verifiable numbers:
                         - 40 node types: readme.md line 9 + ModulesPanel count
-                        - 33 connectors: readme.md line 21 (4 db + 2 bulk + 27 SaaS REST)
+                        - 66 connectors: picker count (80 CONNECTION_TYPES - 14 roadmap)
                         - 27 templates: frontend/src/templates/catalog.ts header
                         - Apache 2.0: pyproject.toml + LICENSE
                       Previous 80+ / 15+ / 15+ / 20+ were inflated PR

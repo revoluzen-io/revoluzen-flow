@@ -6,7 +6,7 @@ import './styles/globals.css';
 
 // Dark mode removed — force light mode and clear any persisted dark preference.
 document.documentElement.classList.remove('dark');
-try { localStorage.removeItem('fpulse_theme'); } catch {}
+try { localStorage.removeItem('revoluzen_flow_theme'); } catch {}
 
 // OSS is single-operator: pin to the shared `default` workspace before any
 // component or API call reads localStorage. A previous build's switcher may
@@ -15,8 +15,8 @@ try { localStorage.removeItem('fpulse_theme'); } catch {}
 // session without a re-login. (Multi-workspace is a Plus capability.)
 if (!WORKSPACES_ENABLED) {
   try {
-    localStorage.setItem('fpulse_workspace_id', 'default');
-    localStorage.removeItem('fpulse_workspaces');
+    localStorage.setItem('revoluzen_flow_workspace_id', 'default');
+    localStorage.removeItem('revoluzen_flow_workspaces');
   } catch {}
 }
 

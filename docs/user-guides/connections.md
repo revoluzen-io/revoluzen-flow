@@ -46,7 +46,7 @@ curl -X POST http://localhost:8001/api/connections/ \
     "name": "orders-pg",
     "type": "postgresql",
     "config": {"host": "localhost", "port": 5432, "database": "orders"},
-    "credentials": {"username": "fpulse", "password": "..."},
+    "credentials": {"username": "revoluzen-flow", "password": "..."},
     "capabilities": ["read"],
     "project_id": "proj_sales"
   }'

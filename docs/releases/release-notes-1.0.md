@@ -38,12 +38,18 @@ SaaS bill.
   `PUT` + `COPY INTO`) + 27 SaaS REST manifests. 10 additional
   consumer-marketing / SMB-CRM manifests ship Hidden by tier flag.
 - **5-tier honest connector classification** —
-  Production / Verified / Beta / Experimental / Hidden. Today's
-  count: **0 Production, 0 Verified, 19 Beta, 8 Experimental**.
-  The bar for Verified is a live-vendor smoke test in CI plus a
-  stored fixture; no connector clears that bar yet. We chose to
-  publish the actual numbers rather than soft-label everything
-  "Certified."
+  Production / Verified / Beta / Experimental / Hidden, reported
+  **per connector**, never as a total. The bar for Verified is a
+  recorded-fixture acceptance run that replays green, re-checked
+  automatically; Production additionally requires a live-vendor
+  smoke test in CI. Each connector states what it has cleared and
+  when, and a connector that has cleared nothing says nothing —
+  rather than soft-labelling everything "Certified."
+
+  We publish no "N of M verified" figure, because it cannot be read
+  correctly. A connector is unattested when nobody has recorded
+  fixtures for it, which is not the same as a connector that failed
+  its tests — and a ratio renders both identically.
 - **Avro + ORC file readers** alongside the existing CSV / JSON /
   Parquet / Excel / XML support, in both the File source and all
   5 Cloud Files sources (S3 / Azure Blob / GCS / SharePoint / SFTP).
@@ -52,8 +58,8 @@ SaaS bill.
   GET-only framework silently dropped POST bodies; this is now
   fixed with 18 contract tests pinning the behaviour.
 - **32 optional dependency extras** in `pyproject.toml` for
-  database drivers. From PyPI: `pip install "fpulse[postgres]"`,
-  `pip install "fpulse[oracle]"`, `pip install "fpulse[all]"`, etc.
+  database drivers. From PyPI: `pip install "revoluzen-flow[postgres]"`,
+  `pip install "revoluzen-flow[oracle]"`, `pip install "revoluzen-flow[all]"`, etc.
   From a source checkout, use the editable equivalents:
   `pip install -e ".[postgres]"`, `pip install -e ".[oracle]"`,
   `pip install -e ".[all]"`.
@@ -90,10 +96,10 @@ python -m revoluzen_flow open
 For database connectors, add the matching extra to the source install:
 
 ```bash
-pip install "fpulse[postgres]"
-pip install "fpulse[oracle]"      # thin mode, no Instant Client
-pip install "fpulse[snowflake]"
-pip install "fpulse[all]"          # everything pip-only (no OS drivers)
+pip install "revoluzen-flow[postgres]"
+pip install "revoluzen-flow[oracle]"      # thin mode, no Instant Client
+pip install "revoluzen-flow[snowflake]"
+pip install "revoluzen-flow[all]"          # everything pip-only (no OS drivers)
 ```
 
 MS SQL Server, Oracle thick mode, and IBM Db2 also need OS-level

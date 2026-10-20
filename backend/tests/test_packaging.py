@@ -124,6 +124,36 @@ def test_docs_catalog_entries_exist_in_source_tree():
     assert not missing, f"Help catalog points at missing docs: {missing}"
 
 
+def test_docs_catalog_resolves_through_the_real_docs_root():
+    """Every catalogued doc must resolve where the API actually looks.
+
+    The test above checks the catalog against the *source* tree, which is not
+    where `get_doc_content` reads from: it goes through `_docs_root()`, which
+    prefers a staged `revoluzen_flow/docs/` whenever that directory exists.
+
+    A partial staged copy therefore breaks the Help page while the source-tree
+    test stays green — which is exactly what shipped. Two staged files were
+    committed before `.gitignore` covered them, so every checkout had a
+    two-file `docs/` dir, `_docs_root()` preferred it, and 48 of 49 documents
+    returned "Document file missing on disk". This asserts the path the reader
+    actually takes.
+    """
+    from revoluzen_flow.api import reports
+
+    docs_root = reports._docs_root()
+    missing = []
+    for entry in reports._DOC_CATALOG:
+        root = docs_root.parent if entry.get("repo_root") else docs_root
+        if not (root / entry["path"]).is_file():
+            missing.append(entry["path"])
+
+    assert not missing, (
+        f"{len(missing)} of {len(reports._DOC_CATALOG)} docs unreachable via "
+        f"_docs_root()={docs_root}. If a staged docs/ dir exists it must be "
+        f"complete, or absent. Missing: {missing[:5]}"
+    )
+
+
 def test_frontend_dist_resolution_prefers_packaged_copy():
     """main.py must look inside the package first, then the repo tree.
 
@@ -133,9 +163,9 @@ def test_frontend_dist_resolution_prefers_packaged_copy():
     from revoluzen_flow.main import _PACKAGED_DIST, _SOURCE_DIST
 
     pkg_dir = Path(_PACKAGED_DIST).resolve()
-    fpulse_pkg = Path(__import__("revoluzen_flow").__file__).resolve().parent
+    revoluzen_flow_pkg = Path(__import__("revoluzen_flow").__file__).resolve().parent
 
-    assert pkg_dir.parent == fpulse_pkg, (
+    assert pkg_dir.parent == revoluzen_flow_pkg, (
         "packaged frontend must resolve INSIDE the revoluzen_flow package "
         f"(got {pkg_dir}); otherwise a pip install serves no UI"
     )

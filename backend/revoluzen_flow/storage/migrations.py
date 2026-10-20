@@ -141,7 +141,7 @@ def _main() -> int:
     import argparse
 
     ap = argparse.ArgumentParser(description="Run Revoluzen Flow SQLite migrations")
-    ap.add_argument("--db", required=True, help="Path to fpulse.db")
+    ap.add_argument("--db", required=True, help="Path to revoluzen_flow.db")
     ap.add_argument("--root", default=".", help="Backend root containing migrations/")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()

@@ -196,7 +196,7 @@ def make_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--db", default="data/samples/fpulse.db")
+    parser.add_argument("--db", default="data/samples/revoluzen_flow.db")
     parser.add_argument("--out", default="docs/connector-validation-report.md")
     parser.add_argument("--test-saved", action="store_true")
     args = parser.parse_args()

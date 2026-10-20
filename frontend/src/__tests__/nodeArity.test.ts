@@ -6,7 +6,7 @@
  *      frontend/backend drift (http_request accepts an optional input;
  *      local_table_sink + fail carry their side-effect class).
  *   2. The LIVE-REGISTRY derivation wins over the hand-maps when
- *      `window.__fpulse_node_types` is loaded — so the file can't drift
+ *      `window.__revoluzen_flow_node_types` is loaded — so the file can't drift
  *      from the backend again.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -18,12 +18,12 @@ import {
 } from '../utils/nodeArity';
 
 function setRegistry(entries: unknown[] | undefined) {
-  (window as unknown as { __fpulse_node_types?: unknown }).__fpulse_node_types = entries;
+  (window as unknown as { __revoluzen_flow_node_types?: unknown }).__revoluzen_flow_node_types = entries;
 }
 
 afterEach(() => {
   // Always return to the offline path so tests don't leak the registry.
-  delete (window as unknown as { __fpulse_node_types?: unknown }).__fpulse_node_types;
+  delete (window as unknown as { __revoluzen_flow_node_types?: unknown }).__revoluzen_flow_node_types;
 });
 
 describe('nodeArity offline fallback (drift fixes)', () => {

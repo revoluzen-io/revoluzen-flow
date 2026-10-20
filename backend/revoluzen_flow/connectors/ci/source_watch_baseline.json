@@ -1,0 +1,12 @@
+{
+  "connectors": {
+    "github": {
+      "api_version": "2026-03-10",
+      "spec_sha256": "3177ad6a86ca04c57a9bef3fc24e28a339efb8eb040c6f950af3d3ed2fee7fa3"
+    },
+    "stripe": {
+      "spec_sha256": "7cff4cc46d0654101a36a3302f7544640f5f73e4f3cad6f264f0e23c19fa1776"
+    }
+  },
+  "updated_at": "2026-10-20T09:20:59.036766+00:00"
+}

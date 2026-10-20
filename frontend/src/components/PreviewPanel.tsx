@@ -13,7 +13,7 @@ import { humanizeExecutionError } from '../utils/errorMessages';
 // even on a small viewport.
 const PREVIEW_MIN_PX = 180;
 const PREVIEW_MAX_FRACTION = 0.7;
-const PREVIEW_HEIGHT_KEY = 'fpulse_editor_preview_height';
+const PREVIEW_HEIGHT_KEY = 'revoluzen_flow_editor_preview_height';
 
 function loadStoredPreviewHeight(): number {
   try {
@@ -137,8 +137,8 @@ export default function PreviewPanel() {
       const id = (e as CustomEvent).detail?.id as string | undefined;
       if (id) setOpen(true);
     };
-    window.addEventListener('fpulse-node-opened', handler);
-    return () => window.removeEventListener('fpulse-node-opened', handler);
+    window.addEventListener('revoluzen-flow-node-opened', handler);
+    return () => window.removeEventListener('revoluzen-flow-node-opened', handler);
   }, []);
   useEffect(() => {
     if (!selectedNodeId) setOpen(false);
@@ -162,7 +162,7 @@ export default function PreviewPanel() {
     // through the React tree.
     if (typeof document !== 'undefined') {
       document.documentElement.style.setProperty(
-        '--fpulse-preview-panel-height',
+        '--revoluzen-flow-preview-panel-height',
         `${previewHeight}px`,
       );
     }
@@ -173,7 +173,7 @@ export default function PreviewPanel() {
   useEffect(() => {
     return () => {
       if (typeof document !== 'undefined') {
-        document.documentElement.style.removeProperty('--fpulse-preview-panel-height');
+        document.documentElement.style.removeProperty('--revoluzen-flow-preview-panel-height');
       }
     };
   }, []);

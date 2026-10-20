@@ -60,7 +60,7 @@ class ErrorBoundary extends Component<Props, State> {
           <div className="max-w-lg w-full bg-white rounded-xl shadow-lg p-8 text-center space-y-6">
             <div className="flex justify-center">
               <div className="w-16 h-16 rounded-2xl bg-white overflow-hidden">
-                <img src="/fpulse-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
+                <img src="/revoluzen-flow-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
               </div>
             </div>
 

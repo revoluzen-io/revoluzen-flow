@@ -51,7 +51,7 @@ the demo focused on the most-asked behaviours:
 | Same source twice in ONE workflow → NOT flagged | `test_single_workflow_duplicate_source_not_flagged` | architecture |
 | Fan-out (same source, different sinks) → flagged as duplicate_source, NOT duplicate_pipeline | `test_same_source_different_sink_not_pipeline_dup` | architecture |
 | Finding IDs are deterministic across runs | `test_finding_id_stable_across_runs` | pipeline |
-| Revoluzen Flow step format (real production shape) detected | `test_detector_handles_fpulse_step_format` | architecture |
+| Revoluzen Flow step format (real production shape) detected | `test_detector_handles_revoluzen_flow_step_format` | architecture |
 | Mixed React-Flow + Revoluzen Flow formats in same workspace | `test_detector_handles_mixed_format_workspaces` | architecture |
 | Severity escalation honours the count threshold | `test_severity_escalates_after_threshold` | architecture |
 | Under-threshold counts do NOT escalate | `test_no_escalation_under_threshold` | architecture |

@@ -28,8 +28,8 @@ const NODE_META = [
 ];
 
 describe('DynamicConfig — required-field marker', () => {
-  beforeEach(() => { (window as any).__fpulse_node_types = NODE_META; });
-  afterEach(() => { delete (window as any).__fpulse_node_types; });
+  beforeEach(() => { (window as any).__revoluzen_flow_node_types = NODE_META; });
+  afterEach(() => { delete (window as any).__revoluzen_flow_node_types; });
 
   function mount(table_name: string) {
     render(

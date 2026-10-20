@@ -28,7 +28,7 @@ regardless of which run, which window, or how long ago.
    string. Example: `"{user_id}|{event_type}|{event_date}"`.
 2. For every row, Revoluzen Flow renders the template against the row, hashes
    the result with SHA-256, and looks it up in the per-pipeline
-   `sink_idempotency` table inside `fpulse.db`.
+   `sink_idempotency` table inside `revoluzen_flow.db`.
 3. If the (pipeline, sink_step, hash) tuple was recorded within the
    TTL, the row is **skipped** — the side effect is not fired.
 4. Otherwise the side effect fires and the hash is **recorded** with a
@@ -68,7 +68,7 @@ Bad keys:
 
 ## Storage & retention
 
-- **Location:** the operator's existing `fpulse.db` (table
+- **Location:** the operator's existing `revoluzen_flow.db` (table
   `sink_idempotency`). No new files.
 - **Scope:** keyed by `(pipeline_id, sink_step_id, key_hash)` — two
   different sinks with the same key don't collide, two different
@@ -99,8 +99,8 @@ the TTL window.
 
 ## Status (as of v1.0.0-rc)
 
-- ✅ Dedup store + helpers shipped (`fpulse/sinks/dedupe_store.py`,
-  `fpulse/sinks/idempotency_helper.py`).
+- ✅ Dedup store + helpers shipped (`revoluzen_flow/sinks/dedupe_store.py`,
+  `revoluzen_flow/sinks/idempotency_helper.py`).
 - ✅ SQLite schema migration shipped (`sink_idempotency` table).
 - ✅ Main.py wiring shipped — store is bound on backend startup.
 - ⏳ Sink integration: the `idempotency_key` param needs to be added

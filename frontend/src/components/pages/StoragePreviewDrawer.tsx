@@ -244,10 +244,10 @@ export default function StoragePreviewDrawer({
     try {
       const res = await fetch(`/api/storage/raw/${object.id}`, {
         headers: {
-          Authorization: localStorage.getItem('fpulse_token')
-            ? `Bearer ${localStorage.getItem('fpulse_token')}`
+          Authorization: localStorage.getItem('revoluzen_flow_token')
+            ? `Bearer ${localStorage.getItem('revoluzen_flow_token')}`
             : '',
-          'X-Workspace-Id': localStorage.getItem('fpulse_workspace_id') || 'default',
+          'X-Workspace-Id': localStorage.getItem('revoluzen_flow_workspace_id') || 'default',
         },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -258,9 +258,9 @@ export default function StoragePreviewDrawer({
         toast.error(`File is not valid JSON: ${(err as Error).message}`);
         return;
       }
-      sessionStorage.setItem('fpulse_pending_import', text);
+      sessionStorage.setItem('revoluzen_flow_pending_import', text);
       sessionStorage.setItem(
-        'fpulse_pending_import_source',
+        'revoluzen_flow_pending_import_source',
         `storage:${object.name}`,
       );
       toast.success(`Opening ${object.name} in Editor…`);

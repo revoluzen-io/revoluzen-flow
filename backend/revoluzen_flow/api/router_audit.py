@@ -32,7 +32,7 @@ _REFERENCE_PROMPTS: list[dict[str, str]] = [
     # Greetings / help / FAQ — should be fast-lane STATIC
     {"prompt": "hi", "expected": "fast-lane.greet"},
     {"prompt": "what can you do?", "expected": "fast-lane.help"},
-    {"prompt": "what is revoluzen-flow?", "expected": "fast-lane.what_is_fpulse"},
+    {"prompt": "what is revoluzen-flow?", "expected": "fast-lane.what_is_revoluzen_flow"},
 
     # List intents — fast-lane DYNAMIC, served from page or tool
     {"prompt": "list pipelines", "expected": "fast-lane.list_pipelines"},

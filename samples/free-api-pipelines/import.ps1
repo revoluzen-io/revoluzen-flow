@@ -10,7 +10,7 @@
 #         .\import.ps1 -Email admin@example.com -Password 'yourpwd'
 #
 # The script logs into /api/auth/login, gets a bearer token, finds the
-# workspace that owns 'fpulse_test', then POSTs the 10 pipelines into it.
+# workspace that owns 'revoluzen_flow_test', then POSTs the 10 pipelines into it.
 
 [CmdletBinding()]
 param(
@@ -18,7 +18,7 @@ param(
     [string]$Email          = "",
     [string]$Password       = "",
     [string]$Token          = "",
-    [string]$ConnectionName = "fpulse_test",
+    [string]$ConnectionName = "revoluzen_flow_test",
     [string]$ConnectionId   = ""
 )
 
@@ -97,7 +97,7 @@ $authHeaders = @{
     "Authorization" = "Bearer $token"
 }
 
-# ---- 1. Find the workspace that owns fpulse_test ---------------------------
+# ---- 1. Find the workspace that owns revoluzen_flow_test ---------------------------
 Write-Host ""
 Write-Host "[1/3] Locating '$ConnectionName' across visible workspaces..." -ForegroundColor Yellow
 

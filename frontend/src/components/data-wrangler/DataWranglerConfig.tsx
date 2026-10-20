@@ -35,8 +35,8 @@ import ResizeHandle from '../shared/ResizeHandle';
 // Width of the leftmost step-list and middle config-form panes are
 // persisted in localStorage so the user's split sticks across visits.
 // The right preview pane auto-flexes to fill the remainder.
-const WRANGLER_STEPLIST_KEY = 'fpulse_wrangler_steplist_width';
-const WRANGLER_CONFIG_KEY = 'fpulse_wrangler_configform_width';
+const WRANGLER_STEPLIST_KEY = 'revoluzen_flow_wrangler_steplist_width';
+const WRANGLER_CONFIG_KEY = 'revoluzen_flow_wrangler_configform_width';
 const WRANGLER_STEPLIST_MIN = 200;
 const WRANGLER_STEPLIST_MAX = 480;
 const WRANGLER_STEPLIST_DEFAULT = 260;

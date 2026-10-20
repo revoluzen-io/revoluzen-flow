@@ -32,7 +32,7 @@ $ErrorActionPreference = 'Stop'
 $ROOT = $PSScriptRoot
 
 $target  = Join-Path $ROOT 'start.bat'
-$icon    = Join-Path $ROOT 'installer\windows\icons\fpulse.ico'
+$icon    = Join-Path $ROOT 'installer\windows\icons\revoluzen-flow.ico'
 $lnkName = 'Revoluzen Flow.lnk'
 
 # Every real Desktop folder on this profile (deduped, case-insensitive,

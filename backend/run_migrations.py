@@ -24,7 +24,7 @@ def main() -> None:
         "REVOLUZEN_FLOW_DATA_DIR",
         os.path.join(os.getcwd(), "data"),
     )
-    db_path = os.path.join(data_dir, "fpulse.db")
+    db_path = os.path.join(data_dir, "revoluzen_flow.db")
     print(f"DB: {db_path}")
     import sqlite3
     conn = sqlite3.connect(db_path)

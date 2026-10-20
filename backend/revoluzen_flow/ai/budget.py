@@ -2,7 +2,7 @@
 Context budget manager.
 
 Enforces the per-request and per-tool-output token budgets locked in
-project_fpulse_ai_step0_locks.md §1. Priority-based inclusion: user intent
+project_revoluzen_flow_ai_step0_locks.md §1. Priority-based inclusion: user intent
 always wins; summary truncated next; on-demand details dropped first.
 
 Tier 1 (always included): user intent, system prompt
@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
-# Defaults from project_fpulse_ai_step0_locks.md §1.
+# Defaults from project_revoluzen_flow_ai_step0_locks.md §1.
 DEFAULT_BUDGET_FREE = 8_000          # tokens per request, OSS BYO key
 DEFAULT_BUDGET_PLUS = 16_000         # tokens per request, Plus managed
 DEFAULT_TOOL_OUTPUT_FREE = 2_000     # per tool output cap

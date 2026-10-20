@@ -9,7 +9,7 @@
  * waiting to happen.
  *
  * 2026-05-19 local-LLM floor revision (memory:
- * project_fpulse_local_llm_floor_revision_2026-05-19): the previous
+ * project_revoluzen_flow_local_llm_floor_revision_2026-05-19): the previous
  * qwen2.5:1.5b / :3b sweet-spot pick FAILED the Editor Phase 1
  * tool-use loop. The reasoning thesis needs a ~7B floor. Recommended
  * picks now: qwen2.5:7b, phi-4, llama3.1:8b (~6 GB RAM Q4_K_M).

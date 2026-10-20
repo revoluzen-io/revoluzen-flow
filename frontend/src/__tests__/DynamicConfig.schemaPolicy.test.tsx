@@ -8,14 +8,14 @@
  * `select` case renders them as `<option title>` AND inlines the
  * description for the currently-selected option below the select.
  *
- * This test seeds the window-level `__fpulse_node_types` cache (the
+ * This test seeds the window-level `__revoluzen_flow_node_types` cache (the
  * same global the production code reads via `getNodeMeta`) with a
  * minimal sink schema, mounts DynamicConfig, asserts the option set
  * + the inline description for the selected option, and verifies a
  * user change emits `onChange`.
  *
  * Why mock at the global rather than the network layer: DynamicConfig
- * reads node-type metadata synchronously from `window.__fpulse_node_types`
+ * reads node-type metadata synchronously from `window.__revoluzen_flow_node_types`
  * (populated once at app boot by the registry endpoint). Mocking it
  * here exercises the exact lookup path production uses.
  */
@@ -66,18 +66,18 @@ const NODE_META = [
 
 describe('DynamicConfig — schema_policy dropdown', () => {
   beforeEach(() => {
-    (window as any).__fpulse_node_types = NODE_META;
+    (window as any).__revoluzen_flow_node_types = NODE_META;
     // DynamicConfig hides fields with defaults behind a "X defaults
     // applied" chip unless advanced mode is on. The Schema-policy
     // dropdown is one such field. Flip advanced ON for this suite so
     // we can interact with the select directly; that's the same path
     // a power-user reaches via the "Show all settings (advanced)"
     // toggle in the panel.
-    try { localStorage.setItem(`fpulse.cfg.advanced.${SINK_TYPE}`, '1'); } catch { /* noop */ }
+    try { localStorage.setItem(`revoluzen-flow.cfg.advanced.${SINK_TYPE}`, '1'); } catch { /* noop */ }
   });
   afterEach(() => {
-    delete (window as any).__fpulse_node_types;
-    try { localStorage.removeItem(`fpulse.cfg.advanced.${SINK_TYPE}`); } catch { /* noop */ }
+    delete (window as any).__revoluzen_flow_node_types;
+    try { localStorage.removeItem(`revoluzen-flow.cfg.advanced.${SINK_TYPE}`); } catch { /* noop */ }
   });
 
   function mount(initialPolicy = 'add_columns', onChange = vi.fn()) {

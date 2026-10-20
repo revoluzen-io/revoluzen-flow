@@ -130,7 +130,7 @@ def client():
         user_store._save_user(admin)
 
         login = c.post("/api/auth/login", json={
-            "email": "admin@fpulse.local",
+            "email": "admin@revoluzen.local",
             "password": ADMIN_TEST_PASSWORD,
         })
         assert login.status_code == 200, f"test admin login failed: {login.text}"
@@ -607,6 +607,30 @@ class TestTemplateImportExport:
         r = client.post("/api/templates/export/nonexistent")
         assert r.status_code == 404
 
+    def test_pipeline_export_deterministic_is_byte_stable(self, client, state):
+        """`deterministic=true` must produce an identical file every time.
+
+        A committed export is only reviewable if re-exporting an unchanged
+        pipeline yields no diff. The default export stamps `exported_at`, so
+        two back-to-back exports differ on a line that says nothing about the
+        pipeline — which buries the real change in review.
+        """
+        wid = state["workflow_id"]
+
+        first = client.get(f"/api/workflows/{wid}/export?deterministic=true")
+        second = client.get(f"/api/workflows/{wid}/export?deterministic=true")
+        assert first.status_code == 200 and second.status_code == 200
+        assert "exported_at" not in first.json()
+        assert first.content == second.content, (
+            "deterministic export is not byte-stable; a committed export "
+            "would show a spurious diff on every refresh"
+        )
+
+        # The default stays timestamped — that is the point of the opt-in.
+        stamped = client.get(f"/api/workflows/{wid}/export")
+        assert stamped.status_code == 200
+        assert "exported_at" in stamped.json()
+
     def test_import_and_reexport_roundtrip(self, client):
         """Import a pipeline, then export it — should produce equivalent structure."""
         original = {
@@ -1008,7 +1032,7 @@ class TestAuth:
 
     def test_default_admin_login(self, client, state):
         r = client.post("/api/auth/login", json={
-            "email": "admin@fpulse.local",
+            "email": "admin@revoluzen.local",
             "password": ADMIN_TEST_PASSWORD,
         })
         assert r.status_code == 200
@@ -1019,7 +1043,7 @@ class TestAuth:
 
     def test_wrong_password_rejected(self, client):
         r = client.post("/api/auth/login", json={
-            "email": "admin@fpulse.local",
+            "email": "admin@revoluzen.local",
             "password": "WrongPass!2026X",
         })
         assert r.status_code == 401
@@ -1029,7 +1053,7 @@ class TestAuth:
         # first, the way an operator would via Admin → Security.
         _enable_self_registration()
         r = client.post("/api/auth/register", json={
-            "email": "testuser@fpulse.com",
+            "email": "testuser@revoluzen.local",
             "password": "Secure!Pass2026",
             "name": "Test User",
         })
@@ -1040,7 +1064,7 @@ class TestAuth:
 
     def test_duplicate_registration_rejected(self, client):
         r = client.post("/api/auth/register", json={
-            "email": "admin@fpulse.local",
+            "email": "admin@revoluzen.local",
             "password": "anything",
         })
         assert r.status_code == 409
@@ -1050,7 +1074,7 @@ class TestAuth:
             "Authorization": f"Bearer {state['admin_token']}",
         })
         assert r.status_code == 200
-        assert r.json()["email"] == "admin@fpulse.local"
+        assert r.json()["email"] == "admin@revoluzen.local"
 
     def test_list_users(self, client):
         r = client.get("/api/auth/users")
@@ -1064,7 +1088,7 @@ class TestAuth:
         # "Seat limit reached" (403). Log in as the already-registered
         # test user instead and exercise logout on that session.
         login = client.post("/api/auth/login", json={
-            "email": "testuser@fpulse.com",
+            "email": "testuser@revoluzen.local",
             "password": "Secure!Pass2026",
         })
         assert login.status_code == 200

@@ -2,7 +2,7 @@
 Session-context block — May 4 2026.
 
 Layer 1 of the chat knowledge architecture (see
-project_fpulse_local_only_lock + the May 4 chat-UX work):
+project_revoluzen_flow_local_only_lock + the May 4 chat-UX work):
 
     Layer 1  User/env/product context     ALWAYS injected — this module
     Layer 2  Product knowledge RAG        retrieved per turn
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 # Identity blurb — kept short. The LLM doesn't need marketing copy, it
 # needs accurate positioning so it doesn't mis-describe the product to
-# the user. Aligned with `project_fpulse_positioning_lock_2026-05-03.md`.
+# the user. Aligned with `project_revoluzen_flow_positioning_lock_2026-05-03.md`.
 _PRODUCT_IDENTITY = (
     "Revoluzen Flow is a self-hosted, single-tenant data workflow platform with "
     "deterministic execution, AI-assisted logic, and full audit lineage. "
@@ -50,7 +50,7 @@ _PRODUCT_IDENTITY = (
 
 
 # Tier capability map — what the OSS edition does and does NOT include.
-# Source of truth is `edition-matrix.md` + `project_fpulse_oss_plus_split_2026-05-03.md`.
+# Source of truth is `edition-matrix.md` + `project_revoluzen_flow_oss_plus_split_2026-05-03.md`.
 # This is kept brief on purpose: the LLM doesn't need every Plus feature,
 # it needs to know the BOUNDARY so it doesn't promise things OSS can't do.
 _OSS_FREE_INCLUDES = [

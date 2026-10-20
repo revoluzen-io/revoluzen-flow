@@ -10,13 +10,13 @@ Why Snowflake first for Gate 2 (one warehouse to depth-5):
 
 Pipeline:
   1. Write rows to a local CSV under `<staging_dir>/<call_uuid>.csv`.
-  2. `CREATE STAGE IF NOT EXISTS @~/fpulse_bulk` — user stage, no
+  2. `CREATE STAGE IF NOT EXISTS @~/revoluzen_flow_bulk` — user stage, no
      warehouse role / external stage permissions needed.
-  3. `PUT file://<csv> @~/fpulse_bulk/<uuid>.csv AUTO_COMPRESS=TRUE`.
+  3. `PUT file://<csv> @~/revoluzen_flow_bulk/<uuid>.csv AUTO_COMPRESS=TRUE`.
      Connector handles encryption, gzip, retry.
-  4. `COPY INTO <target> FROM @~/fpulse_bulk/<uuid>.csv.gz
+  4. `COPY INTO <target> FROM @~/revoluzen_flow_bulk/<uuid>.csv.gz
      FILE_FORMAT = (TYPE=CSV ...) ON_ERROR='ABORT_STATEMENT'`.
-  5. `REMOVE @~/fpulse_bulk/<uuid>.csv.gz` so the stage doesn't grow.
+  5. `REMOVE @~/revoluzen_flow_bulk/<uuid>.csv.gz` so the stage doesn't grow.
   6. Mode='merge' uses a temp table + MERGE INTO target USING temp.
 
 Optional dependency: `snowflake-connector-python`. Listed under
@@ -46,7 +46,7 @@ from ..types import (
 
 logger = logging.getLogger(__name__)
 
-_USER_STAGE = "@~/fpulse_bulk"
+_USER_STAGE = "@~/revoluzen_flow_bulk"
 
 
 def _try_import_driver():
@@ -146,9 +146,9 @@ class SnowflakeBulkLoader:
         """
         if staging_dir:
             os.makedirs(staging_dir, exist_ok=True)
-            path = os.path.join(staging_dir, f"fpulse_{uuid.uuid4().hex}.csv")
+            path = os.path.join(staging_dir, f"revoluzen_flow_{uuid.uuid4().hex}.csv")
         else:
-            fd, path = tempfile.mkstemp(prefix="fpulse_bulk_", suffix=".csv")
+            fd, path = tempfile.mkstemp(prefix="revoluzen_flow_bulk_", suffix=".csv")
             os.close(fd)
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f, quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
@@ -162,7 +162,7 @@ class SnowflakeBulkLoader:
     # ── Stage management ─────────────────────────────────────────────
 
     def _ensure_stage(self, cur) -> None:
-        cur.execute(f"CREATE STAGE IF NOT EXISTS ~/fpulse_bulk")
+        cur.execute(f"CREATE STAGE IF NOT EXISTS ~/revoluzen_flow_bulk")
 
     def _put_file(self, cur, local_path: str) -> str:
         """PUT the CSV onto the user stage. Returns the staged file name

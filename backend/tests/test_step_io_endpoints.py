@@ -27,7 +27,7 @@ from revoluzen_flow.monitoring.store import ExecutionStore, ExecutionRecord
 
 
 @pytest.fixture
-def stores(_fpulse_test_db, monkeypatch):
+def stores(_revoluzen_flow_test_db, monkeypatch):
     """Per-test stores wired into the real app_state via setitem.
 
     Order-of-import bug (2026-05-22 fix): the prior implementation called
@@ -48,8 +48,8 @@ def stores(_fpulse_test_db, monkeypatch):
     """
     from revoluzen_flow.main import app_state  # bind to the real dict
 
-    step_output_store = StepOutputStore(db=_fpulse_test_db)
-    execution_store = ExecutionStore(db=_fpulse_test_db)
+    step_output_store = StepOutputStore(db=_revoluzen_flow_test_db)
+    execution_store = ExecutionStore(db=_revoluzen_flow_test_db)
 
     monkeypatch.setitem(app_state, "step_output_store", step_output_store)
     monkeypatch.setitem(app_state, "execution_store", execution_store)

@@ -33,7 +33,7 @@ frontend/src/
 │   ├── ErrorBoundary.tsx, PanelErrorBoundary.tsx
 │   │
 │   ├── nodes/                     # React Flow custom node components
-│   │   ├── FpulseNode.tsx         # the rendered DAG node (icon, label, handles)
+│   │   ├── RevoluzenFlowNode.tsx         # the rendered DAG node (icon, label, handles)
 │   │   ├── StickyNote.tsx         # canvas annotation
 │   │   └── index.ts               # nodeTypes map for React Flow
 │   │
@@ -130,7 +130,7 @@ frontend/src/
  │                                  ├─ <EditorContextBar/>
  │                                  ├─ <ModulesPanel/>             # left palette
  │                                  ├─ <Canvas/>                   # React Flow
- │                                  │     └─ <FpulseNode/> (per-node)
+ │                                  │     └─ <RevoluzenFlowNode/> (per-node)
  │                                  ├─ <ConfigPanel/>              # right rail
  │                                  │     └─ <XxxConfig/> (per-stepType)
  │                                  ├─ <PreviewPanel/>             # bottom rail
@@ -221,7 +221,7 @@ nodes/edges live here so undo/redo and persistence are uniform.
 │    <ReactFlow                                                │
 │      nodes={nodes}                                           │
 │      edges={edges}                                           │
-│      nodeTypes={{ fpulseNode: FpulseNode,                    │
+│      nodeTypes={{ revoluzenFlowNode: RevoluzenFlowNode,                    │
 │                   stickyNote: StickyNote }}                  │
 │      onNodesChange={onNodesChange}                           │
 │      onEdgesChange={onEdgesChange}                           │
@@ -235,7 +235,7 @@ nodes/edges live here so undo/redo and persistence are uniform.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**Custom node** (`FpulseNode`) renders:
+**Custom node** (`RevoluzenFlowNode`) renders:
 - a coloured header with the category icon
 - the node's display label (editable inline)
 - 0/1/many input handles (driven by `MULTI_INPUT_NODES` /
@@ -341,8 +341,8 @@ navigation is instant.
 // frontend/src/api/client.ts (simplified)
 class ApiClient {
   private base = '/api';
-  private token = () => localStorage.getItem('fpulse_token') || '';
-  private workspace = () => localStorage.getItem('fpulse_workspace_id') || 'default';
+  private token = () => localStorage.getItem('revoluzen_flow_token') || '';
+  private workspace = () => localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
 
   async get<T>(path: string): Promise<T> {
     const r = await fetch(this.base + path, {
@@ -396,7 +396,7 @@ function addNode(type, position?):
 
     // R7 — Macros + virtual connector types like "execute_pipeline:wf-123"
     // are resolved by reading the cached /api/node-types payload.
-    backendTypes = window.__fpulse_node_types or []
+    backendTypes = window.__revoluzen_flow_node_types or []
     meta = backendTypes.find(t => t.type == type)
     if meta:
         if meta.base_type:      stepType = meta.base_type
@@ -411,7 +411,7 @@ function addNode(type, position?):
             : { x: 100, y: 100 }
 
     node = {
-        id, type: "fpulseNode",
+        id, type: "revoluzenFlowNode",
         position,
         data: {
             label, stepType,

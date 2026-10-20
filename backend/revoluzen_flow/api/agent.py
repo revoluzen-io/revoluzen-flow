@@ -151,7 +151,7 @@ class AgentRequest(BaseModel):
     user_intent: str
     page_context: PageContextRequest
     allow_safe_writes: bool = False
-    max_tokens: int = 8000  # Free default per project_fpulse_ai_step0_locks §1
+    max_tokens: int = 8000  # Free default per project_revoluzen_flow_ai_step0_locks §1
     # Layer 2 — dialogue state. Frontend persists this in sessionStorage
     # and sends it on every turn. Backend reads it before routing,
     # mutates it after, and returns the new value as `case_file` on

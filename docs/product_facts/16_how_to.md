@@ -75,7 +75,7 @@ There is no one-click wand on the Connections page. Build the same shape manuall
 3. Drag a **Managed Table Sink** node, set `schema_name + table_name`, connect it to the Wrangler.
 4. Save and run.
 
-The 4 clicks-add up the same shape the file-side wand emits. Backend endpoint for the file path: `POST /api/storage/scaffold-cleanup` — returns a workflow JSON; the frontend stashes it in `sessionStorage['fpulse_pending_import']` and navigates to `#editor` where the canvas renders it.
+The 4 clicks-add up the same shape the file-side wand emits. Backend endpoint for the file path: `POST /api/storage/scaffold-cleanup` — returns a workflow JSON; the frontend stashes it in `sessionStorage['revoluzen_flow_pending_import']` and navigates to `#editor` where the canvas renders it.
 
 ## How do I see which pipelines reference a file or managed table?
 
@@ -239,7 +239,7 @@ Backend binds to `127.0.0.1` (loopback) by default — the API is **invisible to
 1. `git pull` to get the latest tag.
 2. Read `changelog.md`, especially the **Tested with** matrix.
 3. **Update the pinned image tag** in `docker-compose.yml` (or `.env`): `REVOLUZEN_FLOW_IMAGE_TAG=1.0.0`.
-4. `docker compose pull fpulse && docker compose up -d flow`.
+4. `docker compose pull revoluzen-flow && docker compose up -d flow`.
 5. Diff `.env.example` for any new variables your config might need.
 
 ## How do I switch DEV → PROD?

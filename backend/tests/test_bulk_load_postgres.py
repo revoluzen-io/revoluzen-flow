@@ -165,13 +165,13 @@ class TestMerge:
         events = fake_driver.next_conn.events
         sqls = [e["sql"] for e in events if e["kind"] == "execute"]
         # Must create a TEMP staging table.
-        assert any("CREATE TEMP TABLE" in s and "_fpulse_bulk_stage" in s for s in sqls)
+        assert any("CREATE TEMP TABLE" in s and "_revoluzen_flow_bulk_stage" in s for s in sqls)
         # Must do INSERT … ON CONFLICT … DO UPDATE SET …
         assert any("ON CONFLICT" in s and "DO UPDATE SET" in s for s in sqls)
         # The COPY must target the staging table, not the real table.
         copies = [e for e in events if e["kind"] == "copy_expert"]
         assert len(copies) == 1
-        assert "_fpulse_bulk_stage" in copies[0]["sql"]
+        assert "_revoluzen_flow_bulk_stage" in copies[0]["sql"]
         assert "\"public\".\"customers\"" not in copies[0]["sql"]
 
     def test_merge_with_pk_only_columns_uses_do_nothing(self, fake_driver):

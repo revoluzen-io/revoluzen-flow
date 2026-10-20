@@ -31,7 +31,7 @@ const CONSUMER_TYPES = [
   'snowflake_view',
   'tableau_dashboard',
   'python_notebook',
-  'fpulse_pipeline',
+  'revoluzen_flow_pipeline',
   'other',
 ];
 

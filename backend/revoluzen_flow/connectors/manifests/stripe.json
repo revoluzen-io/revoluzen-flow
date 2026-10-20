@@ -4,6 +4,10 @@
   "description": "Stripe payments via REST API",
   "category": "saas",
   "base_url": "https://api.stripe.com/v1",
+  "source_watch": {
+    "spec_url": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    "notes": "No version_probe: Stripe's dated API version (Stripe-Version) is only visible on an authenticated response, so it arrives through the passive detector in source_watch.observe_response rather than a scheduled probe."
+  },
   "auth": {
     "type": "bearer",
     "token_param": "api_key",

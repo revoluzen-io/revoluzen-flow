@@ -550,7 +550,7 @@ function TemplateCard({
         </div>
 
         {/* CTA — solid emerald. Deliberately NOT violet/purple because
-            that's the Revoluzen Flow Copilot's color and the two buttons would
+            that's the Copilot's color and the two buttons would
             visually compete on the same screen. */}
         <button
           type="button"

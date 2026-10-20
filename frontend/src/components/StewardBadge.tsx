@@ -544,9 +544,9 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
     // event. SaveDialog already wires it when settings.scan_on_save is
     // true. The Steward also re-derives from current scan on every
     // findings request, so no extra plumbing needed elsewhere.
-    window.addEventListener('fpulse:steward-refresh', refreshFindings);
+    window.addEventListener('revoluzen-flow:steward-refresh', refreshFindings);
     // 2026-06-05 — Clicking a Steward notification in the bell deep-links
-    // here. The notification handler dispatches `fpulse:steward-open`
+    // here. The notification handler dispatches `revoluzen-flow:steward-open`
     // after navigating to #dashboard; we then auto-open the dropdown on
     // the Findings tab so the user lands in context immediately.
     const onOpen = () => {
@@ -555,12 +555,12 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
       // Refresh so the user sees the latest state, not a stale cache.
       refreshFindings();
     };
-    window.addEventListener('fpulse:steward-open', onOpen as EventListener);
+    window.addEventListener('revoluzen-flow:steward-open', onOpen as EventListener);
     return () => {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('fpulse:steward-refresh', refreshFindings);
-      window.removeEventListener('fpulse:steward-open', onOpen as EventListener);
+      window.removeEventListener('revoluzen-flow:steward-refresh', refreshFindings);
+      window.removeEventListener('revoluzen-flow:steward-open', onOpen as EventListener);
     };
   }, [refreshFindings, signedIn]);
 

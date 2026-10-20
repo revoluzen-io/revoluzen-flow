@@ -10,7 +10,7 @@
         "connector_type": "database",
         "connection_id": "Demo sqlserver",
         "source_mode": "query",
-        "query": "SELECT id, region, quantity, unit_price, status FROM fpulse_demo_input"
+        "query": "SELECT id, region, quantity, unit_price, status FROM revoluzen_flow_demo_input"
       },
       "position": {
         "x": 100,
@@ -96,7 +96,7 @@
       "params": {
         "connector_type": "warehouse",
         "connection_id": "Demo postgres",
-        "table": "fpulse_demo_19_summary",
+        "table": "revoluzen_flow_demo_19_summary",
         "schema": "public",
         "mode": "create"
       },

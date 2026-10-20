@@ -3,7 +3,7 @@
  *
  * Usage:
  *   <DataTable
- *     storageKey="fpulse_connections_columns"
+ *     storageKey="revoluzen_flow_connections_columns"
  *     columns={COLUMNS}
  *     data={filteredData}
  *     renderCell={(row, col) => <span>...</span>}

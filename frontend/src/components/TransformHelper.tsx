@@ -64,8 +64,8 @@ const COST_TONES: Record<string, string> = {
 };
 
 function _headers(): Record<string, string> {
-  const token = localStorage.getItem('fpulse_token') || '';
-  const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+  const token = localStorage.getItem('revoluzen_flow_token') || '';
+  const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
   const h: Record<string, string> = { 'Content-Type': 'application/json', 'X-Workspace-Id': ws };
   if (token) h['Authorization'] = `Bearer ${token}`;
   return h;

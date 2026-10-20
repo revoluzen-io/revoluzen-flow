@@ -228,7 +228,7 @@ Transform.
    conversations) → Plus only (line 110)
 
 **If none of these apply**, OSS Free is the right answer. It includes
-the full execution engine, all 25 agent tools, 33 connectors, and
+the full execution engine, all 25 agent tools, 66 connectors, and
 unlimited pipelines/runs.
 
 ---

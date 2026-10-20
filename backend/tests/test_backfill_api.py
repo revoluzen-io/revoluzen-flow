@@ -43,10 +43,10 @@ def workspace_id() -> str:
 
 
 @pytest.fixture
-def app(_fpulse_test_db, monkeypatch):
+def app(_revoluzen_flow_test_db, monkeypatch):
     """Build a small FastAPI app holding just the backfill + schedule routers.
 
-    Side-effects (cleaned up by monkeypatch + the _fpulse_test_db
+    Side-effects (cleaned up by monkeypatch + the _revoluzen_flow_test_db
     fixture's teardown):
       - app_state["store"] → a real WorkflowStore on the per-test DB.
       - app_state["schedule_store"] → a real ScheduleStore on the same DB.
@@ -64,16 +64,16 @@ def app(_fpulse_test_db, monkeypatch):
     # crash tests that don't touch it.
     from revoluzen_flow.main import app_state
 
-    workflow_store = WorkflowStore(db=_fpulse_test_db)
-    schedule_store = ScheduleStore(db=_fpulse_test_db)
+    workflow_store = WorkflowStore(db=_revoluzen_flow_test_db)
+    schedule_store = ScheduleStore(db=_revoluzen_flow_test_db)
     monkeypatch.setitem(app_state, "store", workflow_store)
     monkeypatch.setitem(app_state, "schedule_store", schedule_store)
     monkeypatch.setitem(app_state, "execution_store", None)
-    monkeypatch.setitem(app_state, "data_dir", str(_fpulse_test_db._path) if hasattr(_fpulse_test_db, "_path") else ".")
+    monkeypatch.setitem(app_state, "data_dir", str(_revoluzen_flow_test_db._path) if hasattr(_revoluzen_flow_test_db, "_path") else ".")
 
     # Wire the BackfillStore singleton.
     bf_store = get_backfill_store()
-    bf_store.set_db(_fpulse_test_db)
+    bf_store.set_db(_revoluzen_flow_test_db)
 
     # Stub the orchestrator dispatch — we test the API contract, not the
     # background executor. The real path is covered by executor tests.
@@ -107,7 +107,7 @@ def client(app) -> TestClient:
 
     class _FakeUser:
         id = "test"
-        email = "test@fpulse.local"
+        email = "test@revoluzen.local"
         role = "super_admin"
         is_active = True
 
@@ -140,10 +140,10 @@ def _save_workflow(workflow_store: WorkflowStore, wf: Workflow) -> str:
 
 
 @pytest.fixture
-def workflow_store_handle(_fpulse_test_db) -> WorkflowStore:
+def workflow_store_handle(_revoluzen_flow_test_db) -> WorkflowStore:
     """Direct handle to the same workflow store the app sees — for writing
     workflows that the API will then look up."""
-    return WorkflowStore(db=_fpulse_test_db)
+    return WorkflowStore(db=_revoluzen_flow_test_db)
 
 
 def _safe_pipeline() -> Workflow:

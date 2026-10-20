@@ -41,11 +41,11 @@ def find_db() -> Path:
     for c in candidates:
         if not c:
             continue
-        p = Path(c) / "fpulse.db"
+        p = Path(c) / "revoluzen_flow.db"
         if p.is_file():
             return p
     raise SystemExit(
-        "ERROR: could not locate fpulse.db. Set REVOLUZEN_FLOW_DATA_DIR or "
+        "ERROR: could not locate revoluzen_flow.db. Set REVOLUZEN_FLOW_DATA_DIR or "
         "run from the backend dir."
     )
 

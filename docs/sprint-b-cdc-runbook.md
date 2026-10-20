@@ -16,7 +16,7 @@ docker compose -f docker-compose.test.yml ps   # postgres-cdc should be (healthy
 
 The container exposes Postgres on **localhost:5433** (not 5432, to
 avoid clobbering an existing local Postgres). User/password/db are all
-`fpulse_test`.
+`revoluzen_flow_test`.
 
 Override via environment variables if you need a different host:
 

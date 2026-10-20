@@ -117,7 +117,7 @@
         "params": {
           "connector_type": "warehouse",
           "connection_id": "multidemo_sqlserver",
-          "table": "fpulse_demo_20_summary",
+          "table": "revoluzen_flow_demo_20_summary",
           "schema": "dbo",
           "mode": "create"
         },

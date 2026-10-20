@@ -32,7 +32,7 @@ branch protection before release): `ci.yml`, `unit-tests.yml`,
 
 - **`local`** (default) — single-user, loopback-only, anonymous access
   falls back to the `default` workspace. Correct for the `pip install
-  fpulse && revoluzen open` laptop experience. Nothing to configure.
+  revoluzen-flow && revoluzen open` laptop experience. Nothing to configure.
 - **`server`** — exposed / multi-user. Auth required (no anonymous
   fallback), one-time execution codes on, CORS same-origin only, AI
   execute-actions require a write role.
@@ -47,7 +47,7 @@ Guard rails to confirm in the shipped artifact:
 
 Revoluzen Flow does NOT auto-create an admin by default — the operator creates one
 on first launch. For CI/E2E, start the backend with **`REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1`**;
-Revoluzen Flow then seeds a bootstrap admin (`admin@fpulse.local`) and writes its
+Revoluzen Flow then seeds a bootstrap admin (`admin@revoluzen.local`) and writes its
 generated password to `INITIAL_ADMIN_PASSWORD.txt` in the data dir. The
 Playwright E2E workflow sets this flag, and a fresh data dir per run makes it
 self-seeding.
@@ -58,7 +58,7 @@ the password via env:
 
 ```powershell
 $env:REVOLUZEN_FLOW_URL      = "http://127.0.0.1:8001"   # or the Vite dev server :5174
-$env:REVOLUZEN_FLOW_E2E_EMAIL    = "admin@fpulse.local"
+$env:REVOLUZEN_FLOW_E2E_EMAIL    = "admin@revoluzen.local"
 $env:REVOLUZEN_FLOW_E2E_PASSWORD = "<the admin password>"
 cd frontend; npx playwright test
 ```
@@ -69,7 +69,7 @@ text — so a mojibake'd bullet placeholder can never silently break login.
 
 If the local server's admin password is unknown / out of sync with the
 `INITIAL_ADMIN_PASSWORD.txt` you have, reset it directly in that data
-dir's `fpulse.db` with `UserStore.set_password(user_id,
+dir's `revoluzen_flow.db` with `UserStore.set_password(user_id,
 User.hash_password(new_pw))`. Note the installed service uses its own data
 dir (`%LOCALAPPDATA%\RevoluzenFlow\data` on Windows), which is **not** any repo
 `data/` copy — reset the DB the running server actually opened.
@@ -83,7 +83,7 @@ announcing, not after.
 
 | Promise in the docs | Verify | Enable |
 |---|---|---|
-| `pip install revoluzen-flow` (README headline; extras such as `fpulse[postgres]`) | `python -m pip index versions fpulse` shows the target version, then `python -m pip install --dry-run fpulse==<ver>` resolves | PyPI publishing is configured through Trusted Publishing. Keep repo variable `PUBLISH_PYPI=true`; if a release is missing, check the GitHub `release.yml` run and PyPI project publishing status. |
+| `pip install revoluzen-flow` (README headline; extras such as `revoluzen-flow[postgres]`) | `python -m pip index versions revoluzen-flow` shows the target version, then `python -m pip install --dry-run revoluzen-flow==<ver>` resolves | PyPI publishing is configured through Trusted Publishing. Keep repo variable `PUBLISH_PYPI=true`; if a release is missing, check the GitHub `release.yml` run and PyPI project publishing status. |
 | `docker pull revoluzen/flow:<ver>` | `curl -sI https://hub.docker.com/v2/repositories/revoluzen/flow/` → 200 | Add `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets, then set repo variable `PUBLISH_DOCKER=true`. Remove the README "builds locally on first run" heads-up in the same change. |
 | Repo is reachable at `github.com/revoluzen-technologies/revoluzen-flow` | open it while signed out | Flip visibility to public. **Do this early, not at announce time** — CodeQL self-skips on private repos, so its first-ever run happens on the flip, in public. |
 
@@ -94,7 +94,7 @@ announcing, not after.
 ## 5. Operational polish
 
 - Stale `.revoluzen-flow/runtime/instance.json` after an unclean shutdown →
-  `revoluzen doctor --repair` clears it so the launcher / `fpulse stop`
+  `revoluzen doctor --repair` clears it so the launcher / `revoluzen-flow stop`
   ownership checks are clean.
 - Confirm `LICENSE` is **Apache 2.0** (CI's `license-and-changelog` job
   enforces this) and `THIRD_PARTY_LICENSES` / SBOM are current. Revoluzen Flow

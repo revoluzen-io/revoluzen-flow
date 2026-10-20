@@ -12,7 +12,7 @@
 #
 #  Then run the harness from the backend:
 #      cd backend
-#      python -m revoluzen_flow.connections.cli verify-all --configs ./fpulse/connections/verify_configs.json
+#      python -m revoluzen_flow.connections.cli verify-all --configs ./revoluzen_flow/connections/verify_configs.json
 #
 #  Service profiles let you run only the subset you need:
 #      --profile relational   postgres, mysql, mssql, oracle, db2, mariadb
@@ -31,7 +31,7 @@ services:
     profiles: [relational, all]
     environment:
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: fpulse_test
+      POSTGRES_DB: revoluzen_flow_test
     ports: ["5432:5432"]
 
   mysql:
@@ -39,7 +39,7 @@ services:
     profiles: [relational, all]
     environment:
       MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: fpulse_test
+      MYSQL_DATABASE: revoluzen_flow_test
     ports: ["3306:3306"]
 
   mariadb:
@@ -47,7 +47,7 @@ services:
     profiles: [relational, all]
     environment:
       MARIADB_ROOT_PASSWORD: root
-      MARIADB_DATABASE: fpulse_test
+      MARIADB_DATABASE: revoluzen_flow_test
     ports: ["3307:3306"]
 
   mssql:
@@ -55,7 +55,7 @@ services:
     profiles: [relational, all]
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: "Fpulse_Test_1!"
+      MSSQL_SA_PASSWORD: "Revoluzen_Flow_Test_1!"
     ports: ["1433:1433"]
 
   oracle:
@@ -252,7 +252,7 @@ services:
     image: google/cloud-sdk:slim
     profiles: [gcp, all]
     command: >
-      gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=fpulse-test
+      gcloud beta emulators pubsub start --host-port=0.0.0.0:8085 --project=revoluzen-flow-test
     ports: ["8085:8085"]
 
   gcp-firestore:
@@ -266,7 +266,7 @@ services:
   sftp:
     image: atmoz/sftp:alpine
     profiles: [file_system, all]
-    command: fpulse:fpulse:::upload
+    command: revoluzen-flow:revoluzen-flow:::upload
     ports: ["2222:22"]
 
   ftp:
@@ -274,7 +274,7 @@ services:
     profiles: [file_system, all]
     environment:
       PUBLICHOST: localhost
-      FTP_USER_NAME: fpulse
-      FTP_USER_PASS: fpulse
-      FTP_USER_HOME: /home/fpulse
+      FTP_USER_NAME: revoluzen-flow
+      FTP_USER_PASS: revoluzen-flow
+      FTP_USER_HOME: /home/revoluzen-flow
     ports: ["21:21", "30000-30009:30000-30009"]

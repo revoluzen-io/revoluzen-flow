@@ -24,7 +24,9 @@ def test_reliable_source_assets_are_detected():
     # to catch.)
     checks = pp.collect_checks()
     joined = " ".join(checks["ok"])
-    assert "entry point: revoluzen_flow" in joined
+    # Matched by target, not binary name — the binary has been renamed before.
+    assert "entry point: " in joined
+    assert "revoluzen_flow.cli" in joined
     assert "connector manifests" in joined
     assert "vendored Swagger" in joined
     for bucket in ("ok", "warn", "fail"):

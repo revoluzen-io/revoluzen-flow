@@ -7,11 +7,11 @@
 #      +--------------------------+-------------------+-------------------+
 #      | Email                    | Password          | Role              |
 #      +--------------------------+-------------------+-------------------+
-#      | sa@fpulse.local          | SuperAdmin1!      | super_admin       |
-#      | admin@fpulse.local       | admin             | super_admin (seed)|
-#      | manager@fpulse.local     | Manager1!         | admin             |
-#      | developer@fpulse.local   | Developer1!       | developer         |
-#      | viewer@fpulse.local      | Viewer1!          | viewer            |
+#      | sa@revoluzen.local          | SuperAdmin1!      | super_admin       |
+#      | admin@revoluzen.local       | admin             | super_admin (seed)|
+#      | manager@revoluzen.local     | Manager1!         | admin             |
+#      | developer@revoluzen.local   | Developer1!       | developer         |
+#      | viewer@revoluzen.local      | Viewer1!          | viewer            |
 #      +--------------------------+-------------------+-------------------+
 #
 #  Usage:
@@ -20,7 +20,7 @@
 #    .\seed-test-users.ps1 -DeactivatePlus  # revert to free tier
 #    .\seed-test-users.ps1 -Clean           # delete all test users & start fresh
 #
-#  admin@fpulse.local is created by the backend on first boot with a RANDOM
+#  admin@revoluzen.local is created by the backend on first boot with a RANDOM
 #  password, written once to INITIAL_ADMIN_PASSWORD.txt in the data dir — pass
 #  it via -AdminPassword. The 'admin' default below only works on a throwaway
 #  dev install where you have run `python -m revoluzen_flow seed-admin` (which itself
@@ -32,7 +32,7 @@
 
 param(
     [string]$BaseUrl = "http://localhost:8001",
-    [string]$AdminEmail = "admin@fpulse.local",
+    [string]$AdminEmail = "admin@revoluzen.local",
     [string]$AdminPassword = "admin",
     [switch]$ActivatePlus,
     [switch]$DeactivatePlus,
@@ -111,7 +111,7 @@ if ($ActivatePlus) {
         $expires = (Get-Date).AddYears(1).ToString("yyyy-MM-ddTHH:mm:ss")
         $resp = Invoke-Api -Method Post -Path "/api/plus/license/activate" -Token $adminToken -Body @{
             org        = "Revoluzen Flow Test Organization"
-            email      = "test@fpulse.local"
+            email      = "test@revoluzen.local"
             tier       = "plus"
             seats      = 10
             expires_at = $expires
@@ -135,8 +135,8 @@ if ($DeactivatePlus) {
 # --- 4. (Optional) Clean existing test users ---
 if ($Clean) {
     Write-Header "Cleaning existing test users"
-    $cleanEmails = @("sa@fpulse.local", "manager@fpulse.local", "developer@fpulse.local", "viewer@fpulse.local",
-                     "dev_free@fpulse.local", "adm_free@fpulse.local", "dev_plus@fpulse.local", "adm_plus@fpulse.local")
+    $cleanEmails = @("sa@revoluzen.local", "manager@revoluzen.local", "developer@revoluzen.local", "viewer@revoluzen.local",
+                     "dev_free@revoluzen.local", "adm_free@revoluzen.local", "dev_plus@revoluzen.local", "adm_plus@revoluzen.local")
     try {
         $allUsers = Invoke-Api -Method Get -Path "/api/auth/users" -Token $adminToken
         foreach ($email in $cleanEmails) {
@@ -160,7 +160,7 @@ if ($Clean) {
 # The role hierarchy is: viewer < developer < admin < super_admin
 $users = @(
     @{
-        email    = "sa@fpulse.local"
+        email    = "sa@revoluzen.local"
         name     = "Sarah Admin"
         role     = "super_admin"
         password = "SuperAdmin1!"
@@ -168,7 +168,7 @@ $users = @(
         desc     = "Full system control, license management"
     }
     @{
-        email    = "manager@fpulse.local"
+        email    = "manager@revoluzen.local"
         name     = "Mike Manager"
         role     = "admin"
         password = "Manager1!"
@@ -176,7 +176,7 @@ $users = @(
         desc     = "Project & user management, full PROD access"
     }
     @{
-        email    = "developer@fpulse.local"
+        email    = "developer@revoluzen.local"
         name     = "Dana Developer"
         role     = "developer"
         password = "Developer1!"
@@ -184,7 +184,7 @@ $users = @(
         desc     = "Build & execute in DEV, no PROD by default"
     }
     @{
-        email    = "viewer@fpulse.local"
+        email    = "viewer@revoluzen.local"
         name     = "Victor Viewer"
         role     = "viewer"
         password = "Viewer1!"
@@ -310,11 +310,11 @@ Write-Host ""
 Write-Host "  +--------------------------+-------------------+-------------------+---------------------------------------------+" -ForegroundColor DarkGray
 Write-Host "  | Email                    | Password          | Role              | Access                                      |" -ForegroundColor DarkGray
 Write-Host "  +--------------------------+-------------------+-------------------+---------------------------------------------+" -ForegroundColor DarkGray
-Write-Host "  | admin@fpulse.local       | admin             | super_admin (seed)| Full: system + license + all projects       |" -ForegroundColor Gray
-Write-Host "  | sa@fpulse.local          | SuperAdmin1!      | super_admin       | Full: system + license + all projects       |" -ForegroundColor White
-Write-Host "  | manager@fpulse.local     | Manager1!         | admin             | Manage users, projects, full DEV+PROD       |" -ForegroundColor White
-Write-Host "  | developer@fpulse.local   | Developer1!       | developer         | Build & run in DEV only (no PROD)           |" -ForegroundColor White
-Write-Host "  | viewer@fpulse.local      | Viewer1!          | viewer            | Read-only DEV (no PROD)                     |" -ForegroundColor White
+Write-Host "  | admin@revoluzen.local       | admin             | super_admin (seed)| Full: system + license + all projects       |" -ForegroundColor Gray
+Write-Host "  | sa@revoluzen.local          | SuperAdmin1!      | super_admin       | Full: system + license + all projects       |" -ForegroundColor White
+Write-Host "  | manager@revoluzen.local     | Manager1!         | admin             | Manage users, projects, full DEV+PROD       |" -ForegroundColor White
+Write-Host "  | developer@revoluzen.local   | Developer1!       | developer         | Build & run in DEV only (no PROD)           |" -ForegroundColor White
+Write-Host "  | viewer@revoluzen.local      | Viewer1!          | viewer            | Read-only DEV (no PROD)                     |" -ForegroundColor White
 Write-Host "  +--------------------------+-------------------+-------------------+---------------------------------------------+" -ForegroundColor DarkGray
 Write-Host ""
 

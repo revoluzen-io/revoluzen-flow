@@ -113,9 +113,9 @@ class TestListConsumers:
 
     def test_lists_only_target_output(self, store):
         store.record_consumer(output_id="out-A", consumer_id="c1",
-                                consumer_type="fpulse_pipeline")
+                                consumer_type="revoluzen_flow_pipeline")
         store.record_consumer(output_id="out-B", consumer_id="c2",
-                                consumer_type="fpulse_pipeline")
+                                consumer_type="revoluzen_flow_pipeline")
         a = store.list_consumers("out-A")
         b = store.list_consumers("out-B")
         assert len(a) == 1 and a[0]["consumer_id"] == "c1"

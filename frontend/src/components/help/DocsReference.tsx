@@ -139,7 +139,7 @@ export default function DocsReference() {
   const pendingAnchorRef = useRef<string | null>(null);
 
   // Load catalog on mount. May 3 2026: support deep-link via the
-  // `fpulse_docs_jump_to` sessionStorage breadcrumb. Other pages set
+  // `revoluzen_flow_docs_jump_to` sessionStorage breadcrumb. Other pages set
   // this before navigating to #help so the requested doc is pre-selected
   // (e.g. Settings → "scaling guide" link).
   useEffect(() => {
@@ -153,9 +153,9 @@ export default function DocsReference() {
         // Resolve breadcrumb if present + the doc is in the catalog.
         let target: string | null = null;
         try {
-          const bc = sessionStorage.getItem('fpulse_docs_jump_to');
+          const bc = sessionStorage.getItem('revoluzen_flow_docs_jump_to');
           if (bc) {
-            sessionStorage.removeItem('fpulse_docs_jump_to');
+            sessionStorage.removeItem('revoluzen_flow_docs_jump_to');
             if (data.docs.some((d) => d.path === bc)) target = bc;
           }
         } catch {
@@ -182,8 +182,8 @@ export default function DocsReference() {
     if (!selected) return;
     setLoadingContent(true);
     setError('');
-    const token = localStorage.getItem('fpulse_token');
-    const workspaceId = localStorage.getItem('fpulse_workspace_id') || 'default';
+    const token = localStorage.getItem('revoluzen_flow_token');
+    const workspaceId = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
     fetch(
       `/api/reports/docs/content?path=${encodeURIComponent(selected)}`,
       {

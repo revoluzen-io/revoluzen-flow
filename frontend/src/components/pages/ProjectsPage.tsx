@@ -124,10 +124,10 @@ interface Project {
 // shipped. After migration the keys are deleted and the helpers stop
 // being read.
 function readLegacyArchivedProjects(): Record<string, { archived_at: string; original: Project }> {
-  try { return JSON.parse(localStorage.getItem('fpulse_archived_projects') || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem('revoluzen_flow_archived_projects') || '{}'); } catch { return {}; }
 }
 function clearLegacyArchivedProjects() {
-  try { localStorage.removeItem('fpulse_archived_projects'); } catch { /* ignore */ }
+  try { localStorage.removeItem('revoluzen_flow_archived_projects'); } catch { /* ignore */ }
 }
 
 export default function ProjectsPage({ onSelectProject, environment = 'dev', tier = 'free' }: { onSelectProject: (id: string, name?: string) => void; environment?: 'dev' | 'prod'; tier?: string }) {
@@ -143,7 +143,7 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
   // /api/projects behind require_admin. A developer still has `create`
   // for workflows inside an existing project, but can't spawn new
   // projects themselves. See `canManageProjects` for the mirrored rule.
-  const currentUser = (() => { try { return JSON.parse(localStorage.getItem('fpulse_user') || 'null'); } catch { return null; } })();
+  const currentUser = (() => { try { return JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null'); } catch { return null; } })();
   const canCreate = canManageProjects(currentUser);
   const canEdit = useCan('edit', environment) && canManageProjects(currentUser);
   const canDelete = useCan('delete', environment) && canManageProjects(currentUser);
@@ -174,10 +174,10 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
   // Persisted to localStorage so the scope survives a reload — same shape
   // the Group by selection uses for parity.
   const [filterFolder, setFilterFolder] = useState<string>(() => {
-    try { return localStorage.getItem('fpulse_projects_folder_filter') || ''; } catch { return ''; }
+    try { return localStorage.getItem('revoluzen_flow_projects_folder_filter') || ''; } catch { return ''; }
   });
   useEffect(() => {
-    try { localStorage.setItem('fpulse_projects_folder_filter', filterFolder); } catch { /* ignore */ }
+    try { localStorage.setItem('revoluzen_flow_projects_folder_filter', filterFolder); } catch { /* ignore */ }
   }, [filterFolder]);
   // All folders fetched eagerly per project so the dropdown can render
   // hierarchical paths immediately. Keyed by project id. OSS uses 1-level
@@ -188,16 +188,16 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
   // collapsible headers in the tree.
   type GroupBy = 'none' | 'department' | 'owner' | 'priority';
   const [groupBy, setGroupBy] = useState<GroupBy>(() => {
-    try { return (localStorage.getItem('fpulse_projects_groupby') as GroupBy) || 'none'; } catch { return 'none'; }
+    try { return (localStorage.getItem('revoluzen_flow_projects_groupby') as GroupBy) || 'none'; } catch { return 'none'; }
   });
   useEffect(() => {
-    try { localStorage.setItem('fpulse_projects_groupby', groupBy); } catch { /* ignore */ }
+    try { localStorage.setItem('revoluzen_flow_projects_groupby', groupBy); } catch { /* ignore */ }
   }, [groupBy]);
   // Pinned project IDs — persisted per browser so the user's favourites
   // float to the top of the tree across sessions.
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(() => {
     try {
-      const raw = localStorage.getItem('fpulse_projects_pinned');
+      const raw = localStorage.getItem('revoluzen_flow_projects_pinned');
       const arr = raw ? JSON.parse(raw) : [];
       return new Set(Array.isArray(arr) ? arr : []);
     } catch { return new Set(); }
@@ -206,7 +206,7 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
     setPinnedIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem('fpulse_projects_pinned', JSON.stringify(Array.from(next))); } catch { /* ignore */ }
+      try { localStorage.setItem('revoluzen_flow_projects_pinned', JSON.stringify(Array.from(next))); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -220,7 +220,7 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
   // duplicated the data without the structural context. `useTableColumns`
   // stays because table-column visibility is also used by some other
   // tooltip / export surfaces.
-  const { visibleColumns, activeColumns, toggleColumn, resetToDefaults, selectAll, isVisible } = useTableColumns('fpulse_projects_columns', PROJECT_COLUMNS);
+  const { visibleColumns, activeColumns, toggleColumn, resetToDefaults, selectAll, isVisible } = useTableColumns('revoluzen_flow_projects_columns', PROJECT_COLUMNS);
 
   const fetchProjects = async () => {
     setLoading(true);
@@ -568,7 +568,7 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
     <div className="flex-1 flex flex-col overflow-hidden">
       <ReadOnlyBanner environment={environment} />
       <div className="flex-1 overflow-auto bg-canvas-bg">
-      {/* Header — canonical DEV/PROD pattern (see feedback_fpulse_page_header_standard).
+      {/* Header — canonical DEV/PROD pattern (see feedback_revoluzen_flow_page_header_standard).
           DEV header bg = metallic silver gradient so it reads continuous with
           the silver top nav — distinct from the cream canvas below. Apr 21
           2026 update: swapped from bg-chrome amber to slate-200→slate-300. */}

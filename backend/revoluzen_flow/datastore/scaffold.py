@@ -15,7 +15,7 @@ the prep recipe in the canvas; the source + sink are pre-wired.
 Pure builders — no DB access, no filesystem I/O — so the units are
 trivially testable. The API endpoints (storage.py / connections.py)
 call these helpers, then return the dict for the frontend to stash in
-``sessionStorage['fpulse_pending_import']`` before navigating to
+``sessionStorage['revoluzen_flow_pending_import']`` before navigating to
 ``#editor`` (the same handoff Y8 uses for pipeline-JSON files).
 """
 

@@ -10,6 +10,7 @@ import HelpFeedback from '../help/HelpFeedback';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
 import Icon from '../shared/Icon';
+import { APP_VERSION } from '../../appMeta';
 
 type HelpTab = 'getting-started' | 'how-to' | 'shortcuts' | 'nodes' | 'reference';
 
@@ -119,7 +120,7 @@ const GETTING_STARTED = [
       <svg {...STEP_ICON_PROPS}><rect x="3" y="11" width="18" height="10" rx="2" /><circle cx="12" cy="5" r="2" /><path d="M12 7v4" /><line x1="8" y1="16" x2="8" y2="16" /><line x1="16" y1="16" x2="16" y2="16" /></svg>
     ),
     content: [
-      'The **Revoluzen Flow Copilot** dock appears in the bottom-right of every page (including the Editor) by default — it is now the single Copilot across the whole app. Click to open.',
+      'The **Copilot** dock appears in the bottom-right of every page (including the Editor) by default — it is now the single Copilot across the whole app. Click to open.',
       'Page-aware: on Pipelines it knows your pipelines; on Executions it can diagnose failures; in the Editor it sees the selected node and can write SQL.',
       'Type **/** in the input for slash commands: `/sql`, `/fix`, `/explain-code`, `/diagnose`, `/health`, `/cost`.',
       'When the Copilot drafts a pipeline change, a **diff preview** shows exactly what will be added, removed, or modified before you click Confirm — keys only, never values, so credentials never leak.',
@@ -497,10 +498,10 @@ const HOW_TO_GUIDES = [
       {
         title: 'Run Revoluzen Flow fully local with the bundled Modelfile',
         steps: [
-          'Privacy-sensitive teams can run Revoluzen Flow end-to-end on their own hardware. The repo ships with a Modelfile at `deploy/ollama/fpulse-assistant.Modelfile`.',
+          'Privacy-sensitive teams can run Revoluzen Flow end-to-end on their own hardware. The repo ships with a Modelfile at `deploy/ollama/revoluzen-flow-assistant.Modelfile`.',
           'Install Ollama (https://ollama.com) and pull a base model: `ollama pull llama3.1`.',
-          'Build the Revoluzen Flow-tuned variant: `ollama create fpulse-assistant -f deploy/ollama/fpulse-assistant.Modelfile`.',
-          'In **Insights → AI Provider**, pick **Ollama** and set the model to `fpulse-assistant`. Revoluzen Flow will detect the locally-running Ollama service automatically.',
+          'Build the Revoluzen Flow-tuned variant: `ollama create revoluzen-flow-assistant -f deploy/ollama/revoluzen-flow-assistant.Modelfile`.',
+          'In **Insights → AI Provider**, pick **Ollama** and set the model to `revoluzen-flow-assistant`. Revoluzen Flow will detect the locally-running Ollama service automatically.',
           'Hardware target: GPU or modern Apple Silicon. CPU-only laptops will work but expect 30-90 s per turn — see the AI provider guide above for trade-offs.',
           'Optional: set `REVOLUZEN_FLOW_ENABLE_POLICY_ROUTE=1` to route code/tool-result/sensitive prompts to local Ollama even when a cloud provider is configured (cloud is still used for non-sensitive turns).',
         ],
@@ -850,7 +851,7 @@ const SHORTCUTS: Array<{
   //   - Single-click selects + passively opens the config panel.
   //   - Double-click opens the node "actively" — scrolls panel to top
   //     and focuses the first editable field (handled by ConfigPanel's
-  //     `fpulse-node-opened` event listener).
+  //     `revoluzen-flow-node-opened` event listener).
   //   - F2 is the rename shortcut (was listed in context menu since
   //     launch but never actually wired — now bound in RevoluzenFlowNode).
   //   - Right-click still opens the full context menu.
@@ -1001,7 +1002,7 @@ export default function HelpPage({
     environment: environment ?? 'dev',
   });
   // Initial tab honors:
-  //   - `fpulse_help_initial_tab` sessionStorage breadcrumb (set by
+  //   - `revoluzen_flow_help_initial_tab` sessionStorage breadcrumb (set by
   //     deep-links from other pages); cleared on read so a refresh
   //     returns to default.
   //   - 2026-05-19 (P2 #20 of PAGE_BY_PAGE_AUDIT.md): the URL hash
@@ -1010,9 +1011,9 @@ export default function HelpPage({
   //     without round-tripping through sessionStorage.
   const [tab, setTab] = useState<HelpTab>(() => {
     try {
-      const t = sessionStorage.getItem('fpulse_help_initial_tab');
+      const t = sessionStorage.getItem('revoluzen_flow_help_initial_tab');
       if (t) {
-        sessionStorage.removeItem('fpulse_help_initial_tab');
+        sessionStorage.removeItem('revoluzen_flow_help_initial_tab');
         if (['getting-started', 'how-to', 'shortcuts', 'nodes', 'reference'].includes(t)) {
           return t as HelpTab;
         }
@@ -1130,14 +1131,14 @@ export default function HelpPage({
 
   // Deep-link receiver. Other pages (e.g. Insights → AI Provider tab) navigate
   // here via `window.location.hash = '#help'` and stash a target guide title
-  // prefix in sessionStorage under `fpulse_help_target_guide`. We pick it up,
+  // prefix in sessionStorage under `revoluzen_flow_help_target_guide`. We pick it up,
   // switch to the How-To tab, expand the matching guide, scroll it into view,
   // and clear the key. Title-prefix match is forgiving enough to survive
   // small copy edits without breaking the link.
   useEffect(() => {
     const apply = () => {
       let target: string | null = null;
-      try { target = sessionStorage.getItem('fpulse_help_target_guide'); } catch { /* ignore */ }
+      try { target = sessionStorage.getItem('revoluzen_flow_help_target_guide'); } catch { /* ignore */ }
       if (!target) return;
 
       setTab('how-to');
@@ -1171,7 +1172,7 @@ export default function HelpPage({
         }, 250);
       }
 
-      try { sessionStorage.removeItem('fpulse_help_target_guide'); } catch { /* ignore */ }
+      try { sessionStorage.removeItem('revoluzen_flow_help_target_guide'); } catch { /* ignore */ }
     };
     apply();
     // Re-apply on hash changes too (covers in-page navigations to #help)
@@ -1840,7 +1841,7 @@ export default function HelpPage({
           <p className="text-xs text-slate-400">
             Need more help? Use the pipeline chat to ask questions, or describe what you want to build.
           </p>
-          <p className="text-xs text-slate-300 mt-1">Revoluzen Flow v1.0.0</p>
+          <p className="text-xs text-slate-300 mt-1">Revoluzen Flow v{APP_VERSION}</p>
         </div>
       </div>
     </div>

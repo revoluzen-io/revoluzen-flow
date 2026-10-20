@@ -408,10 +408,10 @@ def _install_macos(*, data_dir: str, port: int) -> int:
   <integer>5</integer>
 
   <key>StandardOutPath</key>
-  <string>{log_dir}/fpulse.out.log</string>
+  <string>{log_dir}/revoluzen-flow.out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>{log_dir}/fpulse.err.log</string>
+  <string>{log_dir}/revoluzen-flow.err.log</string>
 </dict>
 </plist>
 """

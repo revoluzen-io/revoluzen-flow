@@ -213,7 +213,7 @@ def query_managed_tables(
         conn.execute("SET enable_external_access=false")
         conn.execute("SET lock_configuration=true")
 
-        rel = conn.sql(f"SELECT * FROM (\n{cleaned}\n) AS _fpulse_q LIMIT {limit}")
+        rel = conn.sql(f"SELECT * FROM (\n{cleaned}\n) AS _revoluzen_flow_q LIMIT {limit}")
         columns = [{"name": c, "type": str(tp)} for c, tp in zip(rel.columns, rel.types)]
         rows = [
             {col: _json_safe(v) for col, v in zip(rel.columns, r)}
@@ -1353,7 +1353,7 @@ def scaffold_cleanup_for_file(
     Shape: ``source (csv/json) → data_wrangler (empty) → local_table_sink``.
 
     The response is NOT a persisted workflow — it's a pipeline blob the
-    frontend stashes in ``sessionStorage['fpulse_pending_import']`` then
+    frontend stashes in ``sessionStorage['revoluzen_flow_pending_import']`` then
     navigates to ``#editor``, where the existing import handler picks
     it up and renders it on the canvas (same handoff Y8 uses).
     """

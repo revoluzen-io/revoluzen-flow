@@ -63,9 +63,9 @@ jobs:
           python tools/verify_wheel.py dist/*.whl
       - name: Install and boot wheel outside checkout
         run: |
-          python -m venv /tmp/fpulse-release
-          /tmp/fpulse-release/bin/python -m pip install dist/*.whl psutil
-          /tmp/fpulse-release/bin/python tools/smoke_distribution.py --python /tmp/fpulse-release/bin/python
+          python -m venv /tmp/revoluzen-flow-release
+          /tmp/revoluzen-flow-release/bin/python -m pip install dist/*.whl psutil
+          /tmp/revoluzen-flow-release/bin/python tools/smoke_distribution.py --python /tmp/revoluzen-flow-release/bin/python
       - uses: actions/upload-artifact@v4
         with:
           name: python-distribution
@@ -195,10 +195,10 @@ jobs:
         # packaging path in this project has shipped a blank UI at least once
         # because nobody opened the artifact — so we open it.
         run: |
-          sudo apt-get install -y ./installer/linux/output/fpulse_*_amd64.deb
-          command -v fpulse || { echo "::error::fpulse not on PATH after .deb install"; exit 1; }
+          sudo apt-get install -y ./installer/linux/output/revoluzen_flow_*_amd64.deb
+          command -v revoluzen || { echo "::error::revoluzen not on PATH after .deb install"; exit 1; }
 
-          REVOLUZEN_FLOW_DATA_DIR=/tmp/fpulse-deb REVOLUZEN_FLOW_MODE=dev \
+          REVOLUZEN_FLOW_DATA_DIR=/tmp/revoluzen-flow-deb REVOLUZEN_FLOW_MODE=dev \
             revoluzen serve --no-open --port 8201 > /tmp/deb.log 2>&1 &
           for i in $(seq 1 45); do
             curl -sf http://127.0.0.1:8201/api/health > /dev/null && break
@@ -223,9 +223,9 @@ jobs:
         # page — same "open the artifact" rigor as the .deb above.
         run: |
           docker run --rm -v "$PWD/installer/linux/output:/pkgs:ro" fedora:40 bash -euo pipefail -c '
-            dnf install -y -q /pkgs/fpulse-*.x86_64.rpm
-            command -v fpulse || { echo "::error::fpulse not on PATH after .rpm install"; exit 1; }
-            REVOLUZEN_FLOW_DATA_DIR=/tmp/fpulse-rpm REVOLUZEN_FLOW_MODE=dev revoluzen serve --no-open --port 8202 >/tmp/rpm.log 2>&1 &
+            dnf install -y -q /pkgs/revoluzen-flow-*.x86_64.rpm
+            command -v revoluzen || { echo "::error::revoluzen not on PATH after .rpm install"; exit 1; }
+            REVOLUZEN_FLOW_DATA_DIR=/tmp/revoluzen-flow-rpm REVOLUZEN_FLOW_MODE=dev revoluzen serve --no-open --port 8202 >/tmp/rpm.log 2>&1 &
             for i in $(seq 1 45); do curl -sf http://127.0.0.1:8202/api/health >/dev/null && break; sleep 2; done
             curl -sf http://127.0.0.1:8202/api/health >/dev/null || { echo "::error::the installed .rpm never came up"; cat /tmp/rpm.log; exit 1; }
             code=$(curl -s -o /tmp/r.html -w "%{http_code}" http://127.0.0.1:8202/)
@@ -241,7 +241,7 @@ jobs:
         run: |
           APP=$(ls installer/linux/output/RevoluzenFlow-*.AppImage | head -1)
           chmod +x "$APP"
-          REVOLUZEN_FLOW_DATA_DIR=/tmp/fpulse-appimage REVOLUZEN_FLOW_MODE=dev \
+          REVOLUZEN_FLOW_DATA_DIR=/tmp/revoluzen-flow-appimage REVOLUZEN_FLOW_MODE=dev \
             "$APP" --no-open --port 8203 > /tmp/appimage.log 2>&1 &
           for i in $(seq 1 45); do curl -sf http://127.0.0.1:8203/api/health >/dev/null && break; sleep 2; done
           curl -sf http://127.0.0.1:8203/api/health >/dev/null \
@@ -324,11 +324,11 @@ jobs:
     # PyPI side configured before it can run. This matters more than it looks:
     # README's headline install is `pip install revoluzen-flow`, and the package is NOT
     # on PyPI, so that command fails for every reader until this publishes. The
-    # name `fpulse` is unclaimed, so nobody else can take it out from under us.
+    # name `revoluzen` is unclaimed, so nobody else can take it out from under us.
     #
     # To enable (no code change):
-    #   1. On pypi.org create the `fpulse` project and add a Trusted Publisher:
-    #      owner=revoluzen, repo=fpulse, workflow=release.yml, environment=(none).
+    #   1. On pypi.org create the `revoluzen` project and add a Trusted Publisher:
+    #      owner=revoluzen-technologies, repo=revoluzen-flow, workflow=release.yml, environment=(none).
     #      Trusted publishing uses the OIDC `id-token: write` below — there is
     #      no API token to store or rotate. Do NOT add a token secret instead.
     #   2. Set repository variable PUBLISH_PYPI=true
@@ -396,7 +396,7 @@ jobs:
           PY
 
       # The UI must be built and staged INTO the package before the wheel is
-      # built. fpulse is one pip package that serves its own React app; the
+      # built. revoluzen-flow is one pip package that serves its own React app; the
       # app builds to frontend/dist, which is outside the Python package, so
       # setuptools cannot see it. Skip these two steps and the wheel still
       # builds — silently, with no UI — which is exactly what 1.0.0 shipped.

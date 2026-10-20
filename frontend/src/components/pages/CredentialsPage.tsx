@@ -242,7 +242,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
     { key: 'Password', value: '', sensitive: true },
   ]);
   const [loading, setLoading] = useState(true);
-  const colState = useTableColumns('fpulse_credentials_cols', CRED_COLUMNS);
+  const colState = useTableColumns('revoluzen_flow_credentials_cols', CRED_COLUMNS);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Z25 (2026-05-23) — lineage: which connections reference each credential.

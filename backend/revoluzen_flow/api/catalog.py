@@ -219,7 +219,7 @@ def list_connectors() -> dict[str, Any]:
         "maturity_summary": maturity_summary,
         "categories": sorted({c["category"] for c in items}),
         "capabilities_index": sorted({cap for it in items for cap in it["capabilities"]}),
-        "doc_url": "https://docs.fpulse.io/connectors",
+        "doc_url": "https://docs.revoluzen.io/connectors",
         "cert_matrix_url": "/api/connectors/cert-matrix",
         # v4 — adds capability_levels + maturity per entry, maturity_summary roll-up (T2 2026-05-23).
         "schema_version": "v4",
@@ -361,5 +361,5 @@ def get_changelog() -> dict[str, Any]:
     return {
         "entries": _CHANGELOG,
         "count": len(_CHANGELOG),
-        "doc_url": "https://docs.fpulse.io/changelog",
+        "doc_url": "https://docs.revoluzen.io/changelog",
     }

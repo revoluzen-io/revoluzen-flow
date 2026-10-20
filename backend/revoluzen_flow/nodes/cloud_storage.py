@@ -157,18 +157,18 @@ class _AdlsGen2Base(_CloudStorageBase):
 
         if connection_string:
             conn.execute(
-                f"CREATE OR REPLACE SECRET fpulse_adls (TYPE AZURE, "
+                f"CREATE OR REPLACE SECRET revoluzen_flow_adls (TYPE AZURE, "
                 f"CONNECTION_STRING '{connection_string}')"
             )
         elif account_name and account_key:
             conn.execute(
-                f"CREATE OR REPLACE SECRET fpulse_adls (TYPE AZURE, "
+                f"CREATE OR REPLACE SECRET revoluzen_flow_adls (TYPE AZURE, "
                 f"PROVIDER ACCESS_TOKEN, ACCOUNT_NAME '{account_name}', "
                 f"ACCOUNT_KEY '{account_key}')"
             )
         elif account_name and sas_token:
             conn.execute(
-                f"CREATE OR REPLACE SECRET fpulse_adls (TYPE AZURE, "
+                f"CREATE OR REPLACE SECRET revoluzen_flow_adls (TYPE AZURE, "
                 f"PROVIDER SAS, ACCOUNT_NAME '{account_name}', "
                 f"SAS_TOKEN '{sas_token}')"
             )
@@ -408,7 +408,7 @@ class _GcsBase(_CloudStorageBase):
             )
 
         conn.execute(
-            f"CREATE OR REPLACE SECRET fpulse_gcs (TYPE GCS, "
+            f"CREATE OR REPLACE SECRET revoluzen_flow_gcs (TYPE GCS, "
             f"KEY_ID '{key_id}', SECRET '{secret}')"
         )
 

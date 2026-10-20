@@ -175,17 +175,44 @@ def test_visibility_field_forces_hidden():
     assert _compute_tier(row, {"visibility": "hidden"}) == "hidden"
 
 
-# ── Endpoint-level: by_tier aggregate + ?include_hidden filter ───────────
+# ── Endpoint-level: per-row tiers, no aggregate + ?include_hidden filter ──
 
 
-def test_cert_matrix_returns_by_tier_aggregate():
-    """The new by_tier field appears alongside the legacy by_label."""
+def test_cert_matrix_reports_tiers_per_row():
+    """Tier is reported on every row, and stays within the valid set."""
     r = cert_matrix(include_hidden=True)
-    assert "by_tier" in r
-    assert "by_label" in r  # back-compat preserved
-    # Every tier value in rows must be in the valid set
+    assert "by_label" in r  # depth labels — describes declared capability
     for row in r["rows"]:
         assert row["tier"] in _VALID_TIERS
+
+
+def test_cert_matrix_publishes_no_attestation_aggregate():
+    """No field counts how many connectors are attested.
+
+    A connector reaches an attested tier only once real vendor fixtures have
+    been recorded for it, so an unattested connector means "no fixtures yet",
+    not "failed". An aggregate flattens that distinction into a ratio that
+    reads as failure, which is why `by_tier` and `production_total` were
+    removed. Guarding it here because the natural instinct when a caller
+    wants a count is to add one back.
+    """
+    for include_hidden in (False, True):
+        r = cert_matrix(include_hidden=include_hidden)
+        assert "by_tier" not in r
+        assert "production_total" not in r
+
+
+def test_attested_connectors_carry_their_evidence():
+    """An attested row says what it was attested on; others claim nothing."""
+    r = cert_matrix(include_hidden=True)
+    for row in r["rows"]:
+        if row.get("cat_green"):
+            assert row.get("attested_at"), f"{row['id']} is green but has no date"
+            assert isinstance(row.get("attested_checks"), int)
+        else:
+            # Absent, not zero — "no evidence" must not render like "0 passed".
+            assert "attested_at" not in row
+            assert "attested_checks" not in row
 
 
 def test_cert_matrix_filters_hidden_by_default():

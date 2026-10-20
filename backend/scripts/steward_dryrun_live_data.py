@@ -28,18 +28,18 @@ def main() -> int:
         os.environ.get("REVOLUZEN_FLOW_DATA_DIR")
         or Path.home() / ".revoluzen-flow"
     )
-    db_path = data_dir / "fpulse.db"
+    db_path = data_dir / "revoluzen_flow.db"
     if not db_path.is_file():
         # Try the alternate common location
-        alt = Path.cwd() / "backend" / ".revoluzen-flow-data" / "fpulse.db"
+        alt = Path.cwd() / "backend" / ".revoluzen-flow-data" / "revoluzen_flow.db"
         if alt.is_file():
             db_path = alt
 
     if not db_path.is_file():
         print("=" * 70)
-        print("Could not find fpulse.db. Checked:")
-        print(f"  {data_dir / 'fpulse.db'}")
-        print(f"  {Path.cwd() / 'backend' / '.revoluzen-flow-data' / 'fpulse.db'}")
+        print("Could not find revoluzen_flow.db. Checked:")
+        print(f"  {data_dir / 'revoluzen_flow.db'}")
+        print(f"  {Path.cwd() / 'backend' / '.revoluzen-flow-data' / 'revoluzen_flow.db'}")
         print()
         print("Set REVOLUZEN_FLOW_DATA_DIR to your data directory and re-run.")
         return 1

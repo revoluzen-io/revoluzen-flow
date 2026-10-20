@@ -115,7 +115,7 @@ reboot/crash. Full walkthrough + per-OS table:
 ```bash
 git pull                                          # get the new compose + .env.example
 # read changelog.md → Tested with → check Ollama tag still matches
-docker compose pull fpulse
+docker compose pull revoluzen-flow
 docker compose up -d flow
 ```
 
@@ -151,7 +151,7 @@ Open **Insights → AI Provider → Ollama Models**. Each installed model
 shows a pill; the picker pulls a new model on demand. The CLI fallback:
 
 ```bash
-docker exec fpulse-ollama ollama pull qwen2.5:7b
+docker exec revoluzen-flow-ollama ollama pull qwen2.5:7b
 ```
 
 Models are independent of both Revoluzen Flow and Ollama versions. The
@@ -190,7 +190,7 @@ docker run --rm \
   -v revoluzen_flow_data:/data:ro \
   -v "$PWD/backups":/backups \
   alpine \
-  tar czf /backups/fpulse-$(date +%F).tgz -C /data .
+  tar czf /backups/revoluzen-flow-$(date +%F).tgz -C /data .
 ```
 
 Rotate to 7 daily / 4 weekly / 12 monthly. `revoluzen_flow_data` is
@@ -223,7 +223,7 @@ docker run --rm \
   -v revoluzen-flow_revoluzen_flow_data:/data \
   -v "$PWD/backups":/backups:ro \
   alpine \
-  tar xzf /backups/fpulse-2026-06-01.tgz -C /data
+  tar xzf /backups/revoluzen-flow-2026-06-01.tgz -C /data
 docker compose up -d
 ```
 
@@ -251,16 +251,16 @@ survives — Revoluzen Flow rebuilds defaults — but operator config does not.
 | Agent panel shows "no provider"               | Ollama container not running or unreachable | `docker compose --profile ai up -d ollama`      |
 | Agent times out at 30s on first message       | Cold model load on CPU                    | First request warms the model; retry, or switch to GPU model |
 | Pipeline run hangs at "Acquiring pool slot"   | DuckDB pool exhausted                     | Check `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` in `.env`    |
-| `/api/health` 200 but UI 502                  | Frontend build stale                      | `docker compose pull fpulse && docker compose up -d` |
+| `/api/health` 200 but UI 502                  | Frontend build stale                      | `docker compose pull revoluzen-flow && docker compose up -d` |
 
-For everything else: `docker compose logs -f fpulse` and the
+For everything else: `docker compose logs -f revoluzen-flow` and the
 `/api/health/memory` flags surface.
 
 ---
 
 ## 6.5. Database schema versions
 
-Revoluzen Flow uses a SQLite database under `${REVOLUZEN_FLOW_DATA_DIR}/fpulse.db`.
+Revoluzen Flow uses a SQLite database under `${REVOLUZEN_FLOW_DATA_DIR}/revoluzen_flow.db`.
 Schema is automatically migrated forward on every boot — there is no
 manual migration step. Current head version: **31**. Each migration is
 additive only and idempotent on re-run.

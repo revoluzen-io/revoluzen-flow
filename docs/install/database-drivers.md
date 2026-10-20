@@ -11,7 +11,7 @@ Connections page with the exact install command. This page is the
 master reference for every install command and any OS-level driver
 that needs to live alongside the Python wheel.
 
-`fpulse` is published on PyPI. Use the `pip install revoluzen-flow[x]` commands
+`revoluzen` is published on PyPI. Use the `pip install revoluzen-flow[x]` commands
 below for normal installs. If you are developing from a source checkout,
 use the editable equivalent from the repo root, for example
 `pip install -e ".[postgres]"`.

@@ -68,7 +68,7 @@ export const TEMPLATE_CATALOG: TemplateDefinition[] = [
   //  GOLDEN FIRST PIPELINE — zero external dependencies
   //  ─────────────────────────────────────────────────────────────────────
   //  This is the "click Run and see output" template that ships seeded.
-  //  Backend's _seed_demo_data() copies fpulse/seed_data/orders.csv into
+  //  Backend's _seed_demo_data() copies revoluzen_flow/seed_data/orders.csv into
   //  ${REVOLUZEN_FLOW_DATA_DIR}/samples/orders.csv on first startup, so the source
   //  path below resolves out-of-the-box on both Docker and native installs.
   //  Output lands in ${REVOLUZEN_FLOW_DATA_DIR}/samples/output/active_orders.csv.

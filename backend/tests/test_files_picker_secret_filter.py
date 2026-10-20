@@ -13,9 +13,9 @@ def test_secret_and_internal_files_excluded():
         "INITIAL_ADMIN_PASSWORD.txt",
         "initial_admin_password.txt",
         "secret.key",
-        "fpulse_secret.key",
+        "revoluzen_flow_secret.key",
         ".env",
-        ".fpulse_runtime",
+        ".revoluzen_flow_runtime",
         "db_password.txt",
         "my_secret_notes.txt",
     ):

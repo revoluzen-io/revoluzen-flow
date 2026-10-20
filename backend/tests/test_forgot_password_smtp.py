@@ -85,7 +85,7 @@ def _write_smtp_settings(db, *, host: str = "smtp.example.com",
 
 
 @pytest.fixture
-def app_state_wired(_fpulse_test_db, monkeypatch):
+def app_state_wired(_revoluzen_flow_test_db, monkeypatch):
     """Wire the per-test DB + a UserStore into ``app_state``.
 
     ``forgot_password`` resolves the user store via ``get_store()`` which
@@ -103,10 +103,10 @@ def app_state_wired(_fpulse_test_db, monkeypatch):
                     "SMTP_PASS", "SMTP_FROM", "SMTP_TLS",
                     "REVOLUZEN_FLOW_PUBLIC_URL"):
         monkeypatch.delenv(env_key, raising=False)
-    user_store = UserStore(db=_fpulse_test_db)
-    monkeypatch.setitem(app_state, "db", _fpulse_test_db)
+    user_store = UserStore(db=_revoluzen_flow_test_db)
+    monkeypatch.setitem(app_state, "db", _revoluzen_flow_test_db)
     monkeypatch.setitem(app_state, "user_store", user_store)
-    yield {"db": _fpulse_test_db, "user_store": user_store}
+    yield {"db": _revoluzen_flow_test_db, "user_store": user_store}
 
 
 @pytest.fixture

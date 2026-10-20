@@ -24,6 +24,6 @@ jobs:
         run: ./installer/windows/build-portable.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: fpulse-windows-portable
+          name: revoluzen-flow-windows-portable
           path: dist/portable/revoluzen.exe
           if-no-files-found: error

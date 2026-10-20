@@ -341,7 +341,7 @@ Browser                  Backend (api/agent.py)            AI / RAG
    │                          │                                │     since="1d")
    │                          │◄───────────────────────────────│
    │                          │  dispatch to local tool        │
-   │                          │  (in fpulse/ai/tools/):        │
+   │                          │  (in revoluzen_flow/ai/tools/):        │
    │                          │   list_executions(...)         │
    │                          │   → query ExecutionStore       │
    │                          │   → return list[{wf_name,      │
@@ -621,7 +621,7 @@ Putting it all together at the macro level:
                 │                                     │
                 ▼                                     ▼
        ┌────────────────────────────┐    ┌────────────────────────┐
-       │ DuckDB (in-process)        │    │ SQLite (fpulse.db, v31)│
+       │ DuckDB (in-process)        │    │ SQLite (revoluzen_flow.db, v31)│
        │ • SQL execution            │    │ • workflows / runs     │
        │ • CSV / JSON / Parquet     │    │ • schedules / alerts   │
        │   readers + writers        │    │ • sync_state           │

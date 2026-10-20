@@ -18,7 +18,7 @@ import { parsePipelineIntent } from '../ai/pipelineBuilder';
 
 const node = (id: string, stepType: string, params: Record<string, any> = {}) => ({
   id,
-  type: 'fpulseNode',
+  type: 'revoluzenFlowNode',
   data: { stepType, params, label: id },
 });
 const edge = (source: string, target: string) => ({ id: `${source}->${target}`, source, target });
@@ -367,7 +367,7 @@ describe('AI fallback builder emits only modern palette types', () => {
 });
 
 // C3 / Phase 2 — validation derived from the backend param_schema registry.
-// These set window.__fpulse_node_types (the registry the running app loads) and
+// These set window.__revoluzen_flow_node_types (the registry the running app loads) and
 // prove: schema-required fields are flagged; the schema OVERRIDES over-strict
 // legacy maps (kills drift); one-of groups + dedicated blocks aren't doubled.
 describe('validateWorkflow — schema-driven required fields (C3)', () => {
@@ -382,8 +382,8 @@ describe('validateWorkflow — schema-driven required fields (C3)', () => {
     { step_type: 'data_quality', param_schema: [{ name: 'rules', required: true }] },
   ];
 
-  beforeEach(() => { (globalThis as any).__fpulse_node_types = REG; });
-  afterEach(() => { delete (globalThis as any).__fpulse_node_types; });
+  beforeEach(() => { (globalThis as any).__revoluzen_flow_node_types = REG; });
+  afterEach(() => { delete (globalThis as any).__revoluzen_flow_node_types; });
 
   it('flags a schema-required field when missing', () => {
     const issues = validateWorkflow([node('d', 'derived_column', {})], []);

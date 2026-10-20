@@ -161,7 +161,7 @@ const ACTION_REQUIREMENTS: Record<string, string[]> = {
 // Schema-driven required fields (C3 / Phase 2, 2026-06-15)
 // ---------------------------------------------------------------------------
 //
-// The backend node registry (`window.__fpulse_node_types`, the same data the
+// The backend node registry (`window.__revoluzen_flow_node_types`, the same data the
 // config panel renders from) is the SINGLE SOURCE OF TRUTH for which fields a
 // node requires — each param_schema entry carries `required: true`. When the
 // registry is loaded (always, in the running app) the validator derives
@@ -174,7 +174,7 @@ const ACTION_REQUIREMENTS: Record<string, string[]> = {
 // registry is byte-identical to before.
 function requiredFieldsFromSchema(stepType: string): string[] | null {
   try {
-    const reg = (globalThis as any).__fpulse_node_types;
+    const reg = (globalThis as any).__revoluzen_flow_node_types;
     const arr = Array.isArray(reg) ? reg : (reg && reg.node_types) || null;
     if (!arr) return null;
     const def = arr.find((n: any) => (n?.step_type ?? n?.type) === stepType);
@@ -272,7 +272,7 @@ function hasAnyParam(params: Record<string, any> | undefined, fields: string[]):
 // ---------------------------------------------------------------------------
 
 // ── Transform multi-input SQL helpers (2026-06-10 node-contract pass) ──
-// Mirror the backend alias derivation (fpulse/nodes/transform.py): a node
+// Mirror the backend alias derivation (revoluzen_flow/nodes/transform.py): a node
 // label becomes a DuckDB table name by lowercasing and replacing every
 // non-[a-z0-9_] run with '_'. Used to validate that a Transform's SQL only
 // references its directly-connected inputs.

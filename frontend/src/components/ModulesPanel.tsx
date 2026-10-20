@@ -1291,7 +1291,7 @@ const MODULES: ModuleCategory[] = [
       // (URL routing, signature verification, replay protection) isn't
       // ready for v1.0; promote `api_source` for pull-style integration.
       // Legacy workflows that still carry this type are remapped at load
-      // time via fpulse/ir/migrations.py:migrate_legacy_node_types.
+      // time via revoluzen_flow/ir/migrations.py:migrate_legacy_node_types.
       // 2026-06-15: Code / Script gated to Plus (runs user Python in-process,
       // not a sandbox) — hidden from OSS via HIDDEN_TYPES.
       { type: 'get_metadata', label: 'Get Metadata', level: 'advanced' },
@@ -1317,7 +1317,7 @@ const MODULES: ModuleCategory[] = [
 // Bind the reconciliation hook to our local MODULES array.
 const useReconciledModulesLocal = makeReconciledModulesHook(MODULES);
 
-const PANEL_WIDTH_KEY = 'fpulse.nodesPanelWidth';
+const PANEL_WIDTH_KEY = 'revoluzen-flow.nodesPanelWidth';
 const PANEL_WIDTH_DEFAULT = 290;
 const PANEL_WIDTH_MIN = 220;
 const PANEL_WIDTH_MAX = 520;
@@ -1340,7 +1340,7 @@ function loadPanelWidth(): number {
  *              SCD2, semantic_router, code_script, etc.)
  */
 type PaletteLevel = 'basic' | 'standard' | 'all';
-const PALETTE_LEVEL_KEY = 'fpulse.paletteLevel';
+const PALETTE_LEVEL_KEY = 'revoluzen-flow.paletteLevel';
 function loadPaletteLevel(): PaletteLevel {
   try {
     const raw = localStorage.getItem(PALETTE_LEVEL_KEY);
@@ -1432,7 +1432,7 @@ export default function ModulesPanel() {
       // the collapsed branch the modal would keep a ~290px ghost
       // margin on the left after a node opens.
       const effectiveWidth = collapsed ? 40 : panelWidth;
-      document.documentElement.style.setProperty('--fpulse-nodes-panel-width', `${effectiveWidth}px`);
+      document.documentElement.style.setProperty('--revoluzen-flow-nodes-panel-width', `${effectiveWidth}px`);
       window.dispatchEvent(new Event('resize'));
     } catch {}
   }, [panelWidth, collapsed]);
@@ -1479,7 +1479,7 @@ export default function ModulesPanel() {
 
   if (collapsed) {
     return (
-      <div data-fpulse-panel="nodes" className="w-10 bg-slate-50 border-r border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
+      <div data-revoluzen-flow-panel="nodes" className="w-10 bg-slate-50 border-r border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
         <button
           onClick={() => setCollapsed(false)}
           className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all"
@@ -1515,7 +1515,7 @@ export default function ModulesPanel() {
 
   return (
     <div
-      data-fpulse-panel="nodes"
+      data-revoluzen-flow-panel="nodes"
       className="bg-slate-50 border-r border-pipe-200 flex flex-col shrink-0 overflow-hidden relative"
       style={{ width: panelWidth }}
     >
@@ -1685,7 +1685,7 @@ function renderNodeButton(item: ModuleItem, handleAdd: (type: string) => void) {
       key={item.type}
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData('application/fpulse-node', item.type);
+        e.dataTransfer.setData('application/revoluzen-flow-node', item.type);
         e.dataTransfer.effectAllowed = 'move';
       }}
       onClick={() => handleAdd(item.type)}

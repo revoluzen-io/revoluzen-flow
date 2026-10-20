@@ -90,8 +90,8 @@ const SEVERITY_DOT_LIGHT: Record<string, string> = {
 // follow-up sweep if unused.
 function _headers(): Record<string, string> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const token = localStorage.getItem('fpulse_token') || '';
-  const ws = localStorage.getItem('fpulse_workspace_id') || 'default';
+  const token = localStorage.getItem('revoluzen_flow_token') || '';
+  const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
   return { 'X-Workspace-Id': ws, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 }
 
@@ -160,10 +160,10 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     };
     load();
     const onChange = () => { load(); };
-    window.addEventListener('fpulse-settings-changed', onChange);
+    window.addEventListener('revoluzen-flow-settings-changed', onChange);
     return () => {
       cancelled = true;
-      window.removeEventListener('fpulse-settings-changed', onChange);
+      window.removeEventListener('revoluzen-flow-settings-changed', onChange);
     };
   }, []);
 
@@ -254,7 +254,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fpulse-activity-${stamp}.csv`;
+    a.download = `revoluzen-flow-activity-${stamp}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

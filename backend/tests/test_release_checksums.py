@@ -20,7 +20,7 @@ def test_write_checksums_is_sorted_and_excludes_outputs(tmp_path):
 
 
 def test_release_checksums_signs_with_ed25519_env(monkeypatch, tmp_path):
-    (tmp_path / "fpulse.deb").write_text("deb", encoding="utf-8")
+    (tmp_path / "revoluzen-flow.deb").write_text("deb", encoding="utf-8")
     private_key = Ed25519PrivateKey.generate()
     raw_private = private_key.private_bytes_raw()
     monkeypatch.setenv(
@@ -38,7 +38,7 @@ def test_release_checksums_signs_with_ed25519_env(monkeypatch, tmp_path):
 
 
 def test_release_checksums_require_signature_fails_without_key(monkeypatch, tmp_path):
-    (tmp_path / "fpulse.deb").write_text("deb", encoding="utf-8")
+    (tmp_path / "revoluzen-flow.deb").write_text("deb", encoding="utf-8")
     monkeypatch.delenv("REVOLUZEN_FLOW_RELEASE_ED25519_PRIVATE_KEY", raising=False)
 
     with pytest.raises(SystemExit, match="required to sign release checksums"):

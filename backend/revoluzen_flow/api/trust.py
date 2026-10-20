@@ -2,8 +2,8 @@
 Trust API — Gate 4 of the launch scorecard.
 
 The trust artifact bundle is the public-facing answer to "is this safe to
-run inside our environment". Per `project_fpulse_local_only_lock` and
-`project_fpulse_positioning_lock` the answer leads with sovereignty (data
+run inside our environment". Per `project_revoluzen_flow_local_only_lock` and
+`project_revoluzen_flow_positioning_lock` the answer leads with sovereignty (data
 stays on the box) — AI is operating-model detail, not headline.
 
 Endpoints:

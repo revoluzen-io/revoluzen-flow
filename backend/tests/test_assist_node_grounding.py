@@ -55,11 +55,11 @@ def test_fallback_unknown_question_still_returns_a_useful_line():
 
 
 def test_grounding_lists_real_connectors_for_a_source_node():
-    from revoluzen_flow.api.ai import _fpulse_assist_grounding
+    from revoluzen_flow.api.ai import _revoluzen_flow_assist_grounding
 
-    block = _fpulse_assist_grounding("source", "default")
+    block = _revoluzen_flow_assist_grounding("source", "default")
     low = block.lower()
-    assert "revoluzen-flow facts" in low
+    assert "revoluzen flow facts" in low
     # SaaS catalog present (Salesforce is a shipped manifest)
     assert "saas connectors" in low and "salesforce" in low
     # generic source connector types present (csv is in SOURCE_MAP)
@@ -67,9 +67,9 @@ def test_grounding_lists_real_connectors_for_a_source_node():
 
 
 def test_grounding_includes_node_fields():
-    from revoluzen_flow.api.ai import _fpulse_assist_grounding, _node_param_fields
+    from revoluzen_flow.api.ai import _revoluzen_flow_assist_grounding, _node_param_fields
 
     fields = _node_param_fields("filter")
     assert fields, "filter should expose configurable fields"
-    block = _fpulse_assist_grounding("filter", "default")
+    block = _revoluzen_flow_assist_grounding("filter", "default")
     assert "configurable fields" in block.lower()

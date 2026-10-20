@@ -19,7 +19,7 @@ try {
     & $Python tools/package_preflight.py --strict
     if ($LASTEXITCODE -ne 0) { throw "Packaging preflight failed" }
     $env:REVOLUZEN_FLOW_ONEFILE = "1"
-    & $Python -m PyInstaller installer/windows/fpulse.spec --noconfirm --distpath dist/portable --workpath build/portable
+    & $Python -m PyInstaller installer/windows/revoluzen-flow.spec --noconfirm --distpath dist/portable --workpath build/portable
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed" }
     & $Python tools/smoke_distribution.py --exe dist/portable/revoluzen.exe
     if ($LASTEXITCODE -ne 0) { throw "Portable smoke test failed" }

@@ -50,7 +50,7 @@ interface AgentChatState {
   caseFile: CaseFile;
 }
 
-const _CASE_FILE_KEY = 'fpulse_case_file_v1';
+const _CASE_FILE_KEY = 'revoluzen_flow_case_file_v1';
 
 function _loadCaseFile(): CaseFile {
   try {

@@ -6,10 +6,10 @@ HTTP and S3 connectors. The data is synthetic; no production data is needed.
 
 | Pipeline | Source | Destination | Output |
 |---|---|---|---|
-| 19 Sales summary | SQL Server | PostgreSQL | `public.fpulse_demo_19_summary` |
-| 20 API order report | REST API `GET /orders` | SQL Server | `dbo.fpulse_demo_20_summary` |
-| 21 Subscription totals | PostgreSQL | MySQL | `fpulse_demo.fpulse_demo_21_summary` |
-| 22 Inventory export | MySQL | S3-compatible MinIO | `fpulse-demo/output/inventory-summary.parquet` |
+| 19 Sales summary | SQL Server | PostgreSQL | `public.revoluzen_flow_demo_19_summary` |
+| 20 API order report | REST API `GET /orders` | SQL Server | `dbo.revoluzen_flow_demo_20_summary` |
+| 21 Subscription totals | PostgreSQL | MySQL | `revoluzen_flow_demo.revoluzen_flow_demo_21_summary` |
+| 22 Inventory export | MySQL | S3-compatible MinIO | `revoluzen-flow-demo/output/inventory-summary.parquet` |
 | 23 Shipment API delivery | S3-compatible MinIO | REST API `POST /results/shipments` | API receipt persisted to `runtime/api-shipments.json` |
 
 All five follow the same teachable flow:
@@ -26,10 +26,10 @@ reruns, so totals do not accumulate. These are separate demo outputs.
 ## Current machine
 
 The five pipelines and five `Demo ...` connections have been installed in the
-**default workspace** of `data/samples/fpulse.db`. Refresh the Pipelines page
+**default workspace** of `data/samples/revoluzen_flow.db`. Refresh the Pipelines page
 and look for pipelines **19–23**. The existing SQL Server connection is reused
-with the user's approval: only `fpulse_test.dbo.fpulse_demo_input` and
-`fpulse_test.dbo.fpulse_demo_20_summary` are demo tables there.
+with the user's approval: only `revoluzen_flow_test.dbo.revoluzen_flow_demo_input` and
+`revoluzen_flow_test.dbo.revoluzen_flow_demo_20_summary` are demo tables there.
 
 All five saved connections are tagged **DEV**, available to all projects in
 the default workspace, and support both reads and writes. Refresh
@@ -38,7 +38,7 @@ the default workspace, and support both reads and writes. Refresh
 refresh their actual connection-test status with:
 
 ```powershell
-.venv/Scripts/python.exe samples/multi-system-demo/demo.py connections --local-db D:/Siva/revoluzen-flow/data/samples/fpulse.db
+.venv/Scripts/python.exe samples/multi-system-demo/demo.py connections --local-db D:/Siva/revoluzen-flow/data/samples/revoluzen_flow.db
 ```
 
 PostgreSQL, MySQL and MinIO run in a dedicated Compose project; the sample
@@ -100,7 +100,7 @@ After the databases are ready:
 .venv/Scripts/python.exe samples/multi-system-demo/demo.py run
 ```
 
-`seed` creates a dedicated `fpulse_demo` database in SQL Server. It creates
+`seed` creates a dedicated `revoluzen_flow_demo` database in SQL Server. It creates
 missing fixture tables and refuses to overwrite different existing fixture
 data. `run` executes all five workflows twice through the actual executor,
 checks every node's row count, then reads all five destinations back.
@@ -154,7 +154,7 @@ credentials. Use one of these importers to bind them to saved connection IDs.
 For a locally owned installation, use the normal Revoluzen Flow persistence stores:
 
 ```powershell
-.venv/Scripts/python.exe samples/multi-system-demo/demo.py import-local --local-db D:/path/to/data/fpulse.db --workspace default
+.venv/Scripts/python.exe samples/multi-system-demo/demo.py import-local --local-db D:/path/to/data/revoluzen_flow.db --workspace default
 ```
 
 This adds five connections and five workflows. Repeating it skips existing
@@ -176,7 +176,7 @@ services to remain running.
 
 Open `http://127.0.0.1:28080/orders` to see API input and
 `http://127.0.0.1:28080/results/shipments` to see received output.
-The MinIO console is at `http://127.0.0.1:29001` (user `fpulse_demo`, password
+The MinIO console is at `http://127.0.0.1:29001` (user `revoluzen_flow_demo`, password
 from local `.env`). Other ports: PostgreSQL 25432, MySQL 23306, optional
 container SQL Server 21433.
 
