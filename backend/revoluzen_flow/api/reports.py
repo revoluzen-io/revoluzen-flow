@@ -428,13 +428,18 @@ async def inventory_summary(
 #     exist in their installation)
 _DOC_CATALOG: list[dict] = [
     {
-        # docs/README.md, NOT the repo-root README. The repo README is the
+        # docs/readme.md, NOT the repo-root README. The repo README is the
         # GitHub landing page: it opens with centred raw HTML (logo, badges)
         # which the in-app viewer escapes by design, so a reader got a wall of
-        # markup instead of an index. docs/README.md is purpose-written for
+        # markup instead of an index. docs/readme.md is purpose-written for
         # this entry — it opens "the entry point to every document available
         # from the Help page" and carries the guide tables.
-        "path": "README.md",
+        #
+        # Lower-case, matching the tracked filename. Spelled "README.md" this
+        # resolved fine on Windows and failed in CI on Linux, where the
+        # filesystem is case-sensitive — a class of bug that cannot be caught
+        # by developing on Windows alone (fixed 2026-10-21).
+        "path": "readme.md",
         "title": "Documentation Overview",
         "audience": "Everyone",
         "summary": "Entry point — map of every available document.",

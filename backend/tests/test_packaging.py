@@ -154,6 +154,42 @@ def test_docs_catalog_resolves_through_the_real_docs_root():
     )
 
 
+def test_docs_catalog_paths_match_filename_case_exactly():
+    """Catalogued paths must match the real filename character for character.
+
+    `is_file()` is case-insensitive on Windows and NTFS, so a catalog entry
+    spelled `README.md` against a file named `readme.md` passes every check on
+    a developer machine and fails only in CI on Linux. That is precisely what
+    shipped on 2026-10-21: the Documentation Overview entry resolved locally
+    and broke the Help page on any case-sensitive filesystem.
+
+    Comparing against `iterdir()` rather than `is_file()` makes the failure
+    reproducible on Windows, so it is caught before the push rather than after.
+    """
+    from revoluzen_flow.api import reports
+
+    docs_root = reports._docs_root()
+    mismatched: list[str] = []
+
+    for entry in reports._DOC_CATALOG:
+        root = docs_root.parent if entry.get("repo_root") else docs_root
+        target = root / entry["path"]
+        parent = target.parent
+        if not parent.is_dir():
+            continue  # absence is the other test's job
+        actual = {p.name for p in parent.iterdir()}
+        if target.name not in actual:
+            close = [n for n in actual if n.lower() == target.name.lower()]
+            mismatched.append(
+                f"{entry['path']} (on disk: {close[0]})" if close else entry["path"]
+            )
+
+    assert not mismatched, (
+        "catalog paths whose case does not match the filename on disk — these "
+        f"work on Windows and 404 on Linux: {mismatched}"
+    )
+
+
 def test_frontend_dist_resolution_prefers_packaged_copy():
     """main.py must look inside the package first, then the repo tree.
 
