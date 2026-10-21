@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-20T17:33:32.789915+00:00",
+  "generated_at": "2026-10-21T09:48:07.022135+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -8,7 +8,7 @@
       "observed": "07ab7185b477",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "github",
@@ -26,7 +26,7 @@
       "observed": "3177ad6a86ca",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "intercom",
@@ -35,7 +35,7 @@
       "observed": "02e060b5791e",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "mailchimp",
@@ -44,7 +44,7 @@
       "observed": "6b5c10c4c6f2",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
@@ -53,7 +53,7 @@
       "observed": "cae2dba21d68",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "slack_api",
@@ -62,7 +62,7 @@
       "observed": "742a5c977180",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "stripe",
@@ -71,7 +71,7 @@
       "observed": "7cff4cc46d06",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "twilio",
@@ -80,7 +80,7 @@
       "observed": "bfdf249a1298",
       "pinned": null,
       "severity": "info",
-      "summary": "spec fingerprint recorded for the first time"
+      "summary": "spec unchanged"
     }
   ],
   "unwatched": [
