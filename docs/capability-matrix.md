@@ -46,6 +46,55 @@ Legend: ✅ Supported · ◐ Partial / limited · ✕ Not in OSS
 > API deliberately stops providing one, for the reason given in
 > `cert_matrix()`: unattested means no fixtures recorded, not tests failed.
 
+## ETL and ELT
+
+Both, by different mechanisms — worth knowing which you are using, because
+they put the compute in different places.
+
+**ETL** is the default. Sources load into DuckDB relations, transform nodes
+run in the engine, results are written to sinks. `compile/sql_preview.py` puts
+it plainly: pipelines execute imperatively, each node building a DuckDB
+relation at runtime. This is what you get from `transform`, `aggregate`,
+`join`, `pivot`, `window`, `scd2` and the rest.
+
+**ELT** goes through `execute_sql_task`, which fires a statement at a real
+database connection instead of transforming data in memory. Load raw first,
+then transform where the data landed.
+
+| Engine | Load into | Transform in (Execute SQL) |
+|---|---|---|
+| Postgres, MySQL/MariaDB, SQLite | ✅ | ✅ |
+| SQL Server, Azure Synapse | ✅ | ✅ |
+| Snowflake, BigQuery, Redshift | ✅ | ✅ |
+| Databricks / lakehouse | ✅ (Parquet to ADLS or S3) | ✅ |
+
+Warehouse drivers are optional extras (`pip install revoluzen-flow[snowflake]`
+and so on); Redshift needs none, being Postgres wire-compatible.
+
+### Medallion architecture
+
+The layers compose without the intermediate data returning through the engine:
+
+1. **Bronze** — any source to `adls_gen2_sink` or `s3_sink`, which write
+   `FORMAT PARQUET` (parquet is the default format).
+2. **Silver / gold** — `execute_sql_task` against a Databricks connection,
+   building Delta tables on Databricks compute.
+3. **Serve** — `db_sink` to SQL Server, routed through the bulk loader.
+
+### What this is not
+
+The dbt importer is a **migration path, not ELT orchestration**. It converts a
+compiled `manifest.json` into Flow pipelines where each model becomes a SQL
+Transform step that runs *in DuckDB*, not in your warehouse. Its own module
+docstring lists DuckDB dialect risk among the caveats. If you want dbt's
+in-warehouse semantics, use `execute_sql_task` rather than the importer.
+
+`compile/sql_preview.py` is likewise a **preview**, not pushdown — it shows
+the SQL the engine would run so you can read and keep it, and it marks
+anything it cannot express as an explicit boundary comment.
+
+---
+
 ## Explicitly NOT in Revoluzen Flow
 
 State these plainly; do not imply otherwise.

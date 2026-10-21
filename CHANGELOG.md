@@ -10,6 +10,44 @@ follows the compatibility rules documented there.
 
 ## [Unreleased]
 
+### Added
+
+- **ELT on warehouses and the lakehouse.** `execute_sql_task` — the node that
+  fires SQL at a real connection rather than transforming in-memory — now
+  reaches `redshift`, `mssql`/`synapse`, `snowflake`, `bigquery` and
+  `databricks`, alongside the existing postgres, mysql/mariadb and sqlite.
+
+  Previously the matrix stopped at Postgres, MySQL and SQLite, so Revoluzen
+  Flow could *load into* Snowflake, BigQuery, Redshift and a lake but not
+  *transform in* them — the half of ELT that people mean by the word. The
+  dialect matrix is deliberately one function shared by Execute SQL and the
+  Lookup activity, so all of these arrived in one place.
+
+  This completes a Medallion pipeline end to end: land bronze as Parquet with
+  `adls_gen2_sink` or `s3_sink` (both emit `FORMAT PARQUET`, and parquet is
+  the default), build silver and gold with SQL running on Databricks or the
+  warehouse itself, then serve to SQL Server via `db_sink`, which routes
+  through the bulk loader. The intermediate layers never travel back through
+  the engine.
+
+  Drivers stay optional extras — `pip install revoluzen-flow[databricks]` and
+  friends — and a missing one now reports the install command rather than an
+  ImportError naming an unfamiliar module. Redshift needs no new dependency;
+  it is Postgres wire-compatible and uses psycopg2, differing only in its
+  default port.
+
+### Fixed
+
+- **Execute SQL on MySQL silently discarded writes.** `pymysql` connects with
+  `autocommit=False` and the branch never committed, so an `INSERT` or
+  `UPDATE` was rolled back when the connection closed — while the cursor
+  still reported a rowcount and the node still reported success. A write that
+  is lost this way is indistinguishable from one that worked. Commit
+  semantics are now pinned per driver and covered by tests, because they
+  genuinely differ: psycopg2 commits on context-manager exit, pymysql and
+  pyodbc need an explicit commit, Snowflake autocommits, and BigQuery and
+  Databricks have no interactive transaction to commit.
+
 ### Changed
 
 - `GET /api/connectors/cert-matrix` no longer returns the `by_tier` or

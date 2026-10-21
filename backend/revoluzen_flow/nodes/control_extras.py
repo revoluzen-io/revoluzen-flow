@@ -1,4 +1,4 @@
-"""
+﻿"""
 Control & integration primitives.
 
   APPEND_VARIABLE     — push value into array variable
@@ -735,6 +735,58 @@ class FileSystemNode(BaseNode):
 #  EXECUTE SQL TASK
 # ─────────────────────────────────────────────────────────
 
+def _require_driver(module: str, extra: str, label: str):
+    """Import an optional warehouse driver, or say how to install it.
+
+    These drivers are optional extras, not hard dependencies — a local-first
+    install should not pull the Snowflake, BigQuery and Databricks SDKs just
+    to read a CSV. A bare ImportError would reach the operator as a traceback
+    naming a module they have never heard of.
+
+    The message quotes the declared extra (`pyproject.toml`
+    `[project.optional-dependencies]`) rather than the raw package, which is
+    the convention the rest of the codebase follows — and the one the
+    pyproject comment records as having been broken once, when error messages
+    recommended extras that did not exist and the install command failed.
+
+    Some extras serve more than one engine: Redshift installs via `postgres`
+    because it is driven by psycopg2, and Synapse via `mssql`.
+    """
+    import importlib
+
+    try:
+        return importlib.import_module(module)
+    except ImportError as exc:
+        raise ValueError(
+            f"Execute SQL on {label} needs a driver that is not installed. "
+            f"Install it with: pip install revoluzen-flow[{extra}]"
+        ) from exc
+
+
+def _mssql_connection_string(cfg: dict[str, Any], timeout: int) -> str:
+    """ODBC connection string for SQL Server / Azure SQL.
+
+    The ODBC driver name is configurable because the installed version varies
+    by host — 17 is the default to match `nodes/db_source.py`, but a container
+    with only 18 present would otherwise fail with an opaque ODBC error.
+    """
+    driver_name = cfg.get("odbc_driver") or "ODBC Driver 17 for SQL Server"
+    user = cfg.get("username") or cfg.get("user")
+    parts = [
+        f"DRIVER={{{driver_name}}}",
+        f"SERVER={cfg.get('host')},{int(cfg.get('port', 1433) or 1433)}",
+        f"DATABASE={cfg.get('database')}",
+        f"UID={user}",
+        f"PWD={cfg.get('password')}",
+        f"Connection Timeout={timeout}",
+    ]
+    if cfg.get("encrypt") is not None:
+        parts.append(f"Encrypt={'yes' if cfg['encrypt'] else 'no'}")
+    if cfg.get("trust_server_certificate"):
+        parts.append("TrustServerCertificate=yes")
+    return ";".join(parts) + ";"
+
+
 def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list[dict], int]:
     """Run a SQL statement against a saved connection.
 
@@ -743,8 +795,28 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
     when a result set was returned). Shared by Execute SQL and the Lookup
     activity so the per-dialect driver matrix lives in ONE place (2026-06-15).
 
-    Raises ``ValueError`` for an unknown connection id / unsupported dialect;
-    propagates the driver's own exception on a query error.
+    Raises ``ValueError`` for an unknown connection id / unsupported dialect /
+    a warehouse driver that is not installed; propagates the driver's own
+    exception on a query error.
+
+    Dialects (2026-10-21): postgres, mysql/mariadb, sqlite, redshift,
+    mssql/synapse, snowflake, bigquery, databricks. The warehouse and
+    lakehouse engines were added because this node is what makes ELT possible
+    — load raw, then transform where the data landed — and without them
+    Revoluzen Flow could load into Snowflake, BigQuery, Redshift and a lake
+    but not transform in any of them, which is the half people mean by ELT.
+
+    This is what completes a Medallion pipeline: land bronze as Parquet
+    (``adls_gen2_sink`` / ``s3_sink``, both of which write ``FORMAT PARQUET``),
+    build silver and gold with SQL running on Databricks or the warehouse
+    itself, then serve to SQL Server — without the intermediate layers being
+    dragged back through this process.
+
+    **Commit semantics differ per driver and must be got right**, because a
+    silently discarded write looks identical to a successful one from here:
+    psycopg2 commits on context-manager exit, pymysql and pyodbc default to
+    manual commit and need an explicit one, Snowflake autocommits, and
+    BigQuery has no interactive transactions at all.
     """
     from revoluzen_flow.nodes.db_source import _get_connection_config
 
@@ -759,11 +831,13 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
             return [dict(zip(cols, r)) for r in cur.fetchall()], -1
         return [], cur.rowcount
 
+    user = cfg.get("username") or cfg.get("user")
+
     if kind in ("postgres", "postgresql"):
         import psycopg2
         with psycopg2.connect(
             host=cfg.get("host"), port=int(cfg.get("port", 5432) or 5432),
-            dbname=cfg.get("database"), user=cfg.get("username"),
+            dbname=cfg.get("database"), user=user,
             password=cfg.get("password"), connect_timeout=timeout,
         ) as conn:
             with conn.cursor() as cur:
@@ -773,13 +847,18 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
         import pymysql
         conn = pymysql.connect(
             host=cfg.get("host"), port=int(cfg.get("port", 3306) or 3306),
-            db=cfg.get("database"), user=cfg.get("username"),
+            db=cfg.get("database"), user=user,
             password=cfg.get("password"), connect_timeout=timeout,
         )
         try:
             with conn.cursor() as cur:
                 cur.execute(sql)
-                return _capture(cur)
+                rows, affected = _capture(cur)
+            # pymysql opens with autocommit=False, so without this an INSERT or
+            # UPDATE run through Execute SQL was discarded on close and the node
+            # still reported the rowcount as success. (Fixed 2026-10-21.)
+            conn.commit()
+            return rows, affected
         finally:
             conn.close()
     elif kind == "sqlite":
@@ -793,7 +872,131 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
             return rows, affected
         finally:
             conn.close()
-    raise ValueError(f"unsupported connection kind '{kind}'")
+    elif kind in ("redshift", "amazon_redshift"):
+        # Redshift speaks the PostgreSQL wire protocol, so psycopg2 drives it
+        # and no extra dependency is needed — the same choice
+        # `engine/bulk_load/dialects/redshift.py` already makes. Only the
+        # default port differs.
+        psycopg2 = _require_driver("psycopg2", "postgres", "Redshift")
+        conn = psycopg2.connect(
+            host=cfg.get("host"), port=int(cfg.get("port", 5439) or 5439),
+            dbname=cfg.get("database"), user=user,
+            password=cfg.get("password"), connect_timeout=timeout,
+        )
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows, affected = _capture(cur)
+            conn.commit()
+            return rows, affected
+        finally:
+            conn.close()
+    elif kind in ("mssql", "sqlserver", "mssqlserver", "synapse"):
+        # Azure Synapse (dedicated SQL pool) speaks TDS like SQL Server, so
+        # the same ODBC driver and connection string serve both.
+        pyodbc = _require_driver("pyodbc", "mssql", "SQL Server")
+        conn = pyodbc.connect(_mssql_connection_string(cfg, timeout), timeout=timeout)
+        try:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows, affected = _capture(cur)
+            # pyodbc also defaults to manual commit.
+            conn.commit()
+            return rows, affected
+        finally:
+            conn.close()
+    elif kind == "snowflake":
+        driver = _require_driver(
+            "snowflake.connector", "snowflake", "Snowflake"
+        )
+        # Same config keys as the bulk loader, so one saved connection drives
+        # both. Empties are dropped so the driver applies its own defaults.
+        kwargs: dict[str, Any] = {
+            "account": cfg.get("account"), "user": user,
+            "password": cfg.get("password"), "warehouse": cfg.get("warehouse"),
+            "database": cfg.get("database"), "schema": cfg.get("schema") or "PUBLIC",
+            "role": cfg.get("role"),
+            "authenticator": cfg.get("authenticator") or "snowflake",
+            "private_key": cfg.get("private_key"),
+            "login_timeout": timeout,
+        }
+        conn = driver.connect(**{k: v for k, v in kwargs.items() if v not in ("", None)})
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql)
+                # Snowflake autocommits by default, so no explicit commit.
+                return _capture(cur)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+    elif kind == "databricks":
+        # The lakehouse transform step: this is what lets a Medallion pipeline
+        # land raw Parquet in a lake, then build silver and gold tables with
+        # SQL that runs on Databricks compute instead of being pulled back
+        # through this process.
+        driver = _require_driver(
+            "databricks.sql", "databricks", "Databricks"
+        )
+        from urllib.parse import urlparse
+
+        raw_host = str(
+            cfg.get("host") or cfg.get("workspace_url") or cfg.get("endpoint") or ""
+        )
+        # Credentials store the workspace either bare or as a full URL; the
+        # driver wants the bare hostname and rejects a scheme.
+        hostname = urlparse(raw_host).hostname or raw_host.strip().strip("/")
+        http_path = cfg.get("http_path") or cfg.get("httpPath")
+        token = cfg.get("access_token") or cfg.get("token") or cfg.get("password")
+        if not hostname or not http_path or not token:
+            raise ValueError(
+                "Databricks needs host, http_path and access_token on the "
+                "connection (http_path is the SQL warehouse or cluster path, "
+                "e.g. /sql/1.0/warehouses/<id>)"
+            )
+        conn = driver.connect(
+            server_hostname=hostname, http_path=str(http_path),
+            access_token=str(token),
+        )
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql)
+                # Unity Catalog / Delta statements commit as they run; the
+                # connector exposes no transaction to commit.
+                return _capture(cur)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+    elif kind in ("bigquery", "google_bigquery"):
+        # BigQuery's DB-API wrapper gives a cursor with `description` and
+        # `rowcount`, which is what `_capture` needs; the bare Client returns
+        # job objects instead and would need a separate result path.
+        dbapi = _require_driver(
+            "google.cloud.bigquery.dbapi", "bigquery", "BigQuery"
+        )
+        conn = dbapi.connect(**{
+            k: v for k, v in {"project": cfg.get("project") or cfg.get("project_id")}.items()
+            if v
+        })
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql)
+                # BigQuery has no interactive transactions; statements apply
+                # as they run, so there is nothing to commit.
+                return _capture(cur)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+    raise ValueError(
+        f"unsupported connection kind '{kind}' — Execute SQL supports "
+        f"postgres, mysql/mariadb, sqlite, redshift, mssql/synapse, snowflake, "
+        f"bigquery, databricks"
+    )
 
 
 @register(StepType.EXECUTE_SQL_TASK)
