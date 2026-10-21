@@ -42,33 +42,34 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Enterprise connectors: SAP, SAP HANA, NetSuite, Workday, Dynamics 365, ServiceNow, Salesforce, Informix, Teradata, DB2 | — | ✅ |
-| CDC (change-data-capture) source nodes — ⚠ **not enforced at runtime, see note below** | — | ✅ |
+| CDC (change-data-capture) source nodes — enforced at execution via `licensing.require_plus` | — | ✅ |
 | Vector DB sinks (Pinecone, Weaviate, Qdrant) | — | ✅ |
 | JDBC dialect registry (custom DB driver registration) | — | ✅ |
 
-> ⚠ **Open item — CDC is declared Plus but not gated (found 2026-10-21).**
+> **Enforcement note (2026-10-21).** Until this date the Plus-only node rows
+> above were declarations with nothing behind them: `connectors/cdc.py`
+> registered `StepType.CDC_SOURCE` with no licence check, so CDC ran on free
+> instances. There was also no node-level gate anywhere to copy — the
+> existing `is_plus` checks live in AI tools and catalog listings, not in node
+> execution.
 >
-> Three places treat CDC as Plus-only: this table, `ai/session_context.py`
-> (lines 58 and 79), and anti-pattern rule 25 in
-> `docs/product_facts/25_anti_patterns.md`. But `connectors/cdc.py:230` is
-> `@register(StepType.CDC_SOURCE)` with **no licence check anywhere in the
-> module** — unlike the established pattern in `ai/rbac.py` and
-> `ai/tools/list_storage.py`, which read `license_manager.is_plus` and change
-> behaviour. So a CDC source runs on a free instance today.
+> `revoluzen_flow/licensing.py` is now that pattern: `is_plus()` as the single
+> detection point (fails closed), and `require_plus(feature)` raising
+> `PlusRequiredError`, which `engine/failure_class.py` maps to `USER_INPUT`
+> so the retry policy stops rather than burning attempts on something no retry
+> can fix.
 >
-> This needs a decision, not a doc edit, and it is time-sensitive because the
-> repository is still private:
+> The gate is applied at **execution**, not registration. A free instance
+> still shows the node and lets a pipeline be built against it, so the catalog
+> does not differ between editions; the refusal happens on run and names the
+> feature.
 >
-> 1. **Enforce it** — add the `is_plus` check, matching how the other
->    Plus-gated node types work. Keeps the pricing model as designed.
-> 2. **Move CDC to OSS** — delete this row and the three copy references.
->    Log-based CDC in the free edition (Debezium over Kafka *plus* direct
->    Postgres logical replication via `connectors/pgoutput.py`) is a real
->    competitive position, and the code is already written and working.
->
-> Boundary Rule 1 does not settle it: nothing has shipped publicly yet, so no
-> user would be losing a feature either way. Decide before the repo goes
-> public, because after that option 1 becomes a takeaway.
+> ⚠ **Still unenforced: Vector DB sinks and the JDBC dialect registry.** Both
+> are declared Plus-only in this table and in anti-pattern rule 25, and
+> neither `connectors/vector_db.py` nor `connectors/jdbc.py` contains a
+> licence check. Applying `require_plus` to them is now a one-line change
+> each, but it is a pricing decision per feature, so it is left open
+> deliberately rather than bundled in.
 
 ## Execution & operations
 

@@ -12,6 +12,32 @@ follows the compatibility rules documented there.
 
 ### Added
 
+- **Edition gate** — `revoluzen_flow/licensing.py` provides `is_plus()` and
+  `require_plus(feature)`, the first runtime enforcement of the Plus-only node
+  declarations in `edition-matrix.md`.
+
+  Those declarations previously had nothing behind them: CDC is listed
+  Plus-only in the edition matrix, in `ai/session_context.py` and in
+  anti-pattern rule 25, but `connectors/cdc.py` registered
+  `StepType.CDC_SOURCE` with no licence check and ran on free instances. No
+  node-level gate existed anywhere to follow — the `is_plus` checks in the
+  codebase were all in AI tools and catalog listings.
+
+  Detection fails closed: any import failure, missing `app_state` or
+  partially initialised licence manager reads as free, because an edition
+  check that defaults to paid when something breaks is not a check.
+  `PlusRequiredError` is its own type so the UI can offer an upgrade path, and
+  `engine/failure_class.py` maps it to `USER_INPUT` so the retry policy stops
+  — no number of attempts produces a licence.
+
+  The gate runs at **execution**, not registration, so a free instance still
+  shows the node and can build a pipeline against it. The catalog stays
+  identical across editions and the refusal names the feature when it runs.
+
+  CDC is gated. Vector DB sinks and the JDBC dialect registry are still
+  declared Plus-only with no enforcement; each is now a one-line change, left
+  open as a per-feature pricing decision.
+
 - **ELT on warehouses and the lakehouse.** `execute_sql_task` — the node that
   fires SQL at a real connection rather than transforming in-memory — now
   reaches `redshift`, `mssql`/`synapse`, `snowflake`, `bigquery` and

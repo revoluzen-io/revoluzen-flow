@@ -107,6 +107,11 @@ _EXCEPTION_TYPE_RULES: dict[str, FailureClass] = {
     "SystemError":            FailureClass.FATAL,
     "RecursionError":         FailureClass.FATAL,
 
+    # A Plus-only node on a free instance. USER_INPUT because retrying is
+    # futile — no number of attempts produces a licence — and the retry
+    # policy branches on this to stop rather than burn five attempts.
+    "PlusRequiredError":      FailureClass.USER_INPUT,
+
     "ValueError":             FailureClass.USER_INPUT,
     "TypeError":              FailureClass.USER_INPUT,
     "KeyError":               FailureClass.USER_INPUT,

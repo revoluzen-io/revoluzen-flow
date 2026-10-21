@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     import duckdb
 
 from revoluzen_flow.ir.schema import StepType
+from revoluzen_flow.licensing import require_plus
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
 
@@ -236,6 +237,16 @@ class CdcSourceNode(BaseNode):
     description = "Stream INSERT/UPDATE/DELETE events from Postgres/MySQL/MSSQL/Oracle/MongoDB"
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
+        # CDC is declared Plus-only in edition-matrix.md, in
+        # `ai/session_context.py` and in anti-pattern rule 25, but until
+        # 2026-10-21 nothing enforced it and this node ran on free instances.
+        # Gated here, at execution, rather than at registration: the node
+        # stays visible and configurable so a free user can see what Plus
+        # offers and build against it, and the refusal names the feature when
+        # they run it. Hiding the node instead would make the catalog differ
+        # between editions, which the open-core contract avoids.
+        require_plus("CDC Source (change data capture)")
+
         mode = self.params.get("mode", "kafka_topic")
         max_events = int(self.params.get("max_events", 1000))
 
