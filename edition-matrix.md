@@ -42,9 +42,33 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Enterprise connectors: SAP, SAP HANA, NetSuite, Workday, Dynamics 365, ServiceNow, Salesforce, Informix, Teradata, DB2 | — | ✅ |
-| CDC (change-data-capture) source nodes | — | ✅ |
+| CDC (change-data-capture) source nodes — ⚠ **not enforced at runtime, see note below** | — | ✅ |
 | Vector DB sinks (Pinecone, Weaviate, Qdrant) | — | ✅ |
 | JDBC dialect registry (custom DB driver registration) | — | ✅ |
+
+> ⚠ **Open item — CDC is declared Plus but not gated (found 2026-10-21).**
+>
+> Three places treat CDC as Plus-only: this table, `ai/session_context.py`
+> (lines 58 and 79), and anti-pattern rule 25 in
+> `docs/product_facts/25_anti_patterns.md`. But `connectors/cdc.py:230` is
+> `@register(StepType.CDC_SOURCE)` with **no licence check anywhere in the
+> module** — unlike the established pattern in `ai/rbac.py` and
+> `ai/tools/list_storage.py`, which read `license_manager.is_plus` and change
+> behaviour. So a CDC source runs on a free instance today.
+>
+> This needs a decision, not a doc edit, and it is time-sensitive because the
+> repository is still private:
+>
+> 1. **Enforce it** — add the `is_plus` check, matching how the other
+>    Plus-gated node types work. Keeps the pricing model as designed.
+> 2. **Move CDC to OSS** — delete this row and the three copy references.
+>    Log-based CDC in the free edition (Debezium over Kafka *plus* direct
+>    Postgres logical replication via `connectors/pgoutput.py`) is a real
+>    competitive position, and the code is already written and working.
+>
+> Boundary Rule 1 does not settle it: nothing has shipped publicly yet, so no
+> user would be losing a feature either way. Decide before the repo goes
+> public, because after that option 1 becomes a takeaway.
 
 ## Execution & operations
 
@@ -163,7 +187,7 @@ Legacy `/#trust`, `/#activity`, `/#reports` URLs continue to work — App.tsx ro
 
 ## What this means in practice
 
-**You should choose Revoluzen Flow if** you're a solo builder, a small team prototyping, an evaluator, or you have strong sovereignty requirements (everything runs locally including embeddings). The agent, RAG, the activity timeline, all 43 OSS connectors, schedules, alerts, embedded AI — they all ship for free, forever.
+**You should choose Revoluzen Flow if** you're a solo builder, a small team prototyping, an evaluator, or you have strong sovereignty requirements (everything runs locally including embeddings). The agent, RAG, the activity timeline, the 66 connectors visible by default, schedules, alerts, embedded AI — they all ship for free, forever.
 
 **You should choose Revoluzen Flow Enterprise if** you're shipping pipelines to production and need: enterprise connectors (SAP / NetSuite / etc.), DEV→PROD promotion with approval gates, multi-user collaboration, OIDC/SAML, audit-log retention for compliance, lineage, vault-managed credentials, or 4-hour SLA support. Plus is positioned for *production convenience* — it's not enterprise-only.
 
