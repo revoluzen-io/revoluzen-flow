@@ -93,6 +93,17 @@ _FLAG_KEYS: Final[tuple[str, ...]] = (
     "lineage",
     "collaboration",
     "plugins",
+    # 2026-10-21: lets an instance serve the API without running the
+    # scheduler loop (`REVOLUZEN_FLOW_ENABLE_SCHEDULER=0`), which is what makes
+    # more than one instance possible at all. Previously every instance
+    # started its own scheduler unconditionally, so a second one behind a
+    # load balancer fired every schedule twice.
+    #
+    # Defaults ON like every other flag, so a single-node install is
+    # unaffected. Turning it off is the deliberate act of designating a node
+    # API-only; the durable lease in `scheduling/lease.py` is the safety net
+    # for when someone forgets.
+    "scheduler",
 )
 
 

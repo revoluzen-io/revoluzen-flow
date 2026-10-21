@@ -76,6 +76,9 @@ class PipelineScheduler:
         # an interval schedule is severely overdue (>= 2x interval).
         self._miss_notifier: Any = None
         self._miss_alerted: dict[str, datetime] = {}
+        # Durable cross-instance lease. Built lazily on first tick because
+        # app_state["db"] does not exist yet when main.py constructs this.
+        self._lease_obj: "SchedulerLease | None" = None
 
     def set_miss_notifier(self, notifier: Any) -> None:
         """Wire an ApprovalNotifier (or compatible) for schedule-miss alerts."""
@@ -122,6 +125,12 @@ class PipelineScheduler:
             pass
         finally:
             self._handle = None
+        # Hand the lease back on a clean stop so a standby instance can take
+        # over on its next tick instead of waiting out the full TTL. Purely an
+        # availability optimisation — if this fails the lease expires and the
+        # outcome is a delay, not a correctness problem.
+        if self._lease_obj is not None:
+            self._lease_obj.release()
         logger.info("Scheduler stopped")
 
     @property
@@ -133,12 +142,56 @@ class PipelineScheduler:
         """Return currently running schedule jobs."""
         return {sid: ts.isoformat() for sid, ts in self._running_jobs.items()}
 
+    def _lease(self) -> "SchedulerLease | None":
+        """Lazily build the lease against the live database handle.
+
+        Lazy because `app_state["db"]` does not exist when the scheduler is
+        constructed — main.py builds the scheduler inside the same dict
+        literal. Cached per instance so the holder identity is stable.
+        """
+        if self._lease_obj is None:
+            from revoluzen_flow.main import app_state
+
+            db = app_state.get("db")
+            if db is None:
+                return None
+            from revoluzen_flow.scheduling.lease import SchedulerLease
+
+            # TTL generously above the tick interval: the holder renews every
+            # tick and must miss three in a row before a takeover is allowed.
+            self._lease_obj = SchedulerLease(
+                db, ttl_seconds=max(90, self._check_interval * 3)
+            )
+        return self._lease_obj
+
     def _check_schedules_safe(self) -> None:
         """Wrapper that catches exceptions the way the old _run_loop
         did. spawn_scheduled already logs per-iteration failures and
         continues, but we keep the same log shape + message so
         existing log-based alerts don't break."""
         try:
+            # Only the lease holder fires schedules. The in-process locks
+            # below stop *this* process double-running a schedule; they say
+            # nothing about a second process, so without this every instance
+            # behind a load balancer fired every schedule.
+            #
+            # No lease available (no database yet, or the table is
+            # unreachable) means do not schedule. Missing a tick is
+            # recoverable and already alerted on by schedule-miss detection;
+            # a duplicate run can double-charge a customer or duplicate rows
+            # in their warehouse.
+            lease = self._lease()
+            if lease is None:
+                logger.debug("Scheduler tick skipped: no database handle for the lease")
+                return
+            if not lease.acquire_or_renew():
+                holder = lease.current_holder() or {}
+                logger.debug(
+                    "Scheduler tick skipped: lease held by %s",
+                    holder.get("holder", "another instance"),
+                )
+                return
+
             self._check_schedules()
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}")

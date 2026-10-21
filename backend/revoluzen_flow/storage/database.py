@@ -412,6 +412,25 @@ CREATE TABLE IF NOT EXISTS workspace_settings (
     updated_by TEXT
 );
 
+-- Scheduler lease (2026-10-21 — makes more than one instance safe)
+--
+-- The scheduler's run-locks were in-process dicts, so every instance
+-- scheduled independently and a second one behind a load balancer fired
+-- every schedule twice. This single row is held by at most one instance at a
+-- time; only the holder fires schedules.
+--
+-- `term` increments when the holder *changes*, never on renewal, so a
+-- process that was paused (GC pause, VM suspend) can detect that its lease
+-- was taken over rather than assuming it still holds one.
+CREATE TABLE IF NOT EXISTS scheduler_lease (
+    id          INTEGER PRIMARY KEY,
+    holder      TEXT,
+    term        INTEGER NOT NULL DEFAULT 0,
+    acquired_at TEXT,
+    expires_at  TEXT,
+    CHECK (id = 1)
+);
+
 -- Pool allocations (PR14 — per-workspace logical pool split)
 -- Three slices of total worker capacity that ExecutionManager enforces
 -- at admit time. CHECK ensures the three percentages always sum to 100.

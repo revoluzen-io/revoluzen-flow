@@ -80,7 +80,9 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Worker pool monitoring page | ✅ governor banner, spill-disk health, hardware presets, queue depth, throughput | ✅ + per-worker memory sparklines, validate-config button, retention, P&L per pipeline |
 | Vertical scaling (workers + DuckDB tuning + spill + global governor) | ✅ | ✅ |
 | Worker-role guard (anti-footgun for naïve `docker compose --scale`) | ✅ | ✅ |
-| Multi-worker horizontal scaling | — | 🟠 designed |
+| API-only instance mode (`REVOLUZEN_FLOW_ENABLE_SCHEDULER=0`) | ✅ | ✅ |
+| Durable scheduler lease — N instances, only the holder fires schedules | ✅ | ✅ |
+| Multi-worker horizontal scaling (worker pool across machines) | — | 🟠 designed |
 | DEV environment | ✅ | ✅ |
 | PROD environment + DEV→PROD promotion | — | ✅ |
 | Two-gate approval workflow (Sandbox approval → Deploy approval) | — | ✅ |

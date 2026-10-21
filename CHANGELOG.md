@@ -12,6 +12,36 @@ follows the compatibility rules documented there.
 
 ### Added
 
+- **More than one instance is now safe to run.** Two additions, together:
+
+  `REVOLUZEN_FLOW_ENABLE_SCHEDULER=0` makes a node API-only — it serves
+  requests without running the scheduler loop. Defaults on, so a single-node
+  install is unchanged.
+
+  `scheduling/lease.py` holds a durable single-row lease in the metadata
+  database; only the holder fires schedules. Acquire and renew are one
+  conditional `UPDATE` so two instances cannot both win between a read and a
+  write, the TTL is three tick intervals, and the holder renews every tick.
+  A clean `stop()` releases the lease so a standby takes over on its next
+  tick rather than waiting out the TTL.
+
+  Previously the scheduler tracked in-flight work in process-local dicts and
+  started unconditionally on every instance. Those dicts stop one process
+  double-running a schedule but say nothing about a second process, so two
+  instances behind a load balancer fired **every schedule twice** — silently,
+  with both runs looking legitimate. Verified with three instances over ten
+  ticks: ten firings, all from one node, where the old behaviour would have
+  produced thirty.
+
+  The lease fails closed. An instance that cannot reach the lease row does
+  not schedule, because missing a tick is recoverable and already alerted on
+  by schedule-miss detection, while a duplicate run can double-charge a
+  customer or duplicate rows in their warehouse.
+
+  Supported topology is now N API instances plus whichever one holds the
+  lease. A worker pool spanning machines is still not supported — see
+  `edition-matrix.md`.
+
 - **Edition gate** — `revoluzen_flow/licensing.py` provides `is_plus()` and
   `require_plus(feature)`, the first runtime enforcement of the Plus-only node
   declarations in `edition-matrix.md`.

@@ -830,10 +830,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error("Worker pool failed to start: %s", exc)
 
-    # 4) Start background scheduler
+    # 4) Start background scheduler — unless this node is API-only.
+    #
+    # The scheduler object is always constructed (see app_state above) because
+    # five call sites read app_state["scheduler"] with bracket access; an
+    # un-started scheduler answers is_running=False and active_jobs={}, so
+    # every one of them keeps working. Only the loop is conditional.
     try:
         scheduler: PipelineScheduler = app_state["scheduler"]
-        scheduler.start()
+        if feature_flags.is_enabled("scheduler"):
+            scheduler.start()
+        else:
+            logger.info(
+                "Scheduler not started: REVOLUZEN_FLOW_ENABLE_SCHEDULER is off. "
+                "This node serves the API only; schedules fire on the node that "
+                "holds the scheduler lease."
+            )
     except Exception as exc:
         logger.error("Scheduler failed to start: %s", exc)
 
