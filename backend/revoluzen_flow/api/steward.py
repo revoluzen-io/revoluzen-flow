@@ -112,10 +112,29 @@ _FILE_LOCK = threading.Lock()
 
 
 def _safe_workspace_id(request: Request) -> str:
+    """Resolve the workspace, surfacing resolver failures as readable errors.
+
+    2026-10-22: this used to be `except Exception: return "default"`, which
+    caught `HTTPException` as well — so the 403 raised for a caller
+    addressing a workspace they do not belong to was discarded and the
+    request was quietly served from the `default` workspace instead. Steward
+    was the only one of twenty-seven modules wrapping this call that did not
+    re-raise.
+
+    That mattered twice over. A member of any workspace could read the
+    `default` workspace's steward data by sending any workspace id at all,
+    real or invented. And `auth/deps.py` refuses to downgrade for a stated
+    reason: the caller believes they are working in the workspace they
+    asked for, so their next write would land somewhere else.
+    """
     try:
         return current_workspace_id(request)
-    except Exception:
-        return "default"
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).exception("workspace resolve failed")
+        raise HTTPException(500, "workspace resolve failed") from exc
 
 
 def _steward_dir() -> Path:
