@@ -11,10 +11,10 @@
       "spec_sha256": "02e060b5791ea80bb3ed1695360bf9618a3edb1c7298b86ef0c3deb5484fd4c7"
     },
     "mailchimp": {
-      "spec_sha256": "6b5c10c4c6f2aa02e9af34c38e49a495c1838c66944c43aedc1ceff89ad44489"
+      "spec_sha256": "5813099c817db4d39e07b1bd132914e66cee31c2dff4b9f7ac89bdc9d9522bee"
     },
     "pagerduty": {
-      "spec_sha256": "cae2dba21d683a8e8663bb771b295c6aa196549564925b403b006cb99320e539"
+      "spec_sha256": "8910d83d22054d59aceaede9f7ff8ae02c27108af2050c03f01f33721b5df940"
     },
     "slack_api": {
       "spec_sha256": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7"
@@ -26,5 +26,5 @@
       "spec_sha256": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87"
     }
   },
-  "updated_at": "2026-10-21T09:48:07.022135+00:00"
+  "updated_at": "2026-10-22T09:48:35.885119+00:00"
 }
