@@ -1,0 +1,53 @@
+{
+  "calls": [
+    {
+      "request": {
+        "body": {
+          "query": {
+            "match_all": {}
+          },
+          "size": 1000
+        },
+        "body_text": null,
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "[REDACTED]"
+        },
+        "method": "POST",
+        "url": "http://127.0.0.1:9200/empty_orders/_search"
+      },
+      "response": {
+        "headers": {
+          "Transfer-Encoding": "chunked",
+          "X-elastic-product": "Elasticsearch",
+          "content-type": "application/json"
+        },
+        "payload": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [],
+            "max_score": null,
+            "total": {
+              "relation": "eq",
+              "value": 0
+            }
+          },
+          "timed_out": false,
+          "took": 2
+        }
+      }
+    }
+  ],
+  "connector_id": "elasticsearch",
+  "params": {
+    "host": "http://127.0.0.1:9200",
+    "index": "empty_orders"
+  },
+  "stream": "search",
+  "version": 1
+}

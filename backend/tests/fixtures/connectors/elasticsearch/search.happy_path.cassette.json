@@ -1,0 +1,90 @@
+{
+  "calls": [
+    {
+      "request": {
+        "body": {
+          "query": {
+            "match_all": {}
+          },
+          "size": 1000
+        },
+        "body_text": null,
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "[REDACTED]"
+        },
+        "method": "POST",
+        "url": "http://127.0.0.1:9200/orders/_search"
+      },
+      "response": {
+        "headers": {
+          "Transfer-Encoding": "chunked",
+          "X-elastic-product": "Elasticsearch",
+          "content-type": "application/json"
+        },
+        "payload": {
+          "_shards": {
+            "failed": 0,
+            "skipped": 0,
+            "successful": 1,
+            "total": 1
+          },
+          "hits": {
+            "hits": [
+              {
+                "_id": "1",
+                "_index": "orders",
+                "_score": 1.0,
+                "_source": {
+                  "amount": 120.5,
+                  "created_at": "2026-10-01T09:15:00Z",
+                  "order_id": "A-1001",
+                  "region": "east",
+                  "status": "shipped"
+                }
+              },
+              {
+                "_id": "2",
+                "_index": "orders",
+                "_score": 1.0,
+                "_source": {
+                  "amount": 87.25,
+                  "created_at": "2026-10-02T11:40:00Z",
+                  "order_id": "A-1002",
+                  "region": "west",
+                  "status": "pending"
+                }
+              },
+              {
+                "_id": "3",
+                "_index": "orders",
+                "_score": 1.0,
+                "_source": {
+                  "amount": 310.0,
+                  "created_at": "2026-10-03T14:05:00Z",
+                  "order_id": "A-1003",
+                  "region": "east",
+                  "status": "shipped"
+                }
+              }
+            ],
+            "max_score": 1.0,
+            "total": {
+              "relation": "eq",
+              "value": 3
+            }
+          },
+          "timed_out": false,
+          "took": 5
+        }
+      }
+    }
+  ],
+  "connector_id": "elasticsearch",
+  "params": {
+    "host": "http://127.0.0.1:9200",
+    "index": "orders"
+  },
+  "stream": "search",
+  "version": 1
+}

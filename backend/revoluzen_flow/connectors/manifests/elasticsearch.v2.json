@@ -1,0 +1,177 @@
+{
+  "version": 2,
+  "connector": {
+    "type": "elasticsearch",
+    "display_name": "Elasticsearch",
+    "category": "search",
+    "vendor": "Elastic N.V.",
+    "homepage": "https://www.elastic.co",
+    "docs_url": "https://revoluzen.io/connectors/elasticsearch",
+    "oss": true
+  },
+  "auth": {
+    "schemes": [
+      {
+        "type": "basic",
+        "username_param": "username",
+        "password_param": "password",
+        "docs": "https://www.elastic.co/guide/en/elasticsearch/reference/current/setting-up-authentication.html",
+        "notes": "Optional. A development cluster with security disabled needs no credentials, which is how the fixtures were recorded."
+      }
+    ]
+  },
+  "rate_limit": {
+    "default": {
+      "requests_per_minute": 600
+    },
+    "retry": {
+      "max_attempts": 4,
+      "backoff": "exponential",
+      "base_seconds": 1,
+      "max_seconds": 30,
+      "retry_on_status": [
+        429,
+        502,
+        503,
+        504
+      ]
+    }
+  },
+  "streams": [
+    {
+      "name": "search",
+      "cursor_strategy": "full_refresh",
+      "primary_key": [
+        "_id"
+      ],
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "_id": {
+            "type": "string"
+          },
+          "_index": {
+            "type": "string"
+          },
+          "_score": {
+            "type": "number"
+          },
+          "_source": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "order_id": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "_id",
+          "_index",
+          "_score",
+          "_source"
+        ]
+      }
+    },
+    {
+      "name": "cluster_health",
+      "cursor_strategy": "full_refresh",
+      "primary_key": [],
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "active_primary_shards": {
+            "type": "integer"
+          },
+          "active_shards": {
+            "type": "integer"
+          },
+          "active_shards_percent_as_number": {
+            "type": "number"
+          },
+          "cluster_name": {
+            "type": "string"
+          },
+          "delayed_unassigned_shards": {
+            "type": "integer"
+          },
+          "initializing_shards": {
+            "type": "integer"
+          },
+          "number_of_data_nodes": {
+            "type": "integer"
+          },
+          "number_of_in_flight_fetch": {
+            "type": "integer"
+          },
+          "number_of_nodes": {
+            "type": "integer"
+          },
+          "number_of_pending_tasks": {
+            "type": "integer"
+          },
+          "relocating_shards": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_max_waiting_in_queue_millis": {
+            "type": "integer"
+          },
+          "timed_out": {
+            "type": "boolean"
+          },
+          "unassigned_shards": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "active_primary_shards",
+          "active_shards",
+          "active_shards_percent_as_number",
+          "cluster_name",
+          "delayed_unassigned_shards",
+          "initializing_shards",
+          "number_of_data_nodes",
+          "number_of_in_flight_fetch",
+          "number_of_nodes",
+          "number_of_pending_tasks",
+          "relocating_shards",
+          "status",
+          "task_max_waiting_in_queue_millis",
+          "timed_out",
+          "unassigned_shards"
+        ]
+      }
+    }
+  ],
+  "fixtures": [],
+  "certification": {
+    "depth_score": 3,
+    "status": "beta",
+    "last_validated": "2026-10-23",
+    "owner": "core",
+    "validator": "ci.revoluzen-flow",
+    "known_issues": [
+      "Self-hosted: the upstream is whatever cluster the customer runs, so Source Watch cannot probe a vendor API for drift. Version skew surfaces only through the passive detector.",
+      "Fixtures recorded against Elasticsearch 8.15 with security disabled; an authenticated cluster is not covered.",
+      "auth_error, rate_limit and schema_drift fixtures not recorded - these gate the Production tier.",
+      "index_stats is not certified: the connector yields one row keyed by index name, so no fixed schema describes it for every user. Its cassette is recorded and replays, but the stream carries no schema contract."
+    ]
+  }
+}
