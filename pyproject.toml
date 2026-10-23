@@ -31,7 +31,9 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    "duckdb>=1.2.0",
+    # Upper bound 2026-10-23 — see backend/requirements.txt for why. The only
+    # 2.0 blocker left is PIVOT-inside-a-CTE in the SQL preview compiler.
+    "duckdb>=1.2.0,<2",
     "pydantic>=2.10.0",
     "python-multipart>=0.0.18",
     "aiofiles>=24.1.0",

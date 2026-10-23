@@ -1,4 +1,4 @@
-﻿"""
+"""
 Control & integration primitives.
 
   APPEND_VARIABLE     — push value into array variable
@@ -26,6 +26,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_one
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -567,9 +568,9 @@ class FailNode(BaseNode):
             src = _get_input(ctx, self.params)
             if src is not None:
                 ctx.conn.register("__fail_input", src)
-                row = ctx.conn.sql(
+                row = fetch_one(ctx.conn.sql(
                     f"SELECT COUNT(*) FROM __fail_input WHERE {condition}"
-                ).fetchone()
+                ))
                 if not row or row[0] == 0:
                     return src
 

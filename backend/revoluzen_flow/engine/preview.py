@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from typing import Any, TYPE_CHECKING
 
 # Stage 2.5b: duckdb only used for the preview_relation parameter
@@ -29,7 +30,7 @@ def preview_relation(relation: duckdb.DuckDBPyRelation, limit: int = 50) -> dict
 
     # Get total row count
     try:
-        total_rows = relation.aggregate("count(*)").fetchone()[0]
+        total_rows = fetch_scalar(relation.aggregate("count(*)"))
     except Exception:
         total_rows = -1
 

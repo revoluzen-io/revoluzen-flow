@@ -1,6 +1,15 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
-duckdb>=1.2.0
+# Upper bound added 2026-10-23. DuckDB 2.0 is otherwise supported — the 31
+# `Relation.fetchone()` call sites it removed have been migrated to
+# `common/duckdb_compat.py`, and the full suite passes on 2.0 except for one
+# thing: 2.0 will not resolve a CTE name inside a PIVOT, so the SQL-preview
+# compiler emits invalid SQL for a pivot step. Verified that every variant
+# fails (bare name, subquery, FROM-first, nested SELECT), so it is a real
+# restriction rather than a syntax fix.
+# Lift this bound once `compile/sql_preview.py` emits a top-level PIVOT when
+# it is the final step and a `[boundary]` comment when it is mid-chain.
+duckdb>=1.2.0,<2
 pydantic>=2.10.0
 python-multipart>=0.0.18
 aiofiles>=24.1.0

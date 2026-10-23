@@ -37,6 +37,7 @@ from typing import Any, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.filter_node import _rules_to_condition
@@ -587,7 +588,7 @@ class DataWranglerNode(BaseNode):
                 per_step.append({
                     "index": -1,
                     "label": "input",
-                    "row_count": base.count("*").fetchone()[0],
+                    "row_count": fetch_scalar(base.count("*")),
                     "columns": [{"name": n, "type": t} for n, t in base_cols],
                     "schema_delta": {"added": [], "removed": [], "retyped": []},
                     "sample_data": base_rows,
@@ -626,7 +627,7 @@ class DataWranglerNode(BaseNode):
                                 f"SELECT * FROM ({next_sql}) AS _sample LIMIT 10"
                             ).fetchall()
                         ]
-                        row_count = rel.count("*").fetchone()[0]
+                        row_count = fetch_scalar(rel.count("*"))
                     except Exception as exc:  # noqa: BLE001
                         per_step.append({
                             "index": i,

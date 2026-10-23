@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -1510,7 +1511,7 @@ class SampleNode(BaseNode):
             if not (0.0 < pct <= 100.0):
                 raise ValueError(f"Sample: percent must be between 0 and 100, got {pct}.")
             if method == "first":
-                total = ctx.conn.sql(f"SELECT COUNT(*) FROM {sample_input}").fetchone()[0]
+                total = fetch_scalar(ctx.conn.sql(f"SELECT COUNT(*) FROM {sample_input}"))
                 n = max(1, int(round(total * pct / 100.0))) if total else 0
                 return ctx.conn.sql(f"SELECT * FROM {sample_input} LIMIT {n}")
             sampler = f"{pct} PERCENT (bernoulli, {seed})" if seed is not None else f"{pct} PERCENT"

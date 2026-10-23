@@ -7,6 +7,7 @@ Falls back to recursive Python flattening for complex structures.
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 import json
 import os
 import re
@@ -159,7 +160,7 @@ class FlattenEngine:
             try:
                 rel = conn.read_json(tmp.name)
                 columns = rel.columns
-                total = rel.aggregate("count(*)").fetchone()[0]
+                total = fetch_scalar(rel.aggregate("count(*)"))
                 sample_rows = rel.limit(self.sample_limit).fetchall()
 
                 sample_data = []
@@ -404,7 +405,7 @@ class FlattenEngine:
                         pass
 
             columns = rel.columns
-            total = rel.aggregate("count(*)").fetchone()[0]
+            total = fetch_scalar(rel.aggregate("count(*)"))
             rows = rel.limit(self.sample_limit).fetchall()
 
             sample_data = []

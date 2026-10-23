@@ -14,6 +14,7 @@ from __future__ import annotations
 import duckdb
 import pytest
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.nodes.base import ExecutionContext
 from revoluzen_flow.nodes.data_wrangler import (
     DataWranglerNode,
@@ -241,7 +242,7 @@ def test_execute_empty_wrangler_passes_through(ctx):
     _orders_sample(ctx)
     node = DataWranglerNode(params={"_input_step_ids": ["upstream_1"], "steps": []})
     result = node.execute(ctx)
-    assert result.count("*").fetchone()[0] == 5
+    assert fetch_scalar(result.count("*")) == 5
 
 
 def test_execute_filter_then_select(ctx):
@@ -318,7 +319,7 @@ def test_execute_disabled_step_skipped(ctx):
         ],
     })
     result = node.execute(ctx)
-    assert result.count("*").fetchone()[0] == 5  # filter skipped → all 5 kept
+    assert fetch_scalar(result.count("*")) == 5  # filter skipped → all 5 kept
 
 
 def test_execute_no_input_raises():

@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
 from revoluzen_flow import runtime_config
 from revoluzen_flow.ir.schema import (
     Workflow, StepRunResult, StepErrorType, WorkflowRunResult, Step, StepType,
@@ -1159,7 +1160,7 @@ class WorkflowExecutor:
                 if always_output and relation is not None:
                     try:
                         ctx.conn.register("__always_out_probe", relation)
-                        n = ctx.conn.sql("SELECT COUNT(*) FROM __always_out_probe").fetchone()[0]
+                        n = fetch_scalar(ctx.conn.sql("SELECT COUNT(*) FROM __always_out_probe"))
                         if n == 0:
                             cols = ", ".join(
                                 f"NULL AS \"{c}\"" for c in (relation.columns or [])
@@ -1362,9 +1363,9 @@ class WorkflowExecutor:
                               if u in ctx._results]
                     if inputs:
                         ctx.conn.register("__preview_count_probe", inputs[0])
-                        row = ctx.conn.sql(
+                        row = fetch_one(ctx.conn.sql(
                             "SELECT COUNT(*) FROM __preview_count_probe"
-                        ).fetchone()
+                        ))
                         input_row_count = int(row[0]) if row else 0
                 except Exception:  # noqa: BLE001 — observability, never fail
                     pass

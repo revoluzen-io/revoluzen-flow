@@ -7,6 +7,7 @@ Custom logic for JSON/XML nested structure analysis.
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 import json
 import os
 import re
@@ -392,7 +393,7 @@ class SchemaDetector:
         types_list = rel.types
 
         try:
-            total_rows = rel.aggregate("count(*)").fetchone()[0]
+            total_rows = fetch_scalar(rel.aggregate("count(*)"))
         except Exception:
             total_rows = 0
 

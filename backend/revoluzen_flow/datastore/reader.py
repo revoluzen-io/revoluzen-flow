@@ -28,6 +28,7 @@ drops a workflow file in Storage.
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
 import json
 import logging
 import os
@@ -193,8 +194,9 @@ def infer_schema(abs_path: str, fmt: str) -> list[dict[str, Any]]:
     conn = duckdb.connect()
     try:
         rel = _open_relation(conn, abs_path, fmt)
-        sample = rel.limit(1)
-        sample_row = sample.fetchone()
+        # fetch_one applies its own limit(1); `rel.limit(1).fetchone()` broke
+        # on DuckDB 2.0, which removed fetchone() from relations.
+        sample_row = fetch_one(rel)
         out: list[dict[str, Any]] = []
         for idx, (col, typ) in enumerate(zip(rel.columns, rel.types)):
             sample_val = (
@@ -428,7 +430,7 @@ def compute_file_stats(abs_path: str, fmt: str) -> tuple[int | None, int | None]
             else:
                 # Use the already-opened relation so the same reader
                 # settings (delimiter detection, encoding, etc.) apply.
-                row_count = rel.count("*").fetchone()[0]
+                row_count = fetch_scalar(rel.count("*"))
         except Exception:
             row_count = None
         return row_count, col_count

@@ -29,6 +29,7 @@ Connection config keys (from Revoluzen Flow `connections` store):
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 import logging
 import os
 import tempfile
@@ -125,7 +126,7 @@ class RedshiftBulkLoader:
         path = os.path.join(staging_dir, f"{uuid.uuid4().hex}.parquet")
         rel.write_parquet(path, compression=request.compression or "zstd")
         try:
-            rc = rel.count("*").fetchone()[0]
+            rc = fetch_scalar(rel.count("*"))
         except Exception:
             rc = 0
         size = os.path.getsize(path) if os.path.exists(path) else 0

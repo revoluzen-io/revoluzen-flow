@@ -22,6 +22,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -143,14 +144,14 @@ class DataQualityNode(BaseNode):
         # ── Column profiling (logged, not in output) ──
         if include_profile:
             try:
-                total = ctx.conn.sql(f"SELECT COUNT(*) FROM {dq_input}").fetchone()[0]
+                total = fetch_scalar(ctx.conn.sql(f"SELECT COUNT(*) FROM {dq_input}"))
                 for col in source.columns:
-                    stats = ctx.conn.sql(
+                    stats = fetch_one(ctx.conn.sql(
                         f'SELECT '
                         f'  ROUND(100.0 * SUM(CASE WHEN "{col}" IS NULL THEN 1 ELSE 0 END) / COUNT(*), 1) AS null_pct, '
                         f'  COUNT(DISTINCT "{col}") AS distinct_count '
                         f'FROM {dq_input}'
-                    ).fetchone()
+                    ))
                     logger.info(
                         "DQ Profile: %s — null%%=%.1f%%, distinct=%d, total=%d",
                         col, stats[0] or 0, stats[1] or 0, total,
@@ -166,11 +167,11 @@ class DataQualityNode(BaseNode):
 
         # ── Quality threshold check ──
         if threshold > 0:
-            total = ctx.conn.sql(f"SELECT COUNT(*) FROM {dq_input}").fetchone()[0]
+            total = fetch_scalar(ctx.conn.sql(f"SELECT COUNT(*) FROM {dq_input}"))
             if total > 0:
-                passed_count = ctx.conn.sql(
+                passed_count = fetch_scalar(ctx.conn.sql(
                     f"SELECT COUNT(*) FROM {dq_input} WHERE {passed_expr}"
-                ).fetchone()[0]
+                ))
                 pass_rate = (passed_count / total) * 100
                 logger.info("DQ Score: %.1f%% pass rate (%d/%d)", pass_rate, passed_count, total)
                 if pass_rate < threshold:
@@ -194,7 +195,7 @@ class DataQualityNode(BaseNode):
 
         if mode == "fail":
             check_sql = f"SELECT COUNT(*) FROM {dq_input} WHERE NOT ({passed_expr})"
-            failed = ctx.conn.sql(check_sql).fetchone()[0]
+            failed = fetch_scalar(ctx.conn.sql(check_sql))
             if failed:
                 raise ValueError(f"Data Quality: {failed} row(s) failed validation")
             if score_expr:
@@ -626,7 +627,7 @@ class DataProfileNode(BaseNode):
         else:
             ctx.conn.execute(f"CREATE OR REPLACE TEMP TABLE {profile_src} AS SELECT * FROM {profile_input}")
 
-        total = ctx.conn.sql(f"SELECT COUNT(*) FROM {profile_src}").fetchone()[0]
+        total = fetch_scalar(ctx.conn.sql(f"SELECT COUNT(*) FROM {profile_src}"))
         if total == 0:
             # Return an empty profile with the right schema so downstream
             # nodes don't break on a missing column set.

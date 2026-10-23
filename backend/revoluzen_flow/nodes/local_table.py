@@ -34,6 +34,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.datastore.models import (
     SINK_MODE_APPEND,
     SINK_MODE_MERGE,
@@ -543,9 +544,9 @@ class LocalTableSinkNode(BaseNode):
         glob = os.path.join(table_dir, "part-*.parquet").replace("\\", "/")
 
         try:
-            row_count = ctx.conn.sql(
+            row_count = fetch_scalar(ctx.conn.sql(
                 f"SELECT COUNT(*) FROM read_parquet('{glob}', union_by_name=true)"
-            ).fetchone()[0]
+            ))
         except Exception as exc:  # noqa: BLE001
             logger.warning("metadata refresh: row count failed for %s: %s", table_dir, exc)
             row_count = 0

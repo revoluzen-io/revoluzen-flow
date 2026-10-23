@@ -32,6 +32,7 @@ Credentials page stores this as a single secret value.
 
 from __future__ import annotations
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 import json
 import logging
 import os
@@ -130,7 +131,7 @@ class BigQueryBulkLoader:
         rel.write_parquet(path, compression=request.compression or "zstd")
         # row_count from the relation if available
         try:
-            rc = rel.count("*").fetchone()[0]
+            rc = fetch_scalar(rel.count("*"))
         except Exception:
             rc = 0
         return path, int(rc)

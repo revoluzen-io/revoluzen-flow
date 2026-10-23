@@ -19,6 +19,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_one
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -657,9 +658,9 @@ class DbSourceNode(BaseNode):
             if not (workflow_id and step_id):
                 return
             try:
-                row = ctx.conn.sql(
+                row = fetch_one(ctx.conn.sql(
                     f'SELECT MAX("{cursor_col}") FROM __db_source'
-                ).fetchone()
+                ))
                 new_cursor = str(row[0]) if row and row[0] is not None else None
             except Exception:  # noqa: BLE001 — keep stale cursor on probe failure
                 new_cursor = None

@@ -28,6 +28,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -277,9 +278,9 @@ class ForEachLoopNode(BaseNode):
         foreach_input = ctx.register_scoped("__foreach_input", source)
 
         # Total row count
-        total_count = ctx.conn.sql(
+        total_count = fetch_scalar(ctx.conn.sql(
             f"SELECT COUNT(*) FROM {foreach_input}"
-        ).fetchone()[0]
+        ))
 
         if total_count == 0:
             return ctx.conn.sql(
@@ -392,9 +393,9 @@ class UntilLoopNode(BaseNode):
         until_input = ctx.register_scoped("__until_input", source)
 
         # Check if stop condition is already met (all rows satisfy it)
-        check = ctx.conn.sql(
+        check = fetch_one(ctx.conn.sql(
             f"SELECT COUNT(*) AS n FROM {until_input} WHERE NOT ({condition})"
-        ).fetchone()
+        ))
 
         if check and check[0] == 0:
             # Condition already met — all rows pass
@@ -408,9 +409,9 @@ class UntilLoopNode(BaseNode):
         current = source
         for i in range(max_iterations):
             until_iter = ctx.register_scoped(f"__until_iter_{i}", current)
-            remaining = ctx.conn.sql(
+            remaining = fetch_one(ctx.conn.sql(
                 f"SELECT COUNT(*) AS n FROM {until_iter} WHERE NOT ({condition})"
-            ).fetchone()
+            ))
             if remaining and remaining[0] == 0:
                 break
             # In a real loop body you'd apply transforms here.
@@ -533,7 +534,7 @@ class SetVariableNode(BaseNode):
                 else f"SELECT ({expr}) AS __v"
             )
             try:
-                row = ctx.conn.sql(sql).fetchone()
+                row = fetch_one(ctx.conn.sql(sql))
             except Exception as e:  # noqa: BLE001 — surface a clear message
                 raise ValueError(
                     f"Set Variable '{name}': could not evaluate expression "
@@ -1353,7 +1354,7 @@ class SendEmailNode(BaseNode):
         if self.is_preview(ctx):
             try:
                 ctx.conn.register("__email_preview", source)
-                n = ctx.conn.sql("SELECT COUNT(*) FROM __email_preview").fetchone()[0]
+                n = fetch_scalar(ctx.conn.sql("SELECT COUNT(*) FROM __email_preview"))
             except Exception:
                 n = 0
             logger.info(
@@ -2177,7 +2178,7 @@ class GetMetadataNode(BaseNode):
         ctx.conn.register("__meta_input", source)
 
         # Get total row count
-        total = ctx.conn.sql("SELECT COUNT(*) AS n FROM __meta_input").fetchone()
+        total = fetch_one(ctx.conn.sql("SELECT COUNT(*) AS n FROM __meta_input"))
         row_count = total[0] if total else 0
 
         # Get column info from the relation's description
@@ -2194,14 +2195,14 @@ class GetMetadataNode(BaseNode):
             max_val = None
 
             try:
-                stats = ctx.conn.sql(
+                stats = fetch_one(ctx.conn.sql(
                     f"SELECT "
                     f"  SUM(CASE WHEN {safe_col} IS NULL THEN 1 ELSE 0 END) AS nulls, "
                     f"  COUNT(DISTINCT {safe_col}) AS distincts, "
                     f"  MIN({safe_col})::VARCHAR AS min_val, "
                     f"  MAX({safe_col})::VARCHAR AS max_val "
                     f"FROM __meta_input"
-                ).fetchone()
+                ))
                 if stats:
                     null_count = int(stats[0] or 0)
                     distinct_count = int(stats[1] or 0)

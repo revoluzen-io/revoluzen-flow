@@ -22,6 +22,7 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -337,7 +338,7 @@ class MaterializeNode(BaseNode):
             f"SELECT * FROM {mat_input}"
         )
 
-        row_count = ctx.conn.sql(f"SELECT count(*) FROM {safe_name}").fetchone()[0]
+        row_count = fetch_scalar(ctx.conn.sql(f"SELECT count(*) FROM {safe_name}"))
         logger.info(
             "materialize: cached %s rows into temp table '%s'",
             f"{row_count:,}", safe_name,

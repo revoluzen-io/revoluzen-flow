@@ -1,4 +1,4 @@
-﻿"""Product identity + where to reach the project — single source of truth.
+"""Product identity + where to reach the project — single source of truth.
 
 Every in-app link (report an issue, request a connector, check for updates,
 docs, discussions) is derived from the constants below. Moving GitHub orgs or
