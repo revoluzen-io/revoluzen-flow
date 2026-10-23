@@ -35,6 +35,8 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Schedules (interval, daily, weekly, monthly, multiple run times) | ✅ | ✅ |
 | Manual + scheduled execution | ✅ | ✅ |
 | Plugins SDK | ✅ | ✅ |
+| Vector DB sinks (Pinecone, Weaviate, Qdrant) — moved to OSS 2026-10-23 | ✅ | ✅ |
+| JDBC dialect registry (register your own DB driver) — moved to OSS 2026-10-23 | ✅ | ✅ |
 | CLI | ✅ | ✅ + admin commands |
 
 ## Pipeline building (Plus only)
@@ -43,8 +45,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 |---|:-:|:-:|
 | Enterprise connectors: SAP, SAP HANA, NetSuite, Workday, Dynamics 365, ServiceNow, Salesforce, Informix, Teradata, DB2 | — | ✅ |
 | CDC (change-data-capture) source nodes — enforced at execution via `licensing.require_plus` | — | ✅ |
-| Vector DB sinks (Pinecone, Weaviate, Qdrant) | — | ✅ |
-| JDBC dialect registry (custom DB driver registration) | — | ✅ |
+| Maintained enterprise dialects shipped through the JDBC registry (SAP HANA, Teradata, DB2, Informix) | — | ✅ |
 
 > **Enforcement note (2026-10-21).** Until this date the Plus-only node rows
 > above were declarations with nothing behind them: `connectors/cdc.py`
@@ -64,12 +65,27 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 > does not differ between editions; the refusal happens on run and names the
 > feature.
 >
-> ⚠ **Still unenforced: Vector DB sinks and the JDBC dialect registry.** Both
-> are declared Plus-only in this table and in anti-pattern rule 25, and
-> neither `connectors/vector_db.py` nor `connectors/jdbc.py` contains a
-> licence check. Applying `require_plus` to them is now a one-line change
-> each, but it is a pricing decision per feature, so it is left open
-> deliberately rather than bundled in.
+> **Vector sinks and the JDBC registry moved to OSS (2026-10-23).** Both were
+> listed Plus-only and neither was ever enforced. Rather than add the gate,
+> the decision was to drop the claim, for reasons specific to each.
+>
+> Vector sinks: OSS already ships the whole local RAG stack — Ollama
+> embeddings and a SQLite-vec store. Charging to write pipeline output to a
+> vector database while embedding freely for our own features is the row a
+> buyer attacks first, and for an AI-native product vector output is table
+> stakes rather than a premium add-on.
+>
+> The JDBC registry is the *extensibility mechanism*, and Postgres, MySQL,
+> MSSQL, SQLite and DuckDB all reach their databases without touching it. So
+> gating it protected no revenue; it only stopped someone with an unusual
+> database helping themselves. The maintained enterprise dialects shipped
+> *through* that registry stay Enterprise, which is the same split used for
+> execution-engine adapters: the interface is open, the maintained
+> integration is paid.
+>
+> Anti-pattern rule 25 in `docs/product_facts/25_anti_patterns.md` still
+> names CDC, Vector and JDBC as Plus-only node types and now needs updating
+> to CDC alone.
 
 ## Execution & operations
 
@@ -150,6 +166,28 @@ The agentic Copilot and its 26 tools all ship in OSS. Plus adds organizational g
 
 There are **two RBAC systems** in Revoluzen Flow — the agent-tool RBAC (always on, in OSS) and the workspace RBAC (Plus). They serve different purposes.
 
+> **SSO is designated OSS and is not yet built (decided 2026-10-23).**
+>
+> The row above says `🟠 planned` rather than `✅` because OIDC/SAML is not
+> implemented in this repository at all. The only matches for "oidc" and
+> "saml" in the codebase are prose in the AI knowledge base and
+> `connectors/openapi_security.py`, which is about *connector* auth schemes,
+> not signing in to Flow. Moving SSO to OSS is a commitment to build it, not
+> a row to flip, and the table should not imply otherwise.
+>
+> Why OSS rather than Enterprise, when most of the field charges for it:
+> that is exactly the reason. Governance in a *free self-hosted* build exists
+> in Apache NiFi and partly Airflow, and essentially nowhere else — Airbyte,
+> Dagster, Prefect, Kestra, Mage, n8n and StreamSets all paywall it. That
+> empty intersection of sovereign + governed + AI-native is the whole
+> positioning. Putting authentication behind the paywall moves Flow into the
+> bucket it is trying to differentiate from, for marginal revenue.
+>
+> It also follows CISA's secure-by-demand guidance that single sign-on,
+> multi-factor authentication and access to security logs should not carry a
+> surcharge. Enterprise keeps SCIM provisioning and directory sync, which is
+> the identity *administration at scale* that organisations actually buy.
+
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Agent-tool RBAC (4 roles × 2 envs × 3 tiers) — gates what the LLM can call | ✅ | ✅ |
@@ -157,7 +195,8 @@ There are **two RBAC systems** in Revoluzen Flow — the agent-tool RBAC (always
 | Local user accounts | ✅ | ✅ |
 | Single-user / solo mode | ✅ | — |
 | Multi-user projects, comments, sticky notes | — | ✅ |
-| OIDC / SAML SSO | — | ✅ |
+| OIDC / SAML SSO — ⚠ **designated OSS, not yet built** (see note below) | 🟠 planned | ✅ |
+| SCIM provisioning + directory sync | — | ✅ |
 | IP allowlist, session controls, password policy | — | ✅ |
 | Seat limits | unlimited | per subscription tier |
 
@@ -165,7 +204,7 @@ There are **two RBAC systems** in Revoluzen Flow — the agent-tool RBAC (always
 
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
-| `audit_log` table with every authenticated action | basic | ✅ retention + export + sigstore-signed |
+| `audit_log` table with every authenticated action — the record, and the ability to read it, are OSS | ✅ | ✅ retention + export + sigstore-signed |
 | Trace store for every agent run | ✅ | ✅ + extended retention |
 | Lineage (Marquez-compatible) | — | ✅ |
 | Vault (AES-256, credential references, rotation) | — | ✅ |
@@ -195,6 +234,43 @@ Legacy `/#trust`, `/#activity`, `/#reports` URLs continue to work — App.tsx ro
 **You should choose Revoluzen Flow Enterprise if** you're shipping pipelines to production and need: enterprise connectors (SAP / NetSuite / etc.), DEV→PROD promotion with approval gates, multi-user collaboration, OIDC/SAML, audit-log retention for compliance, lineage, vault-managed credentials, or 4-hour SLA support. Plus is positioned for *production convenience* — it's not enterprise-only.
 
 **Both editions share the same architecture**: same agent loop, same boundary contract, same trust posture. Plus is additive. Revoluzen Flow never gets worse when Plus exists.
+
+---
+
+## Which side does a new feature go on?
+
+One test, added 2026-10-23 after several rows were decided ad hoc and three
+had to be moved back to OSS:
+
+| If the feature is needed… | Then it is… |
+|---|---|
+| for the product to produce **correct** results | OSS |
+| to run the product **safely** at all | OSS |
+| to **find out what happened** | OSS |
+| to operate it at **organisational scale** | Enterprise |
+| as a **maintained integration** with someone else's product | Enterprise |
+| as **governance over third-party code or people** | Enterprise |
+| as **managed operations, SLA, support** | Enterprise |
+
+Said shorter: **the mechanism and the interface are OSS; maintained
+integrations, administration-at-scale and governance over third parties are
+Enterprise.**
+
+Two consequences worth stating plainly, because both were got wrong once:
+
+**Never gate correctness.** Recovery, checkpointing, idempotency and honest
+failure reporting ship in OSS. Charging for correctness damages trust in the
+whole product; charging for maintained integrations and support does not.
+
+**Never gate security basics.** SSO, MFA and access to the audit log are not
+upsells. This is both a principle and a strategy — it is the only
+structurally empty seat in the market, and paywalling governance surrenders
+it (see the SSO note above).
+
+Where an interface and its integrations both exist, split them: the
+execution-engine protocol, the connector SDK and the JDBC registry are OSS;
+the maintained Databricks, dbt, SAP and Teradata integrations built on them
+are Enterprise.
 
 ---
 

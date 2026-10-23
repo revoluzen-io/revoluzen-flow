@@ -389,16 +389,18 @@ the source of truth; `edition-matrix.md` line 96 is mirrored from it.
 
 **Bad:** "Revoluzen Flow has 40 node types, all in OSS."
 
-**Why wrong:** Some node types (JDBC Source/Sink, CDC Source, Vector
-Source/Sink) are Plus-only. The StepType enum has 108 entries but many
+**Why wrong:** One node family is Plus-only — CDC Source. (Vector DB sinks
+and the JDBC dialect registry were Plus-only until 2026-10-23 and are now
+OSS; see `edition-matrix.md`. Only the *maintained enterprise dialects*
+shipped through the JDBC registry remain Enterprise.) The StepType enum has 108 entries but many
 are Plus-gated or internal. The SSOT for the user-visible palette is
 `frontend/src/components/hiddenNodeTypes.ts` (`VALID_GHOST_TYPES`),
 which contains exactly 40. Note: there is no Python-code node in either
 edition — do not list "Python Transform" as a Plus node type.
 
 **Correct:** "Revoluzen Flow ships 40 node types across 6 categories in OSS.
-Plus adds enterprise node types (JDBC, CDC, Vector DB). See
-`02_node_types.md` for the per-node breakdown."
+Plus adds the CDC Source node type and the maintained enterprise JDBC
+dialects. See `02_node_types.md` for the per-node breakdown."
 
 **Source:** `edition-matrix.md` lines 22-48.
 

@@ -64,9 +64,37 @@ follows the compatibility rules documented there.
   shows the node and can build a pipeline against it. The catalog stays
   identical across editions and the refusal names the feature when it runs.
 
-  CDC is gated. Vector DB sinks and the JDBC dialect registry are still
-  declared Plus-only with no enforcement; each is now a one-line change, left
-  open as a per-feature pricing decision.
+  CDC is gated. Vector DB sinks and the JDBC dialect registry were also
+  declared Plus-only with no enforcement; rather than add the gate, both
+  moved to OSS on 2026-10-23 — see below.
+
+### Changed
+
+- **Vector DB sinks and the JDBC dialect registry are now OSS.** Both were
+  listed Plus-only and neither was ever enforced, so the choice was to add a
+  gate or drop the claim. Dropped it.
+
+  OSS already ships the entire local RAG stack — Ollama embeddings and a
+  SQLite-vec store — so charging to write pipeline output to a vector
+  database while embedding freely for our own features was the row a buyer
+  attacks first. The JDBC registry is the extensibility mechanism, and
+  Postgres, MySQL, MSSQL, SQLite and DuckDB all reach their databases
+  without touching it; gating it protected no revenue and only stopped
+  someone with an unusual database helping themselves. The *maintained*
+  enterprise dialects shipped through it (SAP HANA, Teradata, DB2, Informix)
+  stay Enterprise.
+
+- **SSO is designated OSS**, and the matrix now says `planned` rather than
+  implying it ships — OIDC/SAML is not implemented in this repository at
+  all. Enterprise keeps SCIM provisioning and directory sync. The audit-log
+  row is clarified: the record, and the ability to read it, are OSS;
+  retention policy, signed export and SIEM formats are Enterprise.
+
+- `edition-matrix.md` gains a **"which side does a new feature go on?"**
+  test, so the split is decided by rule rather than case by case. The
+  mechanism and the interface are OSS; maintained integrations,
+  administration-at-scale and governance over third parties are Enterprise.
+  Never gate correctness, and never gate security basics.
 
 - **ELT on warehouses and the lakehouse.** `execute_sql_task` — the node that
   fires SQL at a real connection rather than transforming in-memory — now

@@ -68,9 +68,18 @@ These do not ship in the OSS repo at all:
 - **Informix**, **Teradata**, **DB2** (legacy enterprise databases)
 
 Plus also adds:
-- **Vector DB sinks** — Pinecone, Weaviate, Qdrant
 - **CDC sources** — Debezium-style change-data-capture from Postgres/MySQL
-- **JDBC dialect registry** — register custom DB drivers at runtime; required for Snowflake/BigQuery/Redshift/Databricks SQL via JDBC nodes
+- **Maintained enterprise JDBC dialects** — SAP HANA, Teradata, DB2, Informix,
+  shipped and kept working against vendors who keep changing
+
+In OSS (moved 2026-10-23 — see `edition-matrix.md`):
+- **Vector DB sinks** — Pinecone, Weaviate, Qdrant. OSS already ships the
+  whole local RAG stack, so charging to write vectors out was the one row a
+  buyer always attacked.
+- **JDBC dialect registry** — register custom DB drivers at runtime. It is
+  the extensibility mechanism, and Postgres/MySQL/MSSQL/SQLite/DuckDB reach
+  their databases without it, so gating it only blocked self-service for
+  unusual databases.
 
 ## Connector authoring (both editions)
 
