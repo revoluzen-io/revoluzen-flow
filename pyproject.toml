@@ -278,8 +278,8 @@ rz = "revoluzen_flow.cli:main"
 [project.urls]
 Homepage = "https://revoluzen.io"
 Documentation = "https://docs.revoluzen.io/flow"
-Repository = "https://github.com/revoluzen-technologies/revoluzen-flow"
-Issues = "https://github.com/revoluzen-technologies/revoluzen-flow/issues"
+Repository = "https://github.com/revoluzen-data-systems/revoluzen-flow"
+Issues = "https://github.com/revoluzen-data-systems/revoluzen-flow/issues"
 "Revoluzen Flow Enterprise commercial" = "https://revoluzen.io/flow"
 
 [tool.setuptools.packages.find]

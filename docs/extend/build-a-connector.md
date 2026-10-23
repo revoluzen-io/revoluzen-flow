@@ -191,7 +191,7 @@ fixture, and **Production** adds a 30-day green streak and a named owner.
 Built something useful? Two ways to share:
 
 1. **Quick share** — drop your manifest into a Gist / your team's docs / internal wiki. Other Revoluzen Flow installs can drop it into their `manifests/` directory the same way you did.
-2. **Contribute back** — [open a connector-contribution PR](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose) → we review, run the fixtures, and ship it as a first-party manifest in the next release. Your name on the contributors list, every Revoluzen Flow user gets the connector.
+2. **Contribute back** — [open a connector-contribution PR](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) → we review, run the fixtures, and ship it as a first-party manifest in the next release. Your name on the contributors list, every Revoluzen Flow user gets the connector.
 
 ---
 
@@ -201,4 +201,4 @@ Built something useful? Two ways to share:
 - [../api-explorer.md](../api-explorer.md) — testing and assertions in full
 - [docs/connectors.md](../connectors.md) — current first-party catalog + cert-matrix status
 - [docs/vs-talend.md](../vs-talend.md) — why this framework matters vs Talend's Eclipse + Java extension model
-- [Request a connector or node](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose) — if your need is generic enough that we should ship it first-party
+- [Request a connector or node](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) — if your need is generic enough that we should ship it first-party

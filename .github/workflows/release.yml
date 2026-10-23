@@ -328,7 +328,7 @@ jobs:
     #
     # To enable (no code change):
     #   1. On pypi.org create the `revoluzen` project and add a Trusted Publisher:
-    #      owner=revoluzen-technologies, repo=revoluzen-flow, workflow=release.yml, environment=(none).
+    #      owner=revoluzen-data-systems, repo=revoluzen-flow, workflow=release.yml, environment=(none).
     #      Trusted publishing uses the OIDC `id-token: write` below — there is
     #      no API token to store or rotate. Do NOT add a token secret instead.
     #   2. Set repository variable PUBLISH_PYPI=true

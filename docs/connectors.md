@@ -6,7 +6,7 @@ Revoluzen Flow is built around **three connector tiers** — a first-party catal
 |---|---|---|
 | **1. First-party catalog** (37 manifests) | 4 database dialects (PostgreSQL / MySQL / MSSQL / SQLite) + 2 bulk-load dialects (Postgres `COPY FROM STDIN`, Snowflake `PUT` + `COPY INTO`) + ~31 SaaS manifests, all tested + tracked in the cert matrix | Drop in any connection via the Connections page — no setup beyond credentials |
 | **2. Open framework** (any connector you need, without a vendor release cycle) | Build a connector from an OpenAPI spec or a response you tested — no compile step, no LLM required | **Insights → API Explorer**. See [docs/extend/build-a-connector.md](extend/build-a-connector.md) for the end-to-end tutorial |
-| **3. Community contributions** | Share your manifest as a Gist for quick reuse, or open a PR to ship it first-party in the next release | [Open a connector-contribution PR](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose) |
+| **3. Community contributions** | Share your manifest as a Gist for quick reuse, or open a PR to ship it first-party in the next release | [Open a connector-contribution PR](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) |
 
 **No connector is Plus-gated.** Every manifest, every authoring path, every extension point is open in OSS. The first-party catalog is the starter pack; the framework is the product.
 
@@ -25,7 +25,7 @@ Required Airbyte fields:
 > Don't see your tool in the first-party list below? Three options, in increasing order of effort:
 >
 > 1. **Build it yourself** — `Insights → API Explorer`: test an endpoint, generate from its OpenAPI spec, review the inferred auth, save. Works for any vendor with a public OpenAPI spec ([tutorial](extend/build-a-connector.md)).
-> 2. **Request it** — [open a connector-request issue](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose). Tell us what system + paste the API docs.
+> 2. **Request it** — [open a connector-request issue](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose). Tell us what system + paste the API docs.
 > 3. **Use a generic Database Source / HTTP API / CSV / Parquet connector** as a workaround for the specific pipeline.
 
 The live status of each first-party connector is reported by `GET /api/connectors/cert-matrix`. Each row in the matrix carries:

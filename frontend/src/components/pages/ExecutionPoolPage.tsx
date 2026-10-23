@@ -1460,7 +1460,7 @@ export default function ExecutionPoolPage({
                 </span>
               </div>
               <a
-                href="https://github.com/revoluzen-technologies/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs"
+                href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-violet-600 hover:text-violet-800 font-semibold flex items-center gap-1"
@@ -1588,7 +1588,7 @@ export default function ExecutionPoolPage({
                   tuned VPS. To change these, set the matching
                   <code className="mx-1 font-mono bg-violet-100 px-1.5 py-0.5 rounded text-[11px]">REVOLUZEN_FLOW_*</code>
                   environment variables before starting the backend and restart
-                  — see <a href="https://github.com/revoluzen-technologies/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs" target="_blank" rel="noopener noreferrer" className="font-semibold underline hover:text-violet-900">scaling.md → vertical-scaling knobs</a>.
+                  — see <a href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs" target="_blank" rel="noopener noreferrer" className="font-semibold underline hover:text-violet-900">scaling.md → vertical-scaling knobs</a>.
                 </p>
               </div>
             </div>

@@ -2106,13 +2106,13 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               // build via GitHub issue templates.
               secondaryCtas={canCreate ? [
                 { label: 'Build your own (90s)', href: '#author', variant: 'secondary' },
-                { label: 'Request a connector', href: 'https://github.com/revoluzen-technologies/revoluzen-flow/issues/new?template=connector-request.md', variant: 'ghost' },
+                { label: 'Request a connector', href: 'https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new?template=connector-request.md', variant: 'ghost' },
               ] : undefined}
               hint={(
                 <>
                   Postgres · MySQL · S3 · HTTP API · CSV / Parquet on disk · and 30+ more.{' '}
                   Don't see yours? <a
-                    href="https://github.com/revoluzen-technologies/revoluzen-flow/blob/main/docs/extend/build-a-connector.md"
+                    href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/extend/build-a-connector.md"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-indigo-600 hover:underline"
@@ -2866,7 +2866,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                             Build your own (90s)
                           </a>
                           <a
-                            href="https://github.com/revoluzen-technologies/revoluzen-flow/issues/new?template=connector-request.md"
+                            href="https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new?template=connector-request.md"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-700 hover:shadow-sm transition-all"

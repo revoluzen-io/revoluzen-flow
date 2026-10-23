@@ -20,7 +20,7 @@ CHANGELOG.
 - **Bug reports** — see below. These are the most valuable thing you can send
   us today.
 - **Connector and node requests** — [open an
-  issue](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose).
+  issue](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose).
 - **Discussion, questions, design feedback** — very welcome.
 - **Forks** — Revoluzen Flow is Apache 2.0. Fork it, change it, run it, ship it. The
   CLA is only about contributing *back* upstream.

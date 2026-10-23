@@ -223,7 +223,7 @@ Checkpoints have a 7-day TTL by default — older runs can only be re-run from s
 
 ## How do I install Revoluzen Flow?
 
-1. Clone the repo: `git clone https://github.com/revoluzen-technologies/revoluzen-flow`
+1. Clone the repo: `git clone https://github.com/revoluzen-data-systems/revoluzen-flow`
 2. `cd revoluzen-flow`
 3. Pick one:
    - **Docker (recommended)**: `docker compose up`

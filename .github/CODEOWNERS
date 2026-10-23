@@ -12,39 +12,39 @@
 # ties). LEAVE the catch-all at the bottom.
 
 # ── Backend ───────────────────────────────────────────────────────
-backend/                          @revoluzen-technologies
-backend/revoluzen_flow/auth/              @revoluzen-technologies
-backend/revoluzen_flow/security/          @revoluzen-technologies
-backend/revoluzen_flow/api/               @revoluzen-technologies
+backend/                          @revoluzen-data-systems
+backend/revoluzen_flow/auth/              @revoluzen-data-systems
+backend/revoluzen_flow/security/          @revoluzen-data-systems
+backend/revoluzen_flow/api/               @revoluzen-data-systems
 
 # ── Frontend ──────────────────────────────────────────────────────
-frontend/                         @revoluzen-technologies
-frontend/src/components/nodes/    @revoluzen-technologies
-frontend/src/components/Canvas*   @revoluzen-technologies
+frontend/                         @revoluzen-data-systems
+frontend/src/components/nodes/    @revoluzen-data-systems
+frontend/src/components/Canvas*   @revoluzen-data-systems
 
 # ── Connectors (manifest contributions) ───────────────────────────
-backend/revoluzen_flow/connectors/        @revoluzen-technologies
+backend/revoluzen_flow/connectors/        @revoluzen-data-systems
 
 # ── Security-sensitive surfaces — explicitly listed so a future
 #    expanded maintainer set still routes these to the security owner.
-SECURITY.md                       @revoluzen-technologies
-security.md                       @revoluzen-technologies
-docs/threat-model.md              @revoluzen-technologies
-docs/security/                    @revoluzen-technologies
-.github/workflows/security-scan.yml  @revoluzen-technologies
-.github/workflows/codeql.yml      @revoluzen-technologies
+SECURITY.md                       @revoluzen-data-systems
+security.md                       @revoluzen-data-systems
+docs/threat-model.md              @revoluzen-data-systems
+docs/security/                    @revoluzen-data-systems
+.github/workflows/security-scan.yml  @revoluzen-data-systems
+.github/workflows/codeql.yml      @revoluzen-data-systems
 
 # ── Release + CI infra ────────────────────────────────────────────
-.github/                          @revoluzen-technologies
-pyproject.toml                    @revoluzen-technologies
-backend/requirements.txt          @revoluzen-technologies
-frontend/package.json             @revoluzen-technologies
-installer/                        @revoluzen-technologies
+.github/                          @revoluzen-data-systems
+pyproject.toml                    @revoluzen-data-systems
+backend/requirements.txt          @revoluzen-data-systems
+frontend/package.json             @revoluzen-data-systems
+installer/                        @revoluzen-data-systems
 
 # ── Docs (catch-all for unscoped doc PRs — community contributions
 #    welcome, owner still gets the auto-request). ──────────────────
-docs/                             @revoluzen-technologies
-*.md                              @revoluzen-technologies
+docs/                             @revoluzen-data-systems
+*.md                              @revoluzen-data-systems
 
 # ── Catch-all — everything not matched above ──────────────────────
-*                                 @revoluzen-technologies
+*                                 @revoluzen-data-systems

@@ -109,10 +109,10 @@ Restart the backend (or rely on `--reload` if you've enabled it in dev). Your no
 Built something reusable? Same paths as connectors:
 
 1. **Internal share** — commit the node file + fixture-test to your fork; teammates get it on next deploy.
-2. **Contribute back** — [open a node-contribution PR](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose). If it's genuinely generic (not org-specific), we ship it first-party.
+2. **Contribute back** — [open a node-contribution PR](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose). If it's genuinely generic (not org-specific), we ship it first-party.
 
 ## See also
 
 - [docs/extend/build-a-connector.md](build-a-connector.md) — when "I need a node" turns out to be "I need a connector"
 - [docs/nodes-and-canvas-reference.md](../nodes-and-canvas-reference.md) — full reference for the 40 first-party nodes
-- [Request a node](https://github.com/revoluzen-technologies/revoluzen-flow/issues/new/choose) — if your need is generic enough that we should ship it first-party
+- [Request a node](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) — if your need is generic enough that we should ship it first-party

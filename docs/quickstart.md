@@ -101,7 +101,7 @@ remaining issue is only PATH lookup for the shortcut.
 ### Option 2: Docker
 
 ```bash
-git clone https://github.com/revoluzen-technologies/revoluzen-flow.git
+git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
 cd revoluzen-flow
 docker compose up -d
 ```
@@ -112,7 +112,7 @@ Open [http://localhost:8001](http://localhost:8001).
 
 **Linux/macOS** (needs Python 3.11+ and Node 20+):
 ```bash
-git clone https://github.com/revoluzen-technologies/revoluzen-flow.git
+git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
 cd revoluzen-flow
 
 # Build the UI first — Revoluzen Flow serves its own frontend and the built
@@ -127,7 +127,7 @@ python -m revoluzen_flow open
 
 **Windows:**
 ```powershell
-git clone https://github.com/revoluzen-technologies/revoluzen-flow.git
+git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
 cd revoluzen-flow
 .\start.ps1
 ```

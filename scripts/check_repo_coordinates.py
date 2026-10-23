@@ -31,7 +31,8 @@ SELF = Path(__file__).resolve()  # this file necessarily spells the bad names ou
 OURS = {
     "hybridyn",
     "revoluzen",
-    "revoluzen-technologies",
+    "revoluzen-technologies",   # org renamed away from this 2026-10-22
+    "revoluzen-data-systems",
     "revoluzenhq",
     "avisdreamer",
 }
@@ -88,10 +89,63 @@ def files():
         yield path
 
 
+def actual_remote() -> str | None:
+    """`owner/repo` from the `origin` remote, or None if it cannot be read.
+
+    Returns None rather than raising for the cases where there legitimately
+    is no remote — a fresh `git init`, a tarball export, a CI checkout that
+    has stripped it. Those must not fail the build.
+    """
+    try:
+        url = subprocess.run(
+            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+    # Handles https://github.com/o/r(.git) and git@github.com:o/r(.git)
+    m = re.search(r"github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)", url)
+    if not m:
+        return None
+    return f"{m.group(1)}/{m.group(2).removesuffix('.git')}"
+
+
+def check_remote_matches(want: str) -> list[str]:
+    """Compare app_meta's coordinates against where the repo actually lives.
+
+    Added 2026-10-22, after the org was renamed from `revoluzen-technologies`
+    to `revoluzen-data-systems` and this guard still reported OK. It only ever
+    compared the repo against *itself*, so a repo-wide set of consistently
+    wrong URLs passed cleanly — consistency is not correctness.
+
+    GitHub redirects the old name, which is exactly why the drift is easy to
+    miss: clones, pushes and browser links all keep working. What does not
+    follow a redirect is PyPI Trusted Publishing, whose claim is matched on
+    the literal `owner/repo`, so a release fails with an opaque auth error
+    long after the rename.
+
+    A mismatch is a warning, not a failure. A fork is a legitimate mismatch
+    and must still be able to build.
+    """
+    actual = actual_remote()
+    if actual is None or actual == want:
+        return []
+    return [
+        f"app_meta.py says {want!r} but origin points at {actual!r}.",
+        "  GitHub redirects the old name so most things keep working, but a",
+        "  PyPI Trusted Publisher claim is matched literally and will fail.",
+        "  Either update REPO_OWNER/REPO_NAME in app_meta.py, or ignore this",
+        "  if you are working in a fork.",
+    ]
+
+
 def main() -> int:
     owner, name = canonical()
     want = f"{owner}/{name}"
     bad: list[str] = []
+
+    drift = check_remote_matches(want)
 
     for path in files():
         try:
@@ -110,6 +164,11 @@ def main() -> int:
                 if stale != name and stale in line:
                     bad.append(f"  {rel}:{lineno}: stale directory name {stale!r}")
 
+    if drift:
+        print("WARNING: repo coordinates drift")
+        print("\n".join(drift))
+        print()
+
     if bad:
         print(f"Self-referential GitHub slugs disagreeing with app_meta.py ({want}):")
         print("\n".join(bad))
@@ -119,7 +178,8 @@ def main() -> int:
         )
         return 1
 
-    print(f"OK: every self-referential GitHub slug matches {want}")
+    suffix = " (see the drift warning above)" if drift else ""
+    print(f"OK: every self-referential GitHub slug matches {want}{suffix}")
     return 0
 
 

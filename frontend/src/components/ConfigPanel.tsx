@@ -8888,7 +8888,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
           </a>
           <span className="text-slate-300">·</span>
           <a
-            href="https://github.com/revoluzen-technologies/revoluzen-flow/tree/main/backend/revoluzen_flow/connectors/manifests"
+            href="https://github.com/revoluzen-data-systems/revoluzen-flow/tree/main/backend/revoluzen_flow/connectors/manifests"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:underline"

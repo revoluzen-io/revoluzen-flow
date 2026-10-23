@@ -1,4 +1,4 @@
-"""Product identity + where to reach the project — single source of truth.
+﻿"""Product identity + where to reach the project — single source of truth.
 
 Every in-app link (report an issue, request a connector, check for updates,
 docs, discussions) is derived from the constants below. Moving GitHub orgs or
@@ -10,7 +10,7 @@ VERSION = "1.0.1"
 
 # GitHub coordinates. Change REPO_OWNER (and REPO_NAME if the repo is renamed)
 # to re-point every in-app link at once.
-REPO_OWNER = "revoluzen-technologies"
+REPO_OWNER = "revoluzen-data-systems"
 REPO_NAME = "revoluzen-flow"
 
 HOMEPAGE = "https://revoluzen.io"

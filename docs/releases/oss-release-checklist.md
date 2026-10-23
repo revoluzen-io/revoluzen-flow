@@ -85,7 +85,7 @@ announcing, not after.
 |---|---|---|
 | `pip install revoluzen-flow` (README headline; extras such as `revoluzen-flow[postgres]`) | `python -m pip index versions revoluzen-flow` shows the target version, then `python -m pip install --dry-run revoluzen-flow==<ver>` resolves | PyPI publishing is configured through Trusted Publishing. Keep repo variable `PUBLISH_PYPI=true`; if a release is missing, check the GitHub `release.yml` run and PyPI project publishing status. |
 | `docker pull revoluzen/flow:<ver>` | `curl -sI https://hub.docker.com/v2/repositories/revoluzen/flow/` → 200 | Add `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN` secrets, then set repo variable `PUBLISH_DOCKER=true`. Remove the README "builds locally on first run" heads-up in the same change. |
-| Repo is reachable at `github.com/revoluzen-technologies/revoluzen-flow` | open it while signed out | Flip visibility to public. **Do this early, not at announce time** — CodeQL self-skips on private repos, so its first-ever run happens on the flip, in public. |
+| Repo is reachable at `github.com/revoluzen-data-systems/revoluzen-flow` | open it while signed out | Flip visibility to public. **Do this early, not at announce time** — CodeQL self-skips on private repos, so its first-ever run happens on the flip, in public. |
 
 > Secrets and variables do **not** travel with code. Anything configured on
 > a previous repo is gone after a move — this is how the Docker job came to

@@ -35,7 +35,7 @@ via `POSTGRES_IMAGE_TAG`. Same rules apply.
 ### 2.1 Recommended: Docker Compose
 
 ```bash
-git clone https://github.com/revoluzen-technologies/revoluzen-flow
+git clone https://github.com/revoluzen-data-systems/revoluzen-flow
 cd revoluzen-flow
 cp .env.example .env          # edit if you need overrides
 docker compose up -d          # Revoluzen Flow only

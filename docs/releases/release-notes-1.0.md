@@ -84,7 +84,7 @@ python -m pip install --upgrade revoluzen-flow
 python -m revoluzen_flow open
 
 # Docker (recommended) — builds locally, serves http://localhost:8001
-git clone https://github.com/revoluzen-technologies/revoluzen-flow.git
+git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
 cd revoluzen-flow
 docker compose up -d
 
