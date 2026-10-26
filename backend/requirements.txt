@@ -9,7 +9,7 @@ uvicorn[standard]>=0.34.0
 # restriction rather than a syntax fix.
 # Lift this bound once `compile/sql_preview.py` emits a top-level PIVOT when
 # it is the final step and a `[boundary]` comment when it is mid-chain.
-duckdb>=1.2.0,<2
+duckdb>=1.2.0,<3
 pydantic>=2.10.0
 python-multipart>=0.0.18
 aiofiles>=24.1.0
