@@ -15,7 +15,7 @@ import { toast } from '../components/Toast';
 import { uiPrompt } from '../ui/dialog';
 import { parsePipelineIntent, parseModification, classifyIntent } from '../ai/pipelineBuilder';
 import { validateWorkflow, type ValidationIssue } from '../utils/validateWorkflow';
-import { resolveSourceHandle } from '../utils/branchPorts';
+import { branchPortsFor, resolveSourceHandle } from '../utils/branchPorts';
 import { navigateTo } from '../router';
 import { buildConversationPayload } from '../util/conversationSummary';
 
@@ -260,6 +260,9 @@ interface WorkflowState {
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
+  /** `onConnect` without the undo checkpoint — for callers that already
+   *  took one (see `addNode`'s auto-wire). */
+  _connectNoUndo: OnConnect;
   /** Set/clear the per-edge table alias (SQL Transform table name) for the
    *  edge between two steps. Empty alias clears it. */
   updateEdgeAlias: (fromStepId: string, toStepId: string, alias: string) => void;
@@ -862,6 +865,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   onConnect: (connection) => {
     get().pushUndoState();
+    get()._connectNoUndo(connection);
+  },
+
+  /** Edge creation without an undo checkpoint.
+   *
+   *  Split out of `onConnect` 2026-10-23 so `addNode`'s auto-wire can
+   *  reuse the exact edge shape without pushing a SECOND undo state —
+   *  otherwise adding a connected node took two Ctrl+Z presses to undo and
+   *  the first one left a dangling node on the canvas. `onConnect` keeps
+   *  its checkpoint; callers that already took one call this.
+   */
+  _connectNoUndo: (connection) => {
     // Check if the source node is a flow-control type (conditional branches)
     const sourceNode = get().nodes.find((n) => n.id === connection.source);
     const isFlowNode = sourceNode && ['if_condition', 'switch_case', 'conditional_split', 'foreach_loop', 'until_loop'].includes(String((sourceNode.data as any)?.stepType ?? ''));
@@ -1962,14 +1977,37 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Preset params win over backend defaults (e.g. mode='explode').
     if (preset) initialParams = { ...initialParams, ...preset.params };
 
-    // Smart positioning: place near the last node or in a reasonable grid
+    // Smart positioning: place near the last node or in a reasonable grid.
+    //
+    // 2026-10-23 — when the user clicks a palette entry with a node
+    // selected, place the new node one layer pitch to the RIGHT of that
+    // node rather than past the right-most node on the canvas, and wire
+    // the two together below. Previously every click-to-add landed at
+    // `maxX + 280` unconnected, so building a six-step pipeline meant six
+    // manual edge drags. This is the single biggest reason n8n's canvas
+    // feels faster than ours.
+    //
+    // Drag-and-drop passes an explicit `position` — there the user has
+    // already said where it goes, so neither the placement nor the
+    // auto-wire applies.
+    const selectedId = get().selectedNodeId;
+    const selected = selectedId
+      ? get().nodes.find((n) => n.id === selectedId)
+      : undefined;
+
     let pos = position;
+    let autoConnectFrom: string | null = null;
     if (!pos) {
       const existing = get().nodes;
-      if (existing.length > 0) {
+      if (selected) {
+        // 220px matches Canvas.tsx autoLayout H_SPACING, so a chain built
+        // by clicking is already laid out the way Auto-Layout would.
+        pos = { x: selected.position.x + 220, y: selected.position.y };
+        autoConnectFrom = selected.id;
+      } else if (existing.length > 0) {
         const maxX = Math.max(...existing.map((n) => n.position.x));
         const avgY = existing.reduce((s, n) => s + n.position.y, 0) / existing.length;
-        pos = { x: maxX + 280, y: avgY };
+        pos = { x: maxX + 220, y: avgY };
       } else {
         pos = { x: 100, y: 100 };
       }
@@ -1989,6 +2027,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       },
     };
     set((s) => ({ nodes: [...s.nodes, node] }));
+
+    // Wire the selected node to the one just added. Routed through the
+    // existing `onConnect` so the edge carries exactly the same shape as a
+    // hand-drawn one — type, marker, animation and the success/completion
+    // condition that flow-control sources need. Select the new node too,
+    // so clicking three palette entries in a row builds a chain.
+    if (autoConnectFrom) {
+      // Name the port explicitly. React Flow falls back to a node's first
+      // source handle when `sourceHandle` is null, which happens to be
+      // right for ordinary nodes, but on a branch node (If Condition,
+      // Conditional Split, Semantic Router) "the first one" is an accident
+      // rather than a decision. Wiring to ports[0] by id says what it
+      // means and matches what a hand-drawn edge from that handle carries.
+      const fromPorts = branchPortsFor(
+        String((selected?.data as any)?.stepType ?? ''),
+        (selected?.data as any)?.params,
+      );
+      get()._connectNoUndo({
+        source: autoConnectFrom,
+        target: id,
+        sourceHandle: fromPorts[0]?.id ?? null,
+        targetHandle: null,
+      } as any);
+    }
+    // Select whatever we just click-added, so the NEXT palette click
+    // chains onto it. Without this only the first add could auto-wire,
+    // because nothing on the canvas was ever selected — clicking a
+    // palette entry adds a node but does not select it.
+    //
+    // Safe with respect to the config modal: that opens on the
+    // `revoluzen-flow-node-opened` event (see ConfigPanel), not on
+    // selection, so this does not pop a dialog on every add.
+    if (!position) set({ selectedNodeId: id });
   },
 
   deleteNode: (nodeId) => {

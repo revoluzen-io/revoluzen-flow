@@ -3221,6 +3221,18 @@ async def import_dbt_project(
     for c in pipeline["connections"]:
         wf.connections.append(StepConnection(**c))
 
+    # Validate before saving, and return the findings with the result.
+    #
+    # Saving an invalid pipeline is deliberate and matches the normal save
+    # endpoint above, which also validates and then saves regardless — in this
+    # product validation is advisory and a draft is allowed to be incomplete.
+    # What import used to do differently was report NOTHING, so a freshly
+    # imported dbt project looked clean until the operator opened the editor
+    # and the client re-ran the same checks. Every imported dbt project has
+    # findings by construction (each placeholder source and each
+    # materialization sink needs a connection), so they belong in the response
+    # that tells you the import succeeded.
+    errors = validate_workflow(wf)
     version = store.save(wf, change_summary=f"Imported dbt project: {wf.name}")
     get_lifecycle_store().add_event(
         wf.id, "created", f"Imported dbt project: {wf.name}",
@@ -3234,6 +3246,8 @@ async def import_dbt_project(
         "steps_imported": len(wf.steps),
         "connections_imported": len(wf.connections),
         "report": report,
+        "warnings": [e.dict() for e in errors if e.severity == "warning"],
+        "errors": [e.dict() for e in errors if e.severity == "error"],
     }
 
 
@@ -3371,7 +3385,7 @@ async def create_approval_gate(
     if existing:
         # Update existing
         gate_id = existing[0][0]
-        db.execute_with_retry(
+        db.execute_write_with_retry(
             """UPDATE approval_gates SET enabled = ?, min_approvals = ?,
                approvers = ?, notify_channels = ?, updated_at = ?
                WHERE id = ?""",
@@ -3382,7 +3396,7 @@ async def create_approval_gate(
         return {"id": gate_id, "action": "updated"}
 
     gate_id = uuid.uuid4().hex[:12]
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         """INSERT INTO approval_gates
            (id, scope, scope_id, enabled, min_approvals, approvers,
             notify_channels, created_by, created_at, updated_at, workspace_id)
@@ -3401,7 +3415,7 @@ async def delete_approval_gate(
 ):
     """Delete an approval gate."""
     db = _get_db()
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         "DELETE FROM approval_gates WHERE id = ? AND workspace_id = ?",
         [gate_id, workspace_id],
     )
@@ -3477,7 +3491,7 @@ async def list_notifications(
 async def mark_notification_read(notification_id: str):
     """Mark a notification as read."""
     db = _get_db()
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         "UPDATE approval_notifications SET read = 1 WHERE id = ?",
         [notification_id],
     )
@@ -3490,7 +3504,7 @@ async def mark_all_read(
 ):
     """Mark all notifications as read for the workspace."""
     db = _get_db()
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         "UPDATE approval_notifications SET read = 1 WHERE workspace_id = ? AND read = 0",
         [workspace_id],
     )
@@ -3513,7 +3527,7 @@ def _create_approval_notification(
     now = datetime.now(timezone.utc).isoformat()
     for recipient in recipients:
         nid = uuid.uuid4().hex[:12]
-        db.execute_with_retry(
+        db.execute_write_with_retry(
             """INSERT INTO approval_notifications
                (id, workflow_id, workflow_name, recipient_id, sender_id,
                 action, message, card_data, read, created_at, workspace_id)

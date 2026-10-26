@@ -277,7 +277,7 @@ export default function TransformHelper({
           {explainError && <div className="text-red-700 text-xs">Explain failed: {explainError}</div>}
           {explainResp && (
             <div className="text-slate-700 leading-snug">
-              <span className="text-[9px] font-bold uppercase tracking-wider mr-1.5 text-slate-500">
+              <span className="text-[10px] font-bold uppercase tracking-wider mr-1.5 text-slate-500">
                 {explainResp.ai_powered ? 'AI' : 'Rules'}
               </span>
               {explainResp.explanation}
@@ -304,7 +304,7 @@ export default function TransformHelper({
             </code>
             {selectionExplain && (
               <div className="text-slate-700 leading-snug mt-1">
-                <span className="text-[9px] font-bold uppercase tracking-wider mr-1.5 text-slate-500">
+                <span className="text-[10px] font-bold uppercase tracking-wider mr-1.5 text-slate-500">
                   {selectionExplain.ai_powered ? 'AI' : 'Rules'}
                 </span>
                 {selectionExplain.explanation}
@@ -386,7 +386,7 @@ export default function TransformHelper({
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
               <span>{suggestion.ai_powered ? 'AI suggestion' : 'Default suggestion'}</span>
               {!suggestion.ai_powered && (
-                <span className="text-slate-400 normal-case font-normal">
+                <span className="text-slate-500 normal-case font-normal">
                   (LLM unavailable — used deterministic fallback)
                 </span>
               )}

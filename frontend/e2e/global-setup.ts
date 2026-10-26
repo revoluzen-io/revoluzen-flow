@@ -53,6 +53,25 @@ export default async function globalSetup(_config: FullConfig) {
         .waitFor({ state: 'visible', timeout: 20_000 }).catch(() => {});
     }
 
+    // Mark onboarding as done before the state is saved.
+    //
+    // 2026-10-23: this is why visual-layout failed at 1024/740/390 and
+    // functional failed on "Test Node". The first-run OnboardingWizard
+    // ("Welcome to Revoluzen Flow") renders over the whole app with a
+    // dimming backdrop, so anything behind it is in the DOM, enabled, and
+    // permanently unclickable — Playwright reports "waiting for element to
+    // be visible, enabled and stable" and times out 60s later, which reads
+    // like a layout bug and is not one. The widths that passed simply never
+    // clicked anything underneath it.
+    //
+    // App.tsx keys the wizard on this one localStorage flag, so setting it
+    // here puts every spec in the state of a returning user, which is what
+    // the suite is actually trying to test. Same class of trap as the
+    // contrast audit, which measured the modal instead of the page.
+    await page.evaluate(() => {
+      try { localStorage.setItem('revoluzen_flow_onboarding_done', '1'); } catch { /* private mode */ }
+    });
+
     await page.context().storageState({ path: STATE_PATH });
   } finally {
     await browser.close();

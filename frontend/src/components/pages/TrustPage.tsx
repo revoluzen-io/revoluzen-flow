@@ -394,7 +394,7 @@ function AttestedCell({ dark, row }: { dark: boolean; row: CertRow }) {
   if (!row.cat_green || !row.attested_at) {
     return (
       <span
-        className={dark ? 'text-slate-600' : 'text-slate-400'}
+        className={dark ? 'text-slate-600' : 'text-slate-500'}
         title="No acceptance-test fixtures recorded for this connector yet. Not a failed test — an untaken one."
       >
         —
@@ -654,7 +654,7 @@ function CertMatrixSection({
                     <tr key={r.id} className={dark ? 'hover:bg-slate-900/60' : 'hover:bg-slate-50'}>
                       <td className={`px-4 py-2 ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
                         <div className="font-semibold text-sm">{r.display_name}</div>
-                        <div className={`text-xs font-mono ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{r.id}</div>
+                        <div className={`text-xs font-mono ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{r.id}</div>
                       </td>
                       <td className={`px-3 py-2 hidden sm:table-cell text-sm ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
                         {r.category || '—'}
@@ -743,10 +743,10 @@ function DepthBadge({ dark, label, status }: { dark: boolean; label: string; sta
     production:       { light: 'bg-emerald-100 text-emerald-700', darkVar: 'bg-emerald-500/15 text-emerald-300' },
     beta:             { light: 'bg-amber-100 text-amber-700',     darkVar: 'bg-amber-500/15 text-amber-300' },
     alpha:            { light: 'bg-rose-100 text-rose-700',       darkVar: 'bg-rose-500/15 text-rose-300' },
-    stub:             { light: 'bg-slate-100 text-slate-600',     darkVar: 'bg-slate-500/15 text-slate-400' },
+    stub:             { light: 'bg-slate-100 text-slate-600',     darkVar: 'bg-slate-500/15 text-slate-500' },
     'v1-functional':  { light: 'bg-blue-100 text-blue-700',       darkVar: 'bg-blue-500/15 text-blue-300' },
     'v1-basic':       { light: 'bg-blue-100 text-blue-700',       darkVar: 'bg-blue-500/15 text-blue-300' },
-    'v1-stub':        { light: 'bg-slate-100 text-slate-600',     darkVar: 'bg-slate-500/15 text-slate-400' },
+    'v1-stub':        { light: 'bg-slate-100 text-slate-600',     darkVar: 'bg-slate-500/15 text-slate-500' },
   };
   const t = tones[label] || tones.stub;
   const failed = status === 'fail';

@@ -32,7 +32,8 @@ OURS = {
     "hybridyn",
     "revoluzen",
     "revoluzen-technologies",   # org renamed away from this 2026-10-22
-    "revoluzen-data-systems",
+    "revoluzen-data-systems",   # ... and away from this 2026-10-23
+    "revoluzen-io",             # current — listed so strays here are policed too
     "revoluzenhq",
     "avisdreamer",
 }

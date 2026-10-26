@@ -772,7 +772,7 @@ export default function DataWranglerConfig({ params, nodeId, workflowId, onChang
             'px-2.5 py-1 border rounded-md',
             preview
               ? 'border-slate-300 hover:bg-slate-50 text-slate-700'
-              : 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed',
+              : 'border-slate-200 text-slate-500 bg-slate-50 cursor-not-allowed',
           ].join(' ')}
           onClick={() => setShowSql((v) => !v)}
           disabled={!preview}
@@ -785,7 +785,7 @@ export default function DataWranglerConfig({ params, nodeId, workflowId, onChang
           className={[
             'px-2.5 py-1 border rounded-md',
             previewLoading
-              ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+              ? 'border-slate-200 text-slate-500 bg-slate-50 cursor-not-allowed'
               : 'border-slate-300 hover:bg-slate-50 text-slate-700',
           ].join(' ')}
           onClick={runPreview}
@@ -882,7 +882,7 @@ function StarterEmptyState({
                           className="text-left font-semibold text-slate-600 px-3 py-1.5 whitespace-nowrap border-b border-slate-200"
                         >
                           {c.name}{' '}
-                          <span className="text-[10px] text-slate-400 font-normal uppercase">
+                          <span className="text-[10px] text-slate-500 font-normal uppercase">
                             {c.type}
                           </span>
                         </th>
@@ -913,7 +913,7 @@ function StarterEmptyState({
                     className="px-2 py-0.5 rounded bg-slate-100 text-xs text-slate-600"
                   >
                     {c.name}{' '}
-                    <span className="text-[10px] text-slate-400 uppercase">{c.type}</span>
+                    <span className="text-[10px] text-slate-500 uppercase">{c.type}</span>
                   </span>
                 ))}
               </div>
@@ -1061,7 +1061,7 @@ function StepListPanel({
                 <div className="w-5 h-5 rounded bg-emerald-100 text-emerald-700 font-bold text-[10px] flex items-center justify-center shrink-0">
                   {OP_BADGE[step.op]}
                 </div>
-                <span className="text-xs text-slate-400 w-4 shrink-0 font-mono">
+                <span className="text-xs text-slate-500 w-4 shrink-0 font-mono">
                   {idx + 1}
                 </span>
                 <span className="flex-1 truncate font-medium text-slate-800">
@@ -1094,7 +1094,7 @@ function StepListPanel({
                 <button
                   type="button"
                   title={disabled ? 'Enable' : 'Disable'}
-                  className="text-slate-400 hover:text-slate-700 px-0.5"
+                  className="text-slate-500 hover:text-slate-700 px-0.5"
                   onClick={(e) => {
                     e.stopPropagation();
                     onToggle(step.id);
@@ -1105,7 +1105,7 @@ function StepListPanel({
                 <button
                   type="button"
                   title="Duplicate"
-                  className="text-slate-400 hover:text-slate-700 px-0.5"
+                  className="text-slate-500 hover:text-slate-700 px-0.5"
                   onClick={(e) => {
                     e.stopPropagation();
                     onDuplicate(step.id);
@@ -1116,7 +1116,7 @@ function StepListPanel({
                 <button
                   type="button"
                   title="Delete"
-                  className="text-slate-400 hover:text-red-600 px-0.5"
+                  className="tap-24 text-slate-500 hover:text-red-600 px-0.5"
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemove(step.id);
@@ -1316,7 +1316,7 @@ function IncomingColumnsStrip({
 
   if (!columns.length) {
     return (
-      <div className="px-3 py-2 text-xs text-slate-400 border-b border-slate-200 bg-slate-50/60">
+      <div className="px-3 py-2 text-xs text-slate-500 border-b border-slate-200 bg-slate-50/60">
         Input columns will appear after the source/upstream step runs or the preview loads.
       </div>
     );
@@ -1351,7 +1351,7 @@ function IncomingColumnsStrip({
         <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
           Incoming columns ({columns.length})
         </span>
-        <span className="text-[10px] text-slate-400">
+        <span className="text-[10px] text-slate-500">
           Click to insert · auto-quotes special names
         </span>
       </div>
@@ -1375,7 +1375,7 @@ function IncomingColumnsStrip({
               }`}
             >
               <span className="font-mono">{c.name}</span>
-              <span className="text-[9px] uppercase font-semibold text-slate-400">
+              <span className="text-[10px] uppercase font-semibold text-slate-500">
                 {compactType(c.type)}
               </span>
             </button>
@@ -1424,7 +1424,7 @@ function FillNullsForm({ config, onChange, incomingColumns = [] }: FormProps) {
           </select>
           <input value={f.value ?? ''} placeholder="value (NULL, 0, N/A)" className={_wInput}
             onChange={(e) => set(fills.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} />
-          <button type="button" className="text-slate-400 hover:text-red-500 px-1"
+          <button type="button" className="text-slate-500 hover:text-red-500 px-1"
             onClick={() => set(fills.filter((_, j) => j !== i))}>×</button>
         </div>
       ))}
@@ -1451,7 +1451,7 @@ function ReplaceValuesForm({ config, onChange, incomingColumns = [] }: FormProps
             onChange={(e) => set(repls.map((x, j) => (j === i ? { ...x, find: e.target.value } : x)))} />
           <input value={r.replace ?? ''} placeholder="replace (NULL = null)" className={_wInput}
             onChange={(e) => set(repls.map((x, j) => (j === i ? { ...x, replace: e.target.value } : x)))} />
-          <button type="button" className="text-slate-400 hover:text-red-500 px-1"
+          <button type="button" className="text-slate-500 hover:text-red-500 px-1"
             onClick={() => set(repls.filter((_, j) => j !== i))}>×</button>
         </div>
       ))}
@@ -1537,7 +1537,7 @@ function FilterForm({
             </button>
           ))}
           {incomingColumns.length > 16 && (
-            <span className="text-[10px] text-slate-400 pt-0.5">
+            <span className="text-[10px] text-slate-500 pt-0.5">
               +{incomingColumns.length - 16} more
             </span>
           )}
@@ -1579,7 +1579,7 @@ function SelectForm({
           placeholder="customer_id, order_date, amount"
           className="w-full px-2 py-1.5 text-sm font-mono border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500"
         />
-        <p className="text-[10px] text-slate-400">Run preview once for click-to-pick column chips.</p>
+        <p className="text-[10px] text-slate-500">Run preview once for click-to-pick column chips.</p>
       </div>
     );
   }
@@ -1626,7 +1626,7 @@ function SelectForm({
           );
         })}
       </div>
-      <p className="text-[10px] text-slate-400">
+      <p className="text-[10px] text-slate-500">
         {cols.length} of {incomingColumns.length} columns selected
         {cols.length === 0 && ' (empty = keep all)'}
       </p>
@@ -1694,7 +1694,7 @@ function RenameForm({
               placeholder={incomingColumns.length > 0 ? 'pick a column' : 'from'}
               className="flex-1 min-w-0 px-2 py-1 text-sm font-mono border border-slate-300 rounded-md"
             />
-            <span className="text-slate-400">→</span>
+            <span className="text-slate-500">→</span>
             <input
               type="text"
               value={toCol}
@@ -1704,7 +1704,7 @@ function RenameForm({
             />
             <button
               type="button"
-              className="text-slate-400 hover:text-red-600 px-1"
+              className="tap-24 text-slate-500 hover:text-red-600 px-1"
               onClick={() => removePair(idx)}
             >
               ✕
@@ -1770,7 +1770,7 @@ function CastForm({
                 className="flex-1 min-w-0 px-2 py-1 text-sm font-mono border border-slate-300 rounded-md"
               />
             )}
-            <span className="text-slate-400">→</span>
+            <span className="text-slate-500">→</span>
             <select
               value={c.to_type}
               onChange={(e) => update(idx, { to_type: e.target.value })}
@@ -1782,7 +1782,7 @@ function CastForm({
             </select>
             <button
               type="button"
-              className="text-slate-400 hover:text-red-600 px-1"
+              className="tap-24 text-slate-500 hover:text-red-600 px-1"
               onClick={() => remove(idx)}
             >
               ✕
@@ -1856,7 +1856,7 @@ function DeriveForm({
               />
               <button
                 type="button"
-                className="text-slate-400 hover:text-red-600 px-1"
+                className="tap-24 text-slate-500 hover:text-red-600 px-1"
                 onClick={() => remove(idx)}
               >
                 ✕
@@ -1884,7 +1884,7 @@ function DeriveForm({
                   </button>
                 ))}
                 {incomingColumns.length > 12 && (
-                  <span className="text-[10px] text-slate-400 pt-0.5">+{incomingColumns.length - 12} more</span>
+                  <span className="text-[10px] text-slate-500 pt-0.5">+{incomingColumns.length - 12} more</span>
                 )}
               </div>
             )}
@@ -2005,7 +2005,7 @@ function GroupByForm({
                   className="flex-1 min-w-0 px-2 py-1 text-sm font-mono border border-slate-300 rounded-md"
                 />
               )}
-              <span className="text-slate-400 text-xs">AS</span>
+              <span className="text-slate-500 text-xs">AS</span>
               <input
                 type="text"
                 value={a.alias}
@@ -2015,7 +2015,7 @@ function GroupByForm({
               />
               <button
                 type="button"
-                className="text-slate-400 hover:text-red-600 px-1"
+                className="tap-24 text-slate-500 hover:text-red-600 px-1"
                 onClick={() => removeAgg(idx)}
               >
                 ✕
@@ -2321,7 +2321,7 @@ function LivePreviewPane({
           <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-xs">
             {delta!.added.map((c) => (
               <span key={`+${c.name}`} className="text-emerald-700">
-                + {c.name} <span className="text-slate-400">({c.type})</span>
+                + {c.name} <span className="text-slate-500">({c.type})</span>
               </span>
             ))}
             {delta!.removed.map((n) => (
@@ -2329,7 +2329,7 @@ function LivePreviewPane({
             ))}
             {delta!.retyped.map((r) => (
               <span key={`~${r.name}`} className="text-amber-700">
-                ~ {r.name} <span className="text-slate-400">{r.from} → {r.to}</span>
+                ~ {r.name} <span className="text-slate-500">{r.from} → {r.to}</span>
               </span>
             ))}
           </div>
@@ -2372,7 +2372,7 @@ function StepColumnProfile({ step }: { step: PreviewStep }) {
     <div className="p-3 space-y-2">
       <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500 flex items-center justify-between">
         <span>{step.columns.length} columns at this step</span>
-        <span className="text-slate-400 normal-case font-normal">
+        <span className="text-slate-500 normal-case font-normal">
           Sample data → OUTPUT panel below
         </span>
       </div>

@@ -141,32 +141,89 @@ def require_auth(request: Request):
     return user
 
 
+# Both factories below name their returned closure explicitly.
+#
+# 2026-10-23: they used to return a function literally called `_dep`.
+# tests/test_route_posture.py decides whether a route is gated by matching
+# the dependency's `__name__` against an auth-word regex, and `_dep` matches
+# nothing — so EVERY router gated with require_role / require_min_rank was
+# invisible to the ratchet and counted as ungated. That inflated the
+# baseline with routes that were in fact protected (the connector-authoring
+# explorer, among others) and, worse, meant the ratchet would not have
+# noticed if one of them later lost its gate. The name is load-bearing;
+# don't rename these back to something generic.
+
+
 def require_role(*roles: str):
     """Build a dependency that requires one of the given roles."""
     allowed = set(roles)
 
-    def _dep(request: Request):
+    def require_role_dep(request: Request):
         user = require_auth(request)
         if user.role not in allowed:
             _audit_denied(user, request, "|".join(sorted(allowed)))
             raise HTTPException(403, f"Role required: {', '.join(sorted(allowed))}")
         return user
 
-    return _dep
+    require_role_dep.__qualname__ = f"require_role({'|'.join(sorted(allowed))})"
+    return require_role_dep
 
 
 def require_min_rank(min_role: str):
     """Build a dependency that requires at least the given role rank."""
     threshold = _ROLE_RANK.get(min_role, 0)
 
-    def _dep(request: Request):
+    def require_min_rank_dep(request: Request):
         user = require_auth(request)
         if _ROLE_RANK.get(user.role, 0) < threshold:
             _audit_denied(user, request, f">={min_role}")
             raise HTTPException(403, f"Requires role >= {min_role}")
         return user
 
-    return _dep
+    require_min_rank_dep.__qualname__ = f"require_min_rank({min_role})"
+    return require_min_rank_dep
+
+
+def require_min_rank_when_identified(min_role: str):
+    """Rank gate that does not, by itself, demand a login.
+
+    ``require_min_rank`` calls ``require_auth``, so it rejects every
+    anonymous caller outright. That is correct for an administrative route
+    and wrong for a capability that OSS deliberately leaves open on a
+    loopback single-user install, where there is often no login at all —
+    bolting it onto such a route breaks `revoluzen_flow open` for everyone.
+    (Learned the hard way on 2026-10-23: adding the strict gate to the
+    intelligence and connector-authoring routers 401'd them in local mode.)
+
+    The semantics here are the ones the rest of the posture model uses:
+
+      * anonymous caller  -> defer to ``current_workspace_id``, which
+        refuses under ``SECURITY_MODE=server`` and falls through to the
+        ``default`` workspace locally;
+      * identified caller -> enforce the rank, in either mode.
+
+    So a laptop user with no account keeps their capability, a signed-in
+    `viewer` does not silently gain an authoring one, and a server install
+    requires a login first. Use this for authoring capabilities; keep
+    ``require_min_rank`` for routes that must always have a real user.
+    """
+    threshold = _ROLE_RANK.get(min_role, 0)
+
+    def require_min_rank_when_identified_dep(request: Request):
+        user = current_user_optional(request)
+        if user is None:
+            # No identity: the posture dep decides whether that is allowed.
+            current_workspace_id(request)
+            return None
+        if _ROLE_RANK.get(user.role, 0) < threshold:
+            _audit_denied(user, request, f">={min_role}")
+            raise HTTPException(403, f"Requires role >= {min_role}")
+        return user
+
+    require_min_rank_when_identified_dep.__qualname__ = (
+        f"require_min_rank_when_identified({min_role})"
+    )
+    return require_min_rank_when_identified_dep
 
 
 # Convenience pre-built dependencies — import these into routers.

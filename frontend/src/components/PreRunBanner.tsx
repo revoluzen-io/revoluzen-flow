@@ -266,7 +266,7 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Last run:</span>
         {loading ? (
-          <span className="text-slate-400 italic">loading…</span>
+          <span className="text-slate-500 italic">loading…</span>
         ) : data?.last_run ? (
           <>
             <span className={`font-semibold ${STATUS_TONE[data.last_run.status] || 'text-slate-700'}`}>
@@ -290,7 +290,7 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
             )}
           </>
         ) : (
-          <span className="text-slate-400 italic">never run</span>
+          <span className="text-slate-500 italic">never run</span>
         )}
       </div>
 
@@ -301,13 +301,13 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
           <span>~{formatDuration(data.estimated.avg_duration_ms)}</span>
           {data.estimated.avg_rows > 0 && (
             <>
-              <span className="text-slate-400">·</span>
+              <span className="text-slate-500">·</span>
               <span>~{data.estimated.avg_rows.toLocaleString()} rows</span>
             </>
           )}
           {data.cost_estimate && (
             <>
-              <span className="text-slate-400">·</span>
+              <span className="text-slate-500">·</span>
               <span
                 className={`px-1.5 py-0.5 rounded text-xs font-semibold ring-1 ${
                   data.cost_estimate.cost_band === 'high'
@@ -328,14 +328,14 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
                   ? data.cost_estimate.estimate_usd.toFixed(6)
                   : data.cost_estimate.estimate_usd.toFixed(4)}
                 {data.cost_estimate.estimate_range && (
-                  <span className="ml-1 opacity-70 font-normal text-[9px]">
+                  <span className="ml-1 opacity-70 font-normal text-[10px]">
                     (${data.cost_estimate.estimate_range.min.toFixed(4)}–${data.cost_estimate.estimate_range.max.toFixed(4)})
                   </span>
                 )}
               </span>
               {data.cost_estimate.confidence && (
                 <span
-                  className={`text-[9px] uppercase tracking-wider font-bold ${
+                  className={`text-[10px] uppercase tracking-wider font-bold ${
                     data.cost_estimate.confidence === 'high'
                       ? 'text-emerald-600'
                       : data.cost_estimate.confidence === 'medium'
@@ -349,7 +349,7 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
               )}
             </>
           )}
-          <span className="text-slate-400 text-xs">
+          <span className="text-slate-500 text-xs">
             (avg of {data.estimated.run_count} successful run{data.estimated.run_count === 1 ? '' : 's'})
           </span>
         </div>
@@ -370,7 +370,7 @@ export default function PreRunBanner({ workflowId, value, onChange, pipelineStat
                 active
                   ? m === 'live'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-amber-500 text-white'
+                    : 'bg-amber-700 text-white'
                   : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100'
               }`}
             >
@@ -473,7 +473,7 @@ function SchemaDriftPanel({
             <div key={sink.step_id} className="bg-white/60 border border-slate-200 rounded-md px-2 py-1.5 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold text-slate-700 truncate">{sink.step_label}</span>
-                <span className="text-slate-400">→</span>
+                <span className="text-slate-500">→</span>
                 <span className="font-mono text-slate-600 truncate">{sink.table_display_name}</span>
                 <span className="ml-auto" />
                 <select

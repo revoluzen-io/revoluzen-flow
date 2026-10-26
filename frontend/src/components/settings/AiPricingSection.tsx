@@ -81,6 +81,10 @@ function RateInput({
       }}
       readOnly={readOnly}
       title={title}
+      // The column header above says only "In $/M"; `title` is the full
+      // sentence and is the only thing that distinguishes one of the three
+      // rate boxes in a row from the next, so it is also the accessible name.
+      aria-label={title}
       className={`px-2 py-1.5 text-sm font-mono rounded-md ring-1 outline-none focus:ring-2 w-full ${
         invalid
           ? (dark ? 'bg-red-500/10 text-red-300 ring-red-500/40 focus:ring-red-400/60' : 'bg-red-50 text-red-700 ring-red-300 focus:ring-red-400')
@@ -108,7 +112,7 @@ function RateRow({
   hint?: string;
 }) {
   return (
-    <div className={`grid grid-cols-[1fr_110px_110px_110px_auto] gap-2 items-center py-2 transition-colors ${dark ? 'border-white/[0.04] hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50/60'} border-b last:border-b-0`}>
+    <div className={`grid grid-cols-[minmax(0,1fr)_minmax(58px,110px)_minmax(58px,110px)_minmax(58px,110px)_auto] gap-2 items-center py-2 transition-colors ${dark ? 'border-white/[0.04] hover:bg-white/[0.02]' : 'border-slate-100 hover:bg-slate-50/60'} border-b last:border-b-0`}>
       <div className="min-w-0">
         <code className={`font-mono text-sm truncate block ${dark ? 'text-slate-200' : 'text-slate-700'}`}>{name}</code>
         {hint && <div className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{hint}</div>}
@@ -139,7 +143,7 @@ function RateRow({
           <button
             type="button"
             onClick={onRemove}
-            className={`text-xs px-1.5 py-0.5 rounded ${dark ? 'text-slate-500 hover:text-red-300' : 'text-slate-400 hover:text-red-600'}`}
+            className={`tap-24 text-xs px-1.5 py-0.5 rounded ${dark ? 'text-slate-500 hover:text-red-300' : 'text-slate-500 hover:text-red-600'}`}
             aria-label={`Remove ${name}`}
             title="Remove this entry"
           >
@@ -184,9 +188,13 @@ function CostSimulator({ dark, rates }: { dark: boolean; rates: CostRates }) {
 
   return (
     <div className={`rounded-lg border shadow-sm p-3 ${dark ? 'bg-[#0d1322] border-white/[0.06]' : 'bg-slate-50/80 border-slate-200'}`}>
+      {/* 2026-10-23: the four labels here were plain <label> siblings with no
+          htmlFor, so they read correctly with the eye but were not associated
+          with anything. Wrapping the control makes the association implicit —
+          no ids to generate and keep unique across the repeated rows. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div>
-          <label className={labelCls}>Model / provider</label>
+        <label className="block">
+          <span className={labelCls}>Model / provider</span>
           <select value={selection} onChange={(e) => setSelection(e.target.value)} className={inputCls}>
             <optgroup label="Provider defaults">
               {providerOptions.map((p) => <option key={`p-${p}`} value={`provider:${p}`}>{p}</option>)}
@@ -197,19 +205,19 @@ function CostSimulator({ dark, rates }: { dark: boolean; rates: CostRates }) {
               </optgroup>
             )}
           </select>
-        </div>
-        <div>
-          <label className={labelCls}>Requests / day</label>
+        </label>
+        <label className="block">
+          <span className={labelCls}>Requests / day</span>
           <input type="number" min="0" step="1" value={requestsPerDay} onChange={(e) => setRequestsPerDay(parseInt(e.target.value || '0', 10))} className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Input tokens / req</label>
+        </label>
+        <label className="block">
+          <span className={labelCls}>Input tokens / req</span>
           <input type="number" min="0" step="50" value={avgInTokens} onChange={(e) => setAvgInTokens(parseInt(e.target.value || '0', 10))} className={inputCls} />
-        </div>
-        <div>
-          <label className={labelCls}>Output tokens / req</label>
+        </label>
+        <label className="block">
+          <span className={labelCls}>Output tokens / req</span>
           <input type="number" min="0" step="50" value={avgOutTokens} onChange={(e) => setAvgOutTokens(parseInt(e.target.value || '0', 10))} className={inputCls} />
-        </div>
+        </label>
       </div>
       <div className={`flex items-baseline justify-between gap-3 pt-3 mt-3 border-t ${dark ? 'border-white/[0.06]' : 'border-slate-200'}`}>
         <div className="flex items-baseline gap-2">
@@ -315,7 +323,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
   if (loading || !draft) {
     return (
       <div className={`rounded-lg border shadow-sm px-4 py-3 ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'}`}>
-        <p className={`text-xs italic ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Loading rate table…</p>
+        <p className={`text-xs italic ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Loading rate table…</p>
       </div>
     );
   }
@@ -344,7 +352,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
       </p>
 
       {/* Header row — labels matching the user's clarity ask: "($ / 1M tokens)" */}
-      <div className={`grid grid-cols-[1fr_110px_110px_110px_auto] gap-2 text-xs font-bold uppercase tracking-wider pb-1 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+      <div className={`grid grid-cols-[minmax(0,1fr)_minmax(58px,110px)_minmax(58px,110px)_minmax(58px,110px)_auto] gap-2 text-xs font-bold uppercase tracking-wider pb-1 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
         <div>Entry</div>
         <div>Input ($ / 1M)</div>
         <div className="flex items-center gap-1">
@@ -385,10 +393,11 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
             value={newProviderName}
             onChange={(e) => setNewProviderName(e.target.value)}
             placeholder="Add a provider (e.g. gemini, deepseek, groq, mistral, together)"
+            aria-label="New provider name"
             className={`flex-1 px-2 py-1.5 text-sm rounded-md ring-1 outline-none focus:ring-2 ${
               dark
                 ? 'bg-[#0f1726] text-slate-200 ring-white/[0.08] focus:ring-amber-400/60 placeholder:text-slate-500'
-                : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-400'
+                : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-500'
             }`}
           />
           <button
@@ -423,22 +432,23 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
               value={modelSearch}
               onChange={(e) => setModelSearch(e.target.value)}
               placeholder="Search models…"
+              aria-label="Search models"
               className={`px-2 py-1 text-xs rounded-md ring-1 outline-none focus:ring-2 w-44 ${
                 dark
                   ? 'bg-[#0f1726] text-slate-200 ring-white/[0.08] focus:ring-amber-400/60 placeholder:text-slate-500'
-                  : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-400'
+                  : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-500'
               }`}
             />
           </div>
         </div>
         {filteredModelEntries.length === 0 && (
-          <p className={`text-xs italic ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+          <p className={`text-xs italic ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
             {modelSearch ? `No models match "${modelSearch}"` : 'No model-specific rates configured.'}
           </p>
         )}
         {Object.entries(modelGroups).map(([groupName, entries]) => (
           <div key={groupName} className="mt-2">
-            <div className={`text-xs font-bold uppercase tracking-wider pl-1 pb-0.5 ${dark ? 'text-slate-600' : 'text-slate-400'}`}>
+            <div className={`text-xs font-bold uppercase tracking-wider pl-1 pb-0.5 ${dark ? 'text-slate-600' : 'text-slate-500'}`}>
               {groupName === 'other' ? 'Other / custom' : groupName}
             </div>
             {entries.map(([name, rate]) => (
@@ -464,10 +474,11 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
             value={newModelName}
             onChange={(e) => setNewModelName(e.target.value)}
             placeholder="Add model name (e.g. claude-haiku-4-5)"
+            aria-label="New model name"
             className={`flex-1 px-2 py-1.5 text-sm rounded-md ring-1 outline-none focus:ring-2 ${
               dark
                 ? 'bg-[#0f1726] text-slate-200 ring-white/[0.08] focus:ring-amber-400/60 placeholder:text-slate-500'
-                : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-400'
+                : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-500'
             }`}
           />
           <button
@@ -553,7 +564,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
             </button>
             .
           </p>
-          <span className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-400'}`}>No unsaved changes</span>
+          <span className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-500'}`}>No unsaved changes</span>
         </div>
       )}
     </div>

@@ -6,6 +6,26 @@ import { branchPortsFor } from '../../utils/branchPorts';
 import { getEditorPreferences, useEditorPreferences } from '../../hooks/useEditorPreferences';
 import ConnectorIcon from '../shared/ConnectorIcons';
 
+/* 2026-10-24 — square-node geometry (n8n model).
+   The card is a fixed BOX_SIZE x BOX_SIZE square holding the icon and
+   nothing else. The node NAME renders in an absolutely positioned caption
+   BELOW the square; row counts and schema deltas render on the edge.
+
+   Keep BOX_SIZE in sync with `.revoluzen-flow-node { width/height }` in
+   globals.css — the CSS draws the box, this constant places the handles
+   on it, and Canvas.tsx's auto-layout spacing is derived from it.
+
+   Branch nodes are the one exception to "every node the same size": a
+   node with N output ports needs N handles down its right edge, so it
+   grows vertically in PORT_PITCH steps. n8n does the same. */
+const BOX_SIZE = 96;
+const PORT_PITCH = 26;
+/** Height of the square for a node with `portCount` output ports. */
+function boxHeightFor(portCount: number): number {
+  if (portCount <= 1) return BOX_SIZE;
+  return Math.max(BOX_SIZE, portCount * PORT_PITCH + 24);
+}
+
 /* 2026-06-02 Phase 2 — connector types that ConnectorIcons.tsx ships
    a brand icon for. When a source/sink node's params.connector_type
    matches one of these, we render the real brand mark instead of the
@@ -44,29 +64,44 @@ import { formatNodeDocsTooltip } from '../../utils/nodeDocs';
 import { classifyIdempotency, IDEMPOTENCY_TONE_CLASSES } from '../../utils/idempotency';
 import { askCopilot } from '../../hooks/useAgentChatStore';
 
-/* ── Category accent colours — driven by stepType, mirrors the
-     MiniMap CATEGORY_COLORS in Canvas.tsx so the minimap pip and the
-     node's left-edge stripe share a visual language. Picked for
-     legibility at zoom-out: each value is the saturated mid-tone of
-     a Tailwind family that survives reduction to a 6×4px chip. ── */
+/* ── Category accent bar — a NEUTRAL ramp, not brand colour.
+ *
+ * 2026-10-25. This used to be the saturated mid-tone of a Tailwind
+ * family per category: blue sources, purple sinks, orange joins, amber
+ * control flow, emerald transforms. On the square node that put a
+ * second colour system on the same tile as the first: gold, red and
+ * green already mean RUN STATE there — the running ring, the status
+ * badge, the error ring — and two colour languages competing for one
+ * glance means neither is read quickly.
+ *
+ * Category has not lost its colour; it moved to where it was always
+ * strongest. The icon tile is still brand-coloured per node type (see
+ * NodeIcon's gradients, and the real brand marks for ~70 connectors),
+ * and that is a 48px block rather than a 4px strip. The bar is now a
+ * neutral foot that orders the pipeline by lightness — darkest at the
+ * ends where data enters and leaves, lightest for the transforms in
+ * between — so it still groups at zoom-out without shouting.
+ *
+ * Same instinct as the card-colour standard: neutral surface, colour
+ * reserved for the one thing that carries meaning.
+ */
 function categoryAccent(stepType: string): string {
-  // Sources — blue
-  if (stepType === 'source' || stepType.endsWith('_source')) return '#3b82f6';
-  // Destinations / sinks / outputs — purple
-  if (stepType === 'destination' || stepType === 'output' || stepType === 'db_sink' || stepType.endsWith('_sink')) return '#8b5cf6';
-  // Combine (multi-input joins) — orange
-  if (stepType === 'join' || stepType === 'lookup' || stepType === 'union' || stepType === 'copy_data') return '#f97316';
-  // AI / Semantic — violet
-  if (stepType === 'embedder' || stepType === 'llm_guardrail' || stepType === 'semantic_router') return '#a855f7';
-  // Control flow — amber
+  // Sources — graphite. Darkest: where data enters.
+  if (stepType === 'source' || stepType.endsWith('_source')) return '#334155';
+  // Destinations / sinks / outputs — the other end of the pipeline.
+  if (stepType === 'destination' || stepType === 'output' || stepType === 'db_sink' || stepType.endsWith('_sink')) return '#475569';
+  // Combine (multi-input joins).
+  if (stepType === 'join' || stepType === 'lookup' || stepType === 'union' || stepType === 'copy_data') return '#64748b';
+  // AI / Semantic.
+  if (stepType === 'embedder' || stepType === 'llm_guardrail' || stepType === 'semantic_router') return '#64748b';
+  // Control flow.
   if (stepType === 'conditional_split' || stepType === 'validation' || stepType === 'fail' ||
       stepType === 'execute_sql_task' || stepType === 'get_metadata' || stepType === 'delete_data' ||
       stepType === 'file_system' || stepType === 'append_variable' || stepType === 'filter_array' ||
-      stepType === 'lookup_activity') return '#eab308';
-  // Transform / shape / quality — emerald (the default for the rest of
-  // the catalog; transform is the largest category and earns the most
-  // common-looking accent)
-  return '#10b981';
+      stepType === 'lookup_activity') return '#94a3b8';
+  // Transform / shape / quality — the default, and the largest
+  // category, so it gets the quietest stop.
+  return '#cbd5e1';
 }
 
 /* ── Mini SVG icons matching the ModulesPanel icons ── */
@@ -79,11 +114,12 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
   // moment for ~70 known connector types; everything else falls
   // through to the gradient glyph branch below.
   if (connectorType && BRAND_ICON_TYPES.has(connectorType)) {
-    return <ConnectorIcon type={connectorType} size={32} />;
+    return <ConnectorIcon type={connectorType} size={44} />;
   }
   // 2026-06-02 — inner SVG bumped 16 → 18 to fill the larger 32px
   // icon container without going flush to the edge.
-  const s = 18;
+  // 2026-10-24 — 18 → 26 to match the 48px tile on the square node.
+  const s = 26;
   const icons: Record<string, React.ReactNode> = {
     // Generic Source — connector chosen inside config
     source: (
@@ -551,7 +587,10 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
       // 2026-06-02 — bumped from w-7 h-7 (28px) to w-8 h-8 (32px) so
       // the type signal survives zoom-out. Icon-first clarity: the icon
       // is the primary recognition cue, not the text.
-      className="w-8 h-8 rounded-md flex items-center justify-center shadow-sm shrink-0"
+      // 2026-10-24 — 32px -> 48px. On the square node the icon IS the
+      // node: the name moved to a caption below, so the tile has to
+      // carry recognition on its own at zoom-out.
+      className="w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0"
       style={{ background: gradients[type] || color }}
     >
       {icons[type] || (
@@ -621,39 +660,14 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
   const pinNode = useWorkflowStore((s) => s.pinNode);
   const unpinNode = useWorkflowStore((s) => s.unpinNode);
   const nodeErrors = useWorkflowStore((s) => s.validationErrors[id]);
-  // C3 — Schema-delta chip. When the user enables `showSchemaDeltas` in
-  // Settings → General, every node shows a compact "+N/~N/−N" chip
-  // describing how it changed its input's schema. Computed lazily —
-  // requires both this node and its single upstream to have run.
-  const showSchemaDeltas = useWorkflowStore((s) => {
-    void s.nodes; void s.edges; void s.stepResults;
-    // Read from the same prefs hook used elsewhere — module-level import
-    // to avoid an extra hook here. getEditorPreferences is sync.
-    return getEditorPreferences().showSchemaDeltas;
-  });
-  const selfSchemaDelta = (() => {
-    if (!showSchemaDeltas) return null;
-    const selfResult = stepResults[id];
-    if (selfResult?.status !== 'success') return null;
-    const { edges, nodes: allNodes } = useWorkflowStore.getState();
-    const incoming = edges.filter((e) => e.target === id);
-    if (incoming.length !== 1) return null;  // multi-input: skip
-    const up = stepResults[incoming[0].source];
-    if (up?.status !== 'success') return null;
-    const sourceCols = new Set(up.columns);
-    const targetCols = new Set(selfResult.columns);
-    let added = 0, removed = 0, retyped = 0;
-    for (const c of selfResult.columns) if (!sourceCols.has(c)) added++;
-    for (const c of up.columns) if (!targetCols.has(c)) removed++;
-    const sourceTypes = new Map(up.schema_info.map((c) => [c.name, c.type]));
-    for (const c of selfResult.schema_info) {
-      const st = sourceTypes.get(c.name);
-      if (st && st !== c.type) retyped++;
-    }
-    void allNodes;
-    if (added === 0 && removed === 0 && retyped === 0) return null;
-    return { added, removed, retyped };
-  })();
+  // C3 — the schema-delta chip used to live here, on the node. It now
+  // renders on the EDGE (CustomEdge), which already computed the same
+  // +N/~N/−N against the same pair of results — two surfaces describing
+  // one transition. The `showSchemaDeltas` preference still gates it,
+  // read by CustomEdge. Removed from the node on 2026-10-24 with the
+  // square redesign: a 96px square has no room for it, and the edge is
+  // where the before/after actually happens.
+  //
   // B2: input row count from the single upstream's result, so the success
   // badge can show "in → out" — makes a Filter/Join/Dedup effect visible at
   // a glance. Sources (no input) and multi-input nodes just show output.
@@ -882,21 +896,41 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
     return () => document.removeEventListener('mousedown', close);
   }, [contextMenu]);
 
+  // Output ports decide the square's height: one port keeps it at
+  // BOX_SIZE, N ports grow it so each handle has room on the right edge.
+  const outPorts = branchPortsFor(stepType, params);
+  const boxH = boxHeightFor(outPorts.length);
+
+  // The node's STANDARD name — what the node is, derived from its type.
+  // It renders inside the square. `label` is the user's own name for this
+  // instance and renders below; until they rename, the two are the same
+  // string, and showing both printed "Destination" twice.
+  const typeLabel = stepType
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const hasCustomName =
+    String(label ?? '').trim().length > 0 &&
+    String(label).trim().toLowerCase() !== typeLabel.toLowerCase();
+
   return (
     <div
       className={`revoluzen-flow-node ${statusClass} ${selected ? 'selected' : ''} ${isDeactivated ? 'deactivated' : isBlockedByUpstream ? 'blocked-upstream' : ''} ${nodeErrors?.length ? 'validation-error' : ''}`}
+      style={boxH !== BOX_SIZE ? { height: boxH } : undefined}
       onContextMenu={handleContextMenu}
     >
-      {/* Category accent stripe — left edge, 4px wide, full height,
-          rounded to match the card. Driven by stepType via the
-          categoryAccent() helper above. This is the category-color
-          clarity signal: at zoom-out where text is illegible, the
-          colored bar still tells the eye whether this is a source
-          (blue), transform (emerald), join (orange), control flow
-          (amber), AI (violet) or sink (purple). Pointer-events off
-          so the strip never intercepts drag/click. */}
+      {/* Category accent bar — bottom edge, 4px tall, full width.
+          Driven by stepType via the categoryAccent() helper above. This
+          is the category-color clarity signal: at zoom-out where text is
+          illegible, the colored bar still tells the eye whether this is a
+          source (blue), transform (emerald), join (orange), control flow
+          (amber), AI (violet) or sink (purple).
+
+          2026-10-24 — was a 4px stripe down the LEFT edge, which read as
+          a tab marker beside a wide pill. On a square with a centred icon
+          a full-width bar under the icon reads as part of the tile.
+          Pointer-events off so the bar never intercepts drag/click. */}
       <div
-        className="absolute left-0 top-0 bottom-0 w-1 rounded-l-[10px] pointer-events-none"
+        className="absolute left-0 right-0 bottom-0 h-1 rounded-b-[12px] pointer-events-none"
         style={{ background: categoryAccent(stepType) }}
         aria-hidden="true"
       />
@@ -904,16 +938,16 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
       {/* Input handle — LEFT side (always rendered; universal nodes).
           2026-06-02 — bumped 10px → 14px (!w-2.5 → !w-3.5) so the
           drop target is easier to see and grab. Border bumped to 2px
-          to keep the white halo visible at the larger size. */}
+          to keep the white halo visible at the larger size.
+          2026-10-24 — the square is a fixed 96px tall whatever the
+          density, so the handle sits at its true vertical centre; it no
+          longer has to be pinned to a header row to stop edges
+          re-routing when the body grew. */}
       <Handle
         type="target"
         position={Position.Left}
         className="!w-3.5 !h-3.5 !border-2 !border-white !bg-slate-400"
-        // Pin to the header/icon row (not the node's vertical center) so the
-        // density toggle — which grows the node body in metrics/verbose by
-        // adding subtitle/preview lines — doesn't move the connection point
-        // and re-route every edge. Keeps wiring stable across CLEAN/METRICS/VERBOSE.
-        style={{ top: '1.5rem' }}
+        style={{ top: boxH / 2 }}
       />
       {isJoin && (
         <Handle
@@ -951,46 +985,146 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
         </svg>
       </button>
 
-      {/* Node header */}
-      <div className="flex items-center gap-2 px-3 py-2">
-        <div className="relative">
-          <NodeIcon type={stepType} color={color} connectorType={params?.connector_type} />
-          {/* Side-effect badge — small amber ⚠ at the icon's bottom-right
-              for nodes that touch the outside world (writes, calls,
-              deletes). Tooltip is per-action ("Writes a CSV file",
-              "Calls an external API") via `sideEffectLabel` so the user
-              sees specific consequences at a glance instead of generic
-              "side-effect node" boilerplate. */}
-          {hasSideEffect(stepType) && (
-            <div
-              className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-amber-400 border-[1.5px] border-white flex items-center justify-center shadow-sm"
-              title={
-                (sideEffectLabel(stepType) || 'Has external side effects') +
-                ' — preview / retry / resume may have real-world consequences.'
-              }
-            >
-              <svg width="6" height="6" viewBox="0 0 24 24" fill="none" stroke="#78350f" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="9" x2="12" y2="13" />
-                <line x1="12" y1="17" x2="12.01" y2="17" />
+      {/* The square holds the icon and nothing else. Everything that used
+          to sit beside or under it — name, subtitle, param preview,
+          schema delta, validation text, idempotency badge, row counts —
+          either moved to the caption below, became a corner badge, or
+          moved onto the edge. */}
+      {/* Side-effect badge — amber ⚠ for nodes that touch the outside
+          world (writes, calls, deletes). Tooltip is per-action ("Writes a
+          CSV file", "Calls an external API") via `sideEffectLabel` so the
+          user sees specific consequences at a glance instead of generic
+          "side-effect node" boilerplate.
+
+          2026-10-24 — moved off the icon's corner onto the square's
+          bottom-RIGHT. Sitting on the icon it read as a blemish on the
+          artwork; the square now carries one badge per corner —
+          validation top-left, run status top-right, re-run class
+          bottom-left, side effect bottom-right — so none overlaps
+          another or the icon. */}
+      {hasSideEffect(stepType) && (
+        <div
+          className="absolute -bottom-1.5 -right-1.5 z-10 w-[18px] h-[18px] rounded-full bg-amber-400 border-2 border-white flex items-center justify-center shadow"
+          title={
+            (sideEffectLabel(stepType) || 'Has external side effects') +
+            ' — preview / retry / resume may have real-world consequences.'
+          }
+        >
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#78350f" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" y1="9" x2="12" y2="13" />
+            <line x1="12" y1="17" x2="12.01" y2="17" />
+          </svg>
+        </div>
+      )}
+
+      {/* Icon + the node's STANDARD name, both inside the square. The
+          standard name is what the node IS ("Destination", "Derived
+          Column") and never changes, so it belongs on the tile; the
+          user's own name for this instance goes in the caption below.
+          `break-words` + two lines covers the longest type labels
+          ("Managed Table Source") without widening the square. */}
+      <div className="flex flex-col items-center justify-center gap-1 px-1.5">
+        <NodeIcon type={stepType} color={color} connectorType={params?.connector_type} />
+        <div
+          // 10px, not 9: `line-clamp-2` clips with `overflow: hidden`, so a
+          // line box tighter than ~1.3 cuts the descenders off words like
+          // "Aggregate" and "Derived Column". 10px also matches the size
+          // this label had as a subtitle, which was picked for legibility.
+          className="text-[10px] font-semibold text-slate-600 leading-[1.3] text-center line-clamp-2 break-words cursor-help"
+          title={formatNodeDocsTooltip(stepType)}
+        >
+          {typeLabel}
+        </div>
+      </div>
+
+      {/* Status badge — top-right corner of the square. Was a 16px dot in
+          the header row; on a square there is no header row, and a corner
+          badge is both more visible at zoom-out and in the same place on
+          every node. */}
+      {(status === 'success' || status === 'error' || status === 'skipped' || status === 'running') && (
+        <div className="absolute -top-1.5 -right-1.5 z-10">
+          {status === 'success' && (
+            <div className="w-[18px] h-[18px] rounded-full bg-green-500 border-2 border-white shadow flex items-center justify-center" title="Succeeded">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
               </svg>
             </div>
           )}
+          {status === 'error' && (
+            <div className="w-[18px] h-[18px] rounded-full bg-red-500 border-2 border-white shadow flex items-center justify-center" title={result?.error || 'Failed'}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </div>
+          )}
+          {status === 'skipped' && (
+            <div
+              className="w-[18px] h-[18px] rounded-full bg-slate-400 border-2 border-white shadow flex items-center justify-center"
+              title="Skipped — upstream had no rows, or this node was elided in sample mode"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="13 17 18 12 13 7" />
+                <polyline points="6 17 11 12 6 7" />
+              </svg>
+            </div>
+          )}
+          {status === 'running' && (
+            <div className="w-[18px] h-[18px] rounded-full bg-white border-2 border-amber-400 border-t-transparent animate-spin shadow" title="Running" />
+          )}
         </div>
-        <div className="flex-1 min-w-0">
-          {renaming ? (
-            <input
-              ref={renameRef}
-              value={renamingValue}
-              onChange={(e) => setRenamingValue(e.target.value)}
-              onBlur={finishRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') finishRename();
-                if (e.key === 'Escape') setRenaming(false);
-              }}
-              className="text-xs font-bold text-slate-800 w-full bg-blue-50 border border-blue-300 rounded px-1 py-0 focus:outline-none focus:ring-1 focus:ring-blue-400 nodrag"
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
+      )}
+
+      {/* Validation badge — top-left corner. The inline red error list
+          used to grow the card (and was the main reason no two nodes were
+          the same height). The full text is in the tooltip here and in
+          the config panel; the red ring on the card comes from the
+          `validation-error` class. */}
+      {nodeErrors?.length > 0 && (
+        <div
+          className="absolute -top-1.5 -left-1.5 z-10 w-[18px] h-[18px] rounded-full bg-red-500 border-2 border-white shadow flex items-center justify-center"
+          title={nodeErrors.join('\n')}
+        >
+          <span className="text-white text-[11px] font-black leading-none">!</span>
+        </div>
+      )}
+
+      {/* Idempotency dot — bottom-left of the square, sinks only. Tells
+          the user at a glance whether a re-run is safe (green), safe but
+          destructive (amber), or risky/external (red). Label is in the
+          tooltip; see src/utils/idempotency.ts for the classifier. */}
+      {(() => {
+        const idem = classifyIdempotency(stepType, params);
+        if (!idem) return null;
+        const tone = IDEMPOTENCY_TONE_CLASSES[idem.tone];
+        return (
+          <span
+            className={`absolute -bottom-1 -left-1 z-10 w-3.5 h-3.5 rounded-full border-2 border-white shadow ${tone.dot}`}
+            title={`${idem.label} — ${idem.detail}`}
+          />
+        );
+      })()}
+
+      {/* ── Caption, BELOW the square ──────────────────────────────────
+          Absolutely positioned so React Flow still measures the node as
+          the square alone: handles stay on the box edges and fitView is
+          not thrown off by a tall name. Canvas auto-layout leaves room
+          for it (see V_SPACING). Width is wider than the square so a
+          two-word name wraps instead of truncating. */}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-[140px] text-center pointer-events-none">
+        {renaming ? (
+          <input
+            ref={renameRef}
+            value={renamingValue}
+            onChange={(e) => setRenamingValue(e.target.value)}
+            onBlur={finishRename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') finishRename();
+              if (e.key === 'Escape') setRenaming(false);
+            }}
+            className="text-[12px] font-bold text-slate-800 w-full text-center bg-blue-50 border border-blue-300 rounded px-1 py-0 focus:outline-none focus:ring-1 focus:ring-blue-400 nodrag pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
             /* 2026-05-28 — `truncate` (single-line ellipsis) cut off
                common labels like "Local CSV: daily_sales" → "Local CSV:
                daily_s…" with no way for the user to see the full name.
@@ -1005,30 +1139,19 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
                (double-click-to-open behavior, handled in Canvas.tsx onNodeDoubleClick).
                Rename moved to F2 (handled below) + right-click menu.
                Removing the stopPropagation lets the React Flow
-               double-click handler fire as intended. */
-            <div
-              className="text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words"
-              title={`${label}\n\nDouble-click to open · F2 to rename`}
-            >
-              {label}
-            </div>
-          )}
-          {/* Subtitle (step-type label, e.g. "Csv Source" / "Aggregate")
-              — density-gated. Hidden in `clean` mode (icon carries the
-              type signal), shown in `metrics` and `verbose`.
-              2026-06-02 restyle:
-                - 9px → 10px (above browser min-legible)
-                - slate-400 → slate-500 (WCAG AA contrast on white:
-                  4.61:1, passes the 4.5:1 bar)
-                - added font-medium so the line reads as deliberate
-                  rather than ghosted */}
-          {labelDensity !== 'clean' && (
-            <div
-              className="text-[10px] text-slate-500 font-medium cursor-help mt-0.5"
-              title={formatNodeDocsTooltip(stepType)}
-            >
-              {stepType.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}
-            </div>
+               double-click handler fire as intended.
+               2026-10-24 — this is now the USER'S OWN name only. The
+               standard type name moved inside the square, so a node the
+               user has not renamed shows nothing here rather than
+               repeating what the tile already says. */
+            hasCustomName && (
+              <div
+                className="text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words"
+                title={`${label}\n\nDouble-click to open · F2 to rename`}
+              >
+                {label}
+              </div>
+            )
           )}
           {/* Verbose-only — param preview line. Surfaces the most
               salient config (group-by columns / join key / filter
@@ -1042,128 +1165,32 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
               {preview}
             </div>
           )}
-        </div>
-        {status === 'success' && (
-          <div className="w-4 h-4 rounded-full bg-green-500 flex items-center justify-center">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-        )}
-        {status === 'error' && (
-          <div className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </div>
-        )}
-        {status === 'skipped' && (
-          // A7 — Skipped state (e.g. upstream returned 0 rows and this
-          // node had always_output=false, or A6 elided a side-effect
-          // node from a sample run). Visually distinct from error (red)
-          // so the user doesn't mistake it for a failure.
+        {/* Run time, under the name — n8n's placement. The row count it
+            used to sit beside now renders on the OUTGOING EDGE, where
+            one number describes one flow instead of being repeated on
+            both endpoints. Duration belongs to the step, so it stays
+            here. */}
+        {result?.status === 'success' && (
           <div
-            className="w-4 h-4 rounded-full bg-slate-300 flex items-center justify-center"
-            title="Skipped — upstream had no rows, or this node was elided in sample mode"
+            className="text-[10px] text-slate-500 font-medium mt-0.5 tabular-nums"
+            title={
+              inputRowCount != null
+                ? `${inputRowCount.toLocaleString()} rows in → ${result.row_count.toLocaleString()} rows out in ${result.duration_ms} ms`
+                : `${result.row_count.toLocaleString()} rows in ${result.duration_ms} ms`
+            }
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="13 17 18 12 13 7" />
-              <polyline points="6 17 11 12 6 7" />
-            </svg>
+            {result.duration_ms} ms
           </div>
         )}
-        {status === 'running' && (
-          <div className="w-4 h-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+        {result?.status === 'error' && (
+          <div
+            className="text-[10px] text-red-600 font-semibold mt-0.5 line-clamp-2 leading-tight break-words"
+            title={result.error || 'Error'}
+          >
+            {result.error || 'Error'}
+          </div>
         )}
       </div>
-
-      {/* C3 — Schema-delta chip (opt-in via Settings → General →
-          Show schema deltas on nodes). Renders only when both this
-          node and its single upstream have run successfully. */}
-      {selfSchemaDelta && (
-        <div className="px-3 pb-1 flex items-center gap-1.5 text-[9px] font-semibold leading-none">
-          {selfSchemaDelta.added > 0 && (
-            <span className="text-emerald-700 bg-emerald-50 px-1 py-0.5 rounded" title="Columns added vs. input">
-              +{selfSchemaDelta.added}
-            </span>
-          )}
-          {selfSchemaDelta.retyped > 0 && (
-            <span className="text-amber-700 bg-amber-50 px-1 py-0.5 rounded" title="Columns retyped vs. input">
-              ~{selfSchemaDelta.retyped}
-            </span>
-          )}
-          {selfSchemaDelta.removed > 0 && (
-            <span className="text-red-700 bg-red-50 px-1 py-0.5 rounded" title="Columns dropped vs. input">
-              −{selfSchemaDelta.removed}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Validation errors — #10 partial: `title` makes the full error
-          readable on hover, since the inline label truncates at the
-          node's narrow width. */}
-      {nodeErrors?.length > 0 && (
-        <div className="px-3 pb-1.5">
-          {nodeErrors.map((err, i) => (
-            <div
-              key={i}
-              className="flex items-start gap-1 text-[8px] text-red-500 font-medium bg-red-50 px-2 py-1 rounded mt-0.5 leading-tight"
-              title={err}
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 mt-0.5">
-                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-              </svg>
-              <span className="truncate">{err}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Idempotency badge — only renders for sinks. Tells the
-          user at a glance whether a re-run is safe (green), safe
-          but destructive (amber), or risky/external (red). See
-          src/utils/idempotency.ts for the classifier — class is
-          a function of (stepType, params), so flipping a sink
-          from "append" to "merge" updates the badge live. */}
-      {(() => {
-        const idem = classifyIdempotency(stepType, params);
-        if (!idem) return null;
-        const tone = IDEMPOTENCY_TONE_CLASSES[idem.tone];
-        return (
-          <div className="px-3 pb-1.5">
-            <span
-              className={`inline-flex items-center gap-1 text-[8px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${tone.bg} ${tone.text} ${tone.border}`}
-              title={idem.detail}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${tone.dot}`} />
-              {idem.label}
-            </span>
-          </div>
-        );
-      })()}
-
-      {/* Result badge */}
-      {result && (
-        <div className="px-3 pb-2">
-          {result.status === 'success' && (
-            <span className="text-[8px] text-green-600 font-medium bg-green-50 px-1.5 py-0.5 rounded"
-              title={inputRowCount != null ? `${inputRowCount.toLocaleString()} rows in → ${result.row_count.toLocaleString()} rows out` : undefined}>
-              {inputRowCount != null && inputRowCount !== result.row_count
-                ? `${inputRowCount.toLocaleString()} → ${result.row_count.toLocaleString()} rows`
-                : `${result.row_count.toLocaleString()} rows`} · {result.duration_ms}ms
-            </span>
-          )}
-          {result.status === 'error' && (
-            <span
-              className="text-[8px] text-red-400 font-medium bg-red-500/10 px-1.5 py-0.5 rounded truncate max-w-[160px] inline-block"
-              title={result.error || 'Error'}
-            >
-              {result.error || 'Error'}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Output handle(s) — RIGHT side. Ordinary nodes render the single
           'output' handle (pinned to the header row so edges stay stable
@@ -1172,25 +1199,31 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           right edge — handle id = port name → edge.sourceHandle →
           connection.from_port → executor branch routing (2026-06-11). */}
       {(() => {
-        const ports = branchPortsFor(stepType, params);
-        if (ports.length <= 1) {
+        if (outPorts.length <= 1) {
           return (
             <Handle
               type="source"
               position={Position.Right}
-              id={ports[0]?.id || 'output'}
+              id={outPorts[0]?.id || 'output'}
               className="!w-3.5 !h-3.5 !border-2 !border-white !rounded-full"
-              style={{ background: ports[0]?.color || color, top: '1.5rem' }}
+              style={{ background: outPorts[0]?.color || color, top: boxH / 2 }}
             />
           );
         }
-        return ports.flatMap((p, idx) => {
-          const top = `${Math.round(((idx + 1) / (ports.length + 1)) * 100)}%`;
+        // Branch node: one handle per port, evenly down the right edge of
+        // the (taller) square. Tops are PIXELS, not percentages — the
+        // square's height is known here and a percentage would be read
+        // against the measured element, which is the square only.
+        return outPorts.flatMap((p, idx) => {
+          const top = Math.round(((idx + 1) / (outPorts.length + 1)) * boxH);
           return [
+            // Port label sits OUTSIDE the square, in the layout gap, lifted
+            // clear of the edge that leaves this handle. There is no room
+            // for it inside a 96px square next to a 44px icon.
             <span
               key={`${p.id}-lbl`}
-              className="absolute right-3 text-[8px] font-semibold text-slate-500 -translate-y-1/2 pointer-events-none max-w-[64px] truncate text-right"
-              style={{ top }}
+              className="absolute left-full ml-2 text-[10px] font-semibold text-slate-500 pointer-events-none max-w-[80px] truncate"
+              style={{ top: top - 16 }}
               title={p.label}
             >{p.label}</span>,
             <Handle
@@ -1208,7 +1241,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
       {/* Deactivated overlay — amber pill, centered, impossible to miss */}
       {isDeactivated && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="text-[9px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-300 shadow-sm flex items-center gap-1">
+          <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-full uppercase tracking-wider border border-amber-300 shadow-sm flex items-center gap-1">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
@@ -1225,7 +1258,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           ran here at execution time. */}
       {!isDeactivated && isBlockedByUpstream && (
         <div className="absolute -top-2 left-1/2 -translate-x-1/2 pointer-events-none">
-          <span className="text-[8px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full uppercase tracking-wider border border-slate-300 shadow-sm flex items-center gap-1 whitespace-nowrap">
+          <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded-full uppercase tracking-wider border border-slate-300 shadow-sm flex items-center gap-1 whitespace-nowrap">
             <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="13 17 18 12 13 7" />
               <polyline points="6 17 11 12 6 7" />
@@ -1307,7 +1340,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           <button onClick={handleResumeFromStep} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800" title="Reuses cached upstream outputs where params are unchanged">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
             Rerun from Here
-            <span className="ml-auto text-[8px] text-emerald-500 font-medium">CACHE</span>
+            <span className="ml-auto text-[10px] text-emerald-500 font-medium">CACHE</span>
           </button>
           {/* N1 — pin / unpin this node's output. Only meaningful when
               the node already has a result to pin (status === 'success'
@@ -1336,7 +1369,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           <button onClick={handleRenameCtx} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
             Rename
-            <kbd className="ml-auto text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">F2</kbd>
+            <kbd className="ml-auto text-[10px] text-slate-500 bg-slate-100 px-1 py-0.5 rounded">F2</kbd>
           </button>
           <button
             onClick={() => {
@@ -1351,17 +1384,17 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
             Open Settings
-            <kbd className="ml-auto text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">Space</kbd>
+            <kbd className="ml-auto text-[10px] text-slate-500 bg-slate-100 px-1 py-0.5 rounded">Space</kbd>
           </button>
           <button onClick={handleDeactivate} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
             {isDeactivated ? 'Activate' : 'Deactivate'}
-            <kbd className="ml-auto text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">D</kbd>
+            <kbd className="ml-auto text-[10px] text-slate-500 bg-slate-100 px-1 py-0.5 rounded">D</kbd>
           </button>
           <button onClick={handleDuplicate} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-slate-600 hover:bg-slate-50 hover:text-slate-800">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
             Duplicate
-            <kbd className="ml-auto text-[9px] text-slate-400 bg-slate-100 px-1 py-0.5 rounded">Ctrl+D</kbd>
+            <kbd className="ml-auto text-[10px] text-slate-500 bg-slate-100 px-1 py-0.5 rounded">Ctrl+D</kbd>
           </button>
           <div className="border-t border-slate-100 my-1" />
           <button onClick={async () => {
@@ -1379,7 +1412,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           }} className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-red-500 hover:bg-red-50 hover:text-red-600">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
             Delete
-            <kbd className="ml-auto text-[9px] text-red-300 bg-red-50 px-1 py-0.5 rounded">Del</kbd>
+            <kbd className="ml-auto text-[10px] text-red-300 bg-red-50 px-1 py-0.5 rounded">Del</kbd>
           </button>
         </div>,
         document.body,

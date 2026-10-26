@@ -19,7 +19,11 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import require_auth, require_min_rank
+from revoluzen_flow.auth.deps import (
+    require_auth,
+    require_min_rank,
+    require_min_rank_when_identified,
+)
 from revoluzen_flow.connectors.ai_authoring import (
     fetch_openapi_spec,
     generate_and_validate,
@@ -28,7 +32,23 @@ from revoluzen_flow.connectors.ai_authoring import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/connectors/author", tags=["connector-authoring"])
+# 2026-10-23 — router-level gate. The three from-openapi / from-samples
+# endpoints reached their handlers anonymously in SECURITY_MODE=server;
+# they fetch and parse operator-supplied specs and write connector
+# definitions, which is authoring, not reading. The nested explorer router
+# already required `developer`, so this makes the parent consistent with
+# the child rather than introducing a new rule.
+#
+# The relaxed form of the rank gate: the strict one calls require_auth and
+# would 401 the OSS loopback install, which often has no login at all.
+# This refuses anonymous callers only in server mode and enforces the rank
+# whenever a caller IS identified. (The nested explorer router keeps its
+# pre-existing strict gate — that predates this pass and is left as it was.)
+router = APIRouter(
+    prefix="/api/connectors/author",
+    tags=["connector-authoring"],
+    dependencies=[Depends(require_min_rank_when_identified("developer"))],
+)
 from revoluzen_flow.api.api_explorer import router as explorer_router
 router.include_router(explorer_router)
 

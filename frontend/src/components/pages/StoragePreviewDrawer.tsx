@@ -395,7 +395,7 @@ export default function StoragePreviewDrawer({
 
         <button
           onClick={onClose}
-          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-colors shrink-0"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-colors shrink-0"
           aria-label="Close preview"
           title="Close (Esc)"
         >
@@ -449,13 +449,13 @@ export default function StoragePreviewDrawer({
         <div className="px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] text-slate-700 flex flex-wrap gap-x-4 gap-y-1">
           {provenance.source_file && (
             <span>
-              <span className="font-semibold uppercase text-[9px] tracking-wider text-slate-500">From file</span>{' '}
+              <span className="font-semibold uppercase text-[10px] tracking-wider text-slate-500">From file</span>{' '}
               <code className="px-1 rounded bg-white border border-slate-200 font-mono text-[10px]">{provenance.source_file.name}</code>
             </span>
           )}
           {provenance.source_workflow && (
             <span>
-              <span className="font-semibold uppercase text-[9px] tracking-wider text-slate-500">Produced by</span>{' '}
+              <span className="font-semibold uppercase text-[10px] tracking-wider text-slate-500">Produced by</span>{' '}
               <a
                 href={`#editor/${provenance.source_workflow.id}`}
                 className="text-pipe-700 hover:text-pipe-900 font-medium underline-offset-2 hover:underline"
@@ -464,10 +464,10 @@ export default function StoragePreviewDrawer({
           )}
           {provenance.last_run && provenance.last_run.completed_at && (
             <span>
-              <span className="font-semibold uppercase text-[9px] tracking-wider text-slate-500">Last run</span>{' '}
+              <span className="font-semibold uppercase text-[10px] tracking-wider text-slate-500">Last run</span>{' '}
               {new Date(provenance.last_run.completed_at).toLocaleString()}
               {provenance.last_run.status && (
-                <span className={`ml-1 inline-block px-1.5 rounded text-[9px] font-bold uppercase ${
+                <span className={`ml-1 inline-block px-1.5 rounded text-[10px] font-bold uppercase ${
                   provenance.last_run.status === 'success' ? 'bg-emerald-100 text-emerald-800' :
                   provenance.last_run.status === 'error' ? 'bg-red-100 text-red-800' :
                   'bg-slate-200 text-slate-700'
@@ -480,8 +480,8 @@ export default function StoragePreviewDrawer({
               ? `Consumed by:\n${provenance.consumers.map((c) => '• ' + c.name).join('\n')}`
               : 'No downstream pipelines depend on this table'
           }>
-            <span className="font-semibold uppercase text-[9px] tracking-wider text-slate-500">Consumed by</span>{' '}
-            <span className={provenance.consumer_count > 0 ? 'text-amber-700 font-medium' : 'text-slate-400'}>
+            <span className="font-semibold uppercase text-[10px] tracking-wider text-slate-500">Consumed by</span>{' '}
+            <span className={provenance.consumer_count > 0 ? 'text-amber-700 font-medium' : 'text-slate-500'}>
               {provenance.consumer_count} pipeline{provenance.consumer_count === 1 ? '' : 's'}
             </span>
           </span>
@@ -493,7 +493,7 @@ export default function StoragePreviewDrawer({
               recipe, so this simply doesn't render for them. */}
           {Array.isArray(provenance.source_recipe) && provenance.source_recipe.length > 0 && (
             <span className="flex items-center gap-1.5 basis-full">
-              <span className="font-semibold uppercase text-[9px] tracking-wider text-slate-500">Transformation</span>
+              <span className="font-semibold uppercase text-[10px] tracking-wider text-slate-500">Transformation</span>
               <span className="text-slate-600">
                 {provenance.source_recipe.length} step{provenance.source_recipe.length === 1 ? '' : 's'}:
               </span>
@@ -504,7 +504,7 @@ export default function StoragePreviewDrawer({
                   </code>
                 ))}
                 {provenance.source_recipe.length > 8 && (
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-[10px] text-slate-500">
                     +{provenance.source_recipe.length - 8} more
                   </span>
                 )}
@@ -800,7 +800,7 @@ export default function StoragePreviewDrawer({
                         setSavingTests(false);
                       }
                     }}
-                    className="px-3 py-1 text-xs font-semibold rounded bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50"
+                    className="px-3 py-1 text-xs font-semibold rounded bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-50"
                     disabled={savingTests}
                   >
                     {savingTests ? 'Saving…' : 'Save test'}
@@ -836,7 +836,7 @@ export default function StoragePreviewDrawer({
                       <span className={`mt-0.5 inline-flex items-center justify-center w-4 h-4 rounded-full ${
                         runResult
                           ? runResult.ok
-                            ? 'bg-emerald-500 text-white'
+                            ? 'bg-emerald-700 text-white'
                             : 'bg-red-500 text-white'
                           : 'bg-slate-300 text-slate-600'
                       }`}>
@@ -869,7 +869,7 @@ export default function StoragePreviewDrawer({
                               }
                             }}
                             disabled={savingTests}
-                            className="ml-auto text-[10px] text-slate-400 hover:text-red-500 disabled:opacity-30"
+                            className="ml-auto text-[10px] text-slate-500 hover:text-red-500 disabled:opacity-30"
                             title="Remove this test"
                           >
                             Remove
@@ -1024,7 +1024,7 @@ function TypeChip({ type }: { type: string }) {
   }
   return (
     <span
-      className={`inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded border ${tone}`}
+      className={`inline-flex items-center px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded border ${tone}`}
     >
       {t || 'UNKNOWN'}
     </span>
@@ -1060,7 +1060,7 @@ function SchemaTable({ schema }: { schema: SchemaResponse }) {
               i % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'
             }`}
           >
-            <td className="px-4 py-2 text-xs text-slate-400 tabular-nums border-r border-slate-200">{c.ordinal}</td>
+            <td className="px-4 py-2 text-xs text-slate-500 tabular-nums border-r border-slate-200">{c.ordinal}</td>
             <td className="px-4 py-2 font-semibold text-slate-900 font-mono text-xs border-r border-slate-200">{c.name}</td>
             <td className="px-4 py-2 border-r border-slate-200">
               <TypeChip type={c.type} />
@@ -1105,7 +1105,7 @@ function DocumentPreviewView({ preview }: { preview: DocumentPreview }) {
 
 function JsonNode({ value, depth }: { value: unknown; depth: number }) {
   const [open, setOpen] = useState(depth < 2);
-  if (value === null) return <span className="text-slate-400">null</span>;
+  if (value === null) return <span className="text-slate-500">null</span>;
   if (typeof value === 'string')
     return <span className="text-emerald-700">"{value}"</span>;
   if (typeof value === 'number')
@@ -1114,7 +1114,7 @@ function JsonNode({ value, depth }: { value: unknown; depth: number }) {
     return <span className="text-purple-700">{String(value)}</span>;
 
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-slate-400">[]</span>;
+    if (value.length === 0) return <span className="text-slate-500">[]</span>;
     return (
       <span>
         <button
@@ -1123,14 +1123,14 @@ function JsonNode({ value, depth }: { value: unknown; depth: number }) {
         >
           {open ? '▼' : '▶'}
         </button>
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           [ {value.length} item{value.length === 1 ? '' : 's'} ]
         </span>
         {open && (
           <ul className="border-l border-slate-200 pl-3 ml-2 mt-1 space-y-1">
             {value.map((v, i) => (
               <li key={i}>
-                <span className="text-slate-400 mr-1">{i}:</span>
+                <span className="text-slate-500 mr-1">{i}:</span>
                 <JsonNode value={v} depth={depth + 1} />
               </li>
             ))}
@@ -1142,7 +1142,7 @@ function JsonNode({ value, depth }: { value: unknown; depth: number }) {
 
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>);
-    if (entries.length === 0) return <span className="text-slate-400">{'{}'}</span>;
+    if (entries.length === 0) return <span className="text-slate-500">{'{}'}</span>;
     return (
       <span>
         <button
@@ -1151,7 +1151,7 @@ function JsonNode({ value, depth }: { value: unknown; depth: number }) {
         >
           {open ? '▼' : '▶'}
         </button>
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           {'{ '}{entries.length} key{entries.length === 1 ? '' : 's'}{' }'}
         </span>
         {open && (

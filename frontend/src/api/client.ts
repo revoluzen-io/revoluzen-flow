@@ -495,8 +495,12 @@ export const api = {
       }),
     }),
   // Import a compiled dbt manifest.json (models → SQL Transform nodes,
-  // ref()/source() → the pipeline DAG). Returns { id, name, steps_imported,
-  // connections_imported, report:{ models, sources, incremental_models, warnings } }.
+  // ref()/source() → the pipeline DAG; table/incremental materializations →
+  // a Destination after the model). Returns { id, name, steps_imported,
+  // connections_imported, report:{ models, sources, materialized_models,
+  // merge_key_models, incremental_models, warnings }, warnings, errors } —
+  // the top-level warnings/errors are the server's validation findings for
+  // the saved pipeline, which always include the unbound sources and writes.
   importDbt: (manifest: any, projectId?: string, name?: string) =>
     request<any>('/workflows/import-dbt', {
       method: 'POST',

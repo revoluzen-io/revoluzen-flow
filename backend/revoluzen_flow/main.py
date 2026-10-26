@@ -43,7 +43,7 @@ import traceback as _tb
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -63,6 +63,7 @@ from revoluzen_flow.scheduling.store import ScheduleStore
 from revoluzen_flow.alerts.store import AlertStore
 from revoluzen_flow.monitoring.store import ExecutionStore
 from revoluzen_flow.auth.store import UserStore
+from revoluzen_flow.auth.deps import current_workspace_id
 from revoluzen_flow.variables.store import VariableStore
 from revoluzen_flow.credentials.store import CredentialStore
 from revoluzen_flow.connections.store import ConnectionStore
@@ -1187,6 +1188,22 @@ _cors_origins_env = _os.environ.get("REVOLUZEN_FLOW_CORS_ORIGINS", "").strip()
 if _cors_origins_env:
     _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
     _cors_origin_regex: str | None = None
+    # 2026-10-23 — reject a literal "*" here. Starlette does not simply send
+    # `Access-Control-Allow-Origin: *` when credentials are enabled: it
+    # reflects the REQUESTING origin back instead, so `*` plus
+    # allow_credentials=True (set below, and required for the session
+    # cookie) is a fully permissive credentialed CORS policy — any website
+    # the operator's browser visits can read authenticated responses.
+    # An operator typing the obvious thing should not get that silently.
+    if "*" in _cors_origins:
+        _cors_origins = [o for o in _cors_origins if o != "*"]
+        logger.error(
+            "SECURITY: REVOLUZEN_FLOW_CORS_ORIGINS contains '*', which with "
+            "credentialed CORS means 'reflect any origin' — every site the "
+            "browser visits could read authenticated responses. The wildcard "
+            "has been dropped; name the origins explicitly, e.g. "
+            "REVOLUZEN_FLOW_CORS_ORIGINS=https://flow.example.com"
+        )
 else:
     from revoluzen_flow import runtime_config as _rc_cors
     if _rc_cors.IS_SERVER_MODE:
@@ -1966,7 +1983,11 @@ async def saas_manifests(refresh: bool = False):
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...), replaces: str | None = None):
+async def upload_file(
+    file: UploadFile = File(...),
+    replaces: str | None = None,
+    _ws: str = Depends(current_workspace_id),
+):
     """Upload a CSV/JSON/Parquet file to the data directory.
 
     When ``replaces`` is provided (the previous filename the same node
@@ -1974,16 +1995,40 @@ async def upload_file(file: UploadFile = File(...), replaces: str | None = None)
     is deleted *after* the new upload succeeds — so a failed upload
     never strands the previous file. This keeps ``data_dir`` from
     accumulating orphans when a node's file is swapped.
+
+    2026-10-23 — two fixes after an unauthenticated probe:
+
+    * ``current_workspace_id`` is now a dependency. It is the project's
+      standard posture gate: anonymous callers are refused outright under
+      ``REVOLUZEN_FLOW_SECURITY_MODE=server`` and still fall through to the
+      ``default`` workspace on a loopback single-user install, so the
+      laptop flow is unchanged. Before this, *anyone* who could reach the
+      port could write files.
+    * ``file.filename`` is caller-controlled and was being joined straight
+      onto ``data_dir``. ``filename="../escaped.csv"`` wrote into the data
+      directory's PARENT — verified on disk. It is now reduced to a single
+      inert component and the resolved destination is re-checked against
+      ``data_dir``. The ``replaces`` branch below always had this check;
+      the write path did not.
     """
     allowed_ext = {".csv", ".json", ".parquet", ".tsv", ".txt", ".xlsx", ".xls", ".xml"}
-    name = file.filename or "upload.csv"
+    from revoluzen_flow.common.safe_paths import UnsafePathError, resolve_under, safe_basename
+
+    try:
+        name = safe_basename(file.filename, default="upload.csv")
+    except UnsafePathError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     ext = os.path.splitext(name)[1].lower()
     if ext not in allowed_ext:
         return JSONResponse(status_code=400, content={"detail": f"Unsupported file type: {ext}"})
 
     dest_dir = app_state["data_dir"]
     os.makedirs(dest_dir, exist_ok=True)
-    dest = os.path.join(dest_dir, name)
+    try:
+        dest = resolve_under(dest_dir, name)
+    except UnsafePathError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid filename"})
 
     content = await file.read()
     with open(dest, "wb") as f:

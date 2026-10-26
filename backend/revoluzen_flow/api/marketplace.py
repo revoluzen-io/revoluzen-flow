@@ -7,7 +7,15 @@ from pydantic import BaseModel
 
 from revoluzen_flow.auth.deps import current_workspace_id
 
-router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
+# 2026-10-23 — router-level posture gate. An unauthenticated probe deleted a
+# template (`DELETE /{id}` returned {"status": "deleted"}) and wrote ratings
+# for ids that do not exist, twice, each one moving avg_rating — an unbounded
+# anonymous write.
+router = APIRouter(
+    prefix="/api/marketplace",
+    tags=["marketplace"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 def _get_store(request: Request):

@@ -129,9 +129,31 @@ function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
     layers[l].push(id);
   }
 
-  // Position: 300px horizontal between layers, 120px vertical between nodes
-  const H_SPACING = 300;
-  const V_SPACING = 120;
+  // Layer pitch. These are PITCH values (node + gap), not gaps, so they
+  // must be read against the node box.
+  //
+  // 2026-10-23 — 300/120 -> 220/90, against the old 180 x ~50 pill.
+  //
+  // 2026-10-24 — the node is now a 96 x 96 square (BOX_SIZE in
+  // RevoluzenFlowNode.tsx) with its NAME in a caption below it. React
+  // Flow measures the square only, because the caption is absolutely
+  // positioned, so the layout has to leave room for the caption itself:
+  //
+  //   horizontal  96 node + 124 gap = 220 pitch. Kept at 220 even though
+  //               the node lost 84px of width: the gap now carries the
+  //               row-count / schema-delta chip that moved OFF the node
+  //               onto the edge, and branch-port labels, which render
+  //               outside the square. A narrower pitch would collide.
+  //   vertical    96 node + ~34 caption (two lines at 12px + run time)
+  //               + 40 gap = 170 pitch. At the old 90 the caption of one
+  //               row would have overlapped the node in the row below.
+  //
+  // A six-step single-layer pipeline spans 96 + 5*220 = 1196px, within a
+  // few pixels of the previous layout, while each node is now a square
+  // that stays recognisable at ~0.3 zoom where the old pill's text was
+  // already illegible.
+  const H_SPACING = 220;
+  const V_SPACING = 170;
   const START_X = 80;
   const START_Y = 80;
 
@@ -214,8 +236,8 @@ function GhostNode({
             </div>
             <span className="text-xs font-semibold text-indigo-600">{suggestion.label}</span>
           </div>
-          <div className="text-[9px] text-slate-400 leading-snug">{suggestion.reason}</div>
-          <div className="mt-2 text-[8px] text-indigo-400 font-medium">Click to add</div>
+          <div className="text-[10px] text-slate-500 leading-snug">{suggestion.reason}</div>
+          <div className="mt-2 text-[10px] text-indigo-400 font-medium">Click to add</div>
         </div>
         {/* Dismiss button */}
         <button
@@ -410,9 +432,12 @@ export default function Canvas() {
             const remapped = remapLegacyGhost(suggestion);
             if (!remapped) return;
             setGhostSuggestion(remapped);
-            // Position ghost to the right of the new node
+            // Position ghost to the right of the new node, one layer pitch
+            // away — same 220px the auto-layout uses, so a ghost the user
+            // accepts lands where auto-layout would have put it instead of
+            // 60px further out.
             setGhostPosition({
-              x: newNode.position.x + 280,
+              x: newNode.position.x + 220,
               y: newNode.position.y,
             });
           }
@@ -538,23 +563,25 @@ export default function Canvas() {
       if (!stepState) return node;
 
       const className = stepState.type === 'step_started' ? 'revoluzen-flow-executing' : '';
-      const badge = stepState.type === 'step_completed' && stepState.row_count !== undefined
-        ? `${stepState.row_count} rows`
-        : stepState.type === 'step_error'
-        ? 'Error'
+
+      // 2026-10-25 — this wrote `executionStatus` and `executionBadge`.
+      // RevoluzenFlowNode reads `status` (see its `statusClass` and the
+      // corner badge), and nothing anywhere read either of those two
+      // names — grep returned these lines and nothing else. So even once
+      // the events were flowing, no node would have lit up: the backend
+      // was silent on the REST path AND the two sides of the frontend
+      // were passing different keys. Both halves had to be wrong for
+      // the symptom to be "zero transitions", which is why it survived
+      // this long.
+      const status = stepState.type === 'step_completed' ? 'success'
+        : stepState.type === 'step_error' ? 'error'
+        : stepState.type === 'step_started' ? 'running'
         : undefined;
 
       return {
         ...node,
         className,
-        data: {
-          ...node.data,
-          executionBadge: badge,
-          executionStatus: stepState.type === 'step_completed' ? 'success'
-            : stepState.type === 'step_error' ? 'error'
-            : stepState.type === 'step_started' ? 'running'
-            : undefined,
-        },
+        data: { ...node.data, status },
       };
     });
   }, [nodes, stepStates, isExecuting]);
@@ -739,13 +766,13 @@ export default function Canvas() {
             <button
               type="button"
               onClick={() => setInspectEdge(null)}
-              className="text-slate-400 hover:text-slate-700 leading-none"
+              className="text-slate-500 hover:text-slate-700 leading-none"
               title="Close"
             >✕</button>
           </div>
           <div className="text-slate-700">
             <div className="font-semibold truncate" title={inspectEdge.source}>{inspectEdge.source}</div>
-            <div className="text-slate-400 my-0.5">↓ flows into</div>
+            <div className="text-slate-500 my-0.5">↓ flows into</div>
             <div className="font-semibold truncate" title={inspectEdge.target}>{inspectEdge.target}</div>
           </div>
           {inspectEdge.alias && (

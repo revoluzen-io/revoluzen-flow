@@ -164,7 +164,7 @@ export default function ConsumersPanel({ outputId, dark = false }: Props) {
             </div>
             <button
               onClick={() => handleRemove(c)}
-              className="ml-2 px-1.5 py-0.5 text-[10px] rounded text-slate-500 hover:text-red-600 hover:bg-red-50"
+              className="tap-24 ml-2 px-1.5 py-0.5 text-[10px] rounded text-slate-500 hover:text-red-600 hover:bg-red-50"
               title="Remove this consumer"
             >
               ✕

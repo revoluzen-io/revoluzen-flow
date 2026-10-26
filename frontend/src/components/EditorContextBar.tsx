@@ -19,7 +19,7 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { api } from '../api/client';
 import { validateWorkflow } from '../utils/validateWorkflow';
 
-export default function EditorContextBar() {
+export default function EditorContextBar({ embedded = false }: { embedded?: boolean } = {}) {
   const dark = useDarkMode();
   const workflowName = useWorkflowStore((s) => s.workflowName);
   const setWorkflowName = useWorkflowStore((s) => s.setWorkflowName);
@@ -114,7 +114,7 @@ export default function EditorContextBar() {
           className={`w-full text-left pr-3 py-1.5 text-sm flex items-center gap-2 hover:bg-slate-50 ${isCurrent ? 'text-amber-700 font-semibold' : 'text-slate-600'}`}
           style={{ paddingLeft: 28 + depth * 12 }}
         >
-          <span className="text-slate-400">↳</span>
+          <span className="text-slate-500">↳</span>
           <span className="flex-1 truncate">{node.folder.name}</span>
           {isCurrent && <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">current</span>}
         </button>,
@@ -222,9 +222,19 @@ export default function EditorContextBar() {
     // 3-zone grid — Project on the left, Pipeline Name centered (with
     // baseline of the row), version chip on the right. Slate background
     // visually separates the ribbon from the cream canvas below.
-    <div data-testid="editor-context" className={`editor-context px-3 py-2 flex flex-wrap items-center gap-2 shrink-0 border-b ${
-      dark ? 'bg-[#0f1726]/60 border-white/[0.05]' : 'bg-slate-100 border-slate-200'
-    }`}>
+    // 2026-10-25 — `embedded` renders this inside the editor toolbar
+    // rather than as a band of its own. The editor stacked three bars
+    // before the canvas began: global nav, a page header whose title
+    // only repeated the nav tab already highlighted, and this ribbon.
+    // The header's title block is gone and this took its place, so the
+    // chrome is two bands. Embedded it drops its own background, border
+    // and padding — it is a group inside a row now, not a row.
+    <div data-testid="editor-context" className={embedded
+      ? 'editor-context flex flex-wrap items-center gap-2 min-w-0'
+      : `editor-context px-3 py-2 flex flex-wrap items-center gap-2 shrink-0 border-b ${
+          dark ? 'bg-[#0f1726]/60 border-white/[0.05]' : 'bg-slate-100 border-slate-200'
+        }`
+    }>
       {/* LEFT — Project picker */}
       <div className="flex items-center min-w-0">
         <div className="relative" ref={projectMenuRef}>
@@ -238,6 +248,8 @@ export default function EditorContextBar() {
                 : 'bg-white border-slate-300 text-slate-700'
             } ${!workflowId ? 'hover:bg-slate-50 cursor-pointer' : 'opacity-80 cursor-default'}`}
             title={workflowId ? 'Project is fixed once saved — use Pipelines → Move on the row to reassign.' : 'Pick the project this pipeline lives in'}
+            aria-haspopup="menu"
+            aria-expanded={projectMenuOpen}
           >
             <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Project</span>
             <span className={`w-px h-3.5 ${dark ? 'bg-white/[0.1]' : 'bg-slate-300'}`} />
@@ -278,7 +290,7 @@ export default function EditorContextBar() {
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); toggleProject(p.id); }}
-                            className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700"
+                            className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-700"
                             aria-label={isOpen ? 'Collapse folders' : 'Expand folders'}
                             title={isOpen ? 'Collapse folders' : 'Show folders in this project'}
                           >
@@ -309,7 +321,7 @@ export default function EditorContextBar() {
                         {isOpen && (
                           <div className="pr-1 pb-1">
                             {folderList === undefined ? (
-                              <div className="px-3 py-1.5 text-xs text-slate-400 italic" style={{ paddingLeft: 28 }}>Loading folders…</div>
+                              <div className="px-3 py-1.5 text-xs text-slate-500 italic" style={{ paddingLeft: 28 }}>Loading folders…</div>
                             ) : (
                               <>
                                 <button
@@ -322,14 +334,14 @@ export default function EditorContextBar() {
                                   className={`w-full text-left py-1.5 text-sm flex items-center gap-2 hover:bg-slate-50 ${isCurrentProjectRoot ? 'text-amber-700 font-medium' : 'text-slate-600'}`}
                                   style={{ paddingLeft: 28 }}
                                 >
-                                  <span className="text-slate-400">↳</span>
+                                  <span className="text-slate-500">↳</span>
                                   <span className="flex-1 italic">Project root (no folder)</span>
                                   {isCurrentProjectRoot && (
                                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">current</span>
                                   )}
                                 </button>
                                 {folderList.length === 0 ? (
-                                  <div className="py-1 text-xs text-slate-400 italic" style={{ paddingLeft: 28 }}>No folders in this project</div>
+                                  <div className="py-1 text-xs text-slate-500 italic" style={{ paddingLeft: 28 }}>No folders in this project</div>
                                 ) : (
                                   renderFolderRows(buildFolderTree(folderList), 0, p.id)
                                 )}
@@ -351,10 +363,20 @@ export default function EditorContextBar() {
       <div className={`flex items-center gap-2 min-w-0 px-3 py-1.5 rounded-xl border shadow-sm ${
         dark ? 'bg-white/[0.06] border-white/[0.1]' : 'bg-white border-slate-300'
       }`}>
-        <span className={`text-xs font-semibold shrink-0 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-          {nameLabel}
-        </span>
-        <span className={`w-px h-4 ${dark ? 'bg-white/[0.1]' : 'bg-slate-300'} shrink-0`} />
+        {/* The "Pipeline Name" caption is dropped when embedded in the
+            toolbar: the document icon and the editable name next to it
+            already say what this is, and the ~110px the caption took
+            was the difference between the merged row fitting on one
+            line and wrapping into the second band this merge removed.
+            Kept as a `title` so it is still discoverable on hover. */}
+        {!embedded && (
+          <>
+            <span className={`text-xs font-semibold shrink-0 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+              {nameLabel}
+            </span>
+            <span className={`w-px h-4 ${dark ? 'bg-white/[0.1]' : 'bg-slate-300'} shrink-0`} />
+          </>
+        )}
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={dark ? 'text-indigo-400 shrink-0' : 'text-pipe-600 shrink-0'}>
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
           <polyline points="14 2 14 8 20 8" />
@@ -398,8 +420,15 @@ export default function EditorContextBar() {
           warnCount={validationWarnCount}
           issues={validationIssues}
         />
-        <SaveIndicator dark={dark} isDirty={isDirty} lastSavedAt={lastSavedAt} />
-        {version > 0 && (
+        {/* The save indicator is dropped in the embedded row: the Save
+            button sits a few centimetres to its right in the same row
+            and already carries the dirty state, so keeping both said
+            "Unsaved" twice AND cost the width that made the row wrap
+            into a second line — reinstating the band this merge set out
+            to remove. It stays in the standalone layout, where the Save
+            button is in a different bar. */}
+        {!embedded && <SaveIndicator dark={dark} isDirty={isDirty} lastSavedAt={lastSavedAt} />}
+        {!embedded && version > 0 && (
           <span className="text-xs text-pulse-700 bg-pulse-100 px-2 py-1 rounded-md font-bold border border-pulse-200">
             v{version}
           </span>

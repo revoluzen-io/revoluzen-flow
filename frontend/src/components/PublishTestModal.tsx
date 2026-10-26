@@ -200,7 +200,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
               <h2 className="text-base font-bold text-slate-800 truncate">Pre-publish test</h2>
               <p className="text-xs text-slate-500 mt-0.5 truncate">{workflowName}</p>
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
               </svg>
@@ -293,7 +293,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    README <span className="text-slate-400 font-normal">(optional, Markdown)</span>
+                    README <span className="text-slate-500 font-normal">(optional, Markdown)</span>
                   </label>
                   <textarea
                     value={readme}
@@ -305,7 +305,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Tags <span className="text-slate-400 font-normal">(optional, comma-separated)</span>
+                    Tags <span className="text-slate-500 font-normal">(optional, comma-separated)</span>
                   </label>
                   <input
                     value={tagsText}
@@ -346,7 +346,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-slate-700 truncate">
                             {s.step_label || s.step_id}
-                            <span className="ml-2 text-xs font-normal text-slate-400">{s.step_id}</span>
+                            <span className="ml-2 text-xs font-normal text-slate-500">{s.step_id}</span>
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5">
                             {ok && (

@@ -216,7 +216,7 @@ async def create_user_template(
     now = datetime.now(timezone.utc).isoformat()
     payload = {"steps": body.steps, "connections": body.connections}
 
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         """INSERT INTO user_templates
              (id, workspace_id, name, tagline, description, category,
               data, created_by, created_at, updated_at)
@@ -253,7 +253,7 @@ async def delete_user_template(
     )
     if not cur or not cur.fetchone():
         raise HTTPException(404, "User template not found")
-    db.execute_with_retry(
+    db.execute_write_with_retry(
         "DELETE FROM user_templates WHERE id = ? AND workspace_id = ?",
         [template_id, workspace_id],
     )

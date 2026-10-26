@@ -129,7 +129,7 @@ function RunsList({ onOpen }: { onOpen: (id: string) => void }) {
               />
             </div>
           )}
-          {loading && <div className="text-xs text-slate-400">Loading…</div>}
+          {loading && <div className="text-xs text-slate-500">Loading…</div>}
           {!loading && runs.length === 0 && !error && (
             <EmptyState
               icon={(
@@ -170,11 +170,11 @@ function RunsList({ onOpen }: { onOpen: (id: string) => void }) {
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {r.progress != null ? `${(r.progress * 100).toFixed(0)}%` : '—'}
-                    <span className="text-slate-400 ml-1">({r.extracted}/{r.listed || '?'})</span>
+                    <span className="text-slate-500 ml-1">({r.extracted}/{r.listed || '?'})</span>
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-700">{r.concurrency || '—'}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-500">{formatSeconds(r.eta_seconds)}</td>
-                  <td className="px-4 py-2 text-right text-xs text-slate-400">{formatRelative(r.last_event_at)}</td>
+                  <td className="px-4 py-2 text-right text-xs text-slate-500">{formatRelative(r.last_event_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -243,7 +243,7 @@ function RunMonitor({ runId, onBack }: { runId: string; onBack: () => void }) {
   }
 
   if (!snapshot) {
-    return <div className="p-6 text-xs text-slate-400">Connecting to run {runId}…</div>;
+    return <div className="p-6 text-xs text-slate-500">Connecting to run {runId}…</div>;
   }
 
   return (
@@ -255,9 +255,9 @@ function RunMonitor({ runId, onBack }: { runId: string; onBack: () => void }) {
         <h1 className="text-lg font-bold text-slate-800">{snapshot.profile}</h1>
         <StatusPill status={snapshot.phase} />
         {streamClosed && (
-          <span className="text-xs text-slate-400">stream closed</span>
+          <span className="text-xs text-slate-500">stream closed</span>
         )}
-        <span className="font-mono text-xs text-slate-400 ml-auto">{snapshot.run_id}</span>
+        <span className="font-mono text-xs text-slate-500 ml-auto">{snapshot.run_id}</span>
       </div>
 
       {/* Progress + ETA + concurrency */}
@@ -306,15 +306,15 @@ function RunMonitor({ runId, onBack }: { runId: string; onBack: () => void }) {
       <div className="rounded-lg border border-slate-200 bg-white">
         <div className="px-4 py-2 border-b border-slate-100 flex items-center justify-between">
           <span className="text-xs font-bold text-slate-700">Audit log</span>
-          <span className="text-xs text-slate-400">{events.length} events</span>
+          <span className="text-xs text-slate-500">{events.length} events</span>
         </div>
         <div className="max-h-[320px] overflow-auto divide-y divide-slate-50">
           {events.length === 0 && (
-            <div className="px-4 py-3 text-xs text-slate-400 italic">No events yet — waiting on stream…</div>
+            <div className="px-4 py-3 text-xs text-slate-500 italic">No events yet — waiting on stream…</div>
           )}
           {events.slice().reverse().map((e, i) => (
             <div key={`${e.ts}-${i}`} className="px-4 py-1.5 flex items-start gap-3">
-              <span className="text-xs font-mono text-slate-400 w-[60px] shrink-0">
+              <span className="text-xs font-mono text-slate-500 w-[60px] shrink-0">
                 {new Date(e.ts * 1000).toLocaleTimeString()}
               </span>
               <span className="text-xs font-bold text-slate-700 w-[150px] shrink-0">{e.kind}</span>
@@ -337,9 +337,9 @@ function Card({ label, value, sub, tone = 'normal' }: {
   const valueColor = tone === 'warn' ? 'text-amber-600' : 'text-slate-800';
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <div className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{label}</div>
       <div className={`text-2xl font-bold tabular-nums ${valueColor}`}>{value}</div>
-      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
+      {sub && <div className="text-xs text-slate-500 mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -350,7 +350,7 @@ function Mini({ label, value, tone = 'normal' }: {
   const valueColor = tone === 'warn' ? 'text-amber-600' : 'text-slate-700';
   return (
     <div className="rounded-md border border-slate-200 bg-white px-3 py-1.5">
-      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</div>
       <div className={`text-sm font-bold tabular-nums ${valueColor}`}>{value}</div>
     </div>
   );

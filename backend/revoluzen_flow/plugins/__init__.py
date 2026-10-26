@@ -136,7 +136,7 @@ class PluginManager:
 
                 # Record in DB
                 if self._db:
-                    self._db.execute(
+                    self._db.execute_write(
                         "INSERT OR REPLACE INTO plugins "
                         "(id, name, version, author, description, path, is_enabled, node_count, installed_at, updated_at) "
                         "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
@@ -251,12 +251,12 @@ class PluginManager:
 
     def enable_plugin(self, plugin_id: str):
         if self._db:
-            self._db.execute("UPDATE plugins SET is_enabled=1, updated_at=? WHERE id=?",
+            self._db.execute_write("UPDATE plugins SET is_enabled=1, updated_at=? WHERE id=?",
                            (time.time(), plugin_id))
 
     def disable_plugin(self, plugin_id: str):
         if self._db:
-            self._db.execute("UPDATE plugins SET is_enabled=0, updated_at=? WHERE id=?",
+            self._db.execute_write("UPDATE plugins SET is_enabled=0, updated_at=? WHERE id=?",
                            (time.time(), plugin_id))
 
     def get_scaffold(self) -> dict:

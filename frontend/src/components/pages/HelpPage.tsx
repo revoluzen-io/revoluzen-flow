@@ -1206,7 +1206,7 @@ export default function HelpPage({
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 uppercase tracking-wider">PROD</span>
                 <TierChip tier={tier} environment={environment} />
               </h1>
-              <p className="text-xs text-slate-400 mt-0.5">Reference for production users</p>
+              <p className="text-xs text-slate-500 mt-0.5">Reference for production users</p>
             </div>
           </div>
         </div>
@@ -1266,7 +1266,7 @@ export default function HelpPage({
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-red-500/20 text-red-300 border border-red-500/30 uppercase tracking-wider">PROD</span>
                 <TierChip tier={tier} environment={environment} />
               </h1>
-              <p className="text-xs text-slate-400 mt-0.5">Standard operating procedures for production environment</p>
+              <p className="text-xs text-slate-500 mt-0.5">Standard operating procedures for production environment</p>
             </div>
             <div className="flex gap-0.5 justify-center items-center">
               {RUNBOOK_SECTIONS.map(s => (
@@ -1276,7 +1276,7 @@ export default function HelpPage({
                   className={`px-4 py-2.5 text-sm font-semibold rounded-lg transition-all ${
                     runbookSection === s.key
                       ? 'border-red-400 text-slate-900 font-bold bg-gradient-to-b from-slate-200 to-slate-400 shadow-[inset_0_0_0_1.5px_rgba(203,213,225,0.70),inset_0_0_10px_rgba(148,163,184,0.30),inset_0_1px_0_rgba(255,255,255,0.85)]'
-                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
+                      : 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
                   }`}
                 >
                   {s.icon} {s.label}
@@ -1298,7 +1298,7 @@ export default function HelpPage({
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-slate-50 rounded-lg p-4">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Architecture</p>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Architecture</p>
                     <ul className="text-xs text-slate-600 space-y-1.5">
                       <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Backend: FastAPI on port 8001</li>
                       <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> Frontend: Vite/React on port 5174</li>
@@ -1307,7 +1307,7 @@ export default function HelpPage({
                     </ul>
                   </div>
                   <div className="bg-slate-50 rounded-lg p-4">
-                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Security</p>
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Security</p>
                     <ul className="text-xs text-slate-600 space-y-1.5">
                       <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" /> Credential obfuscation at rest</li>
                       <li className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-blue-400" /> RBAC: Admin / Member / Viewer</li>
@@ -1496,7 +1496,7 @@ export default function HelpPage({
                         <h3 className="text-sm font-bold text-slate-800">{c.role}</h3>
                         <p className="text-xs text-slate-500 mt-0.5">{c.responsibility}</p>
                       </div>
-                      <span className="text-xs text-slate-400 bg-white border border-slate-200 px-2 py-1 rounded-lg shrink-0">
+                      <span className="text-xs text-slate-500 bg-white border border-slate-200 px-2 py-1 rounded-lg shrink-0">
                         {c.escalation}
                       </span>
                     </div>
@@ -1668,7 +1668,7 @@ export default function HelpPage({
                           <span className="text-sm font-medium text-slate-700">{guide.title}</span>
                           <svg
                             width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                            className={`text-slate-400 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`}
+                            className={`text-slate-500 transition-transform shrink-0 ${isOpen ? 'rotate-180' : ''}`}
                           >
                             <polyline points="6 9 12 15 18 9" />
                           </svg>
@@ -1687,7 +1687,7 @@ export default function HelpPage({
                                       </span>
                                     )}
                                     {isSubItem && (
-                                      <span className="text-slate-400 shrink-0 mt-0.5">•</span>
+                                      <span className="text-slate-500 shrink-0 mt-0.5">•</span>
                                     )}
                                     <span className="text-xs text-slate-600 leading-relaxed">
                                       {parts.map((part, j) =>
@@ -1743,7 +1743,7 @@ export default function HelpPage({
                           {renderCombo(shortcut.keys, 'primary')}
                           {shortcut.altKeys && (
                             <>
-                              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">or</span>
+                              <span className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">or</span>
                               {renderCombo(shortcut.altKeys, 'alt')}
                             </>
                           )}
@@ -1838,7 +1838,7 @@ export default function HelpPage({
 
         {/* Footer */}
         <div className="mt-10 pt-6 border-t border-slate-200/60 text-center">
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Need more help? Use the pipeline chat to ask questions, or describe what you want to build.
           </p>
           <p className="text-xs text-slate-300 mt-1">Revoluzen Flow v{APP_VERSION}</p>

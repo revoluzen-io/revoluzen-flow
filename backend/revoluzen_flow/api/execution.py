@@ -30,6 +30,42 @@ from revoluzen_flow.intelligence.error_intel import ErrorIntelligence
 
 logger = logging.getLogger(__name__)
 
+
+def _canvas_progress_sink(workflow_id: str):
+    """Forward executor progress to any canvas watching this pipeline.
+
+    Live per-step progress used to exist only on the WebSocket-initiated
+    execution path, through the separate RealtimeExecutor. The Run button
+    posts here instead, so nothing reported a step starting or finishing
+    and the canvas sat still for the whole run.
+
+    Returns ``None`` when nobody is connected, so an unwatched run — the
+    scheduler's, the CLI's — pays nothing at all for this.
+
+    The returned sink is called from the executor's worker thread, so it
+    hands the coroutine back to the request's loop rather than touching
+    the WebSocket directly. Every failure is swallowed: a dead socket or
+    a closed loop must not fail a pipeline run. See WorkflowExecutor._emit.
+    """
+    try:
+        from revoluzen_flow.api.websocket import manager
+    except Exception:  # pragma: no cover — websocket router always present
+        return None
+    if not manager.active_connections.get(workflow_id):
+        return None
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:  # pragma: no cover — handlers always have a loop
+        return None
+
+    def sink(event: dict) -> None:
+        try:
+            asyncio.run_coroutine_threadsafe(manager.broadcast(workflow_id, event), loop)
+        except Exception:  # noqa: BLE001 — see docstring
+            logger.debug("canvas progress sink dropped an event", exc_info=True)
+
+    return sink
+
 # Every execution route requires an authenticated user. Running a pipeline
 # resolves configured connections/credentials and writes to sinks, so it must
 # never be reachable anonymously — not even on a loopback bind. The public
@@ -505,7 +541,11 @@ async def run_workflow(
 
     start = time.time()
     from revoluzen_flow.main import app_state as _app_state
-    executor = WorkflowExecutor(data_dir=data_dir, app_state=_app_state)
+    executor = WorkflowExecutor(
+        data_dir=data_dir,
+        app_state=_app_state,
+        on_event=_canvas_progress_sink(workflow_id),
+    )
     error_intel = ErrorIntelligence(data_dir=data_dir)
 
     # ── Record in worker pool for live tracking ──

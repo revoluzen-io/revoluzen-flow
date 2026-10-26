@@ -41,6 +41,7 @@ Reviewer 3 ops signal:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -1125,6 +1126,20 @@ class Database:
                     time.sleep(wait)
                 else:
                     raise
+
+    def execute_write_with_retry(self, sql: str, params=(), max_retries: int = 3):
+        """:meth:`execute_with_retry`, but the write is committed.
+
+        The retry wrapper alone leaves the statement in an open implicit
+        transaction exactly like :meth:`execute` does — surviving lock
+        contention is not the same as being durable, and several API
+        handlers were using the retrying form and returning 200 for a write
+        that a second connection could not see. Pair the two properties
+        here so a caller does not have to remember both.
+        """
+        cur = self.execute_with_retry(sql, params, max_retries=max_retries)
+        self.conn.commit()
+        return cur
 
     def _init_schema(self):
         """Create tables if they don't exist, then run any pending migrations.
@@ -2977,12 +2992,79 @@ class Database:
     # ── Generic helpers ──
 
     def execute(self, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:
-        """Execute a SQL statement and return cursor."""
+        """Execute a SQL statement and return cursor.
+
+        Does NOT commit. The connection runs with sqlite3's default
+        ``isolation_level=''``, so the first INSERT/UPDATE/DELETE opens an
+        implicit transaction that stays open until someone commits on *this*
+        connection — and connections here are thread-local, so that someone
+        may never come.
+
+        Measured 2026-10-23: a request that wrote through this method and
+        returned HTTP 200 was invisible to a second connection, and the row
+        was gone after an abrupt process exit. If you are writing, use
+        :meth:`execute_write` or :meth:`transaction`, not this.
+        """
         return self.conn.execute(sql, params)
 
+    def execute_write(self, sql: str, params: tuple | list = ()) -> sqlite3.Cursor:
+        """Execute a mutating statement and commit it before returning.
+
+        The durable counterpart to :meth:`execute`. Use it for any write
+        that a caller is about to be told succeeded — an API handler
+        returning 200, a store method a handler awaits — so the
+        acknowledgement and the durability happen in that order.
+
+        For several statements that must land together, use
+        :meth:`transaction` instead; calling this in a loop commits each
+        row separately and gives up atomicity.
+        """
+        cur = self.conn.execute(sql, params)
+        self.conn.commit()
+        return cur
+
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
-        """Execute a SQL statement for multiple parameter sets."""
+        """Execute a SQL statement for multiple parameter sets. Does NOT
+        commit — see :meth:`execute`."""
         return self.conn.executemany(sql, params_list)
+
+    @contextlib.contextmanager
+    def transaction(self):
+        """Group several statements into one atomic, durable unit.
+
+            with db.transaction() as tx:
+                tx.execute("INSERT INTO a ...", ...)
+                tx.execute("UPDATE b ...", ...)
+
+        Commits on a clean exit, rolls back if the block raises. Yields the
+        Database itself, so ``tx.execute`` is the plain non-committing
+        method — that is deliberate: inside the block you want exactly one
+        commit, at the end.
+
+        Not reentrant. sqlite3 has no nested transactions, and a nested
+        ``with`` here would commit the outer block early at the inner exit,
+        which is worse than refusing.
+        """
+        if getattr(self._local, "in_transaction", False):
+            raise RuntimeError(
+                "Database.transaction() is not reentrant — sqlite3 has no "
+                "nested transactions and the inner exit would commit the "
+                "outer block early. Restructure so one block owns the unit."
+            )
+        self._local.in_transaction = True
+        try:
+            yield self
+        except BaseException:
+            try:
+                self.conn.rollback()
+            finally:
+                self._local.in_transaction = False
+            raise
+        else:
+            try:
+                self.conn.commit()
+            finally:
+                self._local.in_transaction = False
 
     def commit(self):
         """Commit the current transaction."""

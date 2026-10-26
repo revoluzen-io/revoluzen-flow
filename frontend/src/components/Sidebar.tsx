@@ -518,7 +518,11 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
   });
 
   return (
-    <div className={`revoluzen-flow-global-nav min-h-16 flex flex-wrap items-center px-2 sm:px-4 gap-1 shrink-0 relative transition-colors ${
+    // 2026-10-23: this strip is now a real <header> landmark, and the two
+    // button groups inside it are <nav>s. The app previously had no landmark
+    // elements at all, so assistive tech had nothing to jump between and the
+    // skip link in App.tsx had no counterpart to skip past.
+    <header className={`revoluzen-flow-global-nav min-h-16 flex flex-wrap items-center px-2 sm:px-4 gap-1 shrink-0 relative transition-colors ${
       isProd
         ? dark
           ? 'bg-[#1e3a5f] border-b-2 border-blue-400'
@@ -557,10 +561,50 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
         {/* Brand text — adapts to plate bg. Dark plate (PROD or dark
             mode) → light text. Light plate (DEV light) → dark text.
             OSS chip background also flips. */}
-        <span className={`text-xl font-bold hidden sm:inline tracking-tight leading-none ${
-          isProd || dark ? 'text-white' : 'text-slate-800'
-        }`}>
-          Revoluzen Flow{isPlus && <span className="text-amber-500">+</span>}
+        {/* 2026-10-26 — the wordmark reads "R-Flow", not "Revoluzen Flow".
+            The full name sat in the top-left of every page at text-xl and
+            took ~180px of the global nav, which is the most contested
+            strip in the app — the row it shares has to hold eight nav
+            items, the environment switch and the account controls. "R-"
+            keeps the brand tie in two characters; the logo mark beside it
+            carries the rest, and the full name is on the element's title.
+            This is the chrome only: the product's identity in the API,
+            the page title and the docs is unchanged.
+
+            Set in italic serif to match revoluzen.io, where the serif
+            italic face is the brand's accent (`.serif-em` / `.em` in
+            shared.css). The site's own stack is `'Instrument Serif',
+            Georgia, serif` — we deliberately take the FALLBACK rather
+            than the webfont. Flow ships as self-hosted software, so an
+            @import from fonts.googleapis.com would make every private
+            deployment fetch a font from Google on load; Georgia is
+            present on every target platform and costs no request. To
+            match Instrument Serif exactly, self-host the woff2 (it is
+            OFL) and add it ahead of Georgia here. */}
+        <span
+          className="text-xl hidden sm:inline leading-none italic"
+          style={{
+            fontFamily: "Georgia, 'Times New Roman', serif",
+            // revoluzen.io's own emphasis tokens (globals.css), including
+            // its dark-background correction: `.on-ink .serif-em` lifts to
+            // signal-fill-lift because, in their words, the deep gold goes
+            // muddy on the dark sections.
+            //
+            // On the light plate this takes --color-signal (#9a6b00), not
+            // --em-color (#d4a017). The site reserves #d4a017 for emphasis
+            // inside large headlines; at this size it is 2.4:1 on white,
+            // which fails AA. Their palette already names the fix —
+            // "#9a6b00 deep gold: the only gold that clears AA at label
+            // size" (4.6:1) — so this follows their system rather than
+            // inventing a shade.
+            color: isProd || dark ? '#f0c65a' : '#9a6b00',
+            letterSpacing: '-0.005em',  // --em-tracking
+          }}
+        >
+          {/* The tier marker inherits the wordmark colour. It used to be
+              amber-500, which read clearly against a white/slate wordmark
+              but sits almost on top of gold. "+" alone carries the tier. */}
+          R-Flow{isPlus && <span className="not-italic font-bold">+</span>}
         </span>
       </div>
 
@@ -586,6 +630,14 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
         <div className="relative hidden sm:block mr-2 shrink-0" ref={wsDropdownRef}>
           <button
             onClick={() => setWsDropdownOpen(!wsDropdownOpen)}
+            // Identified only by the workspace NAME before this, so it had
+            // no stable handle for assistive tech or for the popover
+            // placement audit: a menu nothing can name is a menu nothing
+            // checks.
+            title="Switch workspace"
+            aria-label="Switch workspace"
+            aria-haspopup="menu"
+            aria-expanded={wsDropdownOpen}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
               isProd
                 ? 'text-violet-200 bg-violet-900/40 border-violet-700/50 hover:bg-violet-800/50'
@@ -600,7 +652,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             <div className={`absolute top-full left-0 mt-1.5 w-60 rounded-xl shadow-2xl border z-50 py-1.5 max-h-72 overflow-auto ${
               isProd ? 'bg-slate-800 border-slate-600' : 'bg-white border-slate-200'
             }`}>
-              <div className={`px-3 py-1.5 text-[9px] font-bold uppercase tracking-wider ${isProd ? 'text-slate-500' : 'text-slate-400'}`}>Switch Workspace</div>
+              <div className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider ${isProd ? 'text-slate-500' : 'text-slate-500'}`}>Switch Workspace</div>
               {workspaces.map((ws: any) => {
                 const isActive = ws.id === currentWsId;
                 return (
@@ -628,9 +680,9 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                   {isActive && (
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0 text-violet-500"><polyline points="20 6 9 17 4 12" /></svg>
                   )}
-                  {ws.is_personal && <span className={`text-[9px] ml-auto shrink-0 ${isProd ? 'text-slate-500' : 'text-slate-400'}`}>Personal</span>}
+                  {ws.is_personal && <span className={`text-[10px] ml-auto shrink-0 ${isProd ? 'text-slate-500' : 'text-slate-500'}`}>Personal</span>}
                   {ws.member_count != null && !ws.is_personal && !isActive && (
-                    <span className={`text-[9px] ml-auto shrink-0 ${isProd ? 'text-slate-500' : 'text-slate-400'}`}>{ws.member_count} members</span>
+                    <span className={`text-[10px] ml-auto shrink-0 ${isProd ? 'text-slate-500' : 'text-slate-500'}`}>{ws.member_count} members</span>
                   )}
                 </button>
                 );
@@ -675,7 +727,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
        * dropdown below this block, and at md+ the 10–12 nav items at
        * ~100px each comfortably fit within a standard ≥1024px layout.
        */}
-      <div className="hidden md:flex items-center gap-0.5">
+      <nav aria-label="Main" className="hidden md:flex items-center gap-0.5">
         {visibleItems.filter(i => i.page !== 'settings' && i.page !== 'help').map((item) => {
           const label = isProd && item.prodLabel ? item.prodLabel : item.label;
           // A parent-with-children lights up whenever the active page is
@@ -704,7 +756,18 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             : item.page === 'ai'
               ? activePage === 'ai' || AI_HUB_SUBPAGES.has(activePage)
               : activePage === item.page;
-          const buttonClass = `flex items-center gap-1 px-2.5 py-2 rounded-lg text-sm font-medium transition-all relative group ${
+          // focus-visible ring (2026-10-23): tabbing through the primary nav
+          // produced no visible change at all — WCAG 2.2 SC 2.4.7 Focus
+          // Visible, a Level AA failure. The design system already had the
+          // utilities (18 :focus-visible rules, 49 ring utilities in the
+          // built CSS); these buttons just never used any of them.
+          //
+          // focus-visible rather than focus so a mouse click does not leave a
+          // ring behind. The offset keeps the ring clear of the active item's
+          // inset amber glow, which would otherwise swallow it.
+          const buttonClass = `flex items-center gap-1 px-2.5 py-2 rounded-lg text-sm font-medium transition-all relative group focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-amber-500 ${
+            dark ? 'focus-visible:ring-offset-slate-900' : 'focus-visible:ring-offset-white'
+          } ${
             isParentActive
               ? 'menu-active-fx bg-gradient-to-b from-amber-500/80 to-amber-700/65 text-white font-bold shadow-[inset_0_0_0_2px_rgba(251,191,36,0.90),inset_0_-2px_0_0_rgba(180,83,9,1),inset_0_0_12px_rgba(217,119,6,0.45),inset_0_1px_0_rgba(255,255,255,0.35)]'
               : isProd && dark
@@ -713,7 +776,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                   ? 'text-slate-400 hover:bg-slate-700'
                   : dark
                     ? 'text-slate-400 hover:text-white hover:bg-slate-700/60'
-                    : 'text-slate-900 font-semibold hover:text-black hover:bg-slate-300/70'
+                    : 'text-slate-900 font-semibold hover:text-slate-950 hover:bg-slate-300/70'
           }`;
           return (
             <div key={item.page} className="flex items-center shrink-0">
@@ -739,14 +802,14 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             </div>
           );
         })}
-      </div>
+      </nav>
 
       {/* Mobile dropdown menu — flatten parent groups so every leaf
           page is one tap away. The grid layout doesn't have room for a
           two-level menu; instead the parent appears as a section header
           and its children render below it as regular tappable buttons. */}
       {mobileMenuOpen && (
-        <div className={`absolute top-full left-0 right-0 border-b shadow-lg z-50 md:hidden py-2 px-3 grid grid-cols-3 gap-1 ${
+        <nav aria-label="Main (mobile)" className={`absolute top-full left-0 right-0 border-b shadow-lg z-50 md:hidden py-2 px-3 grid grid-cols-3 gap-1 ${
           isProd ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'
         }`}>
           {visibleItems.flatMap((item) => {
@@ -777,7 +840,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
               return renderButton(child, childLabel);
             });
           })}
-        </div>
+        </nav>
       )}
 
       <div className="flex-1" />
@@ -789,11 +852,15 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
           chrome (env switcher, notifications, avatar). Active-state
           styling mirrors the main nav block so they still glow amber
           when selected. */}
-      <div className="hidden md:flex items-center gap-0.5 mr-1.5 shrink-0">
+      <nav aria-label="Utility" className="hidden md:flex items-center gap-0.5 mr-1.5 shrink-0">
         {visibleItems.filter(i => i.page === 'settings' || i.page === 'help').map((item) => {
           const label = isProd && item.prodLabel ? item.prodLabel : item.label;
           const isActive = activePage === item.page;
-          const cls = `flex items-center gap-1 px-2.5 py-2 rounded-lg text-sm font-medium transition-all relative ${
+          // Focus ring matches the main nav block (see `buttonClass` above):
+          // these two buttons were in the same WCAG 2.4.7 failure.
+          const cls = `flex items-center gap-1 px-2.5 py-2 rounded-lg text-sm font-medium transition-all relative focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-amber-500 ${
+            dark ? 'focus-visible:ring-offset-slate-900' : 'focus-visible:ring-offset-white'
+          } ${
             isActive
               ? 'menu-active-fx bg-gradient-to-b from-amber-500/80 to-amber-700/65 text-white font-bold shadow-[inset_0_0_0_2px_rgba(251,191,36,0.90),inset_0_-2px_0_0_rgba(180,83,9,1),inset_0_0_12px_rgba(217,119,6,0.45),inset_0_1px_0_rgba(255,255,255,0.35)]'
               : isProd && dark
@@ -802,7 +869,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                   ? 'text-slate-400 hover:bg-slate-700'
                   : dark
                     ? 'text-slate-400 hover:text-white hover:bg-slate-700/60'
-                    : 'text-slate-900 font-semibold hover:text-black hover:bg-slate-300/70'
+                    : 'text-slate-900 font-semibold hover:text-slate-950 hover:bg-slate-300/70'
           }`;
           return (
             <button
@@ -822,7 +889,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* Slim divider between utility nav and env switcher so the eye
           parses the right-end as two clusters instead of one long row. */}
@@ -860,7 +927,10 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             onClick={() => onEnvironmentChange('dev')}
             className={`px-3.5 py-1.5 text-xs font-bold tracking-wide rounded-full transition-all ${
               !isProd
-                ? 'bg-emerald-500 text-white shadow-[0_0_14px_rgba(16,185,129,0.55),inset_0_1px_0_rgba(255,255,255,0.3)] ring-1 ring-emerald-400/60'
+                // emerald-700, not -500: white on emerald-500 is 2.54:1, a
+                // 1.4.3 AA failure on the one chip that appears on every
+                // page. emerald-700 is 5.48:1 and keeps the same halo.
+                ? 'bg-emerald-700 text-white shadow-[0_0_14px_rgba(16,185,129,0.55),inset_0_1px_0_rgba(255,255,255,0.3)] ring-1 ring-emerald-400/60'
                 : isProd ? 'text-slate-400 hover:text-slate-200' : 'text-slate-500 hover:text-slate-700'
             }`}
             title="Development environment"
@@ -887,7 +957,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                   ? 'text-slate-500 hover:text-slate-700'
                   : prodLicensed
                     ? 'text-rose-500 bg-rose-50 hover:bg-rose-100 ring-1 ring-rose-200' // role-blocked — visible + clickable
-                    : 'text-amber-600 hover:text-amber-700 hover:bg-amber-50' // free tier — invites the upsell
+                    : 'text-amber-700 hover:text-amber-800 hover:bg-amber-50' // free tier — invites the upsell
             }`}
             title={
               !prodAllowed
@@ -915,7 +985,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
 
       {/* Tier badge — intentionally removed.
           The server tier is already communicated by the brand mark
-          ("Revoluzen Flow" vs "Revoluzen Flow") at the far left of the nav. A separate
+          ("R-Flow" vs "R-Flow+") at the far left of the nav. A separate
           PLUS pill next to the env switcher was redundant and, worse,
           misleading for accounts like `dev_free@revoluzen.local`: a developer
           named "Dev Free" seeing a gold "PLUS" badge next to their avatar
@@ -960,7 +1030,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
-                    className="text-xs text-amber-600 hover:text-amber-700 font-semibold"
+                    className="text-xs text-amber-700 hover:text-amber-800 font-semibold"
                   >
                     Mark all read
                   </button>
@@ -969,7 +1039,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
               {/* List */}
               <div className="max-h-[480px] overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <div className="px-5 py-12 text-center text-sm text-slate-400">
+                  <div className="px-5 py-12 text-center text-sm text-slate-500">
                     No notifications yet
                   </div>
                 ) : (
@@ -1012,7 +1082,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold text-slate-800 truncate">{n.title}</div>
                           <div className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{n.message}</div>
-                          <div className="text-xs text-slate-400 mt-1.5">
+                          <div className="text-xs text-slate-500 mt-1.5">
                             {n.created_at ? new Date(n.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
                           </div>
                         </div>
@@ -1094,7 +1164,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                     <span className="text-xs font-bold uppercase tracking-wide bg-white text-amber-700 px-2 py-1 rounded border border-amber-200">
                       {roleLabel(user.role) || 'member'}
                     </span>
-                    <span className="text-xs font-semibold text-slate-400 ml-auto">
+                    <span className="text-xs font-semibold text-slate-500 ml-auto">
                       env: <span className={isProd ? 'text-red-500' : 'text-emerald-600'}>{environment.toUpperCase()}</span>
                     </span>
                   </div>
@@ -1221,6 +1291,6 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
           </div>
         </div>
       )}
-    </div>
+    </header>
   );
 }

@@ -105,7 +105,7 @@ function CollapsibleLineage({ runId, dark }: { runId: string; dark?: boolean }) 
       >
         <span className={`transition-transform ${open ? 'rotate-90' : ''}`}>▸</span>
         Runtime lineage
-        <span className={`font-normal ${dark ? 'text-slate-500' : 'text-slate-400'}`}>— what actually ran</span>
+        <span className={`font-normal ${dark ? 'text-slate-500' : 'text-slate-500'}`}>— what actually ran</span>
       </button>
       {open && (
         <div className="mt-2">
@@ -254,8 +254,8 @@ const STATUS_STYLES_LIGHT: Record<string, string> = {
   success: 'bg-green-50 text-green-600',
   error: 'bg-red-50 text-red-500',
   running: 'bg-amber-50 text-amber-600',
-  pending: 'bg-slate-50 text-slate-400',
-  cancelled: 'bg-slate-50 text-slate-400',
+  pending: 'bg-slate-50 text-slate-500',
+  cancelled: 'bg-slate-50 text-slate-500',
   queued: 'bg-blue-50 text-blue-500',
 };
 const STATUS_STYLES_DARK: Record<string, string> = {
@@ -272,7 +272,7 @@ const STEP_STATUS_ICON: Record<string, { icon: string; color: string }> = {
   error: { icon: '\u2717', color: 'text-red-500 bg-red-50 border-red-200' },
   running: { icon: '\u25CB', color: 'text-amber-500 bg-amber-50 border-amber-200' },
   pending: { icon: '\u25CB', color: 'text-slate-300 bg-slate-50 border-slate-200' },
-  skipped: { icon: '\u2192', color: 'text-slate-400 bg-slate-50 border-slate-200' },
+  skipped: { icon: '\u2192', color: 'text-slate-500 bg-slate-50 border-slate-200' },
 };
 
 type DetailTab = 'lineage' | 'steps' | 'logs';
@@ -293,8 +293,8 @@ const LINEAGE_STATUS_STYLES: Record<string, { bg: string; border: string; text: 
   success: { bg: 'bg-emerald-50', border: 'border-emerald-300', text: 'text-emerald-700', glow: 'shadow-emerald-100', icon: '✓' },
   error: { bg: 'bg-red-50', border: 'border-red-300', text: 'text-red-600', glow: 'shadow-red-100', icon: '✕' },
   running: { bg: 'bg-amber-50', border: 'border-amber-300', text: 'text-amber-600', glow: 'shadow-amber-100', icon: '●' },
-  pending: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-400', glow: '', icon: '○' },
-  skipped: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-400', glow: '', icon: '→' },
+  pending: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', glow: '', icon: '○' },
+  skipped: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', glow: '', icon: '→' },
 };
 
 /** Single active-filter chip rendered in the filter bar's "Active"
@@ -344,7 +344,12 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
   // 'custom' surfaces the From/To date pickers and disables the
   // rolling-window filter — the user picks a closed interval instead.
   const [selectedPeriod, setSelectedPeriod] = useState<'24h' | '7d' | '30d' | 'custom'>('24h');
-  const [showDashboard, setShowDashboard] = useState(true);
+  // 2026-10-25 — defaults off, matching Pipelines and Connections: the
+  // run table is what this page is for, and on a quiet instance the
+  // stat row above it is a line of zeroes. The Stats button toggles it.
+  // Not persisted here, unlike the other two, because this page already
+  // keeps no view state across reloads.
+  const [showDashboard, setShowDashboard] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('lineage');
   // Per-step expand state in the Steps tab — clicking a row reveals
   // the step's input configuration, what it received from upstream
@@ -869,7 +874,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 <button
                   onClick={() => setShowDashboard(!showDashboard)}
                   className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                    showDashboard ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'
+                    showDashboard ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white text-slate-500 border-slate-200 hover:text-slate-600'
                   }`}
                 >
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline mr-1 -mt-0.5">
@@ -958,13 +963,13 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   </svg>
                 </div>
                 <p className="text-sm font-medium text-slate-500">No execution logs found</p>
-                <p className="text-xs text-slate-400 mt-1">Run a pipeline to see logs here</p>
+                <p className="text-xs text-slate-500 mt-1">Run a pipeline to see logs here</p>
               </div>
             ) : (
               <div className="rounded-lg border border-slate-200 shadow-sm bg-white overflow-hidden">
                 <div className="bg-slate-50 border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Execution Log</span>
-                  <span className="text-xs text-slate-400">{filtered.length} entries</span>
+                  <span className="text-xs text-slate-500">{filtered.length} entries</span>
                 </div>
                 <div className="divide-y divide-slate-100 max-h-[600px] overflow-auto font-mono text-xs">
                   {filtered.map(exec => {
@@ -974,7 +979,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                       <div key={exec.id} className={`px-4 py-3 flex items-start gap-3 hover:bg-slate-50 transition-colors ${
                         isError ? 'bg-red-50/30' : ''
                       }`}>
-                        <span className="text-xs text-slate-400 shrink-0 mt-0.5 w-[110px]">
+                        <span className="text-xs text-slate-500 shrink-0 mt-0.5 w-[110px]">
                           {new Date(exec.started_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                         <span className={`text-xs font-bold uppercase shrink-0 w-[60px] ${
@@ -988,12 +993,12 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                             <p className="text-red-500 mt-0.5 text-xs">{exec.error_message}</p>
                           )}
                         </div>
-                        <span className="text-slate-400 shrink-0">
+                        <span className="text-slate-500 shrink-0">
                           {exec.duration_ms ? formatDuration(exec.duration_ms) : isRunning ? '...' : '—'}
                         </span>
                         <button
                           onClick={() => loadDetail(exec)}
-                          className="text-slate-400 hover:text-blue-500 shrink-0"
+                          className="text-slate-500 hover:text-blue-500 shrink-0"
                           title="View details"
                         >
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
@@ -1229,10 +1234,10 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                       >
                         {f}
                         {f === 'error' && errorCount > 0 && (
-                          <span className={`ml-1 text-[9px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-500'}`}>{errorCount}</span>
+                          <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-500'}`}>{errorCount}</span>
                         )}
                         {f === 'running' && runningCount > 0 && (
-                          <span className={`ml-1 text-[9px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-500'}`}>{runningCount}</span>
+                          <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${dark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-500'}`}>{runningCount}</span>
                         )}
                       </button>
                     ))}
@@ -1276,7 +1281,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                         className={inputCls(!!dateFrom)}
                         aria-label="From date"
                       />
-                      <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-400'}`}>→</span>
+                      <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>→</span>
                       <input
                         type="date"
                         value={dateTo}
@@ -1419,7 +1424,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                           <span className={`text-xs font-semibold uppercase px-1.5 py-0.5 rounded-full ${
                             exec.environment === 'prod' ? (dark ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-600') :
                             exec.environment === 'dev' ? (dark ? 'bg-amber-500/15 text-amber-400' : 'bg-amber-50 text-amber-600') :
-                            (dark ? 'bg-white/5 text-slate-500' : 'bg-slate-50 text-slate-400')
+                            (dark ? 'bg-white/5 text-slate-500' : 'bg-slate-50 text-slate-500')
                           }`}>
                             {exec.environment || 'dev'}
                           </span>
@@ -1484,7 +1489,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                           )}
                         </td>
                       )}
-                      {isVisible('id') && <td className="px-4 py-3 text-slate-400 text-xs font-mono">{exec.id.slice(0, 8)}...</td>}
+                      {isVisible('id') && <td className="px-4 py-3 text-slate-500 text-xs font-mono">{exec.id.slice(0, 8)}...</td>}
                       {isVisible('completed') && <td className="px-4 py-3"><TimeAgo value={exec.completed_at} className="text-xs !text-slate-500" /></td>}
                       {isVisible('error') && (
                         <td className="px-4 py-3 text-xs text-red-500 max-w-[200px] truncate" title={exec.error_message || ''}>
@@ -1519,7 +1524,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   Execution Summary
                   <TierChip tier={tier} environment={environment} />
                 </h1>
-                <p className={`text-xs mt-0.5 ${environment === 'prod' ? 'text-slate-400' : 'text-slate-500'}`}>
+                <p className={`text-xs mt-0.5 ${environment === 'prod' ? 'text-slate-500' : 'text-slate-500'}`}>
                   Run details, lineage, and step-by-step output
                 </p>
               </div>
@@ -1575,7 +1580,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-400 font-mono mt-0.5">{selectedExec.workflow_id}</p>
+                <p className="text-xs text-slate-500 font-mono mt-0.5">{selectedExec.workflow_id}</p>
               </div>
 
               {/* Actions — kept on the right of the summary card, not in
@@ -1757,13 +1762,13 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     <div className={`text-xs mt-1 ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
                       <span className="font-semibold">Original</span>{' '}{selectedExec.status || '?'} →{' '}
                       <span className="font-semibold">Replay</span>{' '}{replayResult.status}
-                      <span className="mx-2 text-slate-400">·</span>
+                      <span className="mx-2 text-slate-500">·</span>
                       <span className="font-mono">{replayResult.diff.rows_delta >= 0 ? '+' : ''}{replayResult.diff.rows_delta}</span> rows
-                      <span className="mx-2 text-slate-400">·</span>
+                      <span className="mx-2 text-slate-500">·</span>
                       <span className="font-mono">{replayResult.diff.duration_delta_ms >= 0 ? '+' : ''}{Math.round(replayResult.diff.duration_delta_ms)}</span> ms
                       {replayResult.diff.ir_sha_match && (
                         <>
-                          <span className="mx-2 text-slate-400">·</span>
+                          <span className="mx-2 text-slate-500">·</span>
                           <span className={dark ? 'text-emerald-300' : 'text-emerald-700'}>IR sha matches</span>
                         </>
                       )}
@@ -1772,7 +1777,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                       <ul className="mt-2 space-y-0.5">
                         {replayResult.diff.steps.filter((s) => s.changed).slice(0, 6).map((s) => (
                           <li key={s.step_id} className={`text-[11px] font-mono ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
-                            <span className="text-slate-400">{s.step_name}:</span>{' '}
+                            <span className="text-slate-500">{s.step_name}:</span>{' '}
                             {s.a_status} → {s.b_status}
                             {s.a_rows !== s.b_rows && (
                               <span className="text-slate-500"> ({s.a_rows} → {s.b_rows} rows)</span>
@@ -1781,13 +1786,13 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                         ))}
                       </ul>
                     )}
-                    <div className="mt-2 text-[10px] text-slate-400 font-mono">
+                    <div className="mt-2 text-[10px] text-slate-500 font-mono">
                       Replay id: {replayResult.replay_id}
                     </div>
                   </div>
                   <button
                     onClick={() => setReplayResult(null)}
-                    className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded ${dark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'}`}
+                    className={`shrink-0 w-6 h-6 inline-flex items-center justify-center rounded ${dark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'}`}
                     title="Dismiss"
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -1834,10 +1839,10 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   key={stat.label}
                   className={`rounded-lg border px-3 py-1.5 min-w-[84px] ${dark ? 'bg-white/[0.03] border-white/[0.07]' : 'bg-slate-50/80 border-slate-200'}`}
                 >
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">{stat.label}</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">{stat.label}</div>
                   <div className={`text-xs font-semibold ${stat.mono ? 'font-mono' : ''} ${stat.cap ? 'capitalize' : ''} ${
                     stat.tone === 'emerald' ? (dark ? 'text-emerald-400' : 'text-emerald-600')
-                    : stat.tone === 'muted' ? (dark ? 'text-slate-500' : 'text-slate-400')
+                    : stat.tone === 'muted' ? (dark ? 'text-slate-500' : 'text-slate-500')
                     : (dark ? 'text-slate-200' : 'text-slate-700')
                   }`}>{stat.value}</div>
                 </div>
@@ -1855,7 +1860,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   title={selectedExec.storage_outputs.map((o) => o.name).join('\n')}
                   className={`rounded-lg border px-3 py-1.5 text-left transition-colors ${dark ? 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'}`}
                 >
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider">Storage outputs</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Storage outputs</div>
                   <div className={`text-xs font-semibold ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>
                     {selectedExec.storage_outputs.length} file{selectedExec.storage_outputs.length === 1 ? '' : 's'} →
                   </div>
@@ -1874,7 +1879,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
               aria-label="Execution detail sections"
               className={`shrink-0 w-44 border-r flex flex-col pt-3 pb-14 ${dark ? 'bg-[#111827] border-white/[0.06]' : 'bg-gradient-to-b from-slate-50 to-white border-slate-200'}`}
             >
-              <div className={`px-4 pb-2 text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Views</div>
+              <div className={`px-4 pb-2 text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Views</div>
               {([
                 { key: 'lineage' as const, label: 'Lineage', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg> },
                 { key: 'steps' as const, label: `Steps${selectedExec.step_logs?.length ? ` (${selectedExec.step_logs.length})` : ''}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg> },
@@ -1892,7 +1897,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                           ? 'text-indigo-300 bg-indigo-500/10 border-indigo-400'
                           : 'text-indigo-700 bg-indigo-50 border-indigo-500'
                         : dark
-                          ? 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.04]'
+                          ? 'text-slate-500 border-transparent hover:text-slate-200 hover:bg-white/[0.04]'
                           : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-50'
                     }`}
                   >
@@ -1908,13 +1913,13 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 <div className="mb-2"><StatusPill status={selectedExec.status || 'pending'} /></div>
                 <div className="space-y-1 text-[11px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Steps</span>
+                    <span className="text-slate-500">Steps</span>
                     <span className={`font-mono font-semibold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
                       {(selectedExec.step_logs || []).filter(s => s.status === 'success').length}/{selectedExec.step_logs?.length || 0}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-400">Duration</span>
+                    <span className="text-slate-500">Duration</span>
                     <span className={`font-mono font-semibold ${dark ? 'text-slate-300' : 'text-slate-600'}`}>{formatDuration(selectedExec.duration_ms)}</span>
                   </div>
                 </div>
@@ -2093,7 +2098,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                             <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>
                               {aiDiagnosis.ai_powered ? 'AI Diagnosis' : 'Rule-based diagnosis'}
                             </span>
-                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                               aiDiagnosis.severity === 'error'
                                 ? (dark ? 'text-red-300 bg-red-500/15' : 'text-red-700 bg-red-100')
                                 : (dark ? 'text-amber-300 bg-amber-500/15' : 'text-amber-700 bg-amber-100')
@@ -2101,7 +2106,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                               {aiDiagnosis.severity}
                             </span>
                             {!aiDiagnosis.ai_powered && (
-                              <span className={`text-[9px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+                              <span className={`text-[10px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                                 (LLM unavailable — used deterministic fallback)
                               </span>
                             )}
@@ -2141,12 +2146,12 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                         {step.step_name || step.step_id}
                                       </span>
                                       {idx === 0 && (
-                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${dark ? 'text-red-400 bg-red-500/15' : 'text-red-600 bg-red-100'}`}>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${dark ? 'text-red-400 bg-red-500/15' : 'text-red-600 bg-red-100'}`}>
                                           Root Cause
                                         </span>
                                       )}
                                     </div>
-                                    <span className="text-xs font-mono text-slate-400">{step.step_type}</span>
+                                    <span className="text-xs font-mono text-slate-500">{step.step_type}</span>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-3 shrink-0 text-xs text-slate-500">
@@ -2188,12 +2193,12 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                     {skippedDownstream.length} downstream step{skippedDownstream.length !== 1 ? 's' : ''} skipped
                                   </span>
                                   {skippedDownstream.slice(0, 5).map(id => (
-                                    <span key={id} className="text-xs text-slate-400 font-mono">
+                                    <span key={id} className="text-xs text-slate-500 font-mono">
                                       {stepNameMap.get(id) || id}
                                     </span>
                                   ))}
                                   {skippedDownstream.length > 5 && (
-                                    <span className="text-xs text-slate-400">+{skippedDownstream.length - 5} more</span>
+                                    <span className="text-xs text-slate-500">+{skippedDownstream.length - 5} more</span>
                                   )}
                                 </div>
                               )}
@@ -2460,7 +2465,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                             </div>
                           )}
                         </div>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-500">
                           {selectedExec.step_logs!.length} steps · {formatDuration(selectedExec.duration_ms)} total
                         </span>
                       </div>
@@ -2592,8 +2597,8 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                       has clean space. */}
                                   {edge.condition && !['completion', 'on_completion', 'success', 'on_success'].includes(edge.condition.toLowerCase()) && (
                                     <>
-                                      <rect x={labelX - 34} y={labelY - 7} width="68" height="14" rx="3" fill={dark ? '#1e293b' : 'white'} stroke={color} strokeWidth="1" opacity="0.9" />
-                                      <text x={labelX} y={labelY + 3} textAnchor="middle" fill={color} fontSize="8" fontWeight="700" fontFamily="system-ui" style={{ textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+                                      <rect x={labelX - 36} y={labelY - 8} width="72" height="16" rx="3" fill={dark ? '#1e293b' : 'white'} stroke={color} strokeWidth="1" opacity="0.9" />
+                                      <text x={labelX} y={labelY + 3} textAnchor="middle" fill={color} fontSize="10" fontWeight="700" fontFamily="system-ui" style={{ textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
                                         ON {edge.condition.toUpperCase()}
                                       </text>
                                     </>
@@ -2729,7 +2734,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     <div className="w-8 h-8 border-2 border-pipe-300 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : !selectedExec.step_logs?.length ? (
-                  <div className="text-center py-20 text-slate-400 text-sm">No step logs available for this execution.</div>
+                  <div className="text-center py-20 text-slate-500 text-sm">No step logs available for this execution.</div>
                 ) : (() => {
                   // Pull workflow IR snapshot once so we can read each step's
                   // configured params and figure out which upstream steps fed
@@ -2811,7 +2816,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                   <svg
                                     width="12" height="12" viewBox="0 0 24 24" fill="none"
                                     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                                    className={`text-slate-400 transition-transform inline-block ${expanded ? 'rotate-90' : ''}`}
+                                    className={`text-slate-500 transition-transform inline-block ${expanded ? 'rotate-90' : ''}`}
                                   >
                                     <polyline points="9 18 15 12 9 6" />
                                   </svg>
@@ -2841,7 +2846,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                 <td className="px-4 py-3 text-right text-xs text-slate-500 font-mono">
                                   {formatDuration(step.duration_ms)}
                                 </td>
-                                <td className="px-4 py-3 text-xs text-slate-400">
+                                <td className="px-4 py-3 text-xs text-slate-500">
                                   {formatTime(step.started_at)}
                                 </td>
                               </tr>
@@ -2861,7 +2866,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                               {JSON.stringify(irStep.params, null, 2)}
                                             </pre>
                                           ) : (
-                                            <div className="text-xs text-slate-400 italic">No parameters configured.</div>
+                                            <div className="text-xs text-slate-500 italic">No parameters configured.</div>
                                           )}
                                         </div>
                                       </div>
@@ -2872,17 +2877,17 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-500"><polyline points="15 10 20 15 15 20" /><path d="M4 4v7a4 4 0 0 0 4 4h12" /></svg>
                                           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Input received</span>
                                           {upstreamLogs.length > 0 && (
-                                            <span className="text-[9px] font-mono text-slate-400">from {upstreamLogs.length} upstream</span>
+                                            <span className="text-[10px] font-mono text-slate-500">from {upstreamLogs.length} upstream</span>
                                           )}
                                         </div>
                                         <div className="p-3 max-h-60 overflow-auto">
                                           {upstreamLogs.length === 0 ? (
-                                            <div className="text-xs text-slate-400 italic">
+                                            <div className="text-xs text-slate-500 italic">
                                               {upstreams.length > 0 ? 'Upstream step did not produce captured output.' : 'Source step — no upstream input.'}
                                             </div>
                                           ) : upstreamLogs.map((u: any) => (
                                             <div key={u.step_id} className="mb-2 last:mb-0">
-                                              <div className="text-xs font-mono text-slate-400 mb-1">
+                                              <div className="text-xs font-mono text-slate-500 mb-1">
                                                 ← {u.step_name || u.step_id} ({(u.rows_processed ?? 0).toLocaleString()} rows)
                                               </div>
                                               {Array.isArray(u.output_preview) && u.output_preview.length > 0 ? (
@@ -2890,7 +2895,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                                   {JSON.stringify(u.output_preview.slice(0, 3), null, 2)}
                                                 </pre>
                                               ) : (
-                                                <div className="text-xs text-slate-400 italic">No sample data captured.</div>
+                                                <div className="text-xs text-slate-500 italic">No sample data captured.</div>
                                               )}
                                             </div>
                                           ))}
@@ -2903,7 +2908,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500"><polyline points="9 10 4 15 9 20" /><path d="M20 4v7a4 4 0 0 1-4 4H4" /></svg>
                                           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Output produced</span>
                                           {step.rows_processed > 0 && (
-                                            <span className="text-[9px] font-mono text-slate-400">{step.rows_processed.toLocaleString()} rows</span>
+                                            <span className="text-[10px] font-mono text-slate-500">{step.rows_processed.toLocaleString()} rows</span>
                                           )}
                                         </div>
                                         <div className="p-3 max-h-60 overflow-auto">
@@ -2916,9 +2921,9 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                               {JSON.stringify(step.output_preview.slice(0, 5), null, 2)}
                                             </pre>
                                           ) : step.status === 'skipped' ? (
-                                            <div className="text-xs text-slate-400 italic">Step was skipped.</div>
+                                            <div className="text-xs text-slate-500 italic">Step was skipped.</div>
                                           ) : (
-                                            <div className="text-xs text-slate-400 italic">No output sample captured.</div>
+                                            <div className="text-xs text-slate-500 italic">No output sample captured.</div>
                                           )}
                                         </div>
                                       </div>
@@ -2950,8 +2955,8 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                         onClick={() => setLogLevel(lvl)}
                         className={`px-3 py-1.5 text-xs font-bold rounded-md uppercase transition-all ${
                           logLevel === lvl
-                            ? lvl === 'error' ? 'bg-red-500 text-white' : lvl === 'warn' ? 'bg-amber-500 text-white' : 'bg-white text-slate-700 shadow-sm'
-                            : 'text-slate-400 hover:text-slate-600'
+                            ? lvl === 'error' ? 'bg-red-500 text-white' : lvl === 'warn' ? 'bg-amber-700 text-white' : 'bg-white text-slate-700 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-600'
                         }`}
                       >
                         {lvl}
@@ -2998,7 +3003,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     return filteredLogs.map((log, i) => (
                       <div key={i} className="flex gap-3 hover:bg-slate-800/50 px-2 py-0.5 rounded">
                         <span className="text-slate-600 shrink-0 select-none">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--'}</span>
-                        <span className={`shrink-0 uppercase w-12 text-right font-bold ${LOG_COLORS[log.level] || 'text-slate-400'}`}>{log.level}</span>
+                        <span className={`shrink-0 uppercase w-12 text-right font-bold ${LOG_COLORS[log.level] || 'text-slate-500'}`}>{log.level}</span>
                         <span className="text-slate-200 break-all whitespace-pre-wrap">{log.message}</span>
                       </div>
                     ));

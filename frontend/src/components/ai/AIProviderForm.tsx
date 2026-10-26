@@ -499,7 +499,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
 
   // ── Render ────────────────────────────────────────────────────────────
   if (loading) {
-    return <div className="text-sm text-slate-400 py-8 text-center">Loading AI configuration…</div>;
+    return <div className="text-sm text-slate-500 py-8 text-center">Loading AI configuration…</div>;
   }
 
   if (error) {
@@ -711,7 +711,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
                   disabled={readOnly || !enabled}
-                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400 font-mono"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500 font-mono"
                 >
                   {!ollamaModels.find((m) => m.name === model) && model && (
                     <option value={model}>{model} (not installed)</option>
@@ -773,7 +773,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
                       return (
                         <div key={rec.name} className="flex items-center gap-2">
                           <code className="text-xs font-mono text-slate-800 shrink-0">{rec.name}</code>
-                          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
                             rec.runtime === 'cpu' ? 'bg-violet-100 text-violet-700' : 'bg-blue-100 text-blue-700'
                           }`}>
                             {rec.runtime === 'cpu' ? 'CPU pick' : 'GPU pick'}
@@ -848,7 +848,8 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
             onChange={(e) => setModel(e.target.value)}
             disabled={readOnly || !enabled}
             placeholder={providerDef?.defaultModel || 'model-name'}
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400 font-mono"
+            aria-label="Model name"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500 font-mono"
           />
         )}
         {/* Tools / Text-only badge for Ollama — surfaces text-only mode
@@ -880,7 +881,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
             onChange={(e) => setBaseUrl(e.target.value)}
             disabled={readOnly || !enabled}
             placeholder={isOllama ? 'http://127.0.0.1:11434' : 'https://your-endpoint'}
-            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400 font-mono"
+            className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500 font-mono"
           />
         </Field>
       )}
@@ -930,7 +931,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
                 disabled={readOnly || !enabled || clearKeyIntent}
                 placeholder={saved?.has_key && !saved?.credential_id ? '••••••••••••  (key on file)' : 'sk-…'}
                 autoComplete="new-password"
-                className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400 font-mono"
+                className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500 font-mono"
               />
               {saved?.has_key && !saved?.credential_id && !readOnly && (
                 <button
@@ -952,7 +953,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
                 value={credentialId}
                 onChange={(e) => setCredentialId(e.target.value)}
                 disabled={readOnly || !enabled}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500"
               >
                 <option value="">— Select a saved credential —</option>
                 {credentials.map((c) => (
@@ -1017,7 +1018,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
               value={monthlyBudget}
               onChange={(e) => setMonthlyBudget(parseFloat(e.target.value) || 0)}
               disabled={readOnly}
-              className="w-40 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-400"
+              className="w-40 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none disabled:bg-slate-50 disabled:text-slate-500"
             />
           </Field>
         </div>
@@ -1111,7 +1112,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
           type="button"
           onClick={onReset}
           disabled={readOnly || saving || !saved?.enabled}
-          className="text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="tap-24 text-xs font-semibold text-red-600 hover:text-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Reset to defaults
         </button>
@@ -1125,7 +1126,7 @@ export default function AIProviderForm({ mode, disabled, disabledReason, onSaved
             type="button"
             onClick={onSave}
             disabled={readOnly || saving}
-            className="px-4 py-2 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm disabled:opacity-50"
+            className="px-4 py-2 text-sm font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg shadow-sm disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

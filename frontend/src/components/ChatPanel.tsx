@@ -193,7 +193,7 @@ function GuidedPickCard({
           </span>
           <div className="min-w-0">
             <div className="text-[12px] font-semibold text-slate-700 group-hover:text-indigo-600 transition-colors truncate">{item.label}</div>
-            {item.desc && <div className="text-[8px] text-slate-400 leading-tight truncate">{item.desc}</div>}
+            {item.desc && <div className="text-[10px] text-slate-500 leading-tight truncate">{item.desc}</div>}
           </div>
         </button>
       ))}
@@ -239,7 +239,7 @@ function GuidedConfigForm({
           {submitLabel || 'Continue'}
         </button>
         {onBack && (
-          <button onClick={onBack} className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+          <button onClick={onBack} className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-500 hover:text-slate-600 hover:bg-slate-100 transition-colors">
             Back
           </button>
         )}
@@ -259,7 +259,7 @@ function MiniPipelinePreview({ pNodes, pEdges }: { pNodes: PNode[]; pEdges: PEdg
 
   return (
     <div className="mt-2 mb-1 p-2.5 rounded-xl border border-indigo-200/60 bg-white/80 overflow-x-auto">
-      <div className="text-[8px] uppercase tracking-widest text-slate-400 mb-1.5 font-bold">Pipeline Graph</div>
+      <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 font-bold">Pipeline Graph</div>
       <div className="flex items-start gap-1.5 min-w-0">
         {layers.map((layer, li) => (
           <div key={li} className="flex items-center gap-1.5 shrink-0">
@@ -272,7 +272,7 @@ function MiniPipelinePreview({ pNodes, pEdges }: { pNodes: PNode[]; pEdges: PEdg
                   <div key={n.id} className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-200 bg-white shadow-sm" style={{ borderLeftColor: meta?.color || '#94a3b8', borderLeftWidth: 3 }}>
                     <span className="text-[12px]">{meta?.icon || '⬜'}</span>
                     <div className="min-w-0">
-                      <div className="text-[9px] font-semibold text-slate-700 truncate max-w-[90px]">{n.label.split(':')[0]}</div>
+                      <div className="text-[10px] font-semibold text-slate-700 truncate max-w-[90px]">{n.label.split(':')[0]}</div>
                       {edgesIn > 1 && <span className="text-[7px] text-indigo-400">{edgesIn} inputs</span>}
                     </div>
                   </div>
@@ -285,7 +285,7 @@ function MiniPipelinePreview({ pNodes, pEdges }: { pNodes: PNode[]; pEdges: PEdg
           </div>
         ))}
       </div>
-      <div className="mt-1.5 text-[9px] text-slate-400">
+      <div className="mt-1.5 text-[10px] text-slate-500">
         {pNodes.length} node{pNodes.length !== 1 ? 's' : ''} · {pEdges.length} connection{pEdges.length !== 1 ? 's' : ''}
         {sources.length > 1 && ' · Multi-source'}
         {outputs.length > 1 && ' · Multi-output'}
@@ -306,10 +306,10 @@ function NodeSelector({ nodes, onSelect, label }: { nodes: PNode[]; onSelect: (i
             <button key={n.id} onClick={() => onSelect(n.id)}
               className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-sm transition-all text-left"
             >
-              <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[9px]" style={{ background: meta?.color || '#94a3b8' }}>{meta?.icon || '⬜'}</span>
+              <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px]" style={{ background: meta?.color || '#94a3b8' }}>{meta?.icon || '⬜'}</span>
               <div className="min-w-0 flex-1">
                 <div className="text-[12px] font-semibold text-slate-700 truncate">{n.label}</div>
-                <div className="text-[8px] text-slate-400">{n.type}</div>
+                <div className="text-[10px] text-slate-500">{n.type}</div>
               </div>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" strokeWidth="2.5" className="shrink-0"><path d="M5 12h14m-7-7 7 7-7 7" /></svg>
             </button>
@@ -608,7 +608,7 @@ export default function ChatPanel() {
       <div data-revoluzen-flow-panel="chat" className="w-10 bg-slate-50 border-l border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
         <button
           onClick={() => setChatOpen(true)}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100 transition-all"
           title="Expand assistant panel"
         >
           {/* Chevron points LEFT — panel sits on the right edge, so
@@ -718,12 +718,12 @@ export default function ChatPanel() {
               {pNodes.length === 0 ? (
                 <>
                   <div className="text-sm font-semibold text-slate-700 mb-0.5">Start building your pipeline</div>
-                  <div className="text-[12px] text-slate-400 mb-2">Add sources, transforms, branches, and outputs</div>
+                  <div className="text-[12px] text-slate-500 mb-2">Add sources, transforms, branches, and outputs</div>
                 </>
               ) : (
                 <>
                   <div className="text-sm font-semibold text-slate-700 mb-0.5">Pipeline Builder</div>
-                  <div className="text-[12px] text-slate-400">
+                  <div className="text-[12px] text-slate-500">
                     {sources.length} source{sources.length !== 1 ? 's' : ''} · {transforms.length} transform{transforms.length !== 1 ? 's' : ''} · {outputs.length} output{outputs.length !== 1 ? 's' : ''}
                   </div>
                   <MiniPipelinePreview pNodes={pNodes} pEdges={pEdges} />
@@ -738,7 +738,7 @@ export default function ChatPanel() {
                   <div className="w-7 h-7 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 group-hover:bg-blue-200 transition-colors text-sm">📥</div>
                   <div>
                     <div className="text-[12px] font-bold text-slate-700 group-hover:text-blue-600">+ Source</div>
-                    <div className="text-[8px] text-slate-400">{sources.length > 0 ? 'Add another' : 'Data input'}</div>
+                    <div className="text-[10px] text-slate-500">{sources.length > 0 ? 'Add another' : 'Data input'}</div>
                   </div>
                 </button>
 
@@ -760,7 +760,7 @@ export default function ChatPanel() {
                   <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 group-hover:bg-amber-200 transition-colors text-sm">⚡</div>
                   <div>
                     <div className="text-[12px] font-bold text-slate-700 group-hover:text-amber-600">+ Transform</div>
-                    <div className="text-[8px] text-slate-400">Filter, sort, join...</div>
+                    <div className="text-[10px] text-slate-500">Filter, sort, join...</div>
                   </div>
                 </button>
 
@@ -781,7 +781,7 @@ export default function ChatPanel() {
                   <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 group-hover:bg-emerald-200 transition-colors text-sm">📤</div>
                   <div>
                     <div className="text-[12px] font-bold text-slate-700 group-hover:text-emerald-600">+ Output</div>
-                    <div className="text-[8px] text-slate-400">{outputs.length > 0 ? 'Add another' : 'Destination'}</div>
+                    <div className="text-[10px] text-slate-500">{outputs.length > 0 ? 'Add another' : 'Destination'}</div>
                   </div>
                 </button>
 
@@ -794,7 +794,7 @@ export default function ChatPanel() {
                   <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 group-hover:bg-purple-200 transition-colors text-sm">🔀</div>
                   <div>
                     <div className="text-[12px] font-bold text-slate-700 group-hover:text-purple-600">+ Branch</div>
-                    <div className="text-[8px] text-slate-400">Split / parallel path</div>
+                    <div className="text-[10px] text-slate-500">Split / parallel path</div>
                   </div>
                 </button>
               </div>
@@ -807,16 +807,16 @@ export default function ChatPanel() {
                   return (
                     <div key={jn.id} className="mt-2 p-2 rounded-lg border border-orange-200 bg-orange-50/50">
                       <div className="text-[12px] font-semibold text-orange-700 mb-1">🔗 Join needs a second input</div>
-                      <div className="text-[9px] text-orange-600 mb-1.5">"{jn.label}" has {inputCount} input — joins typically need 2</div>
+                      <div className="text-[10px] text-orange-600 mb-1.5">"{jn.label}" has {inputCount} input — joins typically need 2</div>
                       <div className="flex flex-wrap gap-1">
                         {available.filter(n => n.category !== 'output').map(n => (
                           <button key={n.id} onClick={() => handleJoinSecondInput(jn.id, n.id)}
-                            className="text-[9px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-orange-700 hover:bg-orange-100 transition-colors font-medium">
+                            className="text-[10px] px-2 py-1 rounded-lg bg-white border border-orange-200 text-orange-700 hover:bg-orange-100 transition-colors font-medium">
                             + {n.label.split(':')[0]}
                           </button>
                         ))}
                         <button onClick={() => setGuided(g => ({ ...g, phase: 'pick_source', connectFrom: null, joinTarget: jn.id }))}
-                          className="text-[9px] px-2 py-1 rounded-lg bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors font-medium">
+                          className="text-[10px] px-2 py-1 rounded-lg bg-white border border-blue-200 text-blue-600 hover:bg-blue-50 transition-colors font-medium">
                           + New Source
                         </button>
                       </div>
@@ -838,7 +838,7 @@ export default function ChatPanel() {
                       Review & Build ({pNodes.length} nodes)
                     </button>
                   ) : (
-                    <div className="flex-1 py-2 rounded-xl text-[12px] text-center text-slate-400 border border-dashed border-slate-200">
+                    <div className="flex-1 py-2 rounded-xl text-[12px] text-center text-slate-500 border border-dashed border-slate-200">
                       Add at least one output to build
                     </div>
                   )}
@@ -853,11 +853,11 @@ export default function ChatPanel() {
               <div className="text-sm font-semibold text-slate-700 mb-0.5">
                 {sources.length === 0 ? 'What data source do you want to use?' : 'Add another data source'}
               </div>
-              <div className="text-[12px] text-slate-400 mb-1">Pick the input for your pipeline</div>
+              <div className="text-[12px] text-slate-500 mb-1">Pick the input for your pipeline</div>
               <GuidedPickCard items={GUIDED_SOURCES} onPick={(item) => handlePickType(item, 'source')} />
               {pNodes.length > 0 && (
                 <button onClick={() => setGuided(g => ({ ...g, phase: 'overview' }))}
-                  className="mt-2 text-[12px] text-slate-400 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
+                  className="mt-2 text-[12px] text-slate-500 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
               )}
             </>
           )}
@@ -870,7 +870,7 @@ export default function ChatPanel() {
                 <div className="text-sm font-semibold text-slate-700 mb-0.5 flex items-center gap-1.5">
                   <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[12px]" style={{ background: meta.color }}>{meta.icon}</span>
                   Configure {meta.label}
-                  {guided.joinTarget && <span className="text-[9px] text-orange-500 font-medium ml-1">(→ Join)</span>}
+                  {guided.joinTarget && <span className="text-[10px] text-orange-500 font-medium ml-1">(→ Join)</span>}
                 </div>
                 <GuidedConfigForm fields={meta.fields} onSubmit={handleConfig}
                   onBack={() => setGuided(g => ({ ...g, phase: pNodes.length > 0 ? 'overview' : 'pick_source', currentType: undefined, joinTarget: undefined }))}
@@ -884,14 +884,14 @@ export default function ChatPanel() {
           {phase === 'pick_connect' && (
             <>
               <div className="text-sm font-semibold text-slate-700 mb-0.5">Connect from which node?</div>
-              <div className="text-[12px] text-slate-400 mb-1">Pick the upstream node to connect from</div>
+              <div className="text-[12px] text-slate-500 mb-1">Pick the upstream node to connect from</div>
               <NodeSelector nodes={connectableNodes} onSelect={(id) => {
                 const targetPhase = guided.currentType === '__output__' ? 'pick_output' : 'pick_transform';
                 addGuidedMsg('user', `Connect from: ${pNodes.find(n => n.id === id)?.label || id}`);
                 setGuided(g => ({ ...g, phase: targetPhase, connectFrom: id, currentType: targetPhase === 'pick_output' ? undefined : g.currentType }));
               }} label="Available nodes" />
               <button onClick={() => setGuided(g => ({ ...g, phase: 'overview', currentType: undefined }))}
-                className="mt-2 text-[12px] text-slate-400 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
+                className="mt-2 text-[12px] text-slate-500 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
             </>
           )}
 
@@ -899,12 +899,12 @@ export default function ChatPanel() {
           {phase === 'pick_transform' && (
             <>
               <div className="text-sm font-semibold text-slate-700 mb-0.5">What transformation do you need?</div>
-              <div className="text-[12px] text-slate-400 mb-1">
+              <div className="text-[12px] text-slate-500 mb-1">
                 {connectFrom && `Connecting from: ${pNodes.find(n => n.id === connectFrom)?.label || ''}`}
               </div>
               <GuidedPickCard items={GUIDED_TRANSFORMS} onPick={(item) => handlePickType(item, 'transform')} />
               <button onClick={() => setGuided(g => ({ ...g, phase: 'overview', connectFrom: null }))}
-                className="mt-2 text-[12px] text-slate-400 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
+                className="mt-2 text-[12px] text-slate-500 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
             </>
           )}
 
@@ -917,7 +917,7 @@ export default function ChatPanel() {
                   <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[12px]" style={{ background: meta.color }}>{meta.icon}</span>
                   Configure {meta.label}
                 </div>
-                <div className="text-[12px] text-slate-400 mb-1">{meta.desc}</div>
+                <div className="text-[12px] text-slate-500 mb-1">{meta.desc}</div>
                 <GuidedConfigForm
                   fields={meta.fields}
                   onSubmit={handleConfig}
@@ -932,12 +932,12 @@ export default function ChatPanel() {
           {phase === 'pick_output' && (
             <>
               <div className="text-sm font-semibold text-slate-700 mb-0.5">Where should the output go?</div>
-              <div className="text-[12px] text-slate-400 mb-1">
+              <div className="text-[12px] text-slate-500 mb-1">
                 {connectFrom && `From: ${pNodes.find(n => n.id === connectFrom)?.label || ''}`}
               </div>
               <GuidedPickCard items={GUIDED_OUTPUTS} onPick={(item) => handlePickType(item, 'output')} />
               <button onClick={() => setGuided(g => ({ ...g, phase: 'overview', connectFrom: null }))}
-                className="mt-2 text-[12px] text-slate-400 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
+                className="mt-2 text-[12px] text-slate-500 hover:text-slate-600 transition-colors font-medium">← Back to overview</button>
             </>
           )}
 
@@ -964,7 +964,7 @@ export default function ChatPanel() {
           {phase === 'review' && (
             <>
               <div className="text-sm font-semibold text-slate-700 mb-0.5">Review Your Pipeline</div>
-              <div className="text-[12px] text-slate-400 mb-1">
+              <div className="text-[12px] text-slate-500 mb-1">
                 {pNodes.length} nodes · {pEdges.length} connections
                 {sources.length > 1 ? ' · Multi-source' : ''}
                 {outputs.length > 1 ? ' · Multi-output' : ''}
@@ -979,16 +979,16 @@ export default function ChatPanel() {
                   const outEdgeCount = pEdges.filter(e => e.from === n.id).length;
                   return (
                     <div key={n.id} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 shadow-sm">
-                      <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[9px] font-bold shrink-0" style={{ background: meta?.color || '#94a3b8' }}>{meta?.icon || '⬜'}</span>
+                      <span className="w-5 h-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0" style={{ background: meta?.color || '#94a3b8' }}>{meta?.icon || '⬜'}</span>
                       <div className="flex-1 min-w-0">
                         <div className="text-[12px] font-semibold text-slate-700 truncate">{n.label}</div>
-                        <div className="text-[8px] text-slate-400 truncate">
+                        <div className="text-[10px] text-slate-500 truncate">
                           {Object.entries(n.params).filter(([,v]) => v).map(([k,v]) => `${k}: ${v}`).join(' · ') || n.type}
                         </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {inEdges.length > 0 && <span className="text-[8px] text-indigo-400">{inEdges.length}↓</span>}
-                        {outEdgeCount > 0 && <span className="text-[8px] text-emerald-400">{outEdgeCount}→</span>}
+                        {inEdges.length > 0 && <span className="text-[10px] text-indigo-400">{inEdges.length}↓</span>}
+                        {outEdgeCount > 0 && <span className="text-[10px] text-emerald-400">{outEdgeCount}→</span>}
                       </div>
                     </div>
                   );
@@ -1004,7 +1004,7 @@ export default function ChatPanel() {
                   Build Pipeline
                 </button>
                 <button onClick={() => setGuided(g => ({ ...g, phase: 'overview' }))}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors border border-slate-200"
+                  className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-500 hover:text-slate-600 hover:bg-slate-100 transition-colors border border-slate-200"
                 >
                   Edit
                 </button>
@@ -1014,8 +1014,8 @@ export default function ChatPanel() {
 
           {/* Footer: Guided Builder label + cancel */}
           <div className="mt-3 pt-2 border-t border-indigo-100 flex items-center justify-between">
-            <span className="text-[9px] text-indigo-300 font-medium">Guided Builder</span>
-            <button onClick={cancelGuided} className="text-[9px] text-slate-400 hover:text-red-400 transition-colors font-medium">Cancel</button>
+            <span className="text-[10px] text-indigo-300 font-medium">Guided Builder</span>
+            <button onClick={cancelGuided} className="text-[10px] text-slate-500 hover:text-red-400 transition-colors font-medium">Cancel</button>
           </div>
         </div>
       </div>
@@ -1054,7 +1054,7 @@ export default function ChatPanel() {
           </div>
           {aiAvailable !== null && (
             <span
-              className={`text-[9px] px-2 py-1 rounded-full font-bold cursor-help ${
+              className={`text-[10px] px-2 py-1 rounded-full font-bold cursor-help ${
                 aiAvailable ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-slate-50 text-slate-500 border border-slate-200'
               }`}
               title={
@@ -1070,7 +1070,7 @@ export default function ChatPanel() {
           <button
             onClick={() => setChatOpen(false)}
             className={`ml-1 w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-              dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-slate-200/60 text-slate-400 hover:text-slate-600'
+              dark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-slate-200/60 text-slate-500 hover:text-slate-600'
             }`}
             title="Hide assistant panel (toggle from toolbar)"
           >
@@ -1244,7 +1244,7 @@ export default function ChatPanel() {
                   ))}
                 </div>
                 {isUser && (
-                  <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-indigo-100 text-indigo-600 text-[9px] font-bold">U</div>
+                  <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-bold">U</div>
                 )}
               </div>
               {/* Tool-step trace — operator-console signal that the reply
@@ -1253,7 +1253,7 @@ export default function ChatPanel() {
                   agent loop (messages have a `tool_steps` array). */}
               {!isUser && Array.isArray((msg as any).tool_steps) && (msg as any).tool_steps.length > 0 && (
                 <div className="ml-8 mt-1 flex flex-wrap gap-1.5 items-center">
-                  <span className="text-xs text-slate-400 font-medium">via</span>
+                  <span className="text-xs text-slate-500 font-medium">via</span>
                   {((msg as any).tool_steps as Array<{ tool_name: string; outcome: string; latency_ms?: number }>).map((s, idx) => {
                     const ok = s.outcome === 'success';
                     return (
@@ -1306,7 +1306,7 @@ export default function ChatPanel() {
                 {msg.content}
               </div>
               {isUser && (
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-indigo-100 text-indigo-600 text-[9px] font-bold">U</div>
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 bg-indigo-100 text-indigo-600 text-[10px] font-bold">U</div>
               )}
             </div>
           );
@@ -1335,7 +1335,7 @@ export default function ChatPanel() {
       {/* Smart Suggestions */}
       {!guided.active && smartSuggestions.length > 0 && chatMessages.length > 2 && !input && (
         <div className="px-3 pb-2 shrink-0">
-          <div className="text-[8px] uppercase tracking-widest text-slate-400 mb-1.5 font-bold">Suggestions</div>
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 font-bold">Suggestions</div>
           <div className="flex flex-wrap gap-1">
             {smartSuggestions.map((s, i) => (
               <button key={i} onClick={() => handleSuggestion(s.text)}
@@ -1387,7 +1387,7 @@ export default function ChatPanel() {
       {showHelperMenu && (
         <div className="mx-3 mb-2 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-52 overflow-y-auto shrink-0">
           <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 sticky top-0">
-            <span className="text-[9px] uppercase tracking-widest text-slate-400 font-bold">Quick Commands</span>
+            <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Quick Commands</span>
           </div>
           {helperOptions
             .filter((o) => !input || o.cmd.includes(input.replace('/', '')))
@@ -1416,7 +1416,7 @@ export default function ChatPanel() {
               onKeyDown={handleKeyDown}
               placeholder={guided.active ? 'Type or use the buttons above...' : 'Describe your pipeline...'}
               rows={2}
-              className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 placeholder:text-slate-400 shadow-sm"
+              className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 placeholder:text-slate-500 shadow-sm"
             />
           </div>
           <button
@@ -1434,7 +1434,7 @@ export default function ChatPanel() {
         <div className="flex items-center gap-1.5 mt-2 px-1 flex-wrap">
           <kbd className="text-[12px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono border border-slate-300 font-semibold">Enter</kbd>
           <span className="text-sm text-slate-600">send</span>
-          <span className="text-sm text-slate-400 mx-1">&middot;</span>
+          <span className="text-sm text-slate-500 mx-1">&middot;</span>
           <kbd className="text-[12px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono border border-slate-300 font-semibold">Shift+Enter</kbd>
           <span className="text-sm text-slate-600">new line</span>
           <span className="ml-auto" />
@@ -1458,7 +1458,7 @@ export default function ChatPanel() {
             />
             Deep
             {deepMode && (
-              <span className="ml-0.5 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 border border-amber-200">
+              <span className="ml-0.5 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 border border-amber-200">
                 Slow
               </span>
             )}

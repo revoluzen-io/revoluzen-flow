@@ -182,22 +182,22 @@ export default function ProviderComparison({ onConfigure }: Props) {
                 </td>
                 <td className="text-center px-2 py-1.5">
                   <span
-                    className={`px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider ring-1 ${LATENCY_TONE[row.latency_band] || LATENCY_TONE.low}`}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider ring-1 ${LATENCY_TONE[row.latency_band] || LATENCY_TONE.low}`}
                   >
                     {row.latency_band}
                   </span>
                 </td>
                 <td className="text-center px-2 py-1.5">
                   {row.recommend ? (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-indigo-600 text-white">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-600 text-white">
                       Recommended
                     </span>
                   ) : row.configured ? (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-700">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-emerald-100 text-emerald-700">
                       Configured
                     </span>
                   ) : (
-                    <span className="text-slate-400 text-xs">—</span>
+                    <span className="text-slate-500 text-xs">—</span>
                   )}
                 </td>
               </tr>

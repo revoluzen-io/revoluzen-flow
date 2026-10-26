@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 # Stage 2.5b: duckdb is RUNTIME-USED in this file (_open_duckdb calls
 # duckdb.connect). The runtime import lives inside that function so a
@@ -97,6 +98,30 @@ def rewrite_for_sandbox(*_args, **_kwargs):
     return None
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _has_template(value: Any) -> bool:
+    """True if a params tree contains a ``{{ ... }}`` expression anywhere.
+
+    Deliberately cheap and conservative: it walks strings, lists and dicts
+    and stops at the first ``{{``. A false positive only costs the old
+    behaviour for that one step; a false negative would skip resolution, so
+    the check is on the raw text rather than anything cleverer.
+
+    Used to avoid snapshotting every upstream result into Python when no
+    step param needs it — see the call site in ``_execute_step``.
+    """
+    if isinstance(value, str):
+        return "{{" in value
+    if isinstance(value, dict):
+        return any(_has_template(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(_has_template(v) for v in value)
+    return False
 
 
 def _open_duckdb() -> duckdb.DuckDBPyConnection:
@@ -187,9 +212,32 @@ class WorkflowExecutor:
     # or per-run via the corresponding Workflow IR field if/when added.
     DEFAULT_WORKFLOW_RETRY_BUDGET = 10
 
-    def __init__(self, data_dir: str = ".", app_state: dict | None = None):
+    def __init__(
+        self,
+        data_dir: str = ".",
+        app_state: dict | None = None,
+        on_event: "Callable[[dict[str, Any]], None] | None" = None,
+    ):
         self.data_dir = data_dir
         self.app_state = app_state or {}
+        # 2026-10-25 — optional per-step progress hook.
+        #
+        # Live run progress existed only on the WebSocket-initiated path,
+        # through the separate RealtimeExecutor. The Run button goes
+        # through REST and this executor, so nothing ever reported a step
+        # starting or finishing: the canvas sat idle for the whole run and
+        # then showed the results all at once. Instrumented at 60ms, zero
+        # visual transitions on any node.
+        #
+        # Putting the hook HERE rather than swapping the REST path over to
+        # RealtimeExecutor is deliberate: that class is not a subclass, it
+        # is a parallel implementation, and it does not carry this one's
+        # caching, retry-budget or resume behaviour. One hook on the real
+        # execution path also means the scheduler and CLI stream too,
+        # rather than just the one caller that asked for it.
+        #
+        # Never let a listener break a run: `_emit` swallows everything.
+        self.on_event = on_event
         self.registry = get_registry()
         # Populated per-run by execute_workflow / execute_step / execute_step_resume
         self._cache: StepCache | None = None
@@ -202,6 +250,23 @@ class WorkflowExecutor:
         # on_error policy as if the step exhausted its own budget.
         self.workflow_retry_budget = self.DEFAULT_WORKFLOW_RETRY_BUDGET
         self._workflow_retries_used = 0
+
+    def _emit(self, event_type: str, data: dict[str, Any]) -> None:
+        """Report progress to an optional listener.
+
+        Deliberately total: a listener that raises, blocks on a full
+        queue, or was handed a half-dead WebSocket must not take a
+        pipeline run down with it. Observability is never worth a failed
+        run, and a run that fails only when someone is watching it is the
+        worst kind of bug to chase.
+        """
+        cb = self.on_event
+        if cb is None:
+            return
+        try:
+            cb({"type": event_type, "timestamp": _utc_now_iso(), **data})
+        except Exception:  # noqa: BLE001 — see docstring
+            logger.debug("on_event listener raised for %s", event_type, exc_info=True)
 
     def execute_workflow(
         self,
@@ -441,6 +506,10 @@ class WorkflowExecutor:
                 )
 
         t0 = time.perf_counter()
+        self._emit("workflow_started", {
+            "workflow_id": workflow.id,
+            "total_steps": len(order),
+        })
 
         # Pre-scan: build a map of retry_handler step_id → upstream step_ids
         # so the main loop can apply retry logic to upstream nodes.
@@ -533,6 +602,12 @@ class WorkflowExecutor:
                 }
                 step = Step(id=step.id, type=step.type, label=step.label, params={**step.params, "_settings": settings})
 
+            self._emit("step_started", {
+                "workflow_id": workflow.id,
+                "step_id": step.id,
+                "step_type": step.type.value if hasattr(step.type, "value") else str(step.type),
+            })
+
             if step.id in resume_skip:
                 rel = ctx._results.get(step.id)
                 preview = preview_relation(rel, limit=preview_limit) if rel is not None and preview_limit > 0 else {}
@@ -549,6 +624,18 @@ class WorkflowExecutor:
             else:
                 step_result = self._execute_step(step, ctx, input_map, preview_limit)
             run_result.step_results[step.id] = step_result
+
+            self._emit(
+                "step_error" if step_result.status == "error" else "step_completed",
+                {
+                    "workflow_id": workflow.id,
+                    "step_id": step.id,
+                    "status": step_result.status,
+                    "row_count": step_result.row_count,
+                    "duration_ms": step_result.duration_ms,
+                    "error": step_result.error,
+                },
+            )
 
             # Persist step output capture for the historical replay viewer
             # (Executions → lineage node click). Best-effort: a write hiccup
@@ -640,6 +727,11 @@ class WorkflowExecutor:
 
         run_result.completed_at = datetime.now(timezone.utc)
         run_result.duration_ms = round(elapsed, 2)
+        self._emit("workflow_completed", {
+            "workflow_id": workflow.id,
+            "status": run_result.status,
+            "duration_ms": run_result.duration_ms,
+        })
 
         # Release any pooled DB connections borrowed by this run. The
         # pool lives in app_state and is OPTIONAL — if not installed,
@@ -1406,9 +1498,24 @@ class WorkflowExecutor:
             raw_params["_node_labels"] = label_map
 
         # Resolve {{ ... }} expressions against upstream node results.
+        #
+        # `results_as_rows()` pulls EVERY upstream result fully into Python
+        # dicts. Calling it unconditionally — as this did until 2026-10-23 —
+        # makes a run quadratic in the number of steps, because step N
+        # fetches the complete output of steps 1..N-1 all over again.
+        #
+        # Measured on a 120,000-row source: a 3-step chain pulled 360,000
+        # row-dicts, a 9-step chain pulled 4,320,000 (120k x sum(0..8)).
+        # Wall clock went 0.74 s -> 6.4 s for the same input. Most of that
+        # work was for nothing: the great majority of steps contain no
+        # `{{ }}` template at all, and the snapshot was discarded unused.
+        #
+        # So: only pay for the snapshot when a template is actually present.
+        # `resolve_expressions` is a no-op on params with no templates, so
+        # passing an empty mapping is equivalent for those steps.
         try:
             upstream_ids = input_map.get(step.id, [])
-            results_rows = ctx.results_as_rows()
+            results_rows = ctx.results_as_rows() if _has_template(raw_params) else {}
             current_item: dict | None = None
             if upstream_ids:
                 first_rows = results_rows.get(upstream_ids[0], [])
@@ -1520,8 +1627,23 @@ class WorkflowExecutor:
         for step in workflow.steps:
             # Source: inject row limit. Destination: rewrite to scratch.
             # Pass-through for everything else (transforms, control flow).
-            limited = inject_sandbox_limit(step, max_rows=row_limit)
-            rewritten = rewrite_for_sandbox(limited, scratch_namespace)
+            #
+            # `or <previous>` is load-bearing, not defensive padding. Both
+            # hooks are declared above as inert no-ops that return None —
+            # "None signals no rewrite was applied" — and only an optional
+            # extension replaces them. Without the fallback this loop
+            # appended those Nones as the workflow's steps, so EVERY step
+            # became None and the next `step.id` raised
+            # "'NoneType' object has no attribute 'id'".
+            #
+            # That made safety_mode="sample" a guaranteed HTTP 500 on any
+            # install without the extension — i.e. all of OSS — and sample
+            # is exactly what the editor's Run button sends
+            # (`?full_run=false&safety_mode=sample`). The product's primary
+            # run action could not work. Reproduced 2026-10-23 on a
+            # three-step CSV pipeline: live mode 200, sample mode 500.
+            limited = inject_sandbox_limit(step, max_rows=row_limit) or step
+            rewritten = rewrite_for_sandbox(limited, scratch_namespace) or limited
             rewritten_steps.append(rewritten)
 
         return workflow.model_copy(update={"steps": rewritten_steps})

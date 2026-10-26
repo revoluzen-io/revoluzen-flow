@@ -7,11 +7,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 🔒 Security vulnerability (do NOT file as an issue)
-    url: https://github.com/revoluzen-data-systems/revoluzen-flow/security/advisories/new
+    url: https://github.com/revoluzen-io/revoluzen-flow/security/advisories/new
     about: "Use GitHub Private Vulnerability Reporting for any security issue — please do not open a public issue. See security.md for full details and email fallback."
   - name: 🔌 Build a connector yourself in 90 seconds
-    url: https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/extend/build-a-connector.md
+    url: https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/extend/build-a-connector.md
     about: "Most connector needs can be solved in the product without filing an issue. If the vendor publishes an OpenAPI spec, you can have a working connector in 90 seconds via Insights → Author Connector."
   - name: 💬 Questions / discussion
-    url: https://github.com/revoluzen-data-systems/revoluzen-flow/discussions
+    url: https://github.com/revoluzen-io/revoluzen-flow/discussions
     about: "For how-to questions, troubleshooting, or general discussion (rather than a bug or feature request)."

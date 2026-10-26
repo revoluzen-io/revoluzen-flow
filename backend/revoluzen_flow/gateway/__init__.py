@@ -97,7 +97,7 @@ class GatewayStore:
         now = time.time()
         expires_at = now + (expires_days * 86400) if expires_days > 0 else 0
 
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO api_keys "
             "(id, name, key_hash, key_prefix, workspace_id, created_by, scopes, "
             "rate_limit_rpm, ip_allowlist, is_active, created_at, expires_at) "
@@ -125,7 +125,7 @@ class GatewayStore:
         if required_scope not in scopes:
             return None
         # Update usage
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE api_keys SET last_used_at=?, request_count=request_count+1 WHERE id=?",
             (time.time(), row["id"]),
         )
@@ -147,10 +147,10 @@ class GatewayStore:
         return result
 
     def revoke_api_key(self, key_id: str):
-        self._db.execute("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
+        self._db.execute_write("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
 
     def delete_api_key(self, key_id: str):
-        self._db.execute("DELETE FROM api_keys WHERE id=?", (key_id,))
+        self._db.execute_write("DELETE FROM api_keys WHERE id=?", (key_id,))
 
     # ── Rate Limiting ─────────────────────────────────────────────────
 
@@ -158,7 +158,7 @@ class GatewayStore:
         """Check if a request is within rate limits. Returns True if allowed."""
         cutoff = time.time() - 60
         # Clean old entries
-        self._db.execute("DELETE FROM rate_limit_log WHERE timestamp < ?", (cutoff - 300,))
+        self._db.execute_write("DELETE FROM rate_limit_log WHERE timestamp < ?", (cutoff - 300,))
 
         row = self._db.fetchone(
             "SELECT COUNT(*) as cnt FROM rate_limit_log WHERE key_hash=? AND timestamp > ?",
@@ -168,7 +168,7 @@ class GatewayStore:
         if count >= rpm_limit:
             return False
 
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO rate_limit_log (key_hash, endpoint_id, timestamp) VALUES (?, ?, ?)",
             (key_hash, endpoint_id, time.time()),
         )
@@ -193,7 +193,7 @@ class GatewayStore:
         ep_id = f"ep_{uuid.uuid4().hex[:8]}"
         path = path.strip("/")
         now = time.time()
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO published_endpoints "
             "(id, workflow_id, path, method, name, description, workspace_id, "
             "require_api_key, rate_limit_rpm, timeout_seconds, input_schema, "
@@ -230,16 +230,16 @@ class GatewayStore:
             return self.get_endpoint(endpoint_id)
         set_clause = ", ".join(f"{k}=?" for k in updates)
         params = list(updates.values()) + [time.time(), endpoint_id]
-        self._db.execute(
+        self._db.execute_write(
             f"UPDATE published_endpoints SET {set_clause}, updated_at=? WHERE id=?", tuple(params),
         )
         return self.get_endpoint(endpoint_id)
 
     def delete_endpoint(self, endpoint_id: str):
-        self._db.execute("DELETE FROM published_endpoints WHERE id=?", (endpoint_id,))
+        self._db.execute_write("DELETE FROM published_endpoints WHERE id=?", (endpoint_id,))
 
     def record_call(self, endpoint_id: str):
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE published_endpoints SET request_count=request_count+1, last_called_at=? WHERE id=?",
             (time.time(), endpoint_id),
         )

@@ -13,9 +13,22 @@
 .editor-toolbar-tabs { overflow-x: auto; }
 .page-header-tabs, .editor-toolbar-tabs {
   display: flex;
-  justify-content: center;
+  /* `justify-content: center` on a scroll container is a trap: when the
+     content is wider than the box it overflows equally on BOTH sides, and
+     the left overflow cannot be scrolled to -- scrollLeft bottoms out at 0.
+     At 375px that put the first tab on Settings, Storage and Insights
+     permanently out of reach. `safe center` centres while it fits and falls
+     back to flex-start once it does not. */
+  justify-content: safe center;
   flex-basis: 100%;
   order: 3;
+}
+/* The tab strips are authored as `flex justify-center` on the inner row too;
+   that inner element is the one that actually overflows, so it needs the
+   same treatment. Scoped to these two containers only. */
+.page-header-tabs > .justify-center,
+.editor-toolbar-tabs > .justify-center {
+  justify-content: safe center;
 }
 @media (min-width: 1024px) {
   .page-header-content.has-centered-tabs, .editor-toolbar {
@@ -126,10 +139,28 @@ html, body, #root {
          signal that survives zoom-out.
        - Shadow stays as cooler-tinted slate (0.08 opacity). */
   border: 1.5px solid #cbd5e1;
-  border-radius: 8px;
-  width: 180px;
+  /* 2026-10-24 — square node (n8n model). The card was a content-sized
+     180px-wide pill whose height grew with whatever state the node had
+     (metrics line, validation errors, idempotency badge), so no two nodes
+     on a canvas were the same size. It is now a fixed 96x96 square that
+     holds the icon and nothing else; the NAME renders in an absolutely
+     positioned caption BELOW the square, and row counts / schema deltas
+     render on the edge (see CustomEdge).
+
+     The caption is absolutely positioned on purpose: React Flow measures
+     this element to place handles and compute fitView, and an in-flow
+     caption would make the measured box taller than the square the edges
+     attach to. Branch nodes are the one exception to "all the same size" —
+     they set an inline height to fit one handle per output port. */
+  border-radius: 14px;
+  width: 96px;
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: 0 2px 10px rgba(15,23,42,0.08), 0 1px 3px rgba(15,23,42,0.05);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: visible;
 }
 
@@ -184,7 +215,7 @@ html, body, #root {
   content: "";
   position: absolute;
   inset: -1.5px;              /* sit on the node's outer edge */
-  border-radius: 11px;        /* node radius (10px) + inset, stays concentric */
+  border-radius: 15.5px;      /* node radius (14px) + inset, stays concentric */
   padding: 2px;               /* ring thickness */
   background: conic-gradient(
     from var(--fp-angle, 0deg),
@@ -1038,4 +1069,37 @@ html, body, #root {
 }
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
+}
+
+/* ════════════════════════════════════
+   18. TARGET SIZE (WCAG 2.2 SC 2.5.8)
+   ════════════════════════════════════
+
+   `tap-24` guarantees a control a 24x24 CSS-pixel pointer target without
+   changing a single pixel of what is painted. The overlay is a transparent
+   ::after centred on the element, so a 40x20 toggle or a 22x20 icon button
+   keeps its exact look and gains the 2px of grab area it was missing.
+
+   Why this rather than resizing the controls: the toggles, the row "x"
+   buttons and the compact text actions are sized to fit dense rows. Growing
+   them to 24px high reflows the rows they sit in; growing only the hit area
+   does not.
+
+   Do NOT put this on a control inside a container with `overflow: hidden`
+   (the overlay clips), and do not stack it on an element that already
+   defines its own ::after. Inline links inside a sentence do not need it:
+   SC 2.5.8 exempts targets whose size is constrained by surrounding text. */
+.tap-24 {
+  position: relative;
+}
+.tap-24::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  min-width: 24px;
+  min-height: 24px;
 }

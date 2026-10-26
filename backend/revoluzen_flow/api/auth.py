@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 from pydantic import BaseModel, Field
 
 from revoluzen_flow.auth.deps import current_user_optional, require_admin, require_auth
+# 2026-10-23: every audit row and the login throttle used to read
+# request.client.host, which is the load balancer's address behind a proxy.
+# client_ip() honours X-Forwarded-For only from a declared trusted proxy
+# (REVOLUZEN_FLOW_TRUSTED_PROXIES) and is otherwise identical to the old
+# behaviour. See revoluzen_flow/common/client_ip.py.
+from revoluzen_flow.common.client_ip import client_ip as _client_ip
 from revoluzen_flow.auth.models import User, LoginRequest, RegisterRequest, InviteRequest
 from revoluzen_flow.auth.password_policy import (
     MIN_LENGTH as PW_MIN_LENGTH,
@@ -232,7 +238,14 @@ async def login(body: LoginRequest, request: Request, response: Response):
     # The check is keyed on (email, client-ip) so a legit user on
     # another network isn't punished for an attacker's storm against
     # their account.
-    _client_ip_for_throttle = request.client.host if request.client else ""
+    # 2026-10-23: resolved through the trusted-proxy layer rather than read
+    # off the socket. Behind a load balancer every request carried the
+    # proxy's address, so the "(email, client-ip)" key collapsed to a single
+    # bucket — one attacker tripped the throttle for every user of the
+    # instance, inverting a brute-force control into a lockout lever. With
+    # no REVOLUZEN_FLOW_TRUSTED_PROXIES set this returns the peer address,
+    # exactly as before.
+    _client_ip_for_throttle = _client_ip(request)
     _login_check_and_delay(body.email, _client_ip_for_throttle)
 
     try:
@@ -296,7 +309,7 @@ async def login(body: LoginRequest, request: Request, response: Response):
                 logger.warning("login: session-policy read failed: %s", exc)
                 session_mode = "single"
 
-        client_ip = request.client.host if request.client else ""
+        client_ip = _client_ip(request)
 
         session = store.create_session(
             user_id=user.id,
@@ -1206,7 +1219,7 @@ def _write_auth_queue(queue: dict) -> None:
     import json
     from datetime import datetime, timezone
     now_iso = datetime.now(timezone.utc).isoformat()
-    db.execute(
+    db.execute_write(
         """INSERT INTO settings (id, data, created_at, updated_at)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at""",
@@ -1381,7 +1394,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
                 "email": body.email,
                 "user_id": user.id,
                 "requested_at": datetime.now(timezone.utc).isoformat(),
-                "ip": request.client.host if request.client else "",
+                "ip": _client_ip(request),
             })
 
         # Invalidate any previous unused tokens for this user — a new
@@ -1406,7 +1419,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
             "expires_at": expires_at_iso,
             "used": False,
             "used_at": None,
-            "ip": request.client.host if request.client else "",
+            "ip": _client_ip(request),
         })
 
         _write_auth_queue(queue)
@@ -1439,7 +1452,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
                         action="forgot_password_requested",
                         resource_type="user",
                         resource_id=user.id,
-                        details={"ip": request.client.host if request.client else ""},
+                        details={"ip": _client_ip(request)},
                     )
             except Exception:
                 pass
@@ -1469,7 +1482,7 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
     # Default multi-user posture: token is NOT returned; an admin reads it
     # from the Auth Queue, or the instance configures SMTP for emailed links.
     import os as _os
-    _ip = request.client.host if request.client else ""
+    _ip = _client_ip(request)
     _loopback = _ip in {"127.0.0.1", "::1", "localhost"}
     _inline_flag = _os.environ.get("REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE", "").strip().lower() in {"1", "true", "yes", "on"}
     try:
@@ -1641,7 +1654,7 @@ async def reset_password(body: ResetPasswordRequest, request: Request):
                     action="self_password_reset",
                     resource_type="user",
                     resource_id=target.id,
-                    details={"ip": request.client.host if request.client else ""},
+                    details={"ip": _client_ip(request)},
                 )
         except Exception:
             pass
@@ -1685,7 +1698,7 @@ async def request_access(body: RequestAccessBody, request: Request):
             "name": body.name,
             "reason": (body.reason or "").strip()[:500],  # cap to keep the queue small
             "requested_at": datetime.now(timezone.utc).isoformat(),
-            "ip": request.client.host if request.client else "",
+            "ip": _client_ip(request),
         })
         _write_auth_queue(queue)
     return {

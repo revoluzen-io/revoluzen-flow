@@ -315,7 +315,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <div>
               <div className="mb-6 text-center">
                 <h2 className="text-lg font-bold text-slate-700">Forgot your password?</h2>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   Enter the email on your account and we'll generate a reset link.
                 </p>
               </div>
@@ -382,7 +382,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="button"
                 onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
-                className="mt-5 w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
               >
                 ← Back to sign in
               </button>
@@ -400,7 +400,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <div className="mb-6 text-center">
                 <h2 className="text-lg font-bold text-slate-700">Choose a new password</h2>
                 {resetEmail && (
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Resetting password for <span className="font-semibold text-slate-600">{resetEmail}</span>
                   </p>
                 )}
@@ -440,7 +440,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="button"
                 onClick={() => { setMode('login'); setError(''); }}
-                className="mt-5 w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
               >
                 ← Cancel and go back to sign in
               </button>
@@ -462,7 +462,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-700">Password reset</h2>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   Your password has been updated. Please sign in with the new one.
                 </p>
               </div>
@@ -487,13 +487,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-7">
               <button
                 onClick={() => { setMode('login'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'login' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'}`}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'login' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => { setMode('register'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'register' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'}`}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'register' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
               >
                 {firstBootstrap ? 'Create first account' : 'Register'}
               </button>
@@ -501,7 +501,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           ) : (
             <div className="mb-7 text-center">
               <h2 className="text-lg font-bold text-slate-700">Sign in</h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 Revoluzen Flow runs as a single operator. Sign in with this instance's
                 account — Docker and headless installs find the initial password in{' '}
                 <span className="font-mono">INITIAL_ADMIN_PASSWORD.txt</span> in the data folder.
@@ -576,7 +576,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                             ) : (
                               <span className="w-[10px] h-[10px] rounded-full border border-slate-300" />
                             )}
-                            <span className={password.length >= 4 && pwCheck ? (checked ? 'text-emerald-600' : 'text-red-500') : 'text-slate-400'}>{rule}</span>
+                            <span className={password.length >= 4 && pwCheck ? (checked ? 'text-emerald-600' : 'text-red-500') : 'text-slate-500'}>{rule}</span>
                           </div>
                         );
                       })}
@@ -617,7 +617,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   setError('');
                   setForgotMessage('');
                 }}
-                className="text-xs text-slate-400 hover:text-amber-600 transition-colors font-medium"
+                className="text-xs text-slate-500 hover:text-amber-600 transition-colors font-medium"
               >
                 Forgot password?
               </button>
@@ -628,7 +628,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <>
               <div className="flex items-center gap-2 my-4">
                 <div className="flex-1 h-px bg-slate-200" />
-                <span className="text-xs text-slate-400 font-semibold">OR</span>
+                <span className="text-xs text-slate-500 font-semibold">OR</span>
                 <div className="flex-1 h-px bg-slate-200" />
               </div>
               <a
@@ -644,7 +644,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-5">
+        <p className="text-center text-xs text-slate-500 mt-5">
           Revoluzen Flow v{APP_VERSION} · Local-first pipeline engine by Revoluzen
         </p>
       </div>

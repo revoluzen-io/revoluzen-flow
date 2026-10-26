@@ -129,6 +129,29 @@ def validate_workflow(workflow: Workflow) -> list[ValidationError]:
     _FILE_CONNECTORS: set[str] = {"csv", "json", "parquet", "excel", "xml"}
     _FILE_INPUT_KEYS: tuple[str, ...] = ("file_path", "dataset_id", "file_id")
 
+    # Check: a merge write declares what it merges ON.
+    #
+    # Type-independent on purpose: merge mode exists on the database sink,
+    # the managed-table sink and the generic Destination that routes to
+    # them, and the failure is the same everywhere. Without keys there is
+    # nothing to match, so the write degrades into an append and the target
+    # grows a duplicate set of rows on every run. The engine does raise, but
+    # only once the pipeline runs — and a load like this is usually
+    # scheduled, so the first sign would be a doubled table.
+    for step in workflow.steps:
+        if str(step.params.get("mode") or "").strip().lower() != "merge":
+            continue
+        keys = step.params.get("merge_on") or step.params.get("merge_keys")
+        if isinstance(keys, str):
+            keys = [k.strip() for k in keys.split(",") if k.strip()]
+        if not keys:
+            errors.append(ValidationError(
+                step.id,
+                "Merge mode requires 'merge_on' — the column(s) that identify "
+                "a row. Without keys nothing matches and every run appends a "
+                "duplicate copy instead of updating.",
+            ))
+
     # Check: each step has required params
     for step in workflow.steps:
         if step.type == StepType.SOURCE:

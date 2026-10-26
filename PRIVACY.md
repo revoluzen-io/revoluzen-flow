@@ -96,6 +96,6 @@ This policy is versioned in the repo. Material changes are listed in [`changelog
 
 ## Questions
 
-- **General questions:** open a GitHub Discussion at https://github.com/revoluzen-data-systems/revoluzen-flow/discussions
+- **General questions:** open a GitHub Discussion at https://github.com/revoluzen-io/revoluzen-flow/discussions
 - **Privacy concerns about Revoluzen Flow Enterprise (commercial):** email `info@revoluzen.io`
 - **Security vulnerability reports:** see [`security.md`](SECURITY.md) — do **not** open public issues

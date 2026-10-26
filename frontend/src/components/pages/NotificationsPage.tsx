@@ -358,7 +358,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
             {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
-                className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${isProd ? 'text-amber-300 hover:text-amber-200 hover:bg-white/[0.05]' : 'text-amber-600 hover:text-amber-700 hover:bg-amber-50'}`}
+                className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${isProd ? 'text-amber-300 hover:text-amber-200 hover:bg-white/[0.05]' : 'text-amber-700 hover:text-amber-800 hover:bg-amber-50'}`}
               >
                 Mark all read
               </button>
@@ -464,7 +464,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
           >
             {f.label}
             {f.count > 0 && (
-              <span className={`ml-1.5 ${filter === f.id ? 'text-slate-400' : 'text-slate-400'}`}>
+              <span className={`ml-1.5 ${filter === f.id ? 'text-slate-500' : 'text-slate-500'}`}>
                 {f.count}
               </span>
             )}
@@ -525,7 +525,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-sm font-semibold text-slate-800">{n.title}</span>
-                      <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${meta.bg} ${meta.color}`}>
+                      <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${meta.bg} ${meta.color}`}>
                         {meta.label}
                       </span>
                       {!n.is_read && (
@@ -535,7 +535,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
                     <p className="text-xs text-slate-600 leading-relaxed">{n.message}</p>
 
                     {/* Metadata row */}
-                    <div className="flex items-center gap-4 mt-2 text-xs text-slate-400">
+                    <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
                       <span>
                         {n.created_at
                           ? new Date(n.created_at).toLocaleString(undefined, {
@@ -584,7 +584,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }}
-                      className="text-slate-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
+                      className="tap-24 text-slate-500 hover:text-red-600 hover:bg-red-50 p-1 rounded transition-colors"
                       title="Delete notification"
                       aria-label="Delete notification"
                     >

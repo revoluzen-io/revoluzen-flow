@@ -31,9 +31,10 @@ requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    # Upper bound 2026-10-23 — see backend/requirements.txt for why. The only
-    # 2.0 blocker left is PIVOT-inside-a-CTE in the SQL preview compiler.
-    "duckdb>=1.2.0,<2",
+    # Upper bound lifted 2026-10-23 — see backend/requirements.txt. The PIVOT
+    # blocker is fixed in compile/sql_preview.py and 826 duckdb-touching tests
+    # pass on 2.0.0.
+    "duckdb>=1.2.0",
     "pydantic>=2.10.0",
     "python-multipart>=0.0.18",
     "aiofiles>=24.1.0",
@@ -280,8 +281,8 @@ rz = "revoluzen_flow.cli:main"
 [project.urls]
 Homepage = "https://revoluzen.io"
 Documentation = "https://docs.revoluzen.io/flow"
-Repository = "https://github.com/revoluzen-data-systems/revoluzen-flow"
-Issues = "https://github.com/revoluzen-data-systems/revoluzen-flow/issues"
+Repository = "https://github.com/revoluzen-io/revoluzen-flow"
+Issues = "https://github.com/revoluzen-io/revoluzen-flow/issues"
 "Revoluzen Flow Enterprise commercial" = "https://revoluzen.io/flow"
 
 [tool.setuptools.packages.find]

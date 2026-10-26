@@ -33,6 +33,15 @@ class _FakeDB:
     def fetchall(self, sql, params=()):
         return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
+    # Added 2026-10-23: production code now distinguishes execute() (no
+    # commit) from execute_write() (commits). This fake's execute already
+    # commits, so both map onto it.
+    def execute_write(self, sql, params=()):
+        return self.execute(sql, params)
+
+    def execute_write_with_retry(self, sql, params=(), max_retries: int = 3):
+        return self.execute(sql, params)
+
 
 class _FakeTransport:
     """Records POST calls + returns a scripted sequence of

@@ -93,12 +93,12 @@ interface DynamicConfigProps {
 // ── Shared CSS classes (matches ConfigPanel primitives) ──────────────────────
 
 const INPUT_CLS =
-  'w-full px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-300 placeholder:text-slate-400';
+  'w-full px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-300 placeholder:text-slate-500';
 const TEXTAREA_CLS = `${INPUT_CLS} font-mono resize-none`;
 const SELECT_CLS =
   'w-full px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300';
 const LABEL_CLS = 'block text-[12px] font-semibold text-slate-700 mb-1';
-const DESC_CLS = 'text-xs text-slate-400 -mt-1 mb-1';
+const DESC_CLS = 'text-xs text-slate-500 -mt-1 mb-1';
 const REQUIRED_CLS = 'text-[11px] text-red-500 mt-0.5';
 
 /** True when a field's value counts as "not filled in" — covers empty
@@ -181,7 +181,7 @@ function DynColumnList({ value, onChange, columns }: { value: string[]; onChange
   };
 
   if (!columns.length) {
-    return <div className="text-xs text-slate-400 italic">Run upstream node first to see columns.</div>;
+    return <div className="text-xs text-slate-500 italic">Run upstream node first to see columns.</div>;
   }
 
   return (
@@ -191,7 +191,7 @@ function DynColumnList({ value, onChange, columns }: { value: string[]; onChange
           key={col}
           type="button"
           onClick={() => toggle(col)}
-          className={`text-[9px] px-1.5 py-0.5 rounded border font-mono transition-colors ${
+          className={`text-[10px] px-1.5 py-0.5 rounded border font-mono transition-colors ${
             selected.has(col)
               ? 'bg-pipe-100 text-pipe-700 border-pipe-300'
               : 'bg-white text-slate-500 border-slate-200 hover:border-pipe-200'
@@ -234,7 +234,7 @@ function DynKeyValueList({ value, onChange }: { value: Array<{ key: string; valu
             className={`flex-1 ${INPUT_CLS}`}
           />
           <button type="button" onClick={() => remove(idx)}
-            className="text-slate-400 hover:text-red-500 text-xs px-1">×</button>
+            className="text-slate-500 hover:text-red-500 text-xs px-1">×</button>
         </div>
       ))}
       <button type="button" onClick={add}
@@ -272,7 +272,7 @@ function DynRuleList({ value, onChange, ops, columns }: {
               {operators.map((op) => <option key={op} value={op}>{op}</option>)}
             </select>
             <button type="button" onClick={() => remove(idx)}
-              className="text-slate-400 hover:text-red-500 text-xs px-1 shrink-0">×</button>
+              className="text-slate-500 hover:text-red-500 text-xs px-1 shrink-0">×</button>
           </div>
           {!['not_null', 'is_null'].includes(rule.op) && (
             <input
@@ -312,7 +312,7 @@ function DynSchemaMap({ value, onChange, types, columns }: {
 
   return (
     <div className="space-y-2">
-      <div className="flex gap-1 text-[9px] font-semibold text-slate-400 uppercase tracking-wider">
+      <div className="flex gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
         <span className="flex-1">Source</span>
         <span className="flex-1">Target</span>
         <span className="w-20">Type</span>
@@ -330,7 +330,7 @@ function DynSchemaMap({ value, onChange, types, columns }: {
             {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <button type="button" onClick={() => remove(idx)}
-            className="text-slate-400 hover:text-red-500 text-xs px-1 shrink-0">×</button>
+            className="text-slate-500 hover:text-red-500 text-xs px-1 shrink-0">×</button>
         </div>
       ))}
       <div className="flex items-center gap-3">
@@ -378,7 +378,7 @@ function DynAggregateList({ value, onChange, columns }: {
               {columns.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <button type="button" onClick={() => remove(idx)}
-              className="text-slate-400 hover:text-red-500 text-xs px-1 shrink-0">×</button>
+              className="text-slate-500 hover:text-red-500 text-xs px-1 shrink-0">×</button>
           </div>
           <input value={agg.alias || ''} onChange={(e) => update(idx, { alias: e.target.value })}
             placeholder="Alias (optional)" className={INPUT_CLS} />
@@ -669,7 +669,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
 
   if (!meta || !meta.param_schema.length) {
     return (
-      <div className="text-xs text-slate-400 italic">
+      <div className="text-xs text-slate-500 italic">
         No configurable parameters for this node type.
       </div>
     );
@@ -780,7 +780,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
           <>
             {visibleFields.map(renderField)}
             {visibleFields.length === 0 && (
-              <div className="text-xs text-slate-400 italic">No visible fields for current settings.</div>
+              <div className="text-xs text-slate-500 italic">No visible fields for current settings.</div>
             )}
           </>
         ) : (
@@ -816,7 +816,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
                     </div>
                   </div>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                       className={`text-slate-400 shrink-0 transition-transform ${defaultsExpanded ? 'rotate-90' : ''}`}>
+                       className={`text-slate-500 shrink-0 transition-transform ${defaultsExpanded ? 'rotate-90' : ''}`}>
                     <polyline points="9 18 15 12 9 6" />
                   </svg>
                 </button>
@@ -838,7 +838,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
                     onChange(nodeId, { [f.name]: undefined });
                     setAddedOptionals((s) => { const n = new Set(s); n.delete(f.name); return n; });
                   }}
-                  className="absolute top-0 right-0 text-xs text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-0 right-0 text-xs text-slate-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Remove this optional setting"
                 >
                   remove
@@ -850,7 +850,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
             {availableOptionals.length > 0 && (
               <details className="rounded-lg border border-dashed border-slate-200 bg-white">
                 <summary className="cursor-pointer px-3 py-2 text-xs font-semibold text-pipe-600 hover:text-pipe-800 select-none">
-                  + Add setting <span className="text-slate-400 font-normal">({availableOptionals.length} available)</span>
+                  + Add setting <span className="text-slate-500 font-normal">({availableOptionals.length} available)</span>
                 </summary>
                 <div className="px-3 pb-3 pt-1 space-y-1">
                   {availableOptionals.map((f) => (
@@ -871,7 +871,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
             )}
 
             {required.length === 0 && smartDefaults.length === 0 && visibleOptionals.length === 0 && availableOptionals.length === 0 && (
-              <div className="text-xs text-slate-400 italic">No visible fields for current settings.</div>
+              <div className="text-xs text-slate-500 italic">No visible fields for current settings.</div>
             )}
           </>
         )}
@@ -938,7 +938,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
                   {previewResult.total_rows ?? 0} row{previewResult.total_rows === 1 ? '' : 's'} · {previewResult.columns.length} columns
                 </span>
                 {typeof previewResult.duration_ms === 'number' && (
-                  <span className="text-slate-400">{Math.round(previewResult.duration_ms)} ms</span>
+                  <span className="text-slate-500">{Math.round(previewResult.duration_ms)} ms</span>
                 )}
               </div>
               <div className="overflow-x-auto max-h-64 overflow-y-auto">
@@ -955,7 +955,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
                       <tr key={ri} className="hover:bg-white">
                         {previewResult.columns!.map((c) => {
                           const v = row[c];
-                          const display = v == null ? <span className="text-slate-400 italic">NULL</span> : String(v);
+                          const display = v == null ? <span className="text-slate-500 italic">NULL</span> : String(v);
                           return (
                             <td key={c} className="px-2 py-1 border-b border-slate-100 text-slate-700 font-mono truncate max-w-[160px]" title={String(v ?? '')}>
                               {display}

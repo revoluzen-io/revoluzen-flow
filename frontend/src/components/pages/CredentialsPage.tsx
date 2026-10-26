@@ -568,9 +568,9 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
               <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-slate-800">Add Credential</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Store any username, password, API key, token, or secret</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Store any username, password, API key, token, or secret</p>
                 </div>
-                <button onClick={() => { setShowCreate(false); resetForm(); }} className="text-slate-400 hover:text-slate-600">
+                <button onClick={() => { setShowCreate(false); resetForm(); }} className="text-slate-500 hover:text-slate-600">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                 </button>
               </div>
@@ -584,7 +584,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
                     placeholder="e.g. Production DB, Stripe API, AWS Keys"
-                    className="w-full px-3 py-2.5 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-400"
+                    className="w-full px-3 py-2.5 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
                     autoFocus
                   />
                 </div>
@@ -607,7 +607,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Secret source <span className="font-normal text-slate-400">(where the value lives)</span>
+                    Secret source <span className="font-normal text-slate-500">(where the value lives)</span>
                   </label>
                   <div className="grid grid-cols-1 gap-2">
                     {(([
@@ -655,9 +655,9 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                           formSource === 'gcp_sm'   ? 'e.g. projects/…/secrets/prod-db-password' :
                           'e.g. prod-db-password'
                         }
-                        className="w-full px-3 py-2 text-xs font-mono text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-slate-400"
+                        className="w-full px-3 py-2 text-xs font-mono text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-slate-500"
                       />
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         Revoluzen Flow will fetch the secret from your vault at pipeline run time. The value never transits or persists through Revoluzen Flow.
                       </p>
                     </div>
@@ -676,7 +676,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                     pointer to the upgrade path. */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Environment <span className="font-normal text-slate-400">(visibility)</span>
+                    Environment <span className="font-normal text-slate-500">(visibility)</span>
                   </label>
                   {tier === 'plus' ? (
                     <>
@@ -702,7 +702,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                           </button>
                         ))}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         PROD credentials never appear in DEV and vice versa. Pick "Both" only for shared secrets.
                       </p>
                     </>
@@ -715,11 +715,11 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                         >
                           DEV
                         </span>
-                        <span className="text-xs text-slate-400">
+                        <span className="text-xs text-slate-500">
                           OSS Free runs in DEV only.
                         </span>
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">
+                      <p className="text-xs text-slate-500 mt-1">
                         PROD environment (and the two-gate promotion flow) is{' '}
                         <a
                           href="https://revoluzen.io/flow"
@@ -746,7 +746,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                     Messaging swapped to `#a855f7` (violet) for the same
                     reason. */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Category <span className="font-normal text-slate-400">(for organization)</span></label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Category <span className="font-normal text-slate-500">(for organization)</span></label>
                   <div className="flex flex-wrap gap-1.5">
                     {CREDENTIAL_TAGS.map(t => {
                       const active = formTag === t.value;
@@ -792,7 +792,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                           value={field.key}
                           onChange={(e) => updateField(idx, { key: e.target.value })}
                           placeholder="Field name"
-                          className="w-[140px] px-3 py-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-400"
+                          className="w-[140px] px-3 py-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
                         />
                         {/* Field value */}
                         <input
@@ -800,13 +800,13 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                           value={field.value}
                           onChange={(e) => updateField(idx, { value: e.target.value })}
                           placeholder={field.sensitive ? '••••••' : 'Value'}
-                          className="flex-1 px-3 py-2 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-400"
+                          className="flex-1 px-3 py-2 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
                         />
                         {/* Toggle sensitive */}
                         <button
                           onClick={() => updateField(idx, { sensitive: !field.sensitive })}
                           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-                            field.sensitive ? 'text-amber-500 bg-amber-50 border border-amber-200' : 'text-slate-400 bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                            field.sensitive ? 'text-amber-500 bg-amber-50 border border-amber-200' : 'text-slate-500 bg-slate-50 border border-slate-200 hover:bg-slate-100'
                           }`}
                           title={field.sensitive ? 'Sensitive (hidden)' : 'Click to mark as sensitive'}
                         >
@@ -829,20 +829,20 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                     {/* Add field button */}
                     <button
                       onClick={addField}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 hover:text-amber-700 px-3 py-2 rounded-lg border-2 border-dashed border-amber-200 hover:border-amber-400 hover:bg-amber-50/50 transition-all w-full justify-center"
+                      className="flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-800 px-3 py-2 rounded-lg border-2 border-dashed border-amber-200 hover:border-amber-400 hover:bg-amber-50/50 transition-all w-full justify-center"
                     >
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                       Add field
                     </button>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1.5">
+                  <p className="text-xs text-slate-500 mt-1.5">
                     Add any fields you need — host, port, client ID, secret, token, connection string, etc.
                   </p>
                 </div>
 
                 {/* Quick-add common field buttons */}
                 <div>
-                  <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Quick add</label>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Quick add</label>
                   <div className="flex flex-wrap gap-1.5">
                     {['Host', 'Port', 'Client ID', 'Client Secret', 'API Key', 'Token', 'Connection String', 'Region', 'Endpoint'].map(name => {
                       const exists = formFields.some(f => f.key.toLowerCase() === name.toLowerCase());
@@ -864,7 +864,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                 {/* Expiry date */}
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">
-                    Expiry date <span className="font-normal text-slate-400">(optional)</span>
+                    Expiry date <span className="font-normal text-slate-500">(optional)</span>
                   </label>
                   <input
                     type="date"
@@ -873,7 +873,7 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                     onChange={(e) => setFormExpiry(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300"
                   />
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     {formExpiry
                       ? `You'll be notified 7 days before expiry (${formatDate(formExpiry)})`
                       : 'When does this credential expire? You\'ll be alerted before it does.'}

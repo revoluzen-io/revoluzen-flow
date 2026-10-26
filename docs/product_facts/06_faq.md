@@ -38,7 +38,7 @@ Yes. AI is the Copilot for *building* pipelines and answering operational questi
 
 The recommended path is Docker:
 
-    git clone https://github.com/revoluzen-data-systems/revoluzen-flow
+    git clone https://github.com/revoluzen-io/revoluzen-flow
     cd revoluzen-flow
     docker compose up
 

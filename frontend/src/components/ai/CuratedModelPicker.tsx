@@ -84,12 +84,12 @@ export default function CuratedModelPicker({ provider, value, onChange, disabled
               {value || '(no model selected)'}
             </code>
             {selectedMeta?.is_recommended && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">
                 Recommended
               </span>
             )}
             {selectedMeta?.supports_tools && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded shrink-0">
                 Tools
               </span>
             )}
@@ -180,17 +180,17 @@ export default function CuratedModelPicker({ provider, value, onChange, disabled
                     <code className="text-[12px] font-mono text-slate-800 truncate">{m.id}</code>
                     <div className="flex items-center gap-1.5 shrink-0">
                       {m.is_recommended && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
                           Recommended
                         </span>
                       )}
                       {m.supports_tools && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">
                           Tools
                         </span>
                       )}
                       {!m.supports_tools && (
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded" title="Model accepts text only — agent will run in chat-only mode">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded" title="Model accepts text only — agent will run in chat-only mode">
                           Text only
                         </span>
                       )}
@@ -202,13 +202,13 @@ export default function CuratedModelPicker({ provider, value, onChange, disabled
                     <span className="shrink-0">~{formatPrice(m.est_cost_per_turn_usd)}/turn</span>
                   </div>
                   {m.hint && (
-                    <div className="mt-0.5 text-xs text-slate-400 italic truncate">{m.hint}</div>
+                    <div className="mt-0.5 text-xs text-slate-500 italic truncate">{m.hint}</div>
                   )}
                 </button>
               );
             })}
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-slate-500">
             Pricing is approximate · see <a className="underline" href="#help" onClick={(e) => { e.preventDefault(); try { sessionStorage.setItem('revoluzen_flow_help_target_guide', 'Costs, providers'); } catch { /* ignore */ } navigateTo('help'); }}>Help → Costs, providers & rate limits</a> for the source of truth
           </div>
         </>

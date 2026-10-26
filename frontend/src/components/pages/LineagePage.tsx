@@ -200,7 +200,7 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
             used by every other page in the app. */}
         <div className="flex-1 overflow-auto bg-canvas-bg">
           <div className="w-full max-w-[1500px] mx-auto p-6">
-          {loading && <div className="text-center py-12 text-slate-400">Loading lineage...</div>}
+          {loading && <div className="text-center py-12 text-slate-500">Loading lineage...</div>}
           {!loading && lineageError && (
             <div className="mb-4">
               <ErrorBanner
@@ -212,13 +212,13 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
             </div>
           )}
           {!loading && !graph && !lineageError && (
-            <div className="text-center py-20 text-slate-400">
+            <div className="text-center py-20 text-slate-500">
               <svg className="mx-auto mb-4" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2" /></svg>
               Select a pipeline to visualize its data lineage
             </div>
           )}
           {!loading && graph && graph.nodes.length === 0 && (
-            <div className="text-center py-20 text-slate-400">
+            <div className="text-center py-20 text-slate-500">
               No lineage data yet. Click "Rebuild" above to generate it from the pipeline definition.
             </div>
           )}
@@ -271,7 +271,7 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
                           {col}
                         </button>
                       )) : (
-                        <div className="text-xs text-slate-400 italic py-1">No columns detected</div>
+                        <div className="text-xs text-slate-500 italic py-1">No columns detected</div>
                       )}
                     </div>
                   </div>
@@ -298,7 +298,7 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
                 </button>
               ))}
               {allColumns.length === 0 && (
-                <div className="text-xs text-slate-400 px-3 py-2">No columns in lineage graph</div>
+                <div className="text-xs text-slate-500 px-3 py-2">No columns in lineage graph</div>
               )}
             </div>
 
@@ -312,13 +312,13 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
                   {columnTrace.nodes?.map((n: any) => (
                     <div key={n.id} className="text-xs bg-slate-50 rounded px-2 py-1">
                       <span className="font-medium text-slate-700">{n.label || n.type}</span>
-                      <span className="text-slate-400 ml-1">({n.type})</span>
+                      <span className="text-slate-500 ml-1">({n.type})</span>
                     </div>
                   ))}
                 </div>
                 <div className="mt-2 space-y-1">
                   {columnTrace.edges?.map((e: any) => (
-                    <div key={e.id} className="text-xs text-slate-400 flex items-center gap-1">
+                    <div key={e.id} className="text-xs text-slate-500 flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full" style={{background: TRANSFORM_COLORS[e.transform] || '#94a3b8'}} />
                       {e.source_col || '?'} → {e.target_col || '?'} ({e.transform})
                     </div>

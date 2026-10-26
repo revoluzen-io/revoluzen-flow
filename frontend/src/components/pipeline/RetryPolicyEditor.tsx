@@ -61,7 +61,7 @@ export default function RetryPolicyEditor({ value, onChange, dark = false }: Pro
   };
 
   const label = dark ? 'text-slate-300' : 'text-slate-600';
-  const sub = dark ? 'text-slate-500' : 'text-slate-400';
+  const sub = dark ? 'text-slate-500' : 'text-slate-500';
   const inputCls = `px-2 py-1 text-xs rounded border w-20 ${
     dark ? 'bg-slate-800 border-slate-700 text-slate-200' : 'bg-white border-slate-200 text-slate-700'
   }`;

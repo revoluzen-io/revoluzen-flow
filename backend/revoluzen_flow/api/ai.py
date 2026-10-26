@@ -12,7 +12,7 @@ endpoint here ever needs to look up a saved workflow, it must adopt the
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from revoluzen_flow.ai.embedded import (
@@ -30,7 +30,23 @@ from revoluzen_flow.ai.embedded import (
 )
 from revoluzen_flow.auth.deps import current_user_optional, current_workspace_id
 
-router = APIRouter(prefix="/api/ai", tags=["ai"])
+# 2026-10-23 — router-level posture gate.
+#
+# These handlers called current_user_optional() to *identify* the caller and
+# then carried on when there wasn't one, which reads like authentication but
+# denies nobody. Probed anonymously in SECURITY_MODE=server, the whole /api/ai
+# surface reached its handlers; /optimize, /page-assist, /profile-data and
+# /recommend returned 200 with real output.
+#
+# These endpoints make outbound LLM calls that cost money, which is why
+# ai/rate_limit.py exists — but a quota keyed on an anonymous caller is not
+# much of a quota. An unauthenticated party who can reach the port could
+# spend the operator's token budget.
+router = APIRouter(
+    prefix="/api/ai",
+    tags=["ai"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 # ---------------------------------------------------------------------------

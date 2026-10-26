@@ -617,8 +617,27 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
     if (stepType === 'transform') {
       const expr = String(params?.expression || '');
       const upstreamIds = incoming.get(node.id) || [];
+      // The executor registers each input under its EDGE ALIAS when one is
+      // set, and only falls back to the sanitized upstream label otherwise
+      // (nodes/transform.py — `_input_step_aliases` is consulted first).
+      // This only looked at labels, so any pipeline that relies on edge
+      // aliases was told its SQL referenced unknown tables when the SQL was
+      // correct. The dbt importer leans on exactly that mechanism — every
+      // imported model warned — but hand-aliased edges had the same false
+      // positive.
+      const aliasByUpstream = new Map<string, string>();
+      for (const e of edges) {
+        if (e.target !== node.id) continue;
+        const a = String((e as any).data?.alias ?? (e as any).alias ?? '').trim();
+        if (a) aliasByUpstream.set(String(e.source), a);
+      }
       const inputAliases = upstreamIds
-        .map((sid) => sanitizeAlias(nodeById.get(sid)?.data?.label || nodeById.get(sid)?.id || ''))
+        .map((sid) => sanitizeAlias(
+          aliasByUpstream.get(String(sid))
+          || nodeById.get(sid)?.data?.label
+          || nodeById.get(sid)?.id
+          || '',
+        ))
         .filter(Boolean);
       const namedAliases = inputAliases.filter((a) => a !== 'source_table' && a !== 'input');
 

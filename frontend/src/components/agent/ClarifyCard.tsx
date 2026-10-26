@@ -125,7 +125,7 @@ export default function ClarifyCard({ payload, onSubmit, onCancel, busy }: Clari
             <div className="text-xs font-semibold text-slate-700 mb-1.5">
               Q{i + 1}. {q.question}
               {!q.required && (
-                <span className="ml-1.5 text-[10px] font-normal text-slate-400 uppercase tracking-wide">
+                <span className="ml-1.5 text-[10px] font-normal text-slate-500 uppercase tracking-wide">
                   optional
                 </span>
               )}

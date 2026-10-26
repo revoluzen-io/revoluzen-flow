@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useMemo, lazy, Suspense, createContext, useContext } from 'react';
+﻿import { useState, useEffect, useRef, useMemo, lazy, Suspense, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { api } from '../api/client';
 import { ModuleIcon } from './ModulesPanel';
+import { InputPane, InspectPane } from './NodeDataPane';
 import { useEmbeddedAI, type DiagnoseResult } from '../hooks/useEmbeddedAI';
 import { useUpstreamSchema } from '../hooks/useUpstreamSchema';
 import { toast } from './Toast';
@@ -82,7 +84,7 @@ import { humanizeExecutionError } from '../utils/errorMessages';
 // approximate footprint of the config so the panel doesn't jump.
 function ConfigPanelLazyFallback() {
   return (
-    <div className="p-4 text-xs text-slate-400">Loading config…</div>
+    <div className="p-4 text-xs text-slate-500">Loading config…</div>
   );
 }
 
@@ -135,16 +137,24 @@ const WIDE_CONFIGS = new Set([
  *  tabs read as one consistent surface with identical fonts. */
 const SETTINGS_INPUT =
   'w-full px-3 py-2 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg ' +
-  'focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-400';
+  'focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-500';
 /** Shared label style — matches the Parameters-tab Field label exactly. */
 const SETTINGS_LABEL = 'block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5';
 
-type ConfigTab = 'parameters' | 'mapping' | 'settings';
+// 'data' exists only in the narrow layout, where there is no room for the
+// Input and Inspector columns and the data has to share the one column
+// with the settings. ONE tab, not an Input tab and an Output tab: the
+// inspector inside it already switches between Output / Schema / JSON /
+// Input, and outer tabs by the same names printed each word twice.
+type ConfigTab = 'parameters' | 'mapping' | 'settings' | 'data';
 
 export default function ConfigPanel() {
   const { selectedNodeId, nodes, edges, updateNodeParams, updateNodeLabel, stepResults, setSelectedNode, runStep } = useWorkflowStore();
   const node = nodes.find((n) => n.id === selectedNodeId);
-  const [activeTab, setActiveTab] = useState<ConfigTab>('parameters');
+  // Raw state. Read `activeTab` (derived below, once the layout is known)
+  // everywhere else — 'data' is a narrow-layout-only tab and must not
+  // survive a switch to the side-by-side layout.
+  const [rawActiveTab, setActiveTab] = useState<ConfigTab>('parameters');
   const [testing, setTesting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -388,6 +398,30 @@ export default function ConfigPanel() {
   // received one on the next tick.)
   const liveSchema = useUpstreamSchema(selectedNodeId);
 
+  // Which upstream the Input pane is showing. Only matters for a node with
+  // several inputs (Join); null means "the first one". Declared here, above
+  // the early return, for the same hook-order reason as liveSchema.
+  const [activeInputId, setActiveInputId] = useState<string | null>(null);
+  // Which data pane is expanded when the dock has stacked them. null =
+  // both collapsed to header strips, so the parameters form has the
+  // room — the sensible default on a narrow window, where three full
+  // panes left every one of them unusable.
+  const [openStackPane, setOpenStackPane] = useState<'input' | 'inspect' | null>(null);
+
+  // Below this the three panes stack instead of sitting side by side.
+  // 760 is where they genuinely stop fitting: 180px minimum per pane +
+  // 320px minimum for the form + the side rails. Above it they are a
+  // row, below it a column — the same three panes either way.
+  const STACK_BELOW = 760;
+  const [viewportWidth, setViewportWidth] = useState(
+    () => (typeof window === 'undefined' ? 1600 : window.innerWidth),
+  );
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   // 2026-06-03 — gate on BOTH selection AND explicit open state.
   // Single-click selects (sets selectedNodeId) but does not open the
   // modal; only double-click / context-menu / explicit "Open Settings"
@@ -434,6 +468,38 @@ export default function ConfigPanel() {
   // path is parked behind this flag (kept false) rather than ripped out, so it
   // can be re-enabled if we revisit the docked-properties-panel layout.
   const dockedPanel = false;
+
+  // 2026-10-24 — the config is DOCKED rather than floating over the
+  // canvas with its data hidden behind it in the bottom strip. It is a
+  // bottom panel, Azure Data Factory's arrangement: the canvas stays
+  // visible and usable above, so you keep your place in the pipeline and
+  // can click another node to follow it. It never takes the whole
+  // screen.
+  //
+  // Inside that panel, how much fits depends on the width:
+  //   wide    Input | Parameters | Inspector, side by side. The left pane
+  //           is a fixed reference (what came in); the right is pointed
+  //           at the Output, Schema, JSON or Input.
+  //   narrow  one column, with the inspector behind a single Data tab.
+  //
+  // Data Wrangler opts out: it already owns its whole surface with its
+  // own three-pane workspace inside.
+  const docked = !fullBleed && !dockedPanel;
+  // ONE model at every width. An earlier revision switched to a different
+  // arrangement below a threshold — a Data tab instead of the Input and
+  // Inspector columns, and an extra INPUT entry in the switcher to make
+  // up for the missing column — so the panel had two tab sets and two
+  // switchers depending on how wide the window was. Same parts, same
+  // order, same switcher now; when they cannot sit side by side they
+  // stack, which is a different shape of the same thing rather than a
+  // different thing.
+  const stacked = docked && viewportWidth < STACK_BELOW;
+
+  // 'data' is no longer a tab anywhere — the Inspector pane is always on
+  // screen. A session that had it selected would otherwise render nothing
+  // at all, so it still maps to Parameters.
+  const activeTab: ConfigTab =
+    rawActiveTab === 'data' ? 'parameters' : rawActiveTab;
 
   // Find upstream columns from executed results.
   //
@@ -524,6 +590,13 @@ export default function ConfigPanel() {
   }
 
   // Connected nodes — actual edge-based lineage (not position-sorted)
+  // The upstream whose rows the Input pane is showing — `activeInputId`
+  // when the user has picked one (only possible on a multi-input node),
+  // else the first upstream. Used for the Input tab's row-count badge and
+  // for the "columns this step added" highlight in the inspector.
+  const _firstUpstreamId = upstreamEdges[0]?.source ?? null;
+  const activeInputResult = stepResults[activeInputId ?? _firstUpstreamId ?? ''];
+
   const connectedUpstream = upstreamEdges.map(e => {
     const n = nodes.find(nd => nd.id === e.source);
     return n ? { id: n.id, label: (n.data as any).label || (n.data as any).stepType, stepType: (n.data as any).stepType, condition: (e.data as any)?.condition || 'completion' } : null;
@@ -583,7 +656,15 @@ export default function ConfigPanel() {
     }
   };
 
-  return (
+  // Rendered into document.body. Everything below positions itself with
+  // `position: fixed`, which resolves against the nearest ancestor that
+  // has a transform/filter/perspective rather than against the viewport —
+  // and this component sits inside one. Measured: the dock asked for
+  // `bottom: 0` and computed `bottom: 0px`, yet landed 292px short of the
+  // window's bottom edge. The old centred modal hid this because it
+  // pinned BOTH edges inside that same block and so looked plausible.
+  // Same trap, and the same fix, as the node context menu.
+  return createPortal(
     <>
     {/* Backdrop overlay — constrained to canvas area (excludes chat + modules
         panels on sides, toolbar above, preview panel below) so the dim stays
@@ -602,6 +683,11 @@ export default function ConfigPanel() {
         backdrop to close the config.
         In full-bleed mode (Wrangler) the side panels are hidden, so the
         backdrop extends edge-to-edge (`left-0 right-0`). */}
+    {/* The dock deliberately leaves the canvas above it visible AND
+        usable — clicking another node there follows it — so there is
+        nothing to dim. The backdrop is only drawn for the old floating
+        layouts. */}
+    {!docked && (
     <div
       className={`config-overlay fixed top-[145px] z-40 transition-opacity ${
         dockedPanel ? 'bg-slate-900/10' : 'bg-slate-900/40 backdrop-blur-sm'
@@ -613,6 +699,7 @@ export default function ConfigPanel() {
       style={{ bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }}
       onClick={() => setSelectedNode(null)}
     />
+    )}
 
     {/* Centered modal — positioned inside the canvas area, above the
         preview panel's top edge. Z12 (2026-05-23): bottom now tracks
@@ -620,18 +707,61 @@ export default function ConfigPanel() {
         panel publishes on every drag tick. Default 240px matches the
         legacy fixed height (h-60) so pre-Z8 sessions are unchanged. */}
     <div
-      className={`config-overlay fixed top-[145px] z-50 flex pointer-events-none ${
-        dockedPanel ? 'items-stretch justify-end' : 'items-center justify-center'
-      } ${
-        fullBleed
-          ? 'left-0 right-0'
-          : 'left-[var(--revoluzen-flow-nodes-panel-width,290px)] right-[var(--revoluzen-flow-chat-panel-width,320px)]'
+      className={`config-overlay fixed z-50 flex ${
+        docked
+          // A bottom panel between the side rails. No top bound and no
+          // backdrop — the canvas above stays visible AND usable, so you
+          // can click another node and the panel follows you, which is
+          // the whole point of docking it here rather than over the
+          // canvas. It covers the preview strip, whose input and output
+          // views it now contains.
+          ? `bottom-0 left-[var(--revoluzen-flow-nodes-panel-width,290px)] right-[var(--revoluzen-flow-chat-panel-width,320px)] items-stretch justify-stretch pointer-events-auto border-t border-slate-300 bg-slate-300 gap-px ${
+              stacked ? 'flex-col' : 'flex-row'
+            }`
+          : `top-[145px] pointer-events-none ${dockedPanel ? 'items-stretch justify-end' : 'items-center justify-center'} ${
+              fullBleed
+                ? 'left-0 right-0'
+                : 'left-[var(--revoluzen-flow-nodes-panel-width,290px)] right-[var(--revoluzen-flow-chat-panel-width,320px)]'
+            }`
       }`}
-      style={{ bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }}
+      style={
+        docked
+          // `top: auto` is not redundant. globals.css has
+          // `.config-overlay { top: var(--editor-top, 145px) }`, written
+          // for the floating layouts, and a Tailwind class cannot be
+          // relied on to beat it (same specificity, order decides). With
+          // top AND bottom AND height all set the box is over-constrained
+          // and top wins, which pinned the dock 145px below the toolbar
+          // instead of to the bottom of the window — measured computed
+          // `bottom: 0px` while it actually sat 292px short of it.
+          // Stacked needs more height: three panes one above another in
+          // the space one row of three used.
+          // Stacked no longer needs extra height: the two data panes are
+          // collapsed to header strips by default, so the dock holds one
+          // form plus two 44px bars, not three full panes.
+          ? { top: 'auto', height: 'clamp(320px, 52vh, 75vh)' }
+          : { bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }
+      }
     >
-      {/* Left side — connected upstream nodes (centered-modal layout only;
-          the docked properties panel has no room for the side rails). */}
-      {!dockedPanel && (
+      {docked && (
+        <InputPane
+          sources={connectedUpstream}
+          activeId={activeInputId}
+          onActiveChange={setActiveInputId}
+          stepResults={stepResults}
+          fallbackColumns={upstreamColumns}
+          collapsible={stacked}
+          open={openStackPane === 'input'}
+          onToggle={() => setOpenStackPane((p) => (p === 'input' ? null : 'input'))}
+        />
+      )}
+      {/* Left side — connected upstream nodes. Centered-modal layout only.
+          Both docked layouts replace it: the side-by-side one with the
+          Input pane's node selector, the bottom panel with its Input tab.
+          Leaving it rendered in the bottom-panel layout pushed the panel
+          162px right (150px rail + 12px margin) so it overflowed the
+          viewport and clipped the Test Node button. */}
+      {!dockedPanel && !docked && (
       <div className="pointer-events-auto mr-3 flex flex-col gap-1.5 w-[150px] shrink-0 items-end">
         {connectedUpstream.length > 0 ? connectedUpstream.map(up => {
           const cond = COND_COLORS[up.condition] || COND_COLORS.completion;
@@ -648,7 +778,7 @@ export default function ConfigPanel() {
               <ModuleIcon type={up.stepType} size={18} />
               <div className="min-w-0 text-left flex-1">
                 <div className="text-xs font-semibold text-slate-600 group-hover:text-blue-600 truncate">{up.label}</div>
-                <div className="text-[8px] text-slate-400 uppercase truncate">{up.stepType.replace(/_/g, ' ')}</div>
+                <div className="text-[10px] text-slate-500 uppercase truncate">{up.stepType.replace(/_/g, ' ')}</div>
               </div>
             </button>
           );
@@ -664,7 +794,7 @@ export default function ConfigPanel() {
             <ModuleIcon type={(prevNode.data as any)?.stepType} size={18} />
             <div className="min-w-0 text-left flex-1">
               <div className="text-xs font-semibold text-slate-600 group-hover:text-blue-600 truncate">{(prevNode.data as any)?.label || 'Previous'}</div>
-              <div className="text-[8px] text-slate-400 uppercase truncate">{((prevNode.data as any)?.stepType || '').replace(/_/g, ' ')}</div>
+              <div className="text-[10px] text-slate-500 uppercase truncate">{((prevNode.data as any)?.stepType || '').replace(/_/g, ' ')}</div>
             </div>
           </button>
         ) : null}
@@ -703,39 +833,71 @@ export default function ConfigPanel() {
             setSelectedNode(null);
           }
         }}
-        className={`config-surface pointer-events-auto relative max-w-full p-[3px] shadow-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 overflow-auto ${
-          dockedPanel
-            ? 'h-full max-h-full min-w-0 rounded-l-2xl'   // right-docked: full height
-            // 2026-06-15 — no forced min-height for normal nodes: the modal now
-            // HUGS its content (the white panel is h-full of this box), so short
-            // tabs like an empty Mapping no longer leave a big gradient-border
-            // gap below, and switching nodes re-sizes to each node's content.
-            // Data Wrangler keeps a min-height because its 3-pane workspace
-            // needs a definite height to lay out.
-            : `resize-y min-w-0 max-h-full rounded-2xl ${fullBleed ? 'min-h-[420px]' : ''}`
+        className={`config-surface pointer-events-auto relative max-w-full overflow-auto ${
+          docked
+            // A column inside the dock, not a card floating on something:
+            // no gradient border, no rounded corners, no drop shadow. In
+            // the three-column case it keeps `modalWidth` and both edge
+            // handles, so dragging still trades width between the
+            // parameters form and the two data panes.
+            ? `min-w-0 min-h-0 bg-white ${stacked ? 'w-full flex-1' : 'h-full shrink-0'}`
+            : `shadow-2xl p-[3px] bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 ${
+                dockedPanel
+                  ? 'h-full max-h-full min-w-0 rounded-l-2xl'   // right-docked: full height
+                  // 2026-06-15 — no forced min-height for normal nodes: the modal now
+                  // HUGS its content (the white panel is h-full of this box), so short
+                  // tabs like an empty Mapping no longer leave a big gradient-border
+                  // gap below, and switching nodes re-sizes to each node's content.
+                  // Data Wrangler keeps a min-height because its 3-pane workspace
+                  // needs a definite height to lay out.
+                  : `resize-y min-w-0 max-h-full rounded-2xl ${fullBleed ? 'min-h-[420px]' : ''}`
+              }`
         }`}
-        style={{ width: modalWidth }}
+        style={
+          stacked
+            // Stacked: full width, and a share of the height rather than
+            // of the width.
+            ? undefined
+            : docked
+              // Clamped, not fixed. `modalWidth` is a stored pixel width
+              // from the drag handles; applied raw it ate the whole row
+              // and left the Input and Inspector panes as ~40px slivers.
+              // The ceiling reserves 360px for the two panes, the floor
+              // keeps the form usable.
+              ? { width: `clamp(320px, ${modalWidth}px, calc(100% - 360px))` }
+              : { width: modalWidth }
+        }
       >
       {/* LEFT edge resize handle — invisible 6px strip pinned to the modal's
           left border. Becomes a faint white bar on hover so users discover it. */}
+      {(!stacked || !docked) && (
       <div
         onMouseDown={startResize('left')}
-        className="absolute left-0 top-4 bottom-4 w-1.5 cursor-ew-resize hover:bg-white/50 rounded-full z-20 transition-colors"
+        className={`absolute left-0 top-4 bottom-4 w-1.5 cursor-ew-resize rounded-full z-20 transition-colors ${
+          docked ? 'hover:bg-slate-300' : 'hover:bg-white/50'
+        }`}
         title="Drag to resize"
       />
-      {/* RIGHT edge resize handle — only on the centered modal. The docked
-          panel sits flush to the viewport's right edge, so it widens by
-          dragging its LEFT handle. */}
-      {!dockedPanel && (
+      )}
+      {/* RIGHT edge resize handle — not on the right-docked panel, which
+          sits flush to the viewport's right edge and widens by dragging
+          its LEFT handle. Live in the three-column dock, where both
+          handles trade width between the parameters form and the data
+          panes; pointless in the one-column dock, which is full width. */}
+      {!dockedPanel && (!stacked || !docked) && (
         <div
           onMouseDown={startResize('right')}
           className="absolute right-0 top-4 bottom-4 w-1.5 cursor-ew-resize hover:bg-white/50 rounded-full z-20 transition-colors"
           title="Drag to resize"
         />
       )}
+      {/* rounded-[13px] is deliberate, not a stray arbitrary value: the shell
+          above is rounded-2xl (16px) with a 3px inset, and a nested box needs
+          outer-minus-inset to sit flush. Snapping this to a scale step would
+          leave a visible sliver of the shell showing at the corners. */}
       <div
         data-revoluzen-flow-config-body
-        className="w-full h-full bg-white rounded-[13px] flex flex-col overflow-auto"
+        className={`w-full h-full bg-white flex flex-col overflow-auto ${docked ? '' : 'rounded-[13px]'}`}
       >
 
       {/* Header — icon, name, nav, close */}
@@ -768,7 +930,7 @@ export default function ConfigPanel() {
               {label}
             </div>
           )}
-          <div className="text-xs text-slate-400 uppercase tracking-wider font-medium">{stepType.replace(/_/g, ' ')}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium">{stepType.replace(/_/g, ' ')}</div>
         </div>
 
         {/* Single adaptive AI button. Two separate pills (AI Fix + AI
@@ -829,6 +991,13 @@ export default function ConfigPanel() {
           AI Assist
         </button>
 
+        {/* There was a layout switch here. It is gone: the dock is a
+            bottom panel either way, and whether it shows three columns
+            or one with a Data tab is a question of whether they FIT, not
+            a preference. Offering it as a choice also meant a tab
+            selected in one arrangement could be left selected in the
+            other, which blanked the whole panel. */}
+
         {/* Test Node button */}
         <button
           onClick={handleTestNode}
@@ -851,7 +1020,7 @@ export default function ConfigPanel() {
         {/* Close */}
         <button
           onClick={() => setSelectedNode(null)}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
           title="Close (Esc)"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -899,6 +1068,12 @@ export default function ConfigPanel() {
           >
             Advanced
           </button>
+          {/* There was a Data tab here, rendered only below a width
+              threshold, holding the Input and Inspector panes that the
+              wide layout showed as columns. It meant the panel had two
+              tab sets and two switchers depending on the window size —
+              two models for one thing. The panes are now always on
+              screen, so there is nothing to tab to. */}
         </div>
       )}
 
@@ -974,7 +1149,7 @@ export default function ConfigPanel() {
                 aiDiagnosis.severity === 'medium' ? 'bg-amber-500' : 'bg-yellow-400'
               }`} />
               <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">AI Diagnosis</span>
-              <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
                 aiDiagnosis.severity === 'high' ? 'bg-red-100 text-red-600' :
                 aiDiagnosis.severity === 'medium' ? 'bg-amber-100 text-amber-600' : 'bg-yellow-100 text-yellow-600'
               }`}>{aiDiagnosis.severity}</span>
@@ -998,7 +1173,7 @@ export default function ConfigPanel() {
                 setShowDiagnosis(false);
                 setAiDiagnosis(null);
               }}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-sm flex items-center gap-1.5"
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-700 text-white hover:bg-emerald-800 transition-colors shadow-sm flex items-center gap-1.5"
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -1031,7 +1206,7 @@ export default function ConfigPanel() {
               className={SETTINGS_INPUT}
               placeholder="300 (5 min default)"
             />
-            <p className="text-[11px] text-slate-400 mt-1">Max wall-clock before this node is cancelled. 0 = no limit.</p>
+            <p className="text-[11px] text-slate-500 mt-1">Max wall-clock before this node is cancelled. 0 = no limit.</p>
           </div>
 
           {/* Retry — count + interval (0 = no retry) */}
@@ -1057,7 +1232,7 @@ export default function ConfigPanel() {
             </div>
           </div>
           {retryCount === 0 && (
-            <p className="text-[11px] text-slate-400 -mt-1.5">Set a retry count above 0 to retry this node on failure.</p>
+            <p className="text-[11px] text-slate-500 -mt-1.5">Set a retry count above 0 to retry this node on failure.</p>
           )}
 
           {/* On Error — per-node failure handling */}
@@ -1072,7 +1247,7 @@ export default function ConfigPanel() {
               <option value="continue">Skip this node &amp; continue</option>
               <option value="continue_error_output">Continue, keep error output</option>
             </select>
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-[11px] text-slate-500 mt-1">
               {onError === 'continue'
                 ? 'Downstream nodes still run, but this node passes no rows.'
                 : onError === 'continue_error_output'
@@ -1104,7 +1279,7 @@ export default function ConfigPanel() {
 
           {/* Node version */}
           <div className="pt-2.5 border-t border-slate-100">
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[11px] text-slate-500">
               {stepType.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} · v1.0 (latest)
             </span>
           </div>
@@ -1195,7 +1370,17 @@ export default function ConfigPanel() {
           padding/scroll internally — drop the outer p-4 + space-y-4 so the
           three-pane workspace can paint edge-to-edge. */}
       <div className={`flex-1 overflow-y-auto${fullBleed ? '' : ' p-4 space-y-4'}`}>
-        {!fullBleed && <DataInBand d={frameDataIn} />}
+        {/* The bands carry two things: the node's input/output CONTRACT
+            (which roles it expects, which are required and still
+            unconnected, what disposition it produces, whether it has a
+            side effect) and a list of column names. Only the second is
+            duplicated by the panes either side, so in the side-by-side
+            layout the band renders `compact` — chips dropped, contract
+            kept. Dropping the whole band instead, which was the first
+            attempt, took Join's Left / Right role labels with it and
+            broke the per-node config smoke suite that exists to guard
+            exactly that. */}
+        {!fullBleed && <DataInBand d={frameDataIn} compact={docked} />}
         {stepType === 'csv_source' && (
           <CsvSourceConfig params={params} nodeId={node.id} onChange={updateNodeParams} />
         )}
@@ -1507,7 +1692,7 @@ export default function ConfigPanel() {
         {!HARDCODED_CONFIGS.has(stepType) && (
           <DynamicConfig stepType={stepType} params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} />
         )}
-        {!fullBleed && <DataOutBand d={frameDataOut} />}
+        {!fullBleed && <DataOutBand d={frameDataOut} compact={docked} />}
       </div>
       </div>
       )}
@@ -1515,8 +1700,35 @@ export default function ConfigPanel() {
       </div>{/* End inner white panel */}
       </div>{/* End modal container (gradient outer border) */}
 
+      {docked && (
+        <InspectPane
+          result={result}
+          inputResult={activeInputResult}
+          inputColumns={upstreamColumns}
+          isRunning={result?.status === 'running'}
+          showInputView={false}
+          collapsible={stacked}
+          open={openStackPane === 'inspect'}
+          onToggle={() => setOpenStackPane((p) => (p === 'inspect' ? null : 'inspect'))}
+          actions={
+            connectedDownstream.length > 0 ? (
+              <button
+                onClick={() => setSelectedNode(connectedDownstream[0].id)}
+                className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 hover:text-blue-600 transition-colors min-w-0"
+                title={`Open ${connectedDownstream[0].label}`}
+              >
+                <span className="truncate max-w-[110px]">{connectedDownstream[0].label}</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </button>
+            ) : null
+          }
+        />
+      )}
+
       {/* Right side — connected downstream nodes (centered-modal layout only) */}
-      {!dockedPanel && (
+      {!dockedPanel && !docked && (
       <div className="pointer-events-auto ml-3 flex flex-col gap-1.5 w-[150px] shrink-0">
         {connectedDownstream.length > 0 ? connectedDownstream.map(down => {
           const cond = COND_COLORS[down.condition] || COND_COLORS.completion;
@@ -1536,7 +1748,7 @@ export default function ConfigPanel() {
               >
                 <div className="min-w-0 text-right flex-1">
                   <div className="text-xs font-semibold text-slate-600 group-hover:text-blue-600 truncate">{down.label}</div>
-                  <div className="text-[8px] text-slate-400 uppercase truncate">{down.stepType.replace(/_/g, ' ')}</div>
+                  <div className="text-[10px] text-slate-500 uppercase truncate">{down.stepType.replace(/_/g, ' ')}</div>
                 </div>
                 <ModuleIcon type={down.stepType} size={18} />
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-300 group-hover:text-blue-400 shrink-0">
@@ -1553,7 +1765,7 @@ export default function ConfigPanel() {
           >
             <div className="min-w-0 text-right flex-1">
               <div className="text-xs font-semibold text-slate-600 group-hover:text-blue-600 truncate">{(nextNode.data as any)?.label || 'Next'}</div>
-              <div className="text-[8px] text-slate-400 uppercase truncate">{((nextNode.data as any)?.stepType || '').replace(/_/g, ' ')}</div>
+              <div className="text-[10px] text-slate-500 uppercase truncate">{((nextNode.data as any)?.stepType || '').replace(/_/g, ' ')}</div>
             </div>
             <ModuleIcon type={(nextNode.data as any)?.stepType} size={18} />
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-slate-300 group-hover:text-blue-400 shrink-0">
@@ -1564,7 +1776,8 @@ export default function ConfigPanel() {
       </div>
       )}
     </div>{/* End flex center */}
-    </>
+    </>,
+    document.body,
   );
 }
 
@@ -1643,7 +1856,7 @@ function AiAssistSection({ stepType, params, nodeId, onChange, expanded: control
               onChange={(e) => setPrompt(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAsk(); }}
               placeholder={`Ask about ${stepType.replace(/_/g, ' ')}... e.g. "connect to sales DB"`}
-              className="flex-1 px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-pipe-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 placeholder:text-slate-400"
+              className="flex-1 px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-pipe-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 placeholder:text-slate-500"
               disabled={loading}
             />
             <button
@@ -1696,7 +1909,7 @@ function AiAssistSection({ stepType, params, nodeId, onChange, expanded: control
           {/* Quick tips */}
           {tips.length > 0 && (
             <>
-              <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider pt-1">Quick Actions</div>
+              <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider pt-1">Quick Actions</div>
               {tips.map((tip, i) => (
                 <button
                   key={i}
@@ -1710,7 +1923,7 @@ function AiAssistSection({ stepType, params, nodeId, onChange, expanded: control
                 >
                   <div className="text-xs text-slate-600">{tip.text}</div>
                   {tip.apply && (
-                    <div className="text-[9px] text-pipe-500 font-medium mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="text-[10px] text-pipe-500 font-medium mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       Click to apply
                     </div>
                   )}
@@ -1959,7 +2172,7 @@ function ParamInsert({ onInsert }: { onInsert: (token: string) => void }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-lg py-1 min-w-[160px] max-h-52 overflow-auto">
-            <div className="px-2 py-1 text-[9px] uppercase tracking-wide text-slate-400">Insert parameter</div>
+            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-slate-500">Insert parameter</div>
             {parameters.map((p: any) => (
               <button
                 key={p.name}
@@ -1987,7 +2200,7 @@ function TextInput({ value, onChange, placeholder }: { value: string; onChange: 
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-400"
+          className="w-full px-3 py-2 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-500"
         />
         <ParamInsert onInsert={(tok) => insertAtCursor(ref.current, value, onChange, tok)} />
       </div>
@@ -2196,7 +2409,7 @@ function KeyValueRepeater({
           <button
             type="button"
             onClick={() => removeRow(idx)}
-            className="text-slate-400 hover:text-red-600 px-1"
+            className="tap-24 text-slate-500 hover:text-red-600 px-1"
             title="Remove row"
           >
             ✕
@@ -2228,13 +2441,13 @@ function SecretInput({
         placeholder={placeholder}
         autoComplete="off"
         spellCheck={false}
-        className="w-full px-3 py-2 pr-9 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-400 font-mono"
+        className="w-full px-3 py-2 pr-9 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-500 font-mono"
       />
       <button
         type="button"
         onMouseDown={(e) => { e.preventDefault(); setRevealed((v) => !v); }}
         title={revealed ? 'Hide value' : 'Show value (auto-hides on blur)'}
-        className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-700 transition-colors"
+        className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center text-slate-500 hover:text-slate-700 transition-colors"
       >
         {revealed ? (
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2263,7 +2476,7 @@ function TextArea({ value, onChange, placeholder, rows = 3 }: { value: string; o
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           rows={rows}
-          className="w-full px-3 py-2 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-400 resize-y"
+          className="w-full px-3 py-2 text-sm text-slate-800 bg-white border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-2 focus:ring-pipe-300 focus:border-pipe-400 placeholder:text-slate-500 resize-y"
         />
         <ParamInsert onInsert={(tok) => insertAtCursor(ref.current, value, onChange, tok)} />
       </div>
@@ -2788,7 +3001,7 @@ function FamilyAwareSinkFields({ family, params, set, prefix = '', columns = [],
                       key={c}
                       onClick={() => toggleKey(c)}
                       className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
-                        keyColumns.includes(c) ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-400 border-slate-200'
+                        keyColumns.includes(c) ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-500 border-slate-200'
                       }`}
                     >
                       {keyColumns.includes(c) && '✓ '}{c}
@@ -3249,7 +3462,7 @@ function ConnectionPicker({
           }
           className={`shrink-0 h-7 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-30 ${
             testStatus === 'ok'
-              ? 'bg-emerald-500 border-emerald-600 text-white shadow-sm'
+              ? 'bg-emerald-700 border-emerald-600 text-white shadow-sm'
               : testStatus === 'fail'
                 ? 'bg-red-500 border-red-600 text-white shadow-sm'
                 : testStatus === 'testing'
@@ -3284,7 +3497,7 @@ function ConnectionPicker({
           type="button"
           onClick={refresh}
           title="Refresh connections list"
-          className="shrink-0 w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-400 hover:text-pipe-600 hover:border-pipe-300 flex items-center justify-center transition-colors"
+          className="shrink-0 w-7 h-7 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-pipe-600 hover:border-pipe-300 flex items-center justify-center transition-colors"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="23 4 23 10 17 10" />
@@ -3324,7 +3537,7 @@ function ColumnPicker({ columns, onInsert }: { columns: string[]; onInsert: (col
   if (!columns.length) return null;
   return (
     <div className="mb-3">
-      <div className="text-[9px] font-semibold text-pipe-600 uppercase tracking-wider mb-1.5">
+      <div className="text-[10px] font-semibold text-pipe-600 uppercase tracking-wider mb-1.5">
         Click to insert column
       </div>
       <div className="flex flex-wrap gap-1">
@@ -3332,7 +3545,7 @@ function ColumnPicker({ columns, onInsert }: { columns: string[]; onInsert: (col
           <button
             key={col}
             onClick={() => onInsert(col)}
-            className="text-[9px] px-1.5 py-0.5 bg-pipe-50 text-pipe-600 rounded border border-pipe-200 font-mono hover:bg-pipe-100 hover:border-pipe-300 transition-colors cursor-pointer active:scale-95"
+            className="text-[10px] px-1.5 py-0.5 bg-pipe-50 text-pipe-600 rounded border border-pipe-200 font-mono hover:bg-pipe-100 hover:border-pipe-300 transition-colors cursor-pointer active:scale-95"
           >
             {col}
           </button>
@@ -3360,7 +3573,7 @@ let _castPolicyCache: Array<{ value: string; label: string }> = [];
  *  execute time so this is a UX hint, not a contract. */
 function CastGlyph({ cast }: { cast: ReturnType<typeof classifyCastUI> }) {
   if (!cast) {
-    return <span className="text-xs text-slate-400 select-none">→</span>;
+    return <span className="text-xs text-slate-500 select-none">→</span>;
   }
   const meta = TIER_META[cast.tier];
   // Tier-specific color so the glyph reads as info / warn / error at a
@@ -3421,7 +3634,7 @@ function ColumnMapper({
 }) {
   if (!columns.length) {
     return (
-      <div className="text-xs text-slate-400 italic">
+      <div className="text-xs text-slate-500 italic">
         Run the upstream node first to see available columns.
       </div>
     );
@@ -3555,7 +3768,7 @@ function ColumnMapper({
       </div>
 
       {/* Column headers */}
-      <div className="flex gap-1 text-[9px] font-semibold text-slate-400 uppercase tracking-wider px-1">
+      <div className="flex gap-1 text-[10px] font-semibold text-slate-500 uppercase tracking-wider px-1">
         <span className="flex-1">Source</span>
         <span className="w-4" />
         <span className="flex-1">Destination</span>
@@ -3579,9 +3792,9 @@ function ColumnMapper({
           >
             {/* Source cell — name + optional type chip */}
             <div className="flex-1 flex items-center gap-1 text-xs font-mono bg-slate-50 px-2 py-1 rounded min-w-0">
-              <span className={`truncate ${isSkipped ? 'line-through text-slate-400' : 'text-slate-700'}`}>{col}</span>
+              <span className={`truncate ${isSkipped ? 'line-through text-slate-500' : 'text-slate-700'}`}>{col}</span>
               {srcType && (
-                <span className="shrink-0 text-[9px] font-sans font-semibold uppercase tracking-wider text-violet-600 bg-violet-50 border border-violet-200 px-1 rounded">
+                <span className="shrink-0 text-[10px] font-sans font-semibold uppercase tracking-wider text-violet-600 bg-violet-50 border border-violet-200 px-1 rounded">
                   {srcType.toLowerCase()}
                 </span>
               )}
@@ -3633,7 +3846,7 @@ function ColumnMapper({
                 />
               )}
               {matchedDest?.type && !isSkipped && (
-                <span className="shrink-0 text-[9px] font-sans font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded">
+                <span className="shrink-0 text-[10px] font-sans font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-1 rounded">
                   {matchedDest.type.toLowerCase()}
                 </span>
               )}
@@ -3642,7 +3855,7 @@ function ColumnMapper({
                   type="button"
                   onClick={() => toggleCustomMode(col)}
                   title={customRows.has(col) ? 'Switch back to dropdown picker' : 'Type a custom destination name (not in the imported schema)'}
-                  className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                  className="shrink-0 w-5 h-5 rounded flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                 >
                   {customRows.has(col) ? (
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -3666,7 +3879,7 @@ function ColumnMapper({
                 className={`shrink-0 w-6 h-6 rounded flex items-center justify-center transition-colors ${
                   isSkipped
                     ? 'text-emerald-600 hover:bg-emerald-50'
-                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                    : 'text-slate-500 hover:text-rose-600 hover:bg-rose-50'
                 }`}
               >
                 {isSkipped ? (
@@ -4295,7 +4508,7 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
           </Field>
           <div className="bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 text-[11px] text-emerald-900 space-y-1">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="font-semibold uppercase tracking-wider text-[9px] text-emerald-700">Sync state</span>
+              <span className="font-semibold uppercase tracking-wider text-[10px] text-emerald-700">Sync state</span>
               {workflowId && (
                 <button
                   type="button"
@@ -4376,7 +4589,7 @@ function DbSourceConfig({ params, nodeId, onChange, hideConnection }: ConfigProp
           </Field>
           {!params.connection_id && (
             <div className="bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
-              <span className="text-[9px] text-blue-500">No connection selected — query runs against DuckDB in-memory.</span>
+              <span className="text-[10px] text-blue-500">No connection selected — query runs against DuckDB in-memory.</span>
             </div>
           )}
         </>
@@ -4548,7 +4761,7 @@ function FilterConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
       <Field label="Filter Mode">
         <Select value={mode} onChange={(v) => onChange(nodeId, { mode: v })} options={['expression', 'rules']} />
       </Field>
-      <p className="text-[10px] text-slate-400 -mt-1">
+      <p className="text-[10px] text-slate-500 -mt-1">
         {mode === 'expression'
           ? 'Expression mode needs one SQL-style condition (required) — use the columns below.'
           : 'Rules mode needs at least one rule; each rule’s value field depends on the operator (none for is null / is not null).'}
@@ -4593,7 +4806,7 @@ function FilterConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
                       {FILTER_OPS.map((op) => <option key={op.value} value={op.value}>{op.label}</option>)}
                     </select>
                     <button onClick={() => onChange(nodeId, { rules: rules.filter((_: any, i: number) => i !== idx) })}
-                      className="text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
+                      className="tap-24 text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
                   </div>
                   {!['is_null', 'is_not_null'].includes(rule.op) && (
                     <input value={rule.value ?? ''} onChange={(e) => updateRule(idx, { value: e.target.value })}
@@ -4695,10 +4908,10 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
       {/* Input Datasets — shows all connected upstream nodes as named SQL tables */}
       {upstreamNodes.length > 0 && (
         <div className="bg-blue-50 rounded-lg px-3 py-2.5 border border-blue-200">
-          <div className="text-[9px] font-bold text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-1">
+          <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider mb-2 flex items-center gap-1">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
             Input Datasets
-            <span className="ml-1 text-[8px] font-normal text-blue-400">({upstreamNodes.length} connected)</span>
+            <span className="ml-1 text-[10px] font-normal text-blue-400">({upstreamNodes.length} connected)</span>
           </div>
 
           {/* Each direct upstream as a named dataset */}
@@ -4745,16 +4958,16 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
                           title="Double-click to rename (changes SQL alias)"
                         >{up.label}</span>
                       )}
-                      <span className="text-[8px] text-blue-400 uppercase shrink-0">{up.stepType.replace(/_/g, ' ')}</span>
+                      <span className="text-[10px] text-blue-400 uppercase shrink-0">{up.stepType.replace(/_/g, ' ')}</span>
                     </div>
                     {fileName && (
-                      <div className="text-[9px] text-blue-500 font-mono truncate">{fileName}</div>
+                      <div className="text-[10px] text-blue-500 font-mono truncate">{fileName}</div>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     {isPrimary && (
                       <code
-                        className="bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200 text-blue-700 font-mono text-[9px] font-semibold cursor-pointer hover:bg-blue-200 transition-colors"
+                        className="bg-blue-100 px-1.5 py-0.5 rounded border border-blue-200 text-blue-700 font-mono text-[10px] font-semibold cursor-pointer hover:bg-blue-200 transition-colors"
                         onClick={() => insertAtCursor('source_table')}
                         title="Primary input — click to insert"
                       >source_table</code>
@@ -4770,11 +4983,11 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
                           if (e.key === 'Enter') { updateEdgeAlias(up.id, nodeId, editingAlias); setEditingAliasId(null); }
                           if (e.key === 'Escape') setEditingAliasId(null);
                         }}
-                        className="w-24 bg-white px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-700 font-mono text-[9px] outline-none focus:ring-1 focus:ring-indigo-400"
+                        className="w-24 bg-white px-1.5 py-0.5 rounded border border-indigo-300 text-indigo-700 font-mono text-[10px] outline-none focus:ring-1 focus:ring-indigo-400"
                       />
                     ) : (
                       <code
-                        className={`px-1.5 py-0.5 rounded border font-mono text-[9px] cursor-pointer transition-colors ${customAlias ? 'bg-indigo-100 border-indigo-300 text-indigo-700 font-semibold hover:bg-indigo-200' : 'bg-white border-blue-200 text-blue-600 hover:bg-blue-100'}`}
+                        className={`px-1.5 py-0.5 rounded border font-mono text-[10px] cursor-pointer transition-colors ${customAlias ? 'bg-indigo-100 border-indigo-300 text-indigo-700 font-semibold hover:bg-indigo-200' : 'bg-white border-blue-200 text-blue-600 hover:bg-blue-100'}`}
                         onClick={() => insertAtCursor(alias)}
                         onDoubleClick={() => { setEditingAliasId(up.id); setEditingAlias(customAlias); }}
                         title={`Click to insert "${alias}" · double-click to set a custom table name`}
@@ -4808,7 +5021,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
             <>
               <button
                 onClick={() => setShowAllInputs(!showAllInputs)}
-                className="mt-2 text-[8px] font-medium text-blue-500 hover:text-blue-700 bg-white px-2 py-1 rounded border border-blue-200 hover:bg-blue-100 transition-colors w-full text-center"
+                className="mt-2 text-[10px] font-medium text-blue-500 hover:text-blue-700 bg-white px-2 py-1 rounded border border-blue-200 hover:bg-blue-100 transition-colors w-full text-center"
               >
                 {showAllInputs ? 'Hide indirect ancestors' : `Show all ancestors (${allAncestors.length})`}
               </button>
@@ -4821,10 +5034,10 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${anc.columns.length > 0 ? 'bg-emerald-400' : 'bg-slate-300'}`} />
                         <span className="font-medium text-blue-600 truncate">{anc.label}</span>
                         {anc.columns.length > 0 && (
-                          <span className="text-[8px] text-blue-400">{anc.columns.length} cols</span>
+                          <span className="text-[10px] text-blue-400">{anc.columns.length} cols</span>
                         )}
                         <code
-                          className="ml-auto text-[8px] font-mono text-blue-500 bg-white px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 cursor-pointer transition-colors"
+                          className="ml-auto text-[10px] font-mono text-blue-500 bg-white px-1.5 py-0.5 rounded border border-blue-200 hover:bg-blue-100 cursor-pointer transition-colors"
                           onClick={() => insertAtCursor(ancAlias)}
                           title={`Insert "${ancAlias}"`}
                         >{ancAlias}</code>
@@ -4837,7 +5050,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
           )}
 
           {/* SQL reference hint */}
-          <div className="mt-2 text-[8px] text-blue-400 bg-white/50 rounded px-2 py-1.5 border border-blue-100">
+          <div className="mt-2 text-[10px] text-blue-400 bg-white/50 rounded px-2 py-1.5 border border-blue-100">
             {upstreamNodes.length === 1 ? (
               <span>Use <code className="font-mono font-semibold text-blue-600">source_table</code> or <code className="font-mono font-semibold text-blue-600">{tableNameFor(upstreamNodes[0])}</code> in your SQL. Double-click a table name above to rename it.</span>
             ) : (
@@ -4850,7 +5063,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
       {/* Column chips — click to insert */}
       {columns.length > 0 && (
         <div>
-          <div className="text-[9px] font-semibold text-pipe-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+          <div className="text-[10px] font-semibold text-pipe-600 uppercase tracking-wider mb-1.5 flex items-center gap-1">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
             Columns (click to insert)
           </div>
@@ -4859,7 +5072,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
               <button
                 key={col}
                 onClick={() => insertAtCursor(col)}
-                className="text-[9px] px-1.5 py-0.5 bg-pipe-50 text-pipe-600 rounded border border-pipe-200 font-mono hover:bg-pipe-100 hover:border-pipe-300 transition-colors cursor-pointer active:scale-95"
+                className="text-[10px] px-1.5 py-0.5 bg-pipe-50 text-pipe-600 rounded border border-pipe-200 font-mono hover:bg-pipe-100 hover:border-pipe-300 transition-colors cursor-pointer active:scale-95"
               >
                 {col}
               </button>
@@ -4872,7 +5085,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
       <div>
         <button
           onClick={() => setShowSnippets(!showSnippets)}
-          className="text-[9px] font-semibold text-pulse-600 uppercase tracking-wider flex items-center gap-1 hover:text-pulse-700 transition-colors"
+          className="text-[10px] font-semibold text-pulse-600 uppercase tracking-wider flex items-center gap-1 hover:text-pulse-700 transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -4891,7 +5104,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
               <button
                 key={s.label}
                 onClick={() => insertAtCursor(s.sql)}
-                className="text-[9px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 hover:border-pulse-300 transition-colors cursor-pointer active:scale-95 font-medium"
+                className="text-[10px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 hover:border-pulse-300 transition-colors cursor-pointer active:scale-95 font-medium"
                 title={s.sql}
               >
                 {s.label}
@@ -4904,16 +5117,16 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
       {/* SQL Editor */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">SQL Expression *</label>
-          <span className="text-[8px] text-slate-300 font-mono">DuckDB SQL</span>
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">SQL Expression *</label>
+          <span className="text-[10px] text-slate-300 font-mono">DuckDB SQL</span>
         </div>
         <div className="relative rounded-lg border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-pipe-300 focus-within:border-pipe-300">
           {/* Line numbers gutter */}
           <div className="absolute left-0 top-0 bottom-0 w-7 bg-slate-50 border-r border-slate-200 flex flex-col items-end pt-[7px] pr-1.5 pointer-events-none select-none">
             {(params.expression || '').split('\n').map((_: string, i: number) => (
-              <span key={i} className="text-[9px] text-slate-300 leading-[18px] font-mono">{i + 1}</span>
+              <span key={i} className="text-[10px] text-slate-300 leading-[18px] font-mono">{i + 1}</span>
             ))}
-            {!(params.expression || '') && <span className="text-[9px] text-slate-300 leading-[18px] font-mono">1</span>}
+            {!(params.expression || '') && <span className="text-[10px] text-slate-300 leading-[18px] font-mono">1</span>}
           </div>
           <textarea
             id={textareaId}
@@ -5089,7 +5302,7 @@ function AggregateConfig({ params, nodeId, onChange, columns = [] }: ConfigProps
             )}
             <input value={f.alias || ''} onChange={(e) => updateFn(i, { alias: e.target.value })}
               placeholder="alias" className="w-20 px-1.5 py-1 text-xs border border-slate-200 rounded font-mono" />
-            <button onClick={() => removeFn(i)} className="text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
+            <button onClick={() => removeFn(i)} className="tap-24 text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
           </div>
           {f.function === 'CUSTOM' && (
             <input value={f.expression || ''} onChange={(e) => updateFn(i, { expression: e.target.value })}
@@ -5149,7 +5362,7 @@ function JoinSidesPicker({ params, nodeId, onChange }: ConfigProps) {
   return (
     <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-200 -mt-1 flex items-center gap-2">
       <div className="flex-1 min-w-0">
-        <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Left</div>
+        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Left</div>
         <div className="text-[11px] font-mono text-slate-700 truncate" title={left.label}>{left.label}</div>
       </div>
       <button
@@ -5160,7 +5373,7 @@ function JoinSidesPicker({ params, nodeId, onChange }: ConfigProps) {
         ⇄ Swap
       </button>
       <div className="flex-1 min-w-0 text-right">
-        <div className="text-[9px] font-semibold text-slate-400 uppercase tracking-wide">Right</div>
+        <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Right</div>
         <div className="text-[11px] font-mono text-slate-700 truncate" title={right.label}>{right.label}</div>
       </div>
     </div>
@@ -5276,7 +5489,7 @@ function JoinConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
                       onClick={() => onChange(nodeId, {
                         key_pairs: keyPairs.filter((_: any, i: number) => i !== idx),
                       })}
-                      className="text-red-400 hover:text-red-600 text-xs px-1"
+                      className="tap-24 text-red-400 hover:text-red-600 text-xs px-1"
                     >×</button>
                   </div>
                 ))}
@@ -5415,7 +5628,7 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-slate-50 rounded-md px-3 py-1.5 border border-slate-200 -mt-1">
-        <span className="text-[9px] text-slate-500">
+        <span className="text-[10px] text-slate-500">
           API Source is read-only (HTTP GET). To POST/PUT/PATCH/DELETE, use <strong>API Sink</strong> or <strong>HTTP Request</strong>.
         </span>
       </div>
@@ -5554,7 +5767,7 @@ function SortConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
                 </select>
                 <button
                   onClick={() => writeEntries(entries.filter((_, idx) => idx !== i))}
-                  className="text-red-400 hover:text-red-600 text-xs px-1"
+                  className="tap-24 text-red-400 hover:text-red-600 text-xs px-1"
                 >×</button>
               </div>
             ))}
@@ -5662,7 +5875,7 @@ function TypecastConfig({ params, nodeId, onChange, columns = [] }: ConfigProps)
             <button
               type="button"
               onClick={() => removeRow(idx)}
-              className="text-slate-400 hover:text-red-600 px-1"
+              className="tap-24 text-slate-500 hover:text-red-600 px-1"
               title="Remove cast"
             >
               ✕
@@ -5757,11 +5970,11 @@ function DerivedColumnConfig({ params, nodeId, onChange, columns = [] }: ConfigP
       {rows.map((row, i) => (
         <div key={i} className="border border-slate-200 rounded-lg p-2.5 mb-2 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">Derived column {i + 1}</span>
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Derived column {i + 1}</span>
             {rows.length > 1 && (
               <button
                 onClick={() => writeRows(rows.filter((_, j) => j !== i))}
-                className="text-[10px] text-slate-400 hover:text-red-500 font-medium"
+                className="text-[10px] text-slate-500 hover:text-red-500 font-medium"
                 title="Remove this derived column"
               >
                 Remove
@@ -5904,7 +6117,7 @@ function LookupConfig({ params, nodeId, onChange }: ConfigProps) {
           ))}
         </select>
         {mainInput && (
-          <div className="text-[10px] text-slate-400 mt-1">
+          <div className="text-[10px] text-slate-500 mt-1">
             Main stream: <span className="font-semibold text-slate-500">{mainInput.label}</span> — every
             other connected input is the main stream.
           </div>
@@ -5981,13 +6194,13 @@ function LookupConfig({ params, nodeId, onChange }: ConfigProps) {
                 );
               })}
             </div>
-            <div className="text-[10px] text-slate-400 mt-1">
+            <div className="text-[10px] text-slate-500 mt-1">
               None selected = all columns except the key. A column whose name already exists on
               the main stream is appended as <span className="font-mono">name_lookup</span>.
             </div>
           </>
         ) : (
-          <div className="text-[10px] text-slate-400">
+          <div className="text-[10px] text-slate-500">
             Schema not available yet — all reference columns except the key will be added.
           </div>
         )}
@@ -6039,14 +6252,14 @@ function UnionConfig({ params, nodeId, onChange }: ConfigProps) {
               <div key={inp.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-slate-700 truncate">{i + 1}. {inp.label}</span>
-                  <span className="text-[10px] text-slate-400 shrink-0">{inp.cols.length} cols</span>
+                  <span className="text-[10px] text-slate-500 shrink-0">{inp.cols.length} cols</span>
                 </div>
                 {inp.cols.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {inp.cols.slice(0, 14).map((c) => (
                       <span key={c} className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 font-mono text-slate-600">{c}</span>
                     ))}
-                    {inp.cols.length > 14 && <span className="text-[10px] text-slate-400 pt-0.5">+{inp.cols.length - 14}</span>}
+                    {inp.cols.length > 14 && <span className="text-[10px] text-slate-500 pt-0.5">+{inp.cols.length - 14}</span>}
                   </div>
                 )}
               </div>
@@ -6073,7 +6286,7 @@ function UnionConfig({ params, nodeId, onChange }: ConfigProps) {
           <option value="distinct">Union Distinct (drop duplicate rows)</option>
           <option value="by_name">Union By Name (schema union, NULL-fill missing)</option>
         </select>
-        <div className="text-[10px] text-slate-400 mt-1">{MODE_HELP[mode] || ''}</div>
+        <div className="text-[10px] text-slate-500 mt-1">{MODE_HELP[mode] || ''}</div>
       </Field>
     </>
   );
@@ -6139,7 +6352,7 @@ function PivotConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
             placeholder="month"
           />
         )}
-        <div className="text-[10px] text-slate-400 mt-0.5">
+        <div className="text-[10px] text-slate-500 mt-0.5">
           The columns each output row is keyed by (e.g. month). Empty = group by every remaining column.
         </div>
       </Field>
@@ -6221,7 +6434,7 @@ function UnpivotConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) 
                 >{ids.includes(col) && '✓ '}{col}</button>
               ))}
             </div>
-            <div className="text-[10px] text-slate-400">None selected = keep every column that isn't being unpivoted.</div>
+            <div className="text-[10px] text-slate-500">None selected = keep every column that isn't being unpivoted.</div>
           </Field>
         );
       })()}
@@ -6347,12 +6560,12 @@ function WindowConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
                 <option value="DESC">DESC</option>
               </select>
               <button onClick={() => writeOrd(ordEntries.filter((_, idx) => idx !== i))}
-                className="text-red-400 hover:text-red-600 text-xs px-1">×</button>
+                className="tap-24 text-red-400 hover:text-red-600 text-xs px-1">×</button>
             </div>
           ))}
           <button onClick={() => writeOrd([...ordEntries, { column: columns[0] || '', direction: 'ASC' }])}
             className="text-xs text-pipe-600 hover:text-pipe-800 font-medium">+ Add order column</button>
-          <div className="text-[10px] text-slate-400">Ranking and LAG/LEAD/running-total functions need an Order By.</div>
+          <div className="text-[10px] text-slate-500">Ranking and LAG/LEAD/running-total functions need an Order By.</div>
         </div>
       </Field>
       <div className="text-[12px] font-semibold text-slate-700 uppercase tracking-wider mb-1 mt-2">Window Functions</div>
@@ -6377,7 +6590,7 @@ function WindowConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
             )}
             <input value={f.alias || ''} onChange={(e) => updateFn(i, { alias: e.target.value })}
               placeholder="alias" className="w-20 px-1.5 py-1 text-xs border border-slate-200 rounded font-mono" />
-            <button onClick={() => removeFn(i)} className="text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
+            <button onClick={() => removeFn(i)} className="tap-24 text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
           </div>
           {f.function === 'NTILE' && (
             <input type="number" value={f.n ?? 4} onChange={(e) => updateFn(i, { n: parseInt(e.target.value) || 4 })}
@@ -6465,7 +6678,7 @@ function SampleConfig({ params, nodeId, onChange }: ConfigProps) {
             Random
           </button>
         </div>
-        <div className="text-[10px] text-slate-400 mt-1">
+        <div className="text-[10px] text-slate-500 mt-1">
           {method === 'first'
             ? 'Deterministic — takes the first rows in input order. Fast; same result every run.'
             : 'Statistical sample — different rows each run unless a seed is set.'}
@@ -6478,7 +6691,7 @@ function SampleConfig({ params, nodeId, onChange }: ConfigProps) {
             onChange={(v) => onChange(nodeId, { seed: v === '' ? undefined : parseInt(v) })}
             placeholder="42"
           />
-          <div className="text-[10px] text-slate-400 mt-0.5">
+          <div className="text-[10px] text-slate-500 mt-0.5">
             Set a seed to get the same sample on every run — useful for tests and ML experiments.
           </div>
         </Field>
@@ -6607,7 +6820,7 @@ function ConditionalSplitConfig({ params, nodeId, onChange, columns = [] }: Conf
             <input value={c.name || ''} onChange={(e) => updateCond(i, { name: e.target.value })}
               placeholder="Branch name (output label)" className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded" />
             <button onClick={() => onChange(nodeId, { conditions: conditions.filter((_: any, idx: number) => idx !== i) })}
-              className="text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
+              className="tap-24 text-red-400 hover:text-red-600 text-xs px-1 shrink-0">×</button>
           </div>
           <textarea value={c.condition || ''} onChange={(e) => updateCond(i, { condition: e.target.value })}
             placeholder="amount > 100" rows={2}
@@ -6921,7 +7134,7 @@ function AdlsGen2Config({ params, nodeId, onChange, isSink }: CloudConfigProps) 
         />
       </Field>
       <div className="bg-blue-50 rounded-md px-3 py-1.5 border border-blue-100">
-        <span className="text-[9px] text-blue-700">URI: <code>abfss://{params.container || '<container>'}@{params.account_name || '<account>'}.dfs.core.windows.net/{params.path || '<path>'}</code></span>
+        <span className="text-[10px] text-blue-700">URI: <code>abfss://{params.container || '<container>'}@{params.account_name || '<account>'}.dfs.core.windows.net/{params.path || '<path>'}</code></span>
       </div>
       {hasConn && (
         <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
@@ -6976,7 +7189,7 @@ function AzureBlobConfig({ params, nodeId, onChange, isSink }: CloudConfigProps)
         />
       </Field>
       <div className="bg-blue-50 rounded-md px-3 py-1.5 border border-blue-100">
-        <span className="text-[9px] text-blue-700">URI: <code>az://{params.container || '<container>'}/{params.path || '<path>'}</code></span>
+        <span className="text-[10px] text-blue-700">URI: <code>az://{params.container || '<container>'}/{params.path || '<path>'}</code></span>
       </div>
       {hasConn && (
         <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
@@ -7028,7 +7241,7 @@ function GcsConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) {
         />
       </Field>
       <div className="bg-emerald-50 rounded-md px-3 py-1.5 border border-emerald-100">
-        <span className="text-[9px] text-emerald-700">URI: <code>gs://{params.bucket || '<bucket>'}/{params.path || '<path>'}</code></span>
+        <span className="text-[10px] text-emerald-700">URI: <code>gs://{params.bucket || '<bucket>'}/{params.path || '<path>'}</code></span>
       </div>
       {hasConn && (
         <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
@@ -7037,7 +7250,7 @@ function GcsConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) {
       )}
       {!hasConn && <>
         <div className="bg-slate-50 rounded-md px-3 py-1.5 border border-slate-200">
-          <span className="text-[9px] text-slate-600">Generate HMAC interop keys: GCP Console → Cloud Storage → Settings → Interoperability</span>
+          <span className="text-[10px] text-slate-600">Generate HMAC interop keys: GCP Console → Cloud Storage → Settings → Interoperability</span>
         </div>
         <Field label="HMAC Key ID *">
           <TextInput value={params.hmac_key_id || ''} onChange={(v) => onChange(nodeId, { hmac_key_id: v })} placeholder="GOOG1E..." />
@@ -7112,11 +7325,11 @@ function LocalFileUploader({ currentPath, onUploaded }: { currentPath: string; o
           {uploading ? 'Uploading…' : 'Choose file'}
         </button>
       </div>
-      <div className="text-[9px] text-emerald-700 leading-tight">
+      <div className="text-[10px] text-emerald-700 leading-tight">
         CSV, TSV, JSON, NDJSON, Parquet, Excel, XML. File is saved to the Revoluzen Flow data directory and the File Path below is filled in automatically.
       </div>
       {currentPath && currentPath.startsWith('uploads/') && (
-        <div className="text-[9px] text-emerald-600 truncate" title={currentPath}>
+        <div className="text-[10px] text-emerald-600 truncate" title={currentPath}>
           Current upload: {currentPath}
         </div>
       )}
@@ -7148,7 +7361,7 @@ function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) 
         />
       </Field>
       <div className="bg-indigo-50 rounded-md px-3 py-1.5 border border-indigo-100">
-        <span className="text-[9px] text-indigo-700">
+        <span className="text-[10px] text-indigo-700">
           Format is detected from the file extension. Override below only if needed.
         </span>
       </div>
@@ -7295,7 +7508,7 @@ function SharePointConfig({ params, nodeId, onChange, isSink }: CloudConfigProps
         </Field>
       )}
       <div className="bg-blue-50 rounded-md px-3 py-1.5 border border-blue-100">
-        <span className="text-[9px] text-blue-700">
+        <span className="text-[10px] text-blue-700">
           Auth: client_credentials flow via Microsoft Graph. Connection holds tenant_id + client_id + client_secret.
         </span>
       </div>
@@ -7379,7 +7592,7 @@ function GoogleDriveConfig({ params, nodeId, onChange, isSink }: CloudConfigProp
         </>
       )}
       <div className="bg-emerald-50 rounded-md px-3 py-1.5 border border-emerald-100">
-        <span className="text-[9px] text-emerald-700">
+        <span className="text-[10px] text-emerald-700">
           Auth: OAuth refresh_token via Drive API v3, or direct access_token on the connection.
         </span>
       </div>
@@ -7758,7 +7971,7 @@ function CsvSinkConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) 
                   const updated = selected ? [...excluded, col] : excluded.filter((c: string) => c !== col);
                   onChange(nodeId, { exclude_columns: updated });
                 }}
-                  className={`text-xs px-2 py-1 rounded-lg font-mono border transition-colors ${selected ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-400 border-slate-200 line-through'}`}>
+                  className={`text-xs px-2 py-1 rounded-lg font-mono border transition-colors ${selected ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-500 border-slate-200 line-through'}`}>
                   {col}
                 </button>
               );
@@ -8376,7 +8589,7 @@ function DbSinkConfig({ params, nodeId, onChange, columns = [], sourceTypes, map
           </Field>
           {!params.connection_id && (
             <div className="bg-blue-50 rounded-lg px-3 py-1.5 border border-blue-100">
-              <span className="text-[9px] text-blue-500">No connection selected — writes to DuckDB in-memory.</span>
+              <span className="text-[10px] text-blue-500">No connection selected — writes to DuckDB in-memory.</span>
             </div>
           )}
         </>
@@ -8483,7 +8696,7 @@ function IfConditionConfig({ params, nodeId, onChange, columns = [] }: ConfigPro
         <TextInput value={params.false_label || 'False'} onChange={(v) => onChange(nodeId, { false_label: v })} placeholder="False" />
       </Field>
       <div className="bg-blue-50 rounded-lg px-3 py-2 border border-blue-100">
-        <div className="text-[9px] text-blue-500 space-y-1">
+        <div className="text-[10px] text-blue-500 space-y-1">
           <div>Use <code className="bg-white px-1 rounded border border-blue-200">@equals(a, b)</code>, <code className="bg-white px-1 rounded border border-blue-200">@greater(a, b)</code>, <code className="bg-white px-1 rounded border border-blue-200">@and(x, y)</code></div>
           <div>Connect <strong>On Success</strong> edge for True, <strong>On Failure</strong> edge for False</div>
         </div>
@@ -8532,7 +8745,7 @@ function SwitchCaseConfig({ params, nodeId, onChange, columns = [] }: ConfigProp
               <TextInput value={c.value} onChange={(v) => updateCase(i, 'value', v)} placeholder={`Value ${i + 1}`} />
               <TextInput value={c.label} onChange={(v) => updateCase(i, 'label', v)} placeholder="Label" />
               {cases.length > 1 && (
-                <button onClick={() => removeCase(i)} className="text-red-400 hover:text-red-600 shrink-0" title="Remove">
+                <button onClick={() => removeCase(i)} className="tap-24 text-red-400 hover:text-red-600 shrink-0" title="Remove">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               )}
@@ -8593,7 +8806,7 @@ function UntilLoopConfig({ params, nodeId, onChange }: ConfigProps) {
         <TextInput value={String(iterValue)} onChange={(v) => onChange(nodeId, { max_iterations: parseInt(v) || 10 })} placeholder="10" />
       </Field>
       <div className="bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
-        <div className="text-[9px] text-amber-600">Loop stops when ALL rows satisfy the condition, or after max iterations (hard cap 1000).</div>
+        <div className="text-[10px] text-amber-600">Loop stops when ALL rows satisfy the condition, or after max iterations (hard cap 1000).</div>
       </div>
     </>
   );
@@ -8643,13 +8856,13 @@ function SetVariableConfig({ params, nodeId, onChange }: ConfigProps) {
           {variables.map((v: any, i: number) => (
             <div key={i} className="flex items-center gap-1.5">
               <TextInput value={v.name} onChange={(val) => updateVar(i, 'name', val)} placeholder="var_name" />
-              <span className="text-slate-400 text-xs">=</span>
+              <span className="text-slate-500 text-xs">=</span>
               {/* Backend reads `expression` (a SQL/constant expr evaluated once),
                   NOT `value`. Read the legacy `value` key so old pipelines migrate
                   on first edit. (2026-06-15 drift fix.) */}
               <TextInput value={v.expression ?? v.value ?? ''} onChange={(val) => updateVar(i, 'expression', val)} placeholder="'prod', 42, MAX(updated_at)" />
               {variables.length > 1 && (
-                <button onClick={() => removeVar(i)} className="text-red-400 hover:text-red-600 shrink-0" title="Remove">
+                <button onClick={() => removeVar(i)} className="tap-24 text-red-400 hover:text-red-600 shrink-0" title="Remove">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               )}
@@ -8730,11 +8943,11 @@ function ExecutePipelineConfig({ params, nodeId, onChange }: ConfigProps) {
     <>
       <Field label="Sub-Pipeline *">
         {loading ? (
-          <div className="text-xs text-slate-400 italic">Loading workflows…</div>
+          <div className="text-xs text-slate-500 italic">Loading workflows…</div>
         ) : error ? (
           <div className="text-xs text-red-500">{error}</div>
         ) : workflows.length === 0 ? (
-          <div className="text-xs text-slate-400 italic">
+          <div className="text-xs text-slate-500 italic">
             No other workflows in this workspace. Create one first to call it from here.
           </div>
         ) : (
@@ -8749,7 +8962,7 @@ function ExecutePipelineConfig({ params, nodeId, onChange }: ConfigProps) {
             ))}
           </select>
         )}
-        <p className="text-xs text-slate-400 mt-1">
+        <p className="text-xs text-slate-500 mt-1">
           Pipelines call themselves = infinite loop, so the current pipeline is excluded.
         </p>
       </Field>
@@ -8765,7 +8978,7 @@ function ExecutePipelineConfig({ params, nodeId, onChange }: ConfigProps) {
       <Field label="Parameters">
         <div className="space-y-1.5">
           {paramPairs.length === 0 && (
-            <p className="text-xs text-slate-400 italic">
+            <p className="text-xs text-slate-500 italic">
               No parameters. Click + to pass values to the sub-pipeline.
             </p>
           )}
@@ -8788,7 +9001,7 @@ function ExecutePipelineConfig({ params, nodeId, onChange }: ConfigProps) {
               />
               <button
                 onClick={() => removePair(idx)}
-                className="text-slate-400 hover:text-red-500 px-1.5 py-1 rounded"
+                className="text-slate-500 hover:text-red-500 px-1.5 py-1 rounded"
                 title="Remove"
               >
                 ×
@@ -8857,7 +9070,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
   const clearAuth = () => Object.fromEntries(manifestParams.filter(p => p.secret).map(p => [p.name, '']));
 
   if (loading) {
-    return <div className="text-xs text-slate-400 italic">Loading SaaS connectors…</div>;
+    return <div className="text-xs text-slate-500 italic">Loading SaaS connectors…</div>;
   }
   if (error) {
     return <div className="text-xs text-red-500">Failed to load connector definitions: {error}</div>;
@@ -8888,7 +9101,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
           </a>
           <span className="text-slate-300">·</span>
           <a
-            href="https://github.com/revoluzen-data-systems/revoluzen-flow/tree/main/backend/revoluzen_flow/connectors/manifests"
+            href="https://github.com/revoluzen-io/revoluzen-flow/tree/main/backend/revoluzen_flow/connectors/manifests"
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-700 hover:text-slate-900 hover:underline"
@@ -8901,7 +9114,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
             </svg>
           </a>
         </div>
-        <p className="text-[10px] text-slate-400 pt-1">
+        <p className="text-[10px] text-slate-500 pt-1">
           Already have an HTTP API endpoint to call? Use the
           <strong className="text-slate-500"> HTTP Request</strong> node — no
           manifest required.
@@ -8938,7 +9151,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
       </Field>
 
       {selected && selected.description && (
-        <div className="text-xs text-slate-400 -mt-2 mb-1">{selected.description}</div>
+        <div className="text-xs text-slate-500 -mt-2 mb-1">{selected.description}</div>
       )}
 
       {selected && (
@@ -8974,7 +9187,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
 
       {selected && visibleParams.length > 0 && (
         <div className="mt-2 pt-2 border-t border-slate-100">
-          <div className="text-[9px] uppercase tracking-wider text-slate-400 mb-1.5 font-semibold">Connector Parameters</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-semibold">Connector Parameters</div>
           {visibleParams.map((p) => (
             <Field key={p.name} label={`${p.label || p.name}${p.required || activeFields.has(p.name) ? ' *' : ''}`}>
               <input
@@ -9021,7 +9234,7 @@ function DataQualityConfig({ params, nodeId, onChange, columns = [] }: ConfigPro
           options={['drop', 'fail', 'tag', 'reject', 'split']}
         />
         {params.mode === 'reject' && (
-          <div className="text-[10px] text-slate-400 mt-1">
+          <div className="text-[10px] text-slate-500 mt-1">
             Two outputs: wire the <span className="font-semibold text-green-600">Pass</span> and{' '}
             <span className="font-semibold text-red-500">Reject</span> handles to separate paths
             (e.g. reject → a quarantine sink).
@@ -9107,7 +9320,7 @@ function UpsertConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
                 className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
                   keys.includes(c)
                     ? 'bg-pipe-100 text-pipe-700 border-pipe-300'
-                    : 'bg-white text-slate-400 border-slate-200'
+                    : 'bg-white text-slate-500 border-slate-200'
                 }`}
               >
                 {keys.includes(c) && '✓ '}{c}
@@ -9129,7 +9342,7 @@ function UpsertConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
           placeholder="updated_at DESC"
         />
       </Field>
-      <div className="text-xs text-slate-400 italic">
+      <div className="text-xs text-slate-500 italic">
         Collapses duplicate keys to one row. Pipeline becomes idempotent — safe to re-run.
       </div>
     </>
@@ -9153,7 +9366,7 @@ function ScdChipPicker({
   const avail = columns.filter((c) => !exclude.includes(c));
   return (
     <Field label={label}>
-      {hint && <div className="text-[10px] text-slate-400 mb-1 leading-snug">{hint}</div>}
+      {hint && <div className="text-[10px] text-slate-500 mb-1 leading-snug">{hint}</div>}
       {avail.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {avail.map((c) => (
@@ -9163,7 +9376,7 @@ function ScdChipPicker({
               className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
                 selected.includes(c)
                   ? 'bg-pipe-100 text-pipe-700 border-pipe-300'
-                  : 'bg-white text-slate-400 border-slate-200'
+                  : 'bg-white text-slate-500 border-slate-200'
               }`}
             >
               {selected.includes(c) && '✓ '}{c}
@@ -9262,7 +9475,7 @@ function SCD2Config({ params, nodeId, onChange, columns = [] }: ConfigProps) {
 
       {showAdvanced && (
         <div className="flex flex-col gap-2 border-l-2 border-slate-100 pl-3 mt-1">
-          <div className="text-[10px] text-slate-400 leading-snug">
+          <div className="text-[10px] text-slate-500 leading-snug">
             These columns are added to the output. Defaults suit most warehouses — change only to match an existing table.
           </div>
           <Field label="Surrogate Key Column">
@@ -9330,7 +9543,7 @@ function SchemaMapperConfig({ params, nodeId, onChange, columns = [] }: ConfigPr
                   className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded"
                 />
               )}
-              <span className="text-sm text-slate-400">→</span>
+              <span className="text-sm text-slate-500">→</span>
               <input
                 value={m.target || ''}
                 onChange={(e) => update(idx, { target: e.target.value })}
@@ -9435,7 +9648,7 @@ function EmbedderConfig({ params, nodeId, onChange, columns = [] }: ConfigProps)
       <Field label="Hash Dimension">
         <TextInput value={String(params.dim ?? 384)} onChange={(v) => onChange(nodeId, { dim: parseInt(v) || 384 })} placeholder="384" />
       </Field>
-      <div className="text-xs text-slate-400 italic">
+      <div className="text-xs text-slate-500 italic">
         Falls back to deterministic hash embeddings if the provider SDK or API key is missing — pipeline never breaks.
       </div>
     </>
@@ -9464,7 +9677,7 @@ function LlmGuardrailConfig({ params, nodeId, onChange, columns = [] }: ConfigPr
           {GUARDRAIL_CHECKS.map((c) => (
             <button key={c} onClick={() => toggleCheck(c)}
               className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
-                checks.includes(c) ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-400 border-slate-200'
+                checks.includes(c) ? 'bg-pipe-100 text-pipe-700 border-pipe-300' : 'bg-white text-slate-500 border-slate-200'
               }`}>
               {checks.includes(c) && '✓ '}{c}
             </button>
@@ -9481,7 +9694,7 @@ function LlmGuardrailConfig({ params, nodeId, onChange, columns = [] }: ConfigPr
           placeholder="api[_-]?key, secret"
         />
       </Field>
-      <div className="text-xs text-slate-400 italic">
+      <div className="text-xs text-slate-500 italic">
         tag = add __guardrail_flags column; block = drop flagged rows; mask = replace PII with ***
       </div>
     </>
@@ -9557,7 +9770,7 @@ function FlattenExplodeConfig({ params, nodeId, onChange, columns = [] }: Config
           onChange={(v) => onChange(nodeId, { mode: v })}
           options={['flatten', 'explode']}
         />
-        <p className="text-xs text-slate-400 mt-1">
+        <p className="text-xs text-slate-500 mt-1">
           {params.mode === 'explode'
             ? 'Unnest array column — each element becomes a separate row'
             : 'Expand struct/JSON fields into individual columns'}
@@ -9572,7 +9785,7 @@ function FlattenExplodeConfig({ params, nodeId, onChange, columns = [] }: Config
       </Field>
       <Field label="Column Prefix">
         <TextInput value={params.prefix || ''} onChange={(v) => onChange(nodeId, { prefix: v })} placeholder="user_" />
-        <p className="text-xs text-slate-400 mt-0.5">Prefix for new column names (default: original column name)</p>
+        <p className="text-xs text-slate-500 mt-0.5">Prefix for new column names (default: original column name)</p>
       </Field>
       <Field label="Keep Original Column">
         <label className="flex items-center gap-2 cursor-pointer">
@@ -9634,7 +9847,7 @@ function MaterializeConfig({ params, nodeId, onChange }: ConfigProps) {
           onChange={(v) => onChange(nodeId, { table_name: v })}
           placeholder="orders_cleaned"
         />
-        <p className="text-xs text-slate-400 mt-0.5">Leave blank for auto-generated name</p>
+        <p className="text-xs text-slate-500 mt-0.5">Leave blank for auto-generated name</p>
       </Field>
     </>
   );
@@ -9670,7 +9883,7 @@ function RetryHandlerConfig({ params, nodeId, onChange }: ConfigProps) {
           onChange={(v) => onChange(nodeId, { backoff_multiplier: parseFloat(v) || 2.0 })}
           placeholder="2.0"
         />
-        <p className="text-xs text-slate-400 mt-0.5">Delay doubles after each retry (2s → 4s → 8s)</p>
+        <p className="text-xs text-slate-500 mt-0.5">Delay doubles after each retry (2s → 4s → 8s)</p>
       </Field>
       <Field label="On All Retries Exhausted">
         <Select
@@ -9678,7 +9891,7 @@ function RetryHandlerConfig({ params, nodeId, onChange }: ConfigProps) {
           onChange={(v) => onChange(nodeId, { on_exhausted: v })}
           options={['fail', 'skip']}
         />
-        <p className="text-xs text-slate-400 mt-0.5">
+        <p className="text-xs text-slate-500 mt-0.5">
           {params.on_exhausted === 'skip'
             ? 'Continue pipeline with empty result'
             : 'Stop pipeline and report the error'}
@@ -9724,7 +9937,7 @@ function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
             <div key={i} className="flex items-center gap-1.5">
               <TextInput value={h.key} onChange={(v) => updateHeader(i, 'key', v)} placeholder="Header" />
               <TextInput value={h.value} onChange={(v) => updateHeader(i, 'value', v)} placeholder="Value" />
-              <button onClick={() => removeHeader(i)} className="text-red-400 hover:text-red-600 shrink-0">
+              <button onClick={() => removeHeader(i)} className="tap-24 text-red-400 hover:text-red-600 shrink-0">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
@@ -9950,7 +10163,7 @@ function CopyDataConfig({ params, nodeId, onChange, columns = [] }: ConfigProps)
               requireCapability="read"
             />
           </Field>
-          <div className="text-xs text-slate-400 italic -mt-1 mb-1">
+          <div className="text-xs text-slate-500 italic -mt-1 mb-1">
             Leave empty to copy from the upstream node instead of a database.
           </div>
 
@@ -10015,7 +10228,7 @@ function CopyDataConfig({ params, nodeId, onChange, columns = [] }: ConfigProps)
                           className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
                             keyColumns.includes(c)
                               ? 'bg-pipe-100 text-pipe-700 border-pipe-300'
-                              : 'bg-white text-slate-400 border-slate-200'
+                              : 'bg-white text-slate-500 border-slate-200'
                           }`}
                         >
                           {keyColumns.includes(c) && '✓ '}{c}
@@ -10546,7 +10759,7 @@ function CopyDataConfig({ params, nodeId, onChange, columns = [] }: ConfigProps)
             </Field>
           )}
           {(params.mapping_mode || 'auto') === 'auto' && (
-            <div className="text-xs text-slate-400 italic">
+            <div className="text-xs text-slate-500 italic">
               Auto: source columns flow to sink columns by exact name match.
             </div>
           )}
@@ -10700,7 +10913,7 @@ function DeleteDataConfig({ params, nodeId, onChange }: ConfigProps) {
       )}
 
       <div className="bg-red-50 rounded-lg px-3 py-2 border border-red-100">
-        <div className="text-[9px] text-red-500 font-medium">
+        <div className="text-[10px] text-red-500 font-medium">
           This action permanently deletes data. Use with caution.
         </div>
       </div>
@@ -10789,11 +11002,11 @@ function SlackNotifyConfig({ params, nodeId, onChange }: ConfigProps) {
     <>
       <Field label="Webhook URL *">
         <SecretInput value={params.webhook_url || ''} onChange={(v) => onChange(nodeId, { webhook_url: v })} placeholder="https://hooks.slack.com/services/..." />
-        <div className="text-[9px] text-gray-400 mt-0.5">Slack (or Teams) Incoming Webhook URL — create one at api.slack.com → Incoming Webhooks. Required.</div>
+        <div className="text-[10px] text-gray-400 mt-0.5">Slack (or Teams) Incoming Webhook URL — create one at api.slack.com → Incoming Webhooks. Required.</div>
       </Field>
       <Field label="Channel">
         <TextInput value={params.channel || ''} onChange={(v) => onChange(nodeId, { channel: v })} placeholder="#data-alerts" />
-        <div className="text-[9px] text-gray-400 mt-0.5">Optional — overrides the channel the webhook is bound to.</div>
+        <div className="text-[10px] text-gray-400 mt-0.5">Optional — overrides the channel the webhook is bound to.</div>
       </Field>
       <Field label="Message *">
         <TextArea
@@ -10802,7 +11015,7 @@ function SlackNotifyConfig({ params, nodeId, onChange }: ConfigProps) {
           placeholder={'Pipeline finished :white_check_mark:\nRows: {row_count}'}
           rows={5}
         />
-        <div className="text-[9px] text-gray-400 mt-0.5">{'{column}'} placeholders are replaced from the first input row.</div>
+        <div className="text-[10px] text-gray-400 mt-0.5">{'{column}'} placeholders are replaced from the first input row.</div>
       </Field>
     </>
   );
@@ -10831,7 +11044,7 @@ function AppendVariableConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-indigo-50 rounded-lg px-3 py-2 border border-indigo-100">
-        <div className="text-[9px] text-indigo-600">
+        <div className="text-[10px] text-indigo-600">
           Append a value to an array variable. The variable accumulates
           across iterations of a ForEach loop.
         </div>
@@ -10866,7 +11079,7 @@ function FilterArrayConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-teal-50 rounded-lg px-3 py-2 border border-teal-100">
-        <div className="text-[9px] text-teal-600">
+        <div className="text-[10px] text-teal-600">
           Filter an array of items by a condition. Use <code className="bg-white px-1 rounded border border-teal-200">item</code> to reference each element. Items where the condition is TRUE are kept.
         </div>
       </div>
@@ -10913,7 +11126,7 @@ function ValidationConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-cyan-50 rounded-lg px-3 py-2 border border-cyan-100">
-        <div className="text-[9px] text-cyan-600">
+        <div className="text-[10px] text-cyan-600">
           Polls until the dataset is present (file exists, row count meets
           threshold) before continuing. Aborts on timeout.
         </div>
@@ -10948,7 +11161,7 @@ function FailConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-red-50 rounded-lg px-3 py-2 border border-red-100">
-        <div className="text-[9px] text-red-600">
+        <div className="text-[10px] text-red-600">
           Stops the pipeline with a custom error message. Use to short-circuit
           when an upstream check fails. If the condition is empty, the pipeline
           always fails when this node runs. Supports <code className="bg-white px-1 rounded border border-red-200">{'{column}'}</code> placeholders.
@@ -11014,7 +11227,7 @@ function FileSystemConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
-        <div className="text-[9px] text-amber-600">
+        <div className="text-[10px] text-amber-600">
           Copy, move, rename, or delete files on the local Revoluzen Flow runtime
           filesystem.
         </div>
@@ -11032,7 +11245,7 @@ function ExecuteSqlTaskConfig({ params, nodeId, onChange }: ConfigProps) {
           onChange={(v) => onChange(nodeId, { connection_id: v })}
         />
       </Field>
-      <div className="text-xs text-slate-400 italic -mt-1 mb-1">
+      <div className="text-xs text-slate-500 italic -mt-1 mb-1">
         Leave empty to run against the in-memory DuckDB.
       </div>
       <Field label="SQL Statement *">
@@ -11058,7 +11271,7 @@ function ExecuteSqlTaskConfig({ params, nodeId, onChange }: ConfigProps) {
         />
       </Field>
       <div className="bg-sky-50 rounded-lg px-3 py-2 border border-sky-100">
-        <div className="text-[9px] text-sky-600">
+        <div className="text-[10px] text-sky-600">
           Run arbitrary SQL against a database connection. Use for DDL,
           stored procedures, or admin statements that don't fit Transform.
           Supports <code className="bg-white px-1 rounded border border-sky-200">{'{column}'}</code> placeholders from upstream first row.
@@ -11167,7 +11380,7 @@ function ConnectorConnectionPicker({ params, nodeId, onChange, connections, labe
         {label}{optional ? '' : ' *'}
       </label>
       {optional && !selected && (
-        <p className="text-[11px] text-slate-400 -mt-1">
+        <p className="text-[11px] text-slate-500 -mt-1">
           Optional for local / uploaded files — required for databases, APIs, and cloud storage.
         </p>
       )}
@@ -11182,7 +11395,7 @@ function ConnectorConnectionPicker({ params, nodeId, onChange, connections, labe
           </div>
           <button
             onClick={() => onChange(nodeId, { connection_id: '', connector_type: 'csv', _connection_type: '' })}
-            className="text-xs font-medium text-slate-400 hover:text-red-500"
+            className="text-xs font-medium text-slate-500 hover:text-red-500"
           >Change</button>
         </div>
       ) : (

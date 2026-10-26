@@ -20,7 +20,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import require_auth, require_admin, current_user_optional
+from revoluzen_flow.auth.deps import (
+    current_user_optional,
+    current_workspace_id,
+    require_admin,
+    require_auth,
+)
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
@@ -204,12 +209,21 @@ async def get_notification_config():
 
 
 @router.put("/config")
-async def put_notification_config(body: NotificationConfigUpdate):
+async def put_notification_config(
+    body: NotificationConfigUpdate,
+    _ws: str = Depends(current_workspace_id),
+):
     """Update the workspace-wide notification config.
 
     Open in OSS — see GET docstring above. Plus tier reinstates the
     admin gate. Only fields explicitly set in the payload are updated;
     partial PUTs are supported.
+
+    2026-10-23: "open in OSS" presumes the loopback single-user install it
+    was written for. Probed anonymously in SECURITY_MODE=server this
+    returned 200 and wrote the config. current_workspace_id keeps the OSS
+    laptop behaviour exactly and refuses anonymous callers on a server;
+    the Plus admin gate is unchanged and still sits on top.
     """
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     return _write_config(updates)

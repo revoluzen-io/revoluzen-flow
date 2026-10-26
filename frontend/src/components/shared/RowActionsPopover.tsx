@@ -52,7 +52,7 @@ export default function RowActionsPopover({ open, onOpenChange, children }: {
   return <div data-row-more-menu>
     <button ref={trigger} type="button" title="More actions" aria-label="More actions"
       aria-expanded={open} aria-controls={open ? id : undefined} aria-haspopup="dialog"
-      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+      className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-all"
       onClick={event => { event.stopPropagation(); onOpenChange(!open); }}>
       <MoreHorizontal size={14} />
     </button>

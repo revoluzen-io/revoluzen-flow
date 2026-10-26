@@ -176,7 +176,7 @@ export default function DataTable<T>({
     <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200">
-        <span className="text-xs text-slate-400 font-medium">
+        <span className="text-xs text-slate-500 font-medium">
           {data.length} record{data.length !== 1 ? 's' : ''} · {activeColumns.length}/{columns.length} columns
         </span>
         <div className="flex items-center gap-1.5">
@@ -188,16 +188,16 @@ export default function DataTable<T>({
               className="px-2.5 py-1.5 text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1.5">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /></svg>
               Columns
-              <span className="text-[8px] bg-slate-200 px-1 py-0.5 rounded-full text-slate-500">{activeColumns.length}</span>
+              <span className="text-[10px] bg-slate-200 px-1 py-0.5 rounded-full text-slate-500">{activeColumns.length}</span>
             </button>
             {showColumnPicker && (
               <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden">
                 <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-700">Columns</span>
                   <div className="flex items-center gap-2">
-                    <button onClick={selectAll} className="text-[9px] text-blue-500 hover:text-blue-600 font-medium">All</button>
+                    <button onClick={selectAll} className="text-[10px] text-blue-500 hover:text-blue-600 font-medium">All</button>
                     <span className="text-slate-300">|</span>
-                    <button onClick={resetToDefaults} className="text-[9px] text-slate-400 hover:text-slate-600 font-medium">Default</button>
+                    <button onClick={resetToDefaults} className="text-[10px] text-slate-500 hover:text-slate-600 font-medium">Default</button>
                   </div>
                 </div>
                 <div className="max-h-[320px] overflow-y-auto py-0.5">
@@ -206,7 +206,7 @@ export default function DataTable<T>({
                     if (cols.length === 0) return null;
                     return (
                       <div key={group.key}>
-                        <div className="px-3 py-1 text-[8px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
+                        <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
                           {/^[a-z][a-z0-9-]*$/.test(group.icon)
                             ? <Icon name={group.icon as IconName} size={10} />
                             : <span>{group.icon}</span>}
@@ -238,7 +238,7 @@ export default function DataTable<T>({
               </button>
               {showExportMenu && (
                 <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1">
-                  <div className="px-3 py-1 text-[8px] font-bold text-slate-400 uppercase tracking-wider">Current View</div>
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Current View</div>
                   <button onClick={() => { doExport('visible', 'csv'); setShowExportMenu(false); }}
                     className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                     <span className="text-xs">📄</span> Visible Columns (CSV)
@@ -248,7 +248,7 @@ export default function DataTable<T>({
                     <span className="text-xs">📄</span> Visible Columns (JSON)
                   </button>
                   <div className="border-t border-slate-100 my-0.5" />
-                  <div className="px-3 py-1 text-[8px] font-bold text-slate-400 uppercase tracking-wider">Full Metadata</div>
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Full Metadata</div>
                   <button onClick={() => { doExport('full', 'csv'); setShowExportMenu(false); }}
                     className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                     <span className="text-xs">📋</span> All Fields (CSV)
@@ -260,7 +260,7 @@ export default function DataTable<T>({
                   {projectGrouper && (
                     <>
                       <div className="border-t border-slate-100 my-0.5" />
-                      <div className="px-3 py-1 text-[8px] font-bold text-slate-400 uppercase tracking-wider">Grouped</div>
+                      <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Grouped</div>
                       <button onClick={() => { doExport('project', 'csv'); setShowExportMenu(false); }}
                         className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                         <span className="text-xs">📁</span> By Project (CSV)
@@ -283,12 +283,12 @@ export default function DataTable<T>({
         <div className="text-center py-14">
           {emptyIcon && <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-slate-50 flex items-center justify-center">{emptyIcon}</div>}
           <p className="text-sm font-semibold text-slate-600">{emptyTitle}</p>
-          {emptyDesc && <p className="text-xs text-slate-400 mt-1">{emptyDesc}</p>}
+          {emptyDesc && <p className="text-xs text-slate-500 mt-1">{emptyDesc}</p>}
         </div>
       ) : (
         <div className="overflow-x-auto">
           {/* Header */}
-          <div className="flex gap-0 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[9px] font-bold text-slate-400 uppercase tracking-wider min-w-fit">
+          <div className="flex gap-0 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider min-w-fit">
             {activeColumns.map(col => (
               <div key={col.key} style={{ width: col.width === '1fr' ? undefined : col.width, flex: col.width === '1fr' ? '1 1 0%' : `0 0 ${col.width}` }}
                 className={col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left'}>

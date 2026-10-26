@@ -6,7 +6,7 @@ labels: ["connector-request", "needs-triage"]
 assignees: []
 ---
 
-> **Before you file:** could you build this yourself in ~90 seconds using **Insights → Author Connector → From OpenAPI**? If the vendor publishes an OpenAPI spec, the in-product generator usually beats waiting for us to ship it. See [docs/extend/build-a-connector.md](https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/extend/build-a-connector.md). If yes, please file a **connector-contribution** issue instead so we can ship it first-party.
+> **Before you file:** could you build this yourself in ~90 seconds using **Insights → Author Connector → From OpenAPI**? If the vendor publishes an OpenAPI spec, the in-product generator usually beats waiting for us to ship it. See [docs/extend/build-a-connector.md](https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/extend/build-a-connector.md). If yes, please file a **connector-contribution** issue instead so we can ship it first-party.
 
 ## What system do you need a connector for?
 

@@ -17,7 +17,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from revoluzen_flow.auth.deps import current_workspace_id
 
-router = APIRouter(prefix="/api/pool", tags=["execution-pool"])
+# 2026-10-23 — router-level posture gate. `POST /api/pool/cancel/{job_id}`
+# reached its handler unauthenticated (404 only because the id was made up),
+# so anyone who could reach the port could cancel a running job.
+router = APIRouter(
+    prefix="/api/pool",
+    tags=["execution-pool"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 def _safe_workspace_id(request: Request) -> str:

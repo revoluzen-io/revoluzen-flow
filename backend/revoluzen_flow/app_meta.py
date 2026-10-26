@@ -10,7 +10,7 @@ VERSION = "1.0.1"
 
 # GitHub coordinates. Change REPO_OWNER (and REPO_NAME if the repo is renamed)
 # to re-point every in-app link at once.
-REPO_OWNER = "revoluzen-data-systems"
+REPO_OWNER = "revoluzen-io"
 REPO_NAME = "revoluzen-flow"
 
 HOMEPAGE = "https://revoluzen.io"

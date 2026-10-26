@@ -95,7 +95,7 @@ class ErrorBoundary extends Component<Props, State> {
             <div className="flex flex-col gap-2">
               <button
                 onClick={this.handleReload}
-                className="w-full px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg transition-colors text-sm"
+                className="w-full px-4 py-2.5 bg-amber-700 hover:bg-amber-800 text-white font-medium rounded-lg transition-colors text-sm"
               >
                 Reload Page
               </button>

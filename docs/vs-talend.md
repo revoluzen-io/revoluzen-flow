@@ -57,7 +57,7 @@ Honest gaps. We're not going to pretend these aren't real:
 
 1. **Obscure-enterprise connector breadth.** SAP IDocs, AS/400, JDE, Tibco, IBM MQ, Oracle E-Business proprietary auth — TOS has tXxx components for systems Revoluzen Flow doesn't ship out of the box. If your pipelines touch this kind of system, either:
    - Use the **API Explorer** UI to generate one from the vendor's OpenAPI spec (works for most modern enterprise REST surfaces)
-   - [Open a connector request](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) — tell us what you need, paste the API docs, we'll prioritise
+   - [Open a connector request](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose) — tell us what you need, paste the API docs, we'll prioritise
    - Use TOS for that one pipeline, Revoluzen Flow for the other 80%
 2. **tMap expression builder.** Talend's expression composer for joins / lookups / per-row formulas is genuinely powerful and Revoluzen Flow's transform UX (derived-column / aggregate / pivot nodes) is more click-heavy. We're closing this gap; today it's a real difference for power-users who lived in tMap.
 3. **Authoring at 100+ node scale.** Revoluzen Flow's canvas works best up to ~30 nodes per pipeline. TOS handles 200-component monster jobs comfortably. Split via composable sub-pipelines is the Revoluzen Flow answer, which is also better engineering — but it's a different style of authoring.
@@ -78,7 +78,7 @@ Four first-class paths:
 
 End-to-end tutorial: [docs/extend/build-a-connector.md](extend/build-a-connector.md).
 Reference for the authoring API: [docs/connector-authoring.md](connector-authoring.md).
-Want to contribute it back so others benefit? [Open a connector-contribution PR](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose).
+Want to contribute it back so others benefit? [Open a connector-contribution PR](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose).
 
 This is the deliberate OSS strategy. **No connector is Plus-gated**, no extension point is locked, no manifest format is proprietary. If the framework can't express what your connector needs, that's a bug in the framework — file it.
 
@@ -105,4 +105,4 @@ If your workload is *truly* multi-TB-per-run on raw files, both Talend Big Data 
 - [docs/connectors.md](connectors.md) — full connector catalog + cert matrix
 - [docs/extend/build-a-connector.md](extend/build-a-connector.md) — 30-minute tutorial
 - [docs/connector-authoring.md](connector-authoring.md) — API Explorer UI reference
-- [Request a connector or node](https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new/choose) — pre-filled issue templates
+- [Request a connector or node](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose) — pre-filled issue templates

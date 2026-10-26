@@ -12,10 +12,22 @@ import { useDarkMode } from '../hooks/useDarkMode';
 // 2026-06-15 — palette re-sampled from the actual Revoluzen Flow logo mark
 // (public/revoluzen-flow-logo-mark.png): amber-gold "F", green top arrow, red
 // bottom arrow. The old palette's blue (#3B82F6) was never a brand colour.
+// 2026-10-23 — gold and green darkened to clear WCAG 1.4.3 AA. As sampled
+// they were 2.27:1 and 3.38:1 on white at 16px/800, which is not "large
+// text", so 4.5:1 applies. Each channel was scaled by a single factor so the
+// hue and the relative channel mix are unchanged — these are the same two
+// inks, a step darker (k=0.676 gold, k=0.832 green). The red was already
+// passing and is untouched.
+//
+// Targeted against amber-50 (#fffbeb), not white: the footer is
+// position:fixed and floats over whatever page surface is beneath it, and
+// amber-50 is the lightest one in the app. Clearing 4.5:1 there clears it
+// everywhere. If the brand wants the original lighter inks back, the
+// alternative is to set them on a dark plate rather than on the page.
 const BRAND_COLORS = [
-  '#E0A030',   // gold  — the logo "F"
-  '#10A060',   // green — top refresh arrow
-  '#B03030',   // red   — bottom refresh arrow
+  '#976C20',   // gold  — the logo "F"          (4.50:1 on amber-50, 4.67 on white)
+  '#0D8550',   // green — top refresh arrow     (4.51:1 on amber-50, 4.67 on white)
+  '#B03030',   // red   — bottom refresh arrow  (6.12:1 on amber-50, 6.34 on white)
 ];
 
 export default function CopyrightFooter({ environment = 'dev' }: { environment?: 'dev' | 'prod' } = {}) {
@@ -41,7 +53,7 @@ export default function CopyrightFooter({ environment = 'dev' }: { environment?:
       >
         <span
           className="text-base font-extrabold tracking-tight"
-          style={{ color: dark || isProd ? '#F8FAFC' : '#000000' }}
+          style={{ color: dark || isProd ? '#F8FAFC' : '#0F172A' }}
         >
           © {year}
         </span>

@@ -687,7 +687,10 @@ class LocalTableSinkNode(BaseNode):
                 ],
             },
             {
-                "name": "merge_on", "type": "array", "label": "Merge Keys",
+                # `column_list` gives the column picker; `array` is not a
+                # case DynamicConfig handles, so it fell through to the
+                # default plain-text input.
+                "name": "merge_on", "type": "column_list", "label": "Merge Keys",
                 "help": "Required when mode = merge. Column names to match on.",
             },
             schema_policy_param(),

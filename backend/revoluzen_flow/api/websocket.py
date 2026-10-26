@@ -13,7 +13,7 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 
 from revoluzen_flow.engine.realtime import RealtimeExecutor
 
@@ -508,6 +508,19 @@ from fastapi import APIRouter as _AR
 info_router = APIRouter(prefix="/api/ws", tags=["websocket"])
 
 
+def _cancel_workspace_gate(request: Request) -> str:
+    """Posture gate for the HTTP cancel route.
+
+    This module's WebSocket paths resolve the workspace by hand (see
+    ``_workspace_for_socket`` above) because a WebSocket handshake has no
+    FastAPI ``Request``. The HTTP route does have one, so it uses the
+    normal dependency — wrapped here only to keep the import local and
+    avoid shadowing this module's manual resolver.
+    """
+    from revoluzen_flow.auth.deps import current_workspace_id as _cwid
+    return _cwid(request)
+
+
 @info_router.get("/connections")
 async def ws_connections():
     """Get active WebSocket connection info."""
@@ -518,8 +531,17 @@ async def ws_connections():
 
 
 @info_router.post("/cancel/{workflow_id}")
-async def cancel_execution_http(workflow_id: str):
-    """Cancel a running execution via HTTP (alternative to WebSocket)."""
+async def cancel_execution_http(
+    workflow_id: str,
+    _ws: str = Depends(_cancel_workspace_gate),
+):
+    """Cancel a running execution via HTTP (alternative to WebSocket).
+
+    2026-10-23 — gated. This answered an unauthenticated caller with
+    ``{"cancelled": false}`` for a made-up id, which means it would have
+    answered ``true`` for a real one: anyone reachable on the port could
+    stop a running pipeline.
+    """
     cancelled = manager.cancel_execution(workflow_id)
     return {
         "workflow_id": workflow_id,

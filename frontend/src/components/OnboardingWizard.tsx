@@ -127,7 +127,7 @@ function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) {
             <div
               className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
                 selectedTemplate === tpl.id
-                  ? 'bg-amber-500 text-white'
+                  ? 'bg-amber-700 text-white'
                   : 'bg-gray-100 text-gray-500'
               }`}
             >
@@ -234,14 +234,14 @@ function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) {
             {isLastStep ? (
               <button
                 onClick={handleComplete}
-                className="px-5 py-2.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors shadow-sm"
+                className="px-5 py-2.5 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800 transition-colors shadow-sm"
               >
                 Start Building
               </button>
             ) : (
               <button
                 onClick={() => setStep(step + 1)}
-                className="px-5 py-2.5 rounded-lg bg-amber-500 text-white text-sm font-semibold hover:bg-amber-600 transition-colors shadow-sm"
+                className="px-5 py-2.5 rounded-lg bg-amber-700 text-white text-sm font-semibold hover:bg-amber-800 transition-colors shadow-sm"
               >
                 Next
               </button>
@@ -256,7 +256,7 @@ function OnboardingWizard({ onComplete, onSkip }: OnboardingWizardProps) {
               <div
                 className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
                   i < step
-                    ? 'bg-amber-500 text-white'
+                    ? 'bg-amber-700 text-white'
                     : i === step
                     ? 'border-2 border-amber-500 text-amber-500'
                     : 'border-2 border-gray-200 text-gray-300'

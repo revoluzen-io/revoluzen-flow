@@ -413,6 +413,21 @@ def _compile_transform(step: dict, input_cte: str) -> Optional[str]:
     return f"/* SQL Transform (verbatim; source_table/input -> {input_cte}) */\n{body}"
 
 
+def _is_pivot_body(body: str) -> bool:
+    """True when a compiled CTE body is a bare PIVOT statement.
+
+    `_compile_pivot` may prefix an explanatory `/* ... */` note, so the
+    check skips a leading block comment rather than matching position 0.
+    """
+    s = body.lstrip()
+    while s.startswith("/*"):
+        end = s.find("*/")
+        if end == -1:
+            return False
+        s = s[end + 2:].lstrip()
+    return s.upper().startswith("PIVOT ")
+
+
 def _compile_pivot(step: dict, input_cte: str) -> Optional[str]:
     """Mirror of nodes/activities.py PivotNode via DuckDB's PIVOT statement
     (auto-detects values at runtime). The optional fill_value post-pass needs
@@ -521,6 +536,36 @@ def compile_workflow_to_sql(workflow: dict) -> CompiledSql:
     compiled: list[str] = []
     final_cte: Optional[str] = None
 
+    # Successors, for the PIVOT placement rule below. Same key names as the
+    # preds pass above — `from_step`/`to_step`, not source/target.
+    succs: dict[str, list[str]] = {sid: [] for sid in steps}
+    for c in workflow.get("connections", []):
+        f, t = c.get("from_step"), c.get("to_step")
+        if f in succs and t in steps:
+            succs[f].append(t)
+
+    def _pivot_is_terminal(sid: str) -> bool:
+        """True when nothing but a sink consumes this step.
+
+        Why this matters (verified against DuckDB 2.0.0 on 2026-10-23):
+        a PIVOT used as a CTE *body* cannot resolve a SIBLING CTE in the
+        same WITH list —
+
+            WITH s0 AS (...), s1 AS (PIVOT s0 ON ...) SELECT * FROM s1
+            -> Catalog Error: Table with name s0 does not exist!
+
+        A **top-level** PIVOT over the same CTE is fine, so a pivot that
+        ends the chain can still be compiled; one in the middle cannot,
+        and is emitted as a boundary rather than as SQL that would not run.
+
+        (The older note in requirements.txt said 2.0 "will not resolve a
+        CTE name inside a PIVOT" and that every variant fails. That is not
+        what 2.0 does: `WITH s0 AS (...) PIVOT s0 ON ...` works, as do
+        subquery, FROM-first and nested-SELECT forms. Only the CTE-body
+        form fails.)
+        """
+        return all(_is_sink(_step_type(steps[n])) for n in succs.get(sid, []))
+
     for sid in order:
         step = steps[sid]
         t = _step_type(step)
@@ -554,6 +599,14 @@ def compile_workflow_to_sql(workflow: dict) -> CompiledSql:
             compiler = _COMPILERS.get(t)
             if compiler is None:
                 body, reason = None, f"'{t}' has no SQL preview compiler yet"
+            elif t == "pivot" and not _pivot_is_terminal(sid):
+                body = None
+                reason = (
+                    "mid-chain PIVOT: DuckDB 2.0 cannot resolve a sibling CTE "
+                    "from inside a PIVOT used as a CTE body. A pivot that ends "
+                    "the chain compiles to a top-level PIVOT; one feeding a "
+                    "later transform does not."
+                )
             else:
                 body = compiler(step, cte_of[ins[0]])
                 reason = f"'{t}' params not SQL-expressible (e.g. rules-mode / missing keys)"
@@ -577,12 +630,33 @@ def compile_workflow_to_sql(workflow: dict) -> CompiledSql:
     ]
 
     if ctes:
+        tail = final_cte or ctes[-1][0]
+
+        # A PIVOT cannot be the body of a CTE that names a sibling on DuckDB
+        # 2.0 (see _pivot_is_terminal). When the chain ENDS in a pivot, lift
+        # it out of the WITH list and make it the top-level statement:
+        #
+        #     WITH s0 AS (...), s1 AS (PIVOT s0 ...) SELECT * FROM s1   -- fails on 2.0
+        #     WITH s0 AS (...) PIVOT s0 ...                             -- works on 1.x and 2.0
+        #
+        # `SELECT * FROM <pivot>` adds nothing, so nothing is lost by
+        # dropping the wrapper.
+        head_ctes = ctes
+        top_level: Optional[str] = None
+        if ctes and ctes[-1][0] == tail and _is_pivot_body(ctes[-1][1]):
+            head_ctes = ctes[:-1]
+            top_level = ctes[-1][1]
+
         with_blocks = []
-        for cte_name, body in ctes:
+        for cte_name, body in head_ctes:
             indented = "\n".join("  " + ln for ln in body.splitlines())
             with_blocks.append(f"{cte_name} AS (\n{indented}\n)")
-        tail = final_cte or ctes[-1][0]
-        body_sql = "WITH " + ",\n".join(with_blocks) + f"\nSELECT *\nFROM {tail};"
+
+        if top_level is not None:
+            prefix = ("WITH " + ",\n".join(with_blocks) + "\n") if with_blocks else ""
+            body_sql = prefix + top_level + ";"
+        else:
+            body_sql = "WITH " + ",\n".join(with_blocks) + f"\nSELECT *\nFROM {tail};"
     else:
         body_sql = "-- (no SQL-compilable steps in this pipeline)"
 

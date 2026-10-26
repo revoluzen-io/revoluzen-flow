@@ -72,15 +72,15 @@ export default function ExpressionPreview({ value }: { value: string }) {
 
   return (
     <div className="mt-1 text-[11px] leading-snug" data-testid="expr-preview">
-      {state.status === 'loading' && <span className="text-slate-400">Resolving…</span>}
+      {state.status === 'loading' && <span className="text-slate-500">Resolving…</span>}
       {state.status === 'ok' && (
         <span className="text-emerald-600">
-          <span className="text-slate-400">→ </span>
+          <span className="text-slate-500">→ </span>
           <span className="font-mono break-all">
             {state.result === '' ? '(empty)' : state.result}
           </span>
           {state.type && state.type !== 'str' && (
-            <span className="text-slate-400"> · {state.type}</span>
+            <span className="text-slate-500"> · {state.type}</span>
           )}
         </span>
       )}

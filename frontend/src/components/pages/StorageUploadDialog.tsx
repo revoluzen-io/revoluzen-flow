@@ -304,10 +304,10 @@ export default function StorageUploadDialog({
 
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Folder <span className="text-slate-400 font-normal">(optional)</span>
+                  Folder <span className="text-slate-500 font-normal">(optional)</span>
                 </label>
                 {!projectId ? (
-                  <div className="text-xs text-slate-400 italic">
+                  <div className="text-xs text-slate-500 italic">
                     Pick a project to load folders.
                   </div>
                 ) : foldersLoading ? (
@@ -337,7 +337,7 @@ export default function StorageUploadDialog({
           {/* Description */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              Description <span className="text-slate-400 font-normal">(optional)</span>
+              Description <span className="text-slate-500 font-normal">(optional)</span>
             </label>
             <input
               value={description}
@@ -377,7 +377,7 @@ export default function StorageUploadDialog({
                   <div className="text-sm text-slate-600">
                     Drag a file here, or <span className="text-blue-600 font-semibold">click to browse</span>
                   </div>
-                  <div className="text-xs text-slate-400 mt-1">
+                  <div className="text-xs text-slate-500 mt-1">
                     CSV, JSON, Parquet, Excel, XML
                   </div>
                 </div>

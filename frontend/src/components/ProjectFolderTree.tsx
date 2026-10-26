@@ -417,7 +417,7 @@ export default function ProjectFolderTree({
     return (
       <div className="text-center py-12 text-sm text-slate-500 bg-white rounded-lg border border-slate-200">
         <p className="mb-1">No projects yet.</p>
-        <p className="text-sm text-slate-400">
+        <p className="text-sm text-slate-500">
           Click <b>New Project</b> above to create one — you'll then be able to add folders inside it.
         </p>
       </div>
@@ -481,7 +481,7 @@ export default function ProjectFolderTree({
               <span className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
                 {group.label}
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 {group.projects.length} project{group.projects.length === 1 ? '' : 's'}
               </span>
               <div className="flex-1 border-t border-slate-200" />
@@ -716,7 +716,7 @@ function ProjectCard({
                   onClick={onExport}
                   title={`Export "${project.name}" as a JSON bundle`}
                   aria-label={`Export project ${project.name}`}
-                  className="w-7 h-7 rounded flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                  className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -734,7 +734,7 @@ function ProjectCard({
                   onClick={onArchive}
                   title={`Archive "${project.name}" (move to Archived for 30 days, then auto-delete)`}
                   aria-label={`Archive project ${project.name}`}
-                  className="w-7 h-7 rounded flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                  className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="21 8 21 21 3 21 3 8" />
@@ -977,7 +977,7 @@ function FolderSection({
               <button
                 onClick={() => onDelete(folder)}
                 title="Delete this folder and every pipeline inside it. This cannot be undone."
-                className="text-sm text-slate-400 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50"
+                className="tap-24 text-sm text-slate-500 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50"
               >
                 Delete
               </button>
@@ -1026,7 +1026,7 @@ function PipelineGroup({ label, workflows, onSelectPipeline }: PipelineGroupProp
           <span className="text-xs font-semibold tracking-wider text-slate-500 uppercase">
             {label}
           </span>
-          <span className="text-sm text-slate-400">
+          <span className="text-sm text-slate-500">
             {workflows.length} pipeline{workflows.length === 1 ? '' : 's'}
           </span>
         </div>
@@ -1059,7 +1059,7 @@ function PipelineRow({ workflow, onSelect, indent }: RowProps) {
         <span className="text-sm text-slate-700 truncate group-hover:text-indigo-600">
           {workflow.name}
         </span>
-        <div className="ml-auto flex items-center gap-3 shrink-0 text-sm text-slate-400">
+        <div className="ml-auto flex items-center gap-3 shrink-0 text-sm text-slate-500">
           {workflow.schedule_cron && (
             <span title={`Cron: ${workflow.schedule_cron}`} className="flex items-center gap-1">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
@@ -1101,7 +1101,7 @@ function StatusLabel({ status }: { status: string }) {
     status === 'active' ? 'text-emerald-600'
     : status === 'paused' ? 'text-amber-600'
     : status === 'failed' ? 'text-rose-600'
-    : 'text-slate-400';
+    : 'text-slate-500';
   return <span className={cls}>{status}</span>;
 }
 

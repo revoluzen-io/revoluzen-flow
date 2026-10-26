@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/revoluzen-data-systems/revoluzen-flow/actions/workflows/ci.yml"><img src="https://github.com/revoluzen-data-systems/revoluzen-flow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://github.com/revoluzen-data-systems/revoluzen-flow/actions/workflows/security-scan.yml"><img src="https://github.com/revoluzen-data-systems/revoluzen-flow/actions/workflows/security-scan.yml/badge.svg?branch=main" alt="Security Scan"></a>
+  <a href="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml"><img src="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml"><img src="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml/badge.svg?branch=main" alt="Security Scan"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.11+-blue" alt="Python 3.11+"></a>
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/status-1.0.1-blue" alt="Status: 1.0.1"></a>
@@ -211,7 +211,7 @@ no Docker needed on the target machine. After install, Revoluzen Flow registers
 itself as a systemd **user** service that starts at login and survives
 reboots.
 
-Download from the [latest GitHub Release](https://github.com/revoluzen-data-systems/revoluzen-flow/releases/latest):
+Download from the [latest GitHub Release](https://github.com/revoluzen-io/revoluzen-flow/releases/latest):
 
 | Distro | Package | Install |
 |---|---|---|
@@ -279,7 +279,7 @@ python3 -m pip install --upgrade revoluzen-flow
 ### Docker Compose
 
 ```bash
-git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
+git clone https://github.com/revoluzen-io/revoluzen-flow.git
 cd revoluzen-flow
 cp .env.example .env            # optional — defaults work
 docker compose up -d            # Revoluzen Flow only
@@ -331,7 +331,7 @@ install succeeds (it's the optional command shortcut that install creates).
 **macOS / Linux:**
 
 ```bash
-git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
+git clone https://github.com/revoluzen-io/revoluzen-flow.git
 cd revoluzen-flow
 
 # 1. Build the UI (one-time). The built bundle isn't committed — skip this
@@ -348,7 +348,7 @@ python -m revoluzen_flow open
 `source` are not valid in Windows PowerShell:
 
 ```powershell
-git clone https://github.com/revoluzen-data-systems/revoluzen-flow.git
+git clone https://github.com/revoluzen-io/revoluzen-flow.git
 cd revoluzen-flow
 
 # 1. Build the UI (one-time).

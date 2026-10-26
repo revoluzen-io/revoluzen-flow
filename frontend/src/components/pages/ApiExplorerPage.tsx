@@ -266,7 +266,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
               <div className="flex items-center gap-2">
                 <span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold shrink-0 ${
                   active ? 'bg-indigo-500 text-white'
-                    : step.done ? 'bg-emerald-500 text-white'
+                    : step.done ? 'bg-emerald-700 text-white'
                       : 'bg-slate-100 text-slate-500'
                 }`}>
                   {step.done ? <Check size={13} /> : index + 1}
@@ -365,7 +365,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
               <span className={`api-status-badge ${statusTone(result.status)}`}>HTTP {result.status}{STATUS_TEXT[result.status] ? ` ${STATUS_TEXT[result.status]}` : ''}</span>
               <span className="api-status-meta">{result.elapsed_ms} ms</span>
               <span className="api-status-meta">{formatBytes(result.bytes)}</span>
-            </div> : <span className="text-xs text-slate-400">{busy ? 'In progress' : 'Not sent'}</span>}
+            </div> : <span className="text-xs text-slate-500">{busy ? 'In progress' : 'Not sent'}</span>}
           </div>
           <Tabs label="Response views" value={tab} onChange={setTab} items={[
             { id: 'json', label: 'JSON / Text', disabled: !result },
@@ -398,7 +398,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
             </div> : <div className="api-response-inner">
               {result.truncated && <p role="status" className="api-response-warning">Response exceeds 256 KB. Preview truncated; JSON/table parsing unavailable.</p>}
               {tab === 'json' && result.data != null && <div className="api-response-toolbar">
-                <Search size={14} className="text-slate-400" />
+                <Search size={14} className="text-slate-500" />
                 <input aria-label="Filter response" placeholder="Filter keys and values..." value={bodyFilter} onChange={e => setBodyFilter(e.target.value)} className="api-response-filter" />
               </div>}
               {tab === 'table' && <label className="block text-xs api-record-path">Record path<select className={`${input} mt-1`} value={selectedPath} onChange={e => setRecordPath(e.target.value)} aria-label="Record path">{paths.filter(p => ['array', 'object'].includes(p.type)).map(p => <option key={p.path}>{p.path}</option>)}</select></label>}
@@ -443,7 +443,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
       <div className="api-card-body">
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Common starting points</span>
-          <span className="text-[11px] text-slate-400">Click to load a specification</span>
+          <span className="text-[11px] text-slate-500">Click to load a specification</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {API_REFERENCES.map(entry => {

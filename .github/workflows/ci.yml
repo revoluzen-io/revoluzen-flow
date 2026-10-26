@@ -227,6 +227,169 @@ jobs:
           python -m pytest -n auto --tb=short -m "not stress and not external and not e2e" \
             || python -m pytest --last-failed --tb=short -m "not stress and not external and not e2e"
 
+  backend-pytest-dialects:
+    name: Backend pytest (database dialects — real Postgres + MySQL)
+    runs-on: ubuntu-latest
+    # The rest of the suite runs on SQLite and DuckDB, which accept `"` as an
+    # identifier quote. MySQL does not — it reads "x" as a string literal —
+    # and that single difference meant the database sink had NEVER worked
+    # against MySQL in any write mode, while a SQLite-only suite stayed green
+    # for as long as the sink had existed. Only a real server catches that
+    # class of bug, so one runs here.
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: flowtest
+          POSTGRES_DB: flowtest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_ROOT_PASSWORD: flowtest
+          MYSQL_DATABASE: flowtest
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pflowtest"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+      mssql:
+        # No --health-cmd: recent mssql/server images dropped the bundled
+        # mssql-tools, so there is no sqlcmd inside the container to probe
+        # with. The Python reachability step below waits for it instead,
+        # which is the same check the tests themselves would make.
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "FlowTest!2026x"
+          MSSQL_PID: Developer
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Microsoft ODBC driver 18
+        # pyodbc is a client library; the actual driver is an OS package and
+        # is not on the runner image. Driver 18 is the current one, and it
+        # defaults to Encrypt=yes — against the container's self-signed
+        # certificate that fails with "the certificate chain was issued by
+        # an authority that is not trusted" unless the connection string
+        # sets TrustServerCertificate. connections/mssql_odbc.py does.
+        run: |
+          curl -sSL -O "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Install backend requirements
+        # requirements.txt carries psycopg2-binary and pymysql; the dialect
+        # tests connect with the same drivers the sink itself imports.
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Verify all three databases are reachable
+        # Without this the job is theatre. The tests skipif-out when a server
+        # is unreachable — correct for a laptop, useless in CI, where a
+        # service that failed to start would produce a green run reporting
+        # "12 skipped" and nobody would look. Fail here instead, loudly.
+        working-directory: backend
+        env:
+          PYTHONPATH: .
+          REVOLUZEN_FLOW_TEST_PG: postgresql://postgres:flowtest@127.0.0.1:5432/flowtest
+          REVOLUZEN_FLOW_TEST_MYSQL: mysql://root:flowtest@127.0.0.1:3306/flowtest
+          REVOLUZEN_FLOW_TEST_MSSQL: "mssql://sa:FlowTest!2026x@127.0.0.1:1433/master"
+        run: |
+          python - <<'PY'
+          import os, sys, time
+          from urllib.parse import urlparse
+
+          def wait(label, url, connect, attempts=30):
+              cfg = urlparse(url)
+              last = None
+              for _ in range(attempts):
+                  try:
+                      connect(cfg).close()
+                      print(f"{label}: reachable")
+                      return
+                  except Exception as exc:          # noqa: BLE001
+                      last = exc
+                      time.sleep(2)
+              sys.exit(f"{label}: NOT reachable after {attempts * 2}s — {last}")
+
+          def pg(c):
+              import psycopg2
+              return psycopg2.connect(host=c.hostname, port=c.port,
+                                      dbname=c.path.lstrip('/'), user=c.username,
+                                      password=c.password, connect_timeout=5)
+
+          def my(c):
+              import pymysql
+              return pymysql.connect(host=c.hostname, port=c.port,
+                                     database=c.path.lstrip('/'), user=c.username,
+                                     password=c.password, connect_timeout=5)
+
+          def ms(c):
+              import pyodbc
+              from revoluzen_flow.connections.mssql_odbc import build_mssql_odbc_conn_str
+              return pyodbc.connect(build_mssql_odbc_conn_str({
+                  "host": c.hostname, "port": c.port,
+                  "database": c.path.lstrip('/'),
+                  "user": c.username, "password": c.password,
+              }, pyodbc))
+
+          wait("postgres", os.environ["REVOLUZEN_FLOW_TEST_PG"], pg)
+          wait("mysql", os.environ["REVOLUZEN_FLOW_TEST_MYSQL"], my)
+          # SQL Server is the slow starter — it has no health check above
+          # and routinely needs 30-60s before it accepts connections.
+          wait("mssql", os.environ["REVOLUZEN_FLOW_TEST_MSSQL"], ms, attempts=60)
+          PY
+
+      - name: Run dialect suite
+        # `-m external` is required: pytest.ini's addopts deselect that
+        # marker, so without it the file collects and runs nothing.
+        #
+        # The run is tee'd and then checked for skips. A skip is the one
+        # outcome that looks like success and isn't: the tests skipif-out
+        # when a server is unreachable, which is right on a laptop and
+        # useless here, where it would turn "the database was never tested"
+        # into a green tick. Both that and a zero-test run fail the job.
+        working-directory: backend
+        env:
+          REVOLUZEN_FLOW_MODE: dev
+          PYTHONPATH: .
+          REVOLUZEN_FLOW_TEST_PG: postgresql://postgres:flowtest@127.0.0.1:5432/flowtest
+          REVOLUZEN_FLOW_TEST_MYSQL: mysql://root:flowtest@127.0.0.1:3306/flowtest
+          REVOLUZEN_FLOW_TEST_MSSQL: "mssql://sa:FlowTest!2026x@127.0.0.1:1433/master"
+        run: |
+          set -o pipefail
+          python -m pytest tests/test_db_sink_merge_dialects.py \
+            -m external -ra --tb=short | tee pytest-dialects.log
+
+          if grep -qiE '[0-9]+ skipped' pytest-dialects.log; then
+            echo "::error::dialect tests reported skips — a server was not reachable, so the dialects this job exists to cover were never exercised"
+            exit 1
+          fi
+          if grep -qiE 'no tests ran|collected 0 items' pytest-dialects.log; then
+            echo "::error::no dialect tests ran — check the 'external' marker and the -m selector"
+            exit 1
+          fi
+
   backend-pytest-stress:
     name: Backend pytest (stress — nightly, non-blocking)
     runs-on: ubuntu-latest

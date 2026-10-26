@@ -186,7 +186,7 @@ export default function StorageTableEditDialog({
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-colors"
+            className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-700 hover:bg-white border border-transparent hover:border-slate-200 transition-colors"
             aria-label="Close"
             title="Close (Esc)"
           >
@@ -229,7 +229,7 @@ export default function StorageTableEditDialog({
                       </button>
                     </div>
                     {sourceFile.format && (
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-0.5">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">
                         {sourceFile.format}
                       </div>
                     )}
@@ -391,10 +391,10 @@ export default function StorageTableEditDialog({
             disabled={saving || !dirty || hasIdentError}
             className={`px-4 py-2 text-sm font-bold rounded-lg shadow-sm transition-colors ${
               saving || !dirty || hasIdentError
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                 : willRename
-                  ? 'bg-amber-500 hover:bg-amber-600 text-white'
-                  : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                  ? 'bg-amber-700 hover:bg-amber-800 text-white'
+                  : 'bg-emerald-700 hover:bg-emerald-800 text-white'
             }`}
           >
             {saving ? 'Saving…' : willRename ? 'Rename + Save' : 'Save changes'}

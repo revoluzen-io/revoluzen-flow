@@ -87,7 +87,7 @@ class MarketplaceStore:
         """Publish a pipeline template to the marketplace."""
         template_id = f"mkt_{uuid.uuid4().hex[:8]}"
         now = time.time()
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO marketplace_templates "
             "(id, name, description, category, author_id, author_name, workspace_id, "
             "tags, difficulty, icon, steps, connections, is_public, downloads, "
@@ -179,7 +179,7 @@ class MarketplaceStore:
 
     def increment_downloads(self, template_id: str):
         """Increment the download counter."""
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE marketplace_templates SET downloads=downloads+1 WHERE id=?",
             (template_id,),
         )
@@ -190,7 +190,7 @@ class MarketplaceStore:
         """Rate a marketplace template (1-5 stars). Updates existing rating."""
         rating = max(1, min(5, rating))
         rating_id = f"r_{uuid.uuid4().hex[:8]}"
-        self._db.execute(
+        self._db.execute_write(
             "INSERT OR REPLACE INTO marketplace_ratings (id, template_id, user_id, rating, review, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (rating_id, template_id, user_id, rating, review, time.time()),
@@ -201,7 +201,7 @@ class MarketplaceStore:
             (template_id,),
         )
         if row:
-            self._db.execute(
+            self._db.execute_write(
                 "UPDATE marketplace_templates SET avg_rating=?, rating_count=? WHERE id=?",
                 (round(row["avg"] or 0, 2), row["cnt"], template_id),
             )
@@ -219,8 +219,8 @@ class MarketplaceStore:
 
     def delete(self, template_id: str, author_id: str = ""):
         """Delete a marketplace template (author or admin only)."""
-        self._db.execute("DELETE FROM marketplace_ratings WHERE template_id=?", (template_id,))
-        self._db.execute("DELETE FROM marketplace_templates WHERE id=?", (template_id,))
+        self._db.execute_write("DELETE FROM marketplace_ratings WHERE template_id=?", (template_id,))
+        self._db.execute_write("DELETE FROM marketplace_templates WHERE id=?", (template_id,))
 
     def _row_to_dict(self, row) -> dict:
         d = dict(row)

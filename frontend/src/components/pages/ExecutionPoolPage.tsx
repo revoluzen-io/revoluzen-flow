@@ -52,7 +52,7 @@ const PRIORITY_COLORS: Record<number, { bg: string; text: string; ring: string; 
   2: { bg: 'bg-orange-100', text: 'text-orange-700', ring: 'ring-orange-300', label: 'P2 High' },
   3: { bg: 'bg-blue-100', text: 'text-blue-700', ring: 'ring-blue-300', label: 'P3 Normal' },
   4: { bg: 'bg-slate-100', text: 'text-slate-600', ring: 'ring-slate-300', label: 'P4 Low' },
-  5: { bg: 'bg-slate-50', text: 'text-slate-400', ring: 'ring-slate-200', label: 'P5 Background' },
+  5: { bg: 'bg-slate-50', text: 'text-slate-500', ring: 'ring-slate-200', label: 'P5 Background' },
 };
 
 function priorityStyle(p: number) {
@@ -506,8 +506,8 @@ export default function ExecutionPoolPage({
                       ? 'border-red-400 text-slate-900 font-bold bg-gradient-to-b from-slate-200 to-slate-400 shadow-[inset_0_0_0_1.5px_rgba(203,213,225,0.70),inset_0_0_10px_rgba(148,163,184,0.30),inset_0_1px_0_rgba(255,255,255,0.85)]'
                       : 'text-white font-bold bg-gradient-to-b from-slate-600 to-slate-800 shadow-[inset_0_0_0_1.5px_rgba(148,163,184,0.65),inset_0_0_10px_rgba(100,116,139,0.35),inset_0_1px_0_rgba(255,255,255,0.22)]'
                     : isProd
-                      ? 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.03]'
-                      : 'border-transparent text-slate-900 font-bold hover:text-black hover:bg-slate-100'
+                      ? 'border-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
+                      : 'border-transparent text-slate-900 font-bold hover:text-slate-950 hover:bg-slate-100'
                 }`}
               >
                 {t === 'overview' ? 'Overview' : t === 'history' ? 'Run History' : t === 'config' ? 'Configuration' : 'Alerts'}
@@ -654,7 +654,7 @@ export default function ExecutionPoolPage({
                   );
                 })}
                 {/* Burst row read-only (auto-computed) — but show as a hint */}
-                <p className={`text-xs mt-2 ${isProd ? 'text-slate-500' : 'text-slate-400'}`}>
+                <p className={`text-xs mt-2 ${isProd ? 'text-slate-500' : 'text-slate-500'}`}>
                   Burst is auto-computed from PROD + DEV. PROD always has its reserved share available; DEV the same. Burst lane is grabbed first-come-first-served when reserved is full.
                 </p>
                 {/* Admin save row */}
@@ -677,7 +677,7 @@ export default function ExecutionPoolPage({
                   </div>
                 )}
                 {!isAdmin && (
-                  <p className={`text-xs mt-2 italic ${isProd ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <p className={`text-xs mt-2 italic ${isProd ? 'text-slate-500' : 'text-slate-500'}`}>
                     Read-only — admin role required to change the split.
                   </p>
                 )}
@@ -883,14 +883,14 @@ export default function ExecutionPoolPage({
             return (
               <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 3h-8l-2 4h12z" /></svg>
                     Workers ({pool.max_workers || 0})
-                  </h3>
+                  </h2>
                   {allIdle && (
                     <button
                       onClick={() => setIdleExpanded(v => !v)}
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                      className="tap-24 text-xs font-semibold text-slate-500 hover:text-slate-800"
                     >
                       {idleExpanded ? 'Hide idle' : 'Show all'}
                     </button>
@@ -902,7 +902,7 @@ export default function ExecutionPoolPage({
                     <span className="text-xs font-semibold text-slate-600">
                       All {idleWorkers.length} worker{idleWorkers.length === 1 ? '' : 's'} idle
                     </span>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-slate-500">
                       · {totalJobsDone} job{totalJobsDone === 1 ? '' : 's'} completed lifetime
                     </span>
                   </div>
@@ -920,7 +920,7 @@ export default function ExecutionPoolPage({
                           }`}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-bold text-slate-400">W{w.id}</span>
+                            <span className="text-xs font-bold text-slate-500">W{w.id}</span>
                             <span className={`w-2 h-2 rounded-full ${
                               w.status === 'busy' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'
                             }`} />
@@ -952,9 +952,9 @@ export default function ExecutionPoolPage({
                               </div>
                             </>
                           ) : (
-                            <div className="text-xs text-slate-400 mt-1">Idle</div>
+                            <div className="text-xs text-slate-500 mt-1">Idle</div>
                           )}
-                          <div className="text-xs text-slate-400 mt-1.5">
+                          <div className="text-xs text-slate-500 mt-1.5">
                             {w.jobs_completed} jobs done
                           </div>
                         </div>
@@ -970,13 +970,13 @@ export default function ExecutionPoolPage({
               separate Queue tab was folded in here). Counts + every waiting job
               with cancel; running detail is in the Workers grid above. */}
           <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
-            <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2 mb-3">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" />
                 <line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
               </svg>
               Live queue
-            </h3>
+            </h2>
             <div className="flex items-center gap-4 text-xs mb-3">
               <span className="text-slate-600"><span className="font-bold text-slate-800 tabular-nums">{pool.busy_workers || 0}</span> running</span>
               {longRunningCount > 0 && (
@@ -986,14 +986,14 @@ export default function ExecutionPoolPage({
               )}
               <span className="text-slate-600"><span className="font-bold text-slate-800 tabular-nums">{pool.queue_depth || 0}</span> waiting</span>
               {throughput.avg_wait_ms ? (
-                <span className="text-slate-400">avg wait {formatDuration(throughput.avg_wait_ms)}</span>
+                <span className="text-slate-500">avg wait {formatDuration(throughput.avg_wait_ms)}</span>
               ) : null}
             </div>
             {queue.length === 0 ? (
               <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-100">
                 <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                 <span className="text-xs font-semibold text-slate-600">No jobs waiting</span>
-                <span className="text-xs text-slate-400">· runs start as soon as a worker is free</span>
+                <span className="text-xs text-slate-500">· runs start as soon as a worker is free</span>
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -1001,11 +1001,11 @@ export default function ExecutionPoolPage({
                   const ps = priorityStyle(j.priority);
                   return (
                     <div key={j.id} className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-100 text-xs">
-                      <span className="font-bold text-slate-400 w-4">#{i + 1}</span>
+                      <span className="font-bold text-slate-500 w-4">#{i + 1}</span>
                       <span className={`font-bold px-1.5 py-0.5 rounded ${ps.bg} ${ps.text}`}>P{j.priority}</span>
                       {!isFree && <EnvBadge env={j.environment || 'dev'} />}
                       <span className="font-semibold text-slate-700 flex-1 truncate">{j.workflow_name}</span>
-                      <span className="text-slate-400">waiting {formatDuration(j.wait_ms)}</span>
+                      <span className="text-slate-500">waiting {formatDuration(j.wait_ms)}</span>
                       <button
                         onClick={async () => { await api.cancelPoolJob(j.id).catch(() => {}); refresh(); }}
                         className="text-red-500 hover:text-red-700 font-semibold"
@@ -1093,12 +1093,12 @@ export default function ExecutionPoolPage({
                         key={s}
                         onClick={() => setStatusFilter(s)}
                         className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors capitalize flex items-center gap-1.5 ${
-                          active ? 'bg-pipe-100 text-pipe-700' : 'text-slate-400 hover:text-slate-600'
+                          active ? 'bg-pipe-100 text-pipe-700' : 'text-slate-500 hover:text-slate-600'
                         }`}
                       >
                         {label}
                         {count > 0 && s !== 'all' && (
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${badgeCls}`}>{count}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${badgeCls}`}>{count}</span>
                         )}
                       </button>
                     );
@@ -1216,7 +1216,7 @@ export default function ExecutionPoolPage({
               recordLabel="run"
             />
             {history.length === 0 ? (
-              <div className="px-5 py-12 text-center text-xs text-slate-400">
+              <div className="px-5 py-12 text-center text-xs text-slate-500">
                 No execution history yet. Run a pipeline to see it here.
               </div>
             ) : (
@@ -1290,7 +1290,7 @@ export default function ExecutionPoolPage({
 
                       {/* Trigger */}
                       {runColState.isVisible('trigger') && (
-                        <div className="flex-[0.5] text-xs text-slate-400">{h.triggered_by}</div>
+                        <div className="flex-[0.5] text-xs text-slate-500">{h.triggered_by}</div>
                       )}
 
                       {/* Duration bar */}
@@ -1313,28 +1313,28 @@ export default function ExecutionPoolPage({
 
                       {/* Wait time */}
                       {runColState.isVisible('wait') && (
-                        <div className="flex-[0.6] text-xs text-slate-400">
+                        <div className="flex-[0.6] text-xs text-slate-500">
                           {h.wait_ms > 100 ? formatDuration(h.wait_ms) : '-'}
                         </div>
                       )}
 
                       {/* Queued At */}
                       {runColState.isVisible('queued') && (
-                        <div className="flex-[0.8] text-xs text-slate-400">
+                        <div className="flex-[0.8] text-xs text-slate-500">
                           {formatTime(h.queued_at)}
                         </div>
                       )}
 
                       {/* Started */}
                       {runColState.isVisible('started') && (
-                        <div className="flex-[0.8] text-xs text-slate-400">
+                        <div className="flex-[0.8] text-xs text-slate-500">
                           {formatTime(h.started_at)}
                         </div>
                       )}
 
                       {/* Finished */}
                       {runColState.isVisible('finished') && (
-                        <div className="flex-[0.8] text-xs text-slate-400">
+                        <div className="flex-[0.8] text-xs text-slate-500">
                           {formatTime(h.completed_at)}
                         </div>
                       )}
@@ -1398,7 +1398,7 @@ export default function ExecutionPoolPage({
       {tab === 'config' && config && (
         <div className="space-y-4">
           <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
-            <h3 className="text-sm font-bold text-slate-700 mb-4">Pool Configuration</h3>
+            <h2 className="text-sm font-bold text-slate-700 mb-4">Pool Configuration</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {[
                 { label: 'Workers', value: config.max_workers, desc: 'Concurrent pipeline slots' },
@@ -1409,7 +1409,7 @@ export default function ExecutionPoolPage({
                 { label: 'Mode', value: config.mode?.toUpperCase(), desc: 'Runtime mode' },
               ].map(item => (
                 <div key={item.label} className="bg-slate-50 rounded-lg p-3">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">{item.label}</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">{item.label}</div>
                   <div className="text-lg font-bold text-slate-800 mt-1">{item.value}</div>
                   <div className="text-xs text-slate-500 mt-0.5">{item.desc}</div>
                 </div>
@@ -1420,18 +1420,18 @@ export default function ExecutionPoolPage({
           {/* RAM breakdown */}
           {config.ram && (
             <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
-              <h3 className="text-sm font-bold text-slate-700 mb-4">Memory</h3>
+              <h2 className="text-sm font-bold text-slate-700 mb-4">Memory</h2>
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-slate-50 rounded-lg p-3">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total RAM</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">Total RAM</div>
                   <div className="text-lg font-bold text-slate-800 mt-1">{config.ram.total_gb} GB</div>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-3">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">Used</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">Used</div>
                   <div className="text-lg font-bold text-amber-600 mt-1">{config.ram.used_gb} GB</div>
                 </div>
                 <div className="bg-slate-50 rounded-lg p-3">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wide">Available</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wide">Available</div>
                   <div className="text-lg font-bold text-emerald-600 mt-1">{config.ram.available_gb} GB</div>
                 </div>
               </div>
@@ -1454,13 +1454,13 @@ export default function ExecutionPoolPage({
           <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-slate-700">Tuning (Environment Variables)</h3>
+                <h2 className="text-sm font-bold text-slate-700">Tuning (Environment Variables)</h2>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border bg-slate-100 text-slate-600 border-slate-300">
                   Read-only
                 </span>
               </div>
               <a
-                href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs"
+                href="https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-xs text-violet-600 hover:text-violet-800 font-semibold flex items-center gap-1"
@@ -1500,7 +1500,7 @@ export default function ExecutionPoolPage({
                   <button
                     type="button"
                     onClick={() => copyEnvAssignment(item.env, item.current)}
-                    className="shrink-0 ml-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50"
+                    className="shrink-0 ml-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-slate-500 hover:text-violet-600 hover:bg-violet-50"
                     title={`Copy: export ${item.env}=${item.current}`}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1517,10 +1517,10 @@ export default function ExecutionPoolPage({
               DuckDB perf drops 10-100x when spill writes hit a slow disk. */}
           {config.spill && (
             <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
-              <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 12H2" /><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>
                 Spill-Disk Health
-              </h3>
+              </h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className={`rounded-lg p-3 border ${
                   config.spill.disk_type === 'ssd' ? 'bg-emerald-50 border-emerald-200' :
@@ -1577,7 +1577,7 @@ export default function ExecutionPoolPage({
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-bold text-violet-900">Capacity on this node</h3>
+                <h2 className="text-sm font-bold text-violet-900">Capacity on this node</h2>
                 {/* 2026-06-03 — was "Tune the values above" which implied an
                     in-UI editor. The values are env vars (read-only display);
                     point to the deployment doc + restart sequence instead. */}
@@ -1588,7 +1588,7 @@ export default function ExecutionPoolPage({
                   tuned VPS. To change these, set the matching
                   <code className="mx-1 font-mono bg-violet-100 px-1.5 py-0.5 rounded text-[11px]">REVOLUZEN_FLOW_*</code>
                   environment variables before starting the backend and restart
-                  — see <a href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs" target="_blank" rel="noopener noreferrer" className="font-semibold underline hover:text-violet-900">scaling.md → vertical-scaling knobs</a>.
+                  — see <a href="https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/scaling.md#the-4-vertical-scaling-knobs" target="_blank" rel="noopener noreferrer" className="font-semibold underline hover:text-violet-900">scaling.md → vertical-scaling knobs</a>.
                 </p>
               </div>
             </div>
@@ -1634,7 +1634,7 @@ export default function ExecutionPoolPage({
             ) : (
               <div
                 title="Only admins can create alert rules"
-                className="text-xs font-semibold text-slate-400 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg"
+                className="text-xs font-semibold text-slate-500 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg"
               >
                 Read-only — admins can create alert rules
               </div>
@@ -1661,8 +1661,8 @@ export default function ExecutionPoolPage({
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{rule.name}</div>
                       <div className="text-xs text-slate-500 mt-0.5 font-mono">
-                        {rule.metric} {rule.operator} {rule.threshold} <span className="text-slate-400">for {rule.window_minutes}min</span>
-                        <span className="text-slate-400 ml-2">· channels: {rule.channels.join(', ')}</span>
+                        {rule.metric} {rule.operator} {rule.threshold} <span className="text-slate-500">for {rule.window_minutes}min</span>
+                        <span className="text-slate-500 ml-2">· channels: {rule.channels.join(', ')}</span>
                       </div>
                       {rule.last_triggered && (
                         <div className="text-xs text-amber-600 mt-0.5">Last triggered {new Date(rule.last_triggered).toLocaleString()}</div>
@@ -1708,7 +1708,7 @@ export default function ExecutionPoolPage({
 
           {/* Metric reference card */}
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Available Metrics</h3>
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Available Metrics</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
               {[
                 { k: 'utilization_pct', label: 'Utilization %', hint: 'busy workers / max workers' },
@@ -1737,7 +1737,7 @@ export default function ExecutionPoolPage({
                 <h2 className="text-sm font-bold text-slate-800">New Compute-Usage Alert</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Triggered when the condition holds continuously for the chosen window.</p>
               </div>
-              <button onClick={() => setNewAlertOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setNewAlertOpen(false)} className="text-slate-500 hover:text-slate-600">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
@@ -1804,7 +1804,7 @@ export default function ExecutionPoolPage({
                   onChange={e => setDraftAlert({ ...draftAlert, window_minutes: parseInt(e.target.value) || 10 })}
                   className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
-                <p className="text-xs text-slate-400 mt-1">Condition must hold continuously for this window before firing.</p>
+                <p className="text-xs text-slate-500 mt-1">Condition must hold continuously for this window before firing.</p>
               </div>
 
               <div>

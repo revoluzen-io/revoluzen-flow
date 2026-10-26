@@ -8,7 +8,13 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
 from revoluzen_flow.auth.deps import current_workspace_id
 
-router = APIRouter(prefix="/api/lineage", tags=["lineage"])
+# 2026-10-23 — router-level posture gate. `DELETE /api/lineage/{workflow_id}`
+# returned {"status": "deleted"} to an unauthenticated caller.
+router = APIRouter(
+    prefix="/api/lineage",
+    tags=["lineage"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 def _get_lineage_store(request: Request):

@@ -1118,7 +1118,7 @@ function UsedByPill({
       <button
         onClick={onClick}
         title="No pipelines use this yet — click to view"
-        className="text-slate-400 hover:text-blue-600 text-xs hover:underline underline-offset-2"
+        className="text-slate-500 hover:text-blue-600 text-xs hover:underline underline-offset-2"
       >
         —
       </button>
@@ -1353,7 +1353,9 @@ function FilesTab({
         recordLabel="file"
         projectGrouper={(o: StorageObject) => o.project_id || 'global'}
       >
-        <label className="flex items-center gap-2 text-xs text-white/85 cursor-pointer mr-1 whitespace-nowrap">
+        {/* min-h-6: the checkbox paints at 13x13, so this label is the real
+            pointer target and needs to clear 24px (SC 2.5.8). */}
+        <label className="flex items-center gap-2 min-h-6 text-xs text-white/85 cursor-pointer mr-1 whitespace-nowrap">
           <input
             type="checkbox"
             checked={showDeleted}
@@ -1379,7 +1381,7 @@ function FilesTab({
           ) : (
             <>
               <div>No files yet. Click <b>+ Upload file</b> in the top right to add one.</div>
-              <div className="text-xs text-slate-400 mt-3 max-w-md mx-auto">
+              <div className="text-xs text-slate-500 mt-3 max-w-md mx-auto">
                 Storage holds data files (CSV, Parquet, Excel, records-shaped JSON).
                 Pipeline definitions belong under <b>Workflows → Import</b>.
               </div>
@@ -1968,7 +1970,7 @@ function OutputsTab({
                         >{g.pipeline_name}</a>
                       : g.pipeline_id
                         ? <span className="italic text-slate-500" title={`Pipeline ${g.pipeline_id} — not found (deleted)`}>Pipeline N/A (deleted)</span>
-                        : <span className="italic text-slate-400">Ad-hoc (none)</span>}
+                        : <span className="italic text-slate-500">Ad-hoc (none)</span>}
                   </td>
                   <td className="px-4 py-3 w-32">
                     <span

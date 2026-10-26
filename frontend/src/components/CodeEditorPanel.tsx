@@ -111,7 +111,7 @@ export default function CodeEditorPanel() {
       <div className="h-12 bg-gradient-to-b from-slate-200 to-slate-300 border-b border-slate-400/70 flex items-center px-4 gap-3 shrink-0">
         <button
           onClick={() => setCodeEditorOpen(false)}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100 transition-colors"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
@@ -127,14 +127,14 @@ export default function CodeEditorPanel() {
         </div>
         <div className="min-w-0">
           <span className="text-sm font-bold text-slate-800">{node.data.label as string}</span>
-          <span className="text-xs text-slate-400 ml-2 uppercase">
+          <span className="text-xs text-slate-500 ml-2 uppercase">
             {(node.data.stepType as string).replace(/_/g, ' ')}
           </span>
         </div>
 
         <div className="flex-1" />
 
-        <span className="text-[9px] text-slate-300 font-mono mr-2">DuckDB SQL</span>
+        <span className="text-[10px] text-slate-300 font-mono mr-2">DuckDB SQL</span>
 
         <button
           onClick={handleTest}
@@ -169,7 +169,7 @@ export default function CodeEditorPanel() {
             {/* Dataset names */}
             {upstreamNodeInfo.length > 0 && (
               <div className="mb-3 space-y-1">
-                <div className="text-[9px] font-bold text-blue-500 uppercase tracking-wider mb-1">Datasets</div>
+                <div className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">Datasets</div>
                 {upstreamNodeInfo.map((info, idx) => (
                   <button
                     key={info.id}
@@ -178,7 +178,7 @@ export default function CodeEditorPanel() {
                   >
                     <span className={`w-2 h-2 rounded-full shrink-0 ${idx === 0 ? 'bg-blue-500' : 'bg-indigo-400'}`} />
                     <span className="text-xs font-semibold text-blue-700 group-hover:text-blue-900 truncate">{info.label}</span>
-                    <code className="ml-auto text-[8px] font-mono text-blue-400 group-hover:text-blue-600">{idx === 0 ? 'source_table' : info.alias}</code>
+                    <code className="ml-auto text-[10px] font-mono text-blue-400 group-hover:text-blue-600">{idx === 0 ? 'source_table' : info.alias}</code>
                   </button>
                 ))}
               </div>
@@ -186,12 +186,12 @@ export default function CodeEditorPanel() {
 
             {/* Columns */}
             {upstreamColumns.length === 0 ? (
-              <div className="text-xs text-slate-400 italic">
+              <div className="text-xs text-slate-500 italic">
                 Run the upstream node to see columns.
               </div>
             ) : (
               <div className="space-y-1">
-                <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Columns</div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Columns</div>
                 {upstreamColumns.map((col) => (
                   <button
                     key={col}
@@ -209,13 +209,13 @@ export default function CodeEditorPanel() {
 
             {/* SQL keywords */}
             <div className="mt-4 pt-3 border-t border-slate-200">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Functions</div>
+              <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Functions</div>
               <div className="flex flex-wrap gap-1">
                 {SQL_KEYWORDS.slice(0, 20).map((kw) => (
                   <button
                     key={kw}
                     onClick={() => insertAtCursor(kw + ' ')}
-                    className="text-[8px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 transition-colors font-mono font-medium"
+                    className="text-[10px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 transition-colors font-mono font-medium"
                   >
                     {kw}
                   </button>
@@ -249,7 +249,7 @@ export default function CodeEditorPanel() {
 
           {/* Bottom hint */}
           <div className="px-4 py-2 bg-slate-50 border-t border-slate-200 flex items-center gap-4 shrink-0">
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-300"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
               {upstreamNodeInfo.length > 1
                 ? <>Datasets: {upstreamNodeInfo.map((u, i) => <code key={u.id} className="px-1 py-0.5 bg-white border border-slate-200 rounded text-pipe-600 mx-0.5">{i === 0 ? 'source_table' : u.alias}</code>)}</>
@@ -274,7 +274,7 @@ export default function CodeEditorPanel() {
                 className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors uppercase tracking-wider ${
                   activeTab === t
                     ? 'bg-pipe-100 text-pipe-700'
-                    : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
+                    : 'text-slate-500 hover:text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {t}
@@ -288,7 +288,7 @@ export default function CodeEditorPanel() {
               upstreamResults.length > 0 ? (
                 <MiniTable result={upstreamResults[0]} />
               ) : (
-                <div className="flex items-center justify-center h-full text-slate-400 text-xs p-4 text-center">
+                <div className="flex items-center justify-center h-full text-slate-500 text-xs p-4 text-center">
                   Run the upstream node to see input data.
                 </div>
               )
@@ -299,7 +299,7 @@ export default function CodeEditorPanel() {
                 <MiniTable result={result} />
               )
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-400 text-xs p-4 text-center">
+              <div className="flex items-center justify-center h-full text-slate-500 text-xs p-4 text-center">
                 Click "Execute" to see output.
               </div>
             )}
@@ -312,7 +312,7 @@ export default function CodeEditorPanel() {
 
 function MiniTable({ result }: { result: StepResult }) {
   if (!result.sample_data.length) {
-    return <div className="p-4 text-slate-400 text-xs">No data</div>;
+    return <div className="p-4 text-slate-500 text-xs">No data</div>;
   }
   return (
     <div className="overflow-auto h-full">
@@ -320,7 +320,7 @@ function MiniTable({ result }: { result: StepResult }) {
         <thead className="sticky top-0 bg-pulse-50 z-10">
           <tr>
             {result.columns.map((col) => (
-              <th key={col} className="px-2.5 py-1.5 text-left text-[9px] font-semibold text-slate-500 uppercase tracking-wider border-b border-amber-200/30 whitespace-nowrap">
+              <th key={col} className="px-2.5 py-1.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-amber-200/30 whitespace-nowrap">
                 {col}
               </th>
             ))}
@@ -338,7 +338,7 @@ function MiniTable({ result }: { result: StepResult }) {
           ))}
         </tbody>
       </table>
-      <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-[9px] text-slate-400">
+      <div className="px-3 py-2 bg-slate-50 border-t border-slate-200 text-[10px] text-slate-500">
         {result.row_count.toLocaleString()} rows · {result.columns.length} columns · {result.duration_ms}ms
       </div>
     </div>

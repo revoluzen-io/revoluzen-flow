@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { api } from '../../api/client';
 import { takeApiConnection } from '../../utils/apiExplorerDraft';
 import { toast } from '../Toast';
@@ -1300,8 +1300,9 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // button. Persisted to localStorage so the user's preference
   // survives reloads.
   const [showDashboard, setShowDashboard] = useState<boolean>(() => {
-    try { return localStorage.getItem('revoluzen_flow_connections_show_stats') !== '0'; }
-    catch { return true; }
+    // See PipelinesPage — KPI rows default off so the table leads.
+    try { return localStorage.getItem('revoluzen_flow_connections_show_stats') === '1'; }
+    catch { return false; }
   });
   useEffect(() => {
     try { localStorage.setItem('revoluzen_flow_connections_show_stats', showDashboard ? '1' : '0'); } catch {}
@@ -1790,11 +1791,11 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // ── Scope badge ──
   const ScopeBadge = ({ projectId }: { projectId: string | null }) => (
     projectId ? (
-      <span className="text-[9px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full font-semibold">
+      <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded-full font-semibold">
         {projectName(projectId)}
       </span>
     ) : (
-      <span className="text-[9px] px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-semibold">
+      <span className="text-[10px] px-1.5 py-0.5 bg-emerald-100 text-emerald-600 rounded-full font-semibold">
         Global
       </span>
     )
@@ -1834,7 +1835,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className={`text-xs font-medium ${step.status === 'error' ? 'text-red-600' : step.status === 'success' ? 'text-slate-700' : step.status === 'running' ? 'text-amber-600' : 'text-slate-400'}`}>
+                  <span className={`text-xs font-medium ${step.status === 'error' ? 'text-red-600' : step.status === 'success' ? 'text-slate-700' : step.status === 'running' ? 'text-amber-600' : 'text-slate-500'}`}>
                     {step.label}
                   </span>
                   {step.detail && <span className={`ml-2 text-xs ${step.status === 'error' ? 'text-red-400' : 'text-green-500'}`}>{step.status === 'error' ? step.detail : `✓ ${step.detail}`}</span>}
@@ -1930,7 +1931,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
                   showDashboard
                     ? 'bg-blue-50 text-blue-600 border-blue-200'
-                    : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'
+                    : 'bg-white text-slate-500 border-slate-200 hover:text-slate-600'
                 }`}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline mr-1 -mt-0.5">
@@ -2046,10 +2047,13 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
                     scopeFilter === tab.key
                       ? 'bg-white text-slate-800 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
+                      // slate-600, not -500: the track behind these is
+                      // slate-100, where slate-500 measures 4.34:1 — just
+                      // under AA. slate-600 is 6.92:1 on the same track.
+                      : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
-                  {tab.label} <span className="text-slate-400 ml-0.5">{tab.count}</span>
+                  {tab.label} <span className="text-slate-600 ml-0.5">{tab.count}</span>
                 </button>
               ))}
             </div>
@@ -2059,6 +2063,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               <select
                 value={projectFilter}
                 onChange={e => setProjectFilter(e.target.value)}
+                aria-label="Filter by project"
                 className="text-xs px-2.5 py-1.5 border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
               >
                 <option value="">All Projects</option>
@@ -2106,13 +2111,13 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               // build via GitHub issue templates.
               secondaryCtas={canCreate ? [
                 { label: 'Build your own (90s)', href: '#author', variant: 'secondary' },
-                { label: 'Request a connector', href: 'https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new?template=connector-request.md', variant: 'ghost' },
+                { label: 'Request a connector', href: 'https://github.com/revoluzen-io/revoluzen-flow/issues/new?template=connector-request.md', variant: 'ghost' },
               ] : undefined}
               hint={(
                 <>
                   Postgres · MySQL · S3 · HTTP API · CSV / Parquet on disk · and 30+ more.{' '}
                   Don't see yours? <a
-                    href="https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/extend/build-a-connector.md"
+                    href="https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/extend/build-a-connector.md"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-indigo-600 hover:underline"
@@ -2230,13 +2235,13 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                               <div className="flex gap-1">
                                 {(!conn.capabilities || conn.capabilities.includes('read')) && (
                                   <span
-                                    className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
                                     title="Available to source nodes (read)"
                                   >R</span>
                                 )}
                                 {(!conn.capabilities || conn.capabilities.includes('write')) && (
                                   <span
-                                    className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200"
+                                    className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200"
                                     title="Available to sink nodes (write)"
                                   >W</span>
                                 )}
@@ -2275,7 +2280,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         {/* Description */}
                         {colState.isVisible('description') && (
                         <td className="px-4 py-3">
-                          <span className="text-xs text-slate-400 line-clamp-1 max-w-[180px] block">
+                          <span className="text-xs text-slate-500 line-clamp-1 max-w-[180px] block">
                             {conn.description || <span className="italic text-slate-300">—</span>}
                           </span>
                         </td>
@@ -2285,10 +2290,10 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         <td className="px-4 py-3">
                           <div className="flex gap-1 flex-wrap">
                             {conn.tags.slice(0, 3).map(tag => (
-                              <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full">{tag}</span>
+                              <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full">{tag}</span>
                             ))}
                             {conn.tags.length > 3 && (
-                              <span className="text-[9px] text-slate-400">+{conn.tags.length - 3}</span>
+                              <span className="text-[10px] text-slate-500">+{conn.tags.length - 3}</span>
                             )}
                           </div>
                         </td>
@@ -2308,14 +2313,26 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                               <TimeAgo value={conn.last_test_at} className={`text-xs ${conn.last_test_ok === false ? '!text-red-500' : '!text-emerald-600'}`} />
                             </span>
                           ) : (
-                            <span className="text-xs text-slate-300 italic">never</span>
+                            // 2026-10-25 — a connection can now be saved
+                            // without a passing test, so "never tested"
+                            // is a real, expected state rather than an
+                            // oddity. It gets a badge the eye catches at
+                            // a glance instead of a grey "never" that
+                            // reads as missing data.
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"
+                              title="Saved without a passing test. Run a test to confirm it works."
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                              Untested
+                            </span>
                           )}
                         </td>
                         )}
                         {/* Created */}
                         {colState.isVisible('created') && (
                         <td className="px-4 py-3">
-                          <TimeAgo value={conn.created_at} className="text-xs !text-slate-400" />
+                          <TimeAgo value={conn.created_at} className="text-xs !text-slate-500" />
                         </td>
                         )}
                         {/* Actions */}
@@ -2567,7 +2584,15 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
     // `saveReady` reuses nameReady so the late "Identity & Tags" panel
     // on step 2 (which re-renders the same Connection Name input bound
     // to the same `formName` state) doesn't disagree with the step-0 chip.
-    const saveReady = nameReady && testedReady;
+    //
+    // 2026-10-25 — a passing test is NO LONGER required to save. It was,
+    // and that meant you could not author a production connection from
+    // a laptop that cannot reach production: the button stayed disabled
+    // with no way round it. That is a routine thing to need, and both
+    // ADF and n8n allow it. The connection saves with an "Untested"
+    // badge on its row instead, so the state is visible rather than
+    // prevented — see `last_test_ok` on the row renderer.
+    const saveReady = nameReady;
     const canCreateConnection = basicsReady && detailsReady && saveReady;
     const createSteps: Array<{ key: 0 | 1 | 2; label: string; detail: string }> = [
       { key: 0, label: 'Basics', detail: isPlusTier ? 'Name, scope, environment' : 'Name, scope, access' },
@@ -2650,7 +2675,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 <TierChip tier={tier} environment={environment} />
               </h1>
               <p className={`text-xs mt-0.5 ${
-                environment === 'prod' ? 'text-slate-400' : 'text-slate-500'
+                environment === 'prod' ? 'text-slate-500' : 'text-slate-500'
               }`}>
                 {formType ? `Configure your ${typeMeta(formType).label} connection` : 'Pick a connector type to get started'}
               </p>
@@ -2678,7 +2703,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <button
                     onClick={() => setConnectorSearch('')}
                     className={`absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center ${
-                      environment === 'prod' ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'
+                      environment === 'prod' ? 'text-slate-500 hover:text-slate-300' : 'text-slate-500 hover:text-slate-600'
                     }`}
                     title="Clear search"
                   >
@@ -2733,9 +2758,9 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <span className="inline-flex items-center gap-1.5" title="All shown are first-party (shipped in the catalog). Community contributions and your own connectors show their provenance pill on the card.">
                     <span className="font-semibold text-slate-700">Provenance:</span>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">Revoluzen Flow</span>
-                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-500">·</span>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Community</span>
-                    <span className="text-slate-400">·</span>
+                    <span className="text-slate-500">·</span>
                     <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">Yours</span>
                   </span>
                 </div>
@@ -2753,7 +2778,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <aside className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-100">
                       <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Source groups</div>
-                      <div className="text-xs text-slate-400 mt-0.5">{filteredConnectors.length} connector{filteredConnectors.length === 1 ? '' : 's'} visible</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{filteredConnectors.length} connector{filteredConnectors.length === 1 ? '' : 's'} visible</div>
                     </div>
                     <div className="p-2 space-y-1">
                       {visibleGroups.map(group => {
@@ -2819,17 +2844,17 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                             <ConnectorIcon type={ct.type} size={42} />
                             <span className="min-w-0 flex-1">
                               <span className="block text-sm font-semibold text-slate-700 truncate">{ct.label}</span>
-                              <span className="block text-xs text-slate-400 mt-0.5 truncate">{ct.type}</span>
+                              <span className="block text-xs text-slate-500 mt-0.5 truncate">{ct.type}</span>
                             </span>
                             <span className="flex flex-col items-end gap-0.5 shrink-0">
                               {cs !== 'certified' && (
-                                <span className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
                                   {badge.label}
                                 </span>
                               )}
                               {provBadge && (
                                 <span
-                                  className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${provBadge.bg} ${provBadge.text}`}
+                                  className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${provBadge.bg} ${provBadge.text}`}
                                   title={provBadge.title}
                                 >
                                   {provBadge.label}
@@ -2866,7 +2891,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                             Build your own (90s)
                           </a>
                           <a
-                            href="https://github.com/revoluzen-data-systems/revoluzen-flow/issues/new?template=connector-request.md"
+                            href="https://github.com/revoluzen-io/revoluzen-flow/issues/new?template=connector-request.md"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-700 hover:shadow-sm transition-all"
@@ -2920,7 +2945,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                             active
                               ? 'bg-blue-600 text-white'
                               : complete
-                                ? 'bg-emerald-500 text-white'
+                                ? 'bg-emerald-700 text-white'
                                 : 'bg-white text-slate-500 border border-slate-200'
                           }`}>
                             {complete && !active ? '✓' : idx + 1}
@@ -3017,7 +3042,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         </button>
                       ))}
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">
+                    <p className="text-xs text-slate-500 mt-1">
                       PROD connections never appear in DEV and vice versa. Pick "Both" only for connections that are genuinely shared.
                     </p>
                   </div>
@@ -3045,7 +3070,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     Sink (write)
                   </label>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   One connection can serve both roles. Source-only and Sink-only nodes will only see connections with the matching capability.
                 </p>
                 {!formCanRead && !formCanWrite && (
@@ -3100,7 +3125,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       Sink (write)
                     </label>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Source connections appear in source nodes. Sink connections appear in write/output nodes.
                   </p>
                   {!formCanRead && !formCanWrite && (
@@ -3256,7 +3281,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         </div>
                       )}
                       {f.hint && f.type !== 'checkbox' && (
-                        <p className="text-xs text-slate-400 mt-0.5">{f.hint}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{f.hint}</p>
                       )}
                     </div>
                     );
@@ -3301,35 +3326,57 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       <div className="font-bold">Connection details</div>
                       <div>{detailsReady ? 'Required fields complete' : `${missingRequired.length} required field${missingRequired.length === 1 ? '' : 's'} missing.`}</div>
                     </div>
-                    <div className={`rounded-lg border px-3 py-2 ${testedReady ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
+                    {/* A failed test used to leave this tile amber and
+                        unchanged while the reason rendered in the result
+                        block far below — two places reporting one state,
+                        with the user looking at the wrong one. The tile
+                        now carries the failure and its reason itself. */}
+                    <div className={`rounded-lg border px-3 py-2 ${
+                      testedReady
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : inlineTestResult?.ok === false
+                          ? 'bg-red-50 border-red-200 text-red-800'
+                          : 'bg-amber-50 border-amber-200 text-amber-800'
+                    }`}>
                       <div className="font-bold">Connection test</div>
-                      <div>{testedReady ? 'Succeeded' : 'Run test successfully before saving.'}</div>
+                      {testedReady ? (
+                        <div>Succeeded</div>
+                      ) : inlineTestResult?.ok === false ? (
+                        <div>
+                          <span className="font-semibold">Failed.</span>{' '}
+                          {inlineTestResult.detail
+                            ? <span className="break-words">{inlineTestResult.detail}</span>
+                            : 'Fix the connection details and test again.'}
+                        </div>
+                      ) : (
+                        <div>Run test successfully before saving.</div>
+                      )}
                     </div>
                     <div className={`rounded-lg border px-3 py-2 ${formName ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
                       <div className="font-bold">Save details</div>
-                      <div>{formName ? 'Name added' : 'Connection name is required after test.'}</div>
+                      <div>{formName ? 'Name added' : 'Connection name is required.'}</div>
                     </div>
                   </div>
 
-                  <div className={`rounded-lg border p-4 space-y-3 ${testedReady ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-200 opacity-70'}`}>
+                  <div className="rounded-lg border p-4 space-y-3 bg-white border-slate-200">
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <div className="text-sm font-bold text-slate-800">Identity & Tags</div>
-                        <div className="text-xs text-slate-500">Fill this after a successful test, then save the connection.</div>
+                        <div className="text-xs text-slate-500">Name it, then save. Testing first is recommended, not required.</div>
                       </div>
-                      {!testedReady && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-1">Test first</span>}
+                      {!testedReady && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-1" title="You can save without testing \u2014 the connection is listed as Untested until a test passes.">Untested</span>}
                     </div>
                     <div>
                       <label className="text-sm font-semibold text-slate-700 block mb-1.5">Connection Name *</label>
-                      <input disabled={!testedReady} value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Production Oracle ERP" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-400" />
+                      <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="e.g. Production Oracle ERP" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                     <div>
                       <label className="text-sm font-semibold text-slate-700 block mb-1.5">Description</label>
-                      <input disabled={!testedReady} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What is this connection used for?" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-400" />
+                      <input value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="What is this connection used for?" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                     <div>
                       <label className="text-sm font-semibold text-slate-700 block mb-1.5">Tags (comma-separated)</label>
-                      <input disabled={!testedReady} value={formTags} onChange={e => setFormTags(e.target.value)} placeholder="finance, production" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-400" />
+                      <input value={formTags} onChange={e => setFormTags(e.target.value)} placeholder="finance, production" className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-slate-100 disabled:text-slate-500" />
                     </div>
                   </div>
                 </div>
@@ -3385,7 +3432,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Live summary</div>
                   <div className="mt-2 flex items-center gap-2.5">
                     <ConnectorIcon type={formType} size={22} />
-                    <span className="text-base font-semibold text-slate-800 truncate">{formName || <span className="italic text-slate-400">Unnamed connection</span>}</span>
+                    <span className="text-base font-semibold text-slate-800 truncate">{formName || <span className="italic text-slate-500">Unnamed connection</span>}</span>
                   </div>
                   <div className="mt-1 text-sm text-slate-500">{typeMeta(formType).label}</div>
                 </div>
@@ -3404,25 +3451,25 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     return (
                       <>
                         <div className="flex items-center gap-3">
-                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0">Target</span>
+                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 shrink-0">Target</span>
                           <code className="font-mono text-slate-700 break-all">{target || <span className="italic text-slate-300">—</span>}</code>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0">Auth</span>
+                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 shrink-0">Auth</span>
                           <span className="text-slate-700">{auth || 'None'}</span>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0">Scope</span>
+                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 shrink-0">Scope</span>
                           <span className="text-slate-700">{scopeLabel}</span>
                         </div>
                         {isPlusTier && (
                           <div className="flex items-center gap-3">
-                            <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0">Env</span>
+                            <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 shrink-0">Env</span>
                             <span className="text-slate-700 uppercase">{formEnvironment === 'all' ? 'DEV + PROD' : formEnvironment}</span>
                           </div>
                         )}
                         <div className="flex items-center gap-2">
-                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-400 shrink-0">Use as</span>
+                          <span className="w-20 text-xs font-semibold uppercase tracking-wider text-slate-500 shrink-0">Use as</span>
                           <span className="text-slate-700">
                             {formCanRead && formCanWrite ? 'Source + Sink' : formCanRead ? 'Source (read)' : formCanWrite ? 'Sink (write)' : <span className="text-red-600">Neither</span>}
                           </span>
@@ -3478,8 +3525,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   )}
 
                   {!inlineTestResult && !inlineTestRunning && (
-                    <div className="text-sm text-slate-400 italic leading-relaxed">
-                      Fill in the required connection fields, then click Run test. Save details unlock after a successful test.
+                    <div className="text-sm text-slate-500 italic leading-relaxed">
+                      Fill in the required connection fields, then click Run test. You can save without testing — the connection is listed as Untested until a test passes.
                     </div>
                   )}
                 </div>
@@ -3514,7 +3561,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="text-sm font-bold text-slate-800">{meta.label}</h3>
-                      <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Beta</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Beta</span>
                     </div>
                     <p className="text-xs text-slate-600 leading-relaxed">
                       This connector works but has known gaps relative to a Certified one. Typical limitations:
@@ -3604,7 +3651,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 onClick={() => setView('detail')}
                 className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                   environment === 'prod'
-                    ? 'text-slate-400 hover:bg-white/[0.06] hover:text-white'
+                    ? 'text-slate-500 hover:bg-white/[0.06] hover:text-white'
                     : 'text-slate-500 hover:bg-white/50 hover:text-slate-800'
                 }`}
                 title="Back to Connection"
@@ -3627,7 +3674,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <TierChip tier={tier} environment={environment} />
                 </h1>
                 <p className={`text-xs ${
-                  environment === 'prod' ? 'text-slate-400' : 'text-slate-500'
+                  environment === 'prod' ? 'text-slate-500' : 'text-slate-500'
                 }`}><ConnectorIcon type={selectedConnection.type} size={14} /> {meta.label}</p>
               </div>
             </div>
@@ -3701,7 +3748,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         active
                           ? 'bg-blue-600 text-white'
                           : complete
-                            ? 'bg-emerald-500 text-white'
+                            ? 'bg-emerald-700 text-white'
                             : 'bg-white text-slate-500 border border-slate-200'
                       }`}>
                         {complete && !active ? '✓' : idx + 1}
@@ -3966,7 +4013,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         </div>
                       )}
                       {f.hint && f.type !== 'checkbox' && (
-                        <p className="text-xs mt-1 text-slate-400">{f.hint}</p>
+                        <p className="text-xs mt-1 text-slate-500">{f.hint}</p>
                       )}
                     </div>
                     );
@@ -4089,7 +4136,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 onClick={() => { setView('list'); setReportResult(null); }}
                 className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
                   environment === 'prod'
-                    ? 'text-slate-400 hover:bg-white/[0.06] hover:text-white'
+                    ? 'text-slate-500 hover:bg-white/[0.06] hover:text-white'
                     : 'text-slate-500 hover:bg-white/50 hover:text-slate-800'
                 }`}
                 title="Back to Connections"
@@ -4108,7 +4155,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <TierChip tier={tier} environment={environment} />
                 </h1>
                 <p className={`text-xs mt-0.5 flex items-center gap-2 flex-wrap ${
-                  environment === 'prod' ? 'text-slate-400' : 'text-slate-500'
+                  environment === 'prod' ? 'text-slate-500' : 'text-slate-500'
                 }`}>
                   <span>{meta.label}</span>
                   <span aria-hidden="true">·</span>
@@ -4268,11 +4315,11 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               >
                 <span aria-hidden="true" className={`absolute left-0 top-0 bottom-0 w-1 ${s.accent}`} />
                 <div className="pl-4 pr-3 py-3">
-                  <div className={`text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{s.label}</div>
+                  <div className={`text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{s.label}</div>
                   <div className="flex items-baseline gap-1.5 mt-1">
                     <span className={`text-lg font-bold tabular-nums ${dark ? 'text-slate-100' : 'text-slate-800'}`}>{s.value}</span>
                     {('suffix' in s && s.suffix) ? (
-                      <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{s.suffix}</span>
+                      <span className={`text-[11px] font-semibold ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{s.suffix}</span>
                     ) : null}
                   </div>
                 </div>
@@ -4296,7 +4343,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-slate-700'}`}>Configuration</span>
               </div>
               {Object.keys(selectedConnection.config).length === 0 ? (
-                <div className="text-xs text-slate-400 italic py-2">No configuration fields set.</div>
+                <div className="text-xs text-slate-500 italic py-2">No configuration fields set.</div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(() => {
@@ -4333,7 +4380,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       return (
                         <div key={key} className={`group flex items-center gap-2 px-3 py-2 rounded-lg ${dark ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
                           <div className="flex-1 min-w-0">
-                            <div className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{label}</div>
+                            <div className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{label}</div>
                             <div className={`text-sm font-medium font-mono truncate ${dark ? 'text-slate-200' : 'text-slate-700'}`} title={displayValue}>{displayValue}</div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -4396,12 +4443,12 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
                   </svg>
                   <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-slate-700'}`}>Used By</span>
-                  <span className="ml-auto text-[10px] font-semibold text-slate-400 tabular-nums">{usedByLoading ? '…' : usedByPipelines.length}</span>
+                  <span className="ml-auto text-[10px] font-semibold text-slate-500 tabular-nums">{usedByLoading ? '…' : usedByPipelines.length}</span>
                 </div>
                 {usedByLoading ? (
-                  <div className="text-xs text-slate-400 italic">Scanning pipelines…</div>
+                  <div className="text-xs text-slate-500 italic">Scanning pipelines…</div>
                 ) : usedByPipelines.length === 0 ? (
-                  <div className="text-xs text-slate-400 italic">No pipelines reference this connection yet.</div>
+                  <div className="text-xs text-slate-500 italic">No pipelines reference this connection yet.</div>
                 ) : (
                   <ul className="space-y-1">
                     {usedByPipelines.slice(0, 6).map(p => (
@@ -4417,7 +4464,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       </li>
                     ))}
                     {usedByPipelines.length > 6 && (
-                      <li className="text-[10px] text-slate-400 italic px-2 pt-1">+ {usedByPipelines.length - 6} more…</li>
+                      <li className="text-[10px] text-slate-500 italic px-2 pt-1">+ {usedByPipelines.length - 6} more…</li>
                     )}
                   </ul>
                 )}
@@ -4439,7 +4486,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   const ok = selectedConnection.last_test_ok;
                   if (!lt) {
                     return (
-                      <div className="text-xs text-slate-400 italic">
+                      <div className="text-xs text-slate-500 italic">
                         No activity yet.
                         {canCreate && (
                           <button
@@ -4502,7 +4549,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 </div>
               </div>
               <div>
-                <label className="text-sm font-semibold text-slate-700 block mb-1.5">Query / API Template * <span className="text-slate-400 font-normal">(use {'{{param_name}}'} for parameters)</span></label>
+                <label className="text-sm font-semibold text-slate-700 block mb-1.5">Query / API Template * <span className="text-slate-500 font-normal">(use {'{{param_name}}'} for parameters)</span></label>
                 <textarea value={reportQuery} onChange={e => setReportQuery(e.target.value)} rows={4} placeholder={`SELECT * FROM orders WHERE date >= '{{start_date}}' AND status = '{{status}}'`} className="w-full text-sm px-3 py-2 border border-slate-200 rounded-lg bg-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-300 resize-none" />
               </div>
 
@@ -4525,7 +4572,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       <option value="boolean">Boolean</option>
                     </select>
                     <input value={p.default} onChange={e => { const np = [...reportParams]; np[i].default = e.target.value; setReportParams(np); }} placeholder="default" className="w-24 text-xs px-2 py-1.5 border border-slate-200 rounded-lg bg-white" />
-                    <button onClick={() => setReportParams(reportParams.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600 text-xs">x</button>
+                    <button onClick={() => setReportParams(reportParams.filter((_, j) => j !== i))} className="tap-24 text-red-400 hover:text-red-600 text-xs">x</button>
                   </div>
                 ))}
               </div>
@@ -4556,7 +4603,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         className="px-3 py-1.5 text-xs font-bold text-white rounded-lg"
                         style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
                       >+ Create your first report</button>
-                      <span className="text-[11px] text-slate-400">e.g. <code className="px-1 py-0.5 bg-slate-100 rounded text-slate-600">{`SELECT * FROM orders WHERE date >= {{start}}`}</code></span>
+                      <span className="text-[11px] text-slate-500">e.g. <code className="px-1 py-0.5 bg-slate-100 rounded text-slate-600">{`SELECT * FROM orders WHERE date >= {{start}}`}</code></span>
                     </div>
                   )}
                 </div>
@@ -4569,7 +4616,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                   <div className="flex items-start justify-between mb-3">
                     <div>
                       <div className="font-semibold text-slate-800 text-sm">{report.name}</div>
-                      {report.description && <div className="text-xs text-slate-400 mt-0.5">{report.description}</div>}
+                      {report.description && <div className="text-xs text-slate-500 mt-0.5">{report.description}</div>}
                     </div>
                     {canDelete && (
                     <button
@@ -4577,7 +4624,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         if (!(await uiConfirm({ message: 'Delete this report?', danger: true, confirmLabel: 'Delete' }))) return;
                         api.deleteConnectionReport(selectedConnection.id, report.id).then(() => loadReports(selectedConnection.id));
                       }}
-                      className="text-xs text-red-400 hover:text-red-600"
+                      className="tap-24 text-xs text-red-400 hover:text-red-600"
                     >Delete</button>
                     )}
                   </div>
@@ -4629,7 +4676,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                         <>
                           <div className="flex items-center gap-2 mb-2">
                             <span className="text-xs font-bold text-emerald-600 uppercase">Result</span>
-                            <span className="text-xs text-slate-400">{reportResult.row_count} rows · {reportResult.duration_ms}ms</span>
+                            <span className="text-xs text-slate-500">{reportResult.row_count} rows · {reportResult.duration_ms}ms</span>
                           </div>
                           <div className="overflow-auto max-h-60 rounded-lg border border-slate-200">
                             <table className="w-full text-xs border-collapse">
@@ -4644,7 +4691,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                                 {reportResult.sample_data?.map((row: any, i: number) => (
                                   <tr key={i} className="hover:bg-blue-50/30 border-b border-slate-100">
                                     {reportResult.columns?.map((col: string) => (
-                                      <td key={col} className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{row[col] === null ? <span className="italic text-slate-400">null</span> : String(row[col])}</td>
+                                      <td key={col} className="px-3 py-1.5 text-slate-600 whitespace-nowrap">{row[col] === null ? <span className="italic text-slate-500">null</span> : String(row[col])}</td>
                                     ))}
                                   </tr>
                                 ))}

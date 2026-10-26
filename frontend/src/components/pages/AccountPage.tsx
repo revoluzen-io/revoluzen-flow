@@ -304,7 +304,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
                   <button
                     onClick={saveName}
                     disabled={loading}
-                    className="px-3 py-2 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg disabled:opacity-50"
+                    className="px-3 py-2 text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg disabled:opacity-50"
                   >
                     Save
                   </button>
@@ -317,10 +317,10 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
                 </div>
               ) : (
                 <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-sm text-slate-800">{user.name || <span className="italic text-slate-400">— not set —</span>}</span>
+                  <span className="text-sm text-slate-800">{user.name || <span className="italic text-slate-500">— not set —</span>}</span>
                   <button
                     onClick={startEditName}
-                    className="text-xs font-semibold text-amber-600 hover:text-amber-700"
+                    className="text-xs font-semibold text-amber-700 hover:text-amber-800"
                   >
                     Edit
                   </button>
@@ -367,7 +367,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
                   </span>
                 ))}
               </div>
-              <div className="text-xs text-slate-400 mt-1">
+              <div className="text-xs text-slate-500 mt-1">
                 Switch environments from the top bar. PROD access requires Revoluzen Flow Enterprise.
               </div>
             </div>
@@ -447,13 +447,13 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-sm disabled:opacity-50"
+                className="px-4 py-2 text-sm font-bold text-white bg-amber-700 hover:bg-amber-800 rounded-lg shadow-sm disabled:opacity-50"
               >
                 {loading ? 'Updating…' : 'Change password'}
               </button>
             </form>
 
-            <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 leading-relaxed max-w-md">
+            <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500 leading-relaxed max-w-md">
               <strong className="text-slate-500">Tip:</strong> Use a unique passphrase you don't reuse anywhere else.
               Minimum 8 characters; 12 or more is recommended.
             </div>
@@ -473,7 +473,7 @@ function ReadOnlyField({ label, value, hint }: { label: string; value: string; h
       <div className="mt-1.5 px-3 py-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg">
         {value}
       </div>
-      {hint && <div className="text-xs text-slate-400 mt-1">{hint}</div>}
+      {hint && <div className="text-xs text-slate-500 mt-1">{hint}</div>}
     </div>
   );
 }

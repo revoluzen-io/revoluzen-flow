@@ -5,8 +5,8 @@
  *   - The Pipelines / Connections / Credentials / Executions tables each
  *     defined their own actions cell with slightly different sizes
  *     (`w-7 h-7` vs `w-8 h-8`), icon sizes (13px / 14px), and resting
- *     colours (`text-slate-400` vs `text-slate-500`). On a light bg,
- *     `text-slate-400` was the user-visible regression: the buttons
+ *     colours (`text-slate-500` vs `text-slate-500`). On a light bg,
+ *     `text-slate-500` was the user-visible regression: the buttons
  *     looked invisible until you hovered.
  *   - Centralising the geometry + base colour means every row-action chip
  *     in the app reads the same way, and lets us tune the resting

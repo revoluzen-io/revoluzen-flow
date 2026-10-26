@@ -1,15 +1,28 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
-# Upper bound added 2026-10-23. DuckDB 2.0 is otherwise supported — the 31
-# `Relation.fetchone()` call sites it removed have been migrated to
-# `common/duckdb_compat.py`, and the full suite passes on 2.0 except for one
-# thing: 2.0 will not resolve a CTE name inside a PIVOT, so the SQL-preview
-# compiler emits invalid SQL for a pivot step. Verified that every variant
-# fails (bare name, subquery, FROM-first, nested SELECT), so it is a real
-# restriction rather than a syntax fix.
-# Lift this bound once `compile/sql_preview.py` emits a top-level PIVOT when
-# it is the final step and a `[boundary]` comment when it is mid-chain.
-duckdb>=1.2.0,<2
+# 2026-10-23: the `<2` bound added earlier the same day is LIFTED. 2.0 is
+# supported — the 31 `Relation.fetchone()` call sites it removed were already
+# migrated to `common/duckdb_compat.py`, and the one remaining blocker,
+# PIVOT, is fixed in `compile/sql_preview.py`.
+#
+# The earlier note described that blocker as "2.0 will not resolve a CTE name
+# inside a PIVOT ... every variant fails (bare name, subquery, FROM-first,
+# nested SELECT)". Re-tested against 2.0.0, that is not what it does:
+#
+#   WITH s0 AS (...) PIVOT s0 ON ...                    -- works
+#   PIVOT (SELECT ...) ON ...                           -- works
+#   SELECT * FROM (PIVOT s0 ON ...)                     -- works
+#   WITH s0 AS (...), s1 AS (PIVOT s0 ON ...) SELECT... -- FAILS
+#
+# The single failing shape is a PIVOT used as a CTE *body* that names a
+# SIBLING CTE. So the preview compiler now emits a terminal pivot as a
+# top-level PIVOT (valid on 1.x and 2.x alike) and marks a mid-chain pivot
+# as a boundary, which it genuinely is.
+#
+# Verified before lifting: 826 tests across all 53 duckdb-touching test files
+# pass against duckdb 2.0.0, and the compiled pivot SQL was executed on both
+# 1.5.1 and 2.0.0 with identical results.
+duckdb>=1.2.0
 pydantic>=2.10.0
 python-multipart>=0.0.18
 aiofiles>=24.1.0

@@ -129,7 +129,7 @@ export default function SaveAsTemplateDialog({
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">
-              Tagline <span className="text-slate-400 font-normal">(one-liner shown on the card)</span>
+              Tagline <span className="text-slate-500 font-normal">(one-liner shown on the card)</span>
             </label>
             <input
               type="text"
@@ -143,7 +143,7 @@ export default function SaveAsTemplateDialog({
 
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1">
-              Description <span className="text-slate-400 font-normal">(optional)</span>
+              Description <span className="text-slate-500 font-normal">(optional)</span>
             </label>
             <textarea
               value={description}

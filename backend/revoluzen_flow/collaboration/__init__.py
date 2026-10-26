@@ -69,7 +69,7 @@ class CollaborationStore:
         comment_id = f"c_{uuid.uuid4().hex[:8]}"
         mentions = self._extract_mentions(body)
         now = time.time()
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO comments "
             "(id, workflow_id, step_id, parent_id, author_id, author_name, body, mentions, resolved, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
@@ -84,7 +84,7 @@ class CollaborationStore:
         if not existing or existing["author_id"] != author_id:
             return None
         mentions = self._extract_mentions(body)
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE comments SET body=?, mentions=?, updated_at=? WHERE id=?",
             (body, json.dumps(mentions), time.time(), comment_id),
         )
@@ -92,7 +92,7 @@ class CollaborationStore:
 
     def resolve_comment(self, comment_id: str, resolved_by: str) -> dict | None:
         """Mark a comment thread as resolved."""
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE comments SET resolved=1, resolved_by=?, updated_at=? WHERE id=?",
             (resolved_by, time.time(), comment_id),
         )
@@ -100,7 +100,7 @@ class CollaborationStore:
 
     def unresolve_comment(self, comment_id: str) -> dict | None:
         """Reopen a resolved comment thread."""
-        self._db.execute(
+        self._db.execute_write(
             "UPDATE comments SET resolved=0, resolved_by='', updated_at=? WHERE id=?",
             (time.time(), comment_id),
         )
@@ -109,8 +109,8 @@ class CollaborationStore:
     def delete_comment(self, comment_id: str, author_id: str = "") -> bool:
         """Delete a comment and its replies."""
         # Delete replies first
-        self._db.execute("DELETE FROM comments WHERE parent_id=?", (comment_id,))
-        self._db.execute("DELETE FROM comments WHERE id=?", (comment_id,))
+        self._db.execute_write("DELETE FROM comments WHERE parent_id=?", (comment_id,))
+        self._db.execute_write("DELETE FROM comments WHERE id=?", (comment_id,))
         return True
 
     # ── Read ───────────────────────────────────────────────────────────
