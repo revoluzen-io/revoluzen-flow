@@ -520,11 +520,18 @@ class TestLearningLayer:
         noise where every un-dismissed test table climbed P3 -> P2 -> P1.
         Reliability kinds (DUPLICATE_SOURCE above) still escalate; see
         ``_NON_ESCALATING_KINDS`` in steward/memory.py."""
+        from datetime import datetime, timedelta, timezone
         from types import SimpleNamespace
         from revoluzen_flow.steward.memory import StewardMemory, apply_learning, new_scan_id
         from revoluzen_flow.steward.storage_intel import detect_orphaned_tables
 
-        table = SimpleNamespace(schema_name="default", name="leftover", row_count=10)
+        # Timestamps are required since 2026-10-26: the detector only flags a
+        # table that has been unreferenced AND untouched past the age gate
+        # (7 days by default), so a bare namespace no longer emits anything.
+        # This test is about escalation, not emission, so age it well past.
+        _old = datetime.now(timezone.utc) - timedelta(days=90)
+        table = SimpleNamespace(schema_name="default", name="leftover", row_count=10,
+                                created_at=_old, updated_at=_old)
 
         mem = StewardMemory(tmp_path / "memory.jsonl")
         # Ten ignored scans — well past the default threshold of 5.
