@@ -11,7 +11,7 @@ The OSS edition is the full deterministic execution engine plus AI assistance. I
 - **37 OSS connectors** — 4 database dialects (postgresql/mysql/mssql/sqlite via Database Source/Sink) + 2 bulk-load dialects (Postgres COPY, Snowflake PUT+COPY) + ~31 SaaS manifests. Cert matrix at `/api/connectors/cert-matrix` shows current depth scores: 8 v2 beta in validation, 27 v1 functional, 2 v1 basic. The Salesforce manifest in OSS is the starter version; the production-hardened enterprise Salesforce connector is Plus-only.
 - **DEV environment** — pipelines run in DEV with sample-row limits on sources for fast iteration. **PROD environment + DEV→PROD promotion is Revoluzen Flow Enterprise only** — OSS Free has no PROD execution path through the legal contract (see edition-matrix.md).
 - **Workflow versioning** with SHA-256 content hash for tamper detection
-- **Credentials encrypted at rest** — Fernet (AES-128-CBC + HMAC-SHA256) with a master key file at `~/.revoluzen-flow/secret.key` (chmod 600, fail-closed on world-readable). Always-on for both Free and Plus from May 4 2026.
+- **Credentials encrypted at rest** — Fernet (AES-128-CBC + HMAC-SHA256) with a master key file at `~/.revoluzen-flow/secret.key` (POSIX: chmod 600, fail-closed on world-readable; Windows: NTFS ACL restricted to SYSTEM, Administrators and the owner, repaired at load rather than fail-closed). Always-on for both Free and Plus from May 4 2026.
 - **AI provider API keys encrypted at rest** — same Fernet encryptor wraps Anthropic / OpenAI / OpenRouter etc. keys
 - **20 OSS pipeline templates** — simple ETL, dedup, aggregation, data-quality starters
 - **Expression engine** — `$json`, `$now`, `$('Node')` references in node params

@@ -228,7 +228,7 @@ jobs:
             || python -m pytest --last-failed --tb=short -m "not stress and not external and not e2e"
 
   backend-pytest-dialects:
-    name: Backend pytest (database dialects — real Postgres + MySQL)
+    name: Backend pytest (database dialects — real Postgres, MySQL, SQL Server)
     runs-on: ubuntu-latest
     # The rest of the suite runs on SQLite and DuckDB, which accept `"` as an
     # identifier quote. MySQL does not — it reads "x" as a string literal —

@@ -188,6 +188,11 @@ export interface StepResult {
   schema_info: Array<{ name: string; type: string; nullable: boolean }>;
   error: string | null;
   duration_ms: number;
+  /** Set to 'sample' when a Sample run short-circuited this step's side
+   *  effect. The step still reports success with its passthrough rows,
+   *  so this is the only way to tell a write that happened from one that
+   *  was skipped. */
+  skipped_reason?: string | null;
 }
 
 /** One sub-step's preview output inside a Data Wrangler node. */
@@ -405,7 +410,20 @@ interface WorkflowState {
   createFromIntent: (intent: string) => Promise<void>;
   updateNodeParams: (nodeId: string, params: Record<string, any>) => void;
   updateNodeLabel: (nodeId: string, label: string) => void;
-  addNode: (type: string, position?: { x: number; y: number }) => void;
+  /**
+   * Add a node of `type`.
+   *
+   * `init` seeds the new node from an existing one — it is what makes
+   * Duplicate a duplicate. Without it the copy was built from the
+   * registry defaults, so duplicating a configured node produced an
+   * EMPTY node of the same type: table, write mode, merge keys, SQL and
+   * the custom name were all dropped silently.
+   */
+  addNode: (
+    type: string,
+    position?: { x: number; y: number },
+    init?: { params?: Record<string, any>; label?: string },
+  ) => void;
   deleteNode: (nodeId: string) => void;
   /**
    * Persist the canvas to the backend.
@@ -1062,8 +1080,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       let result: any;
       try {
         result = useEphemeral
-          ? await api.runWorkflowEphemeral(wf, fullRun, 'dev', 'live', parameterValues)
-          : await api.runWorkflow(workflowId, fullRun, 'dev', 'live', parameterValues);
+          // safety_mode follows fullRun: a Sample run (fullRun=false) asks
+          // for 'sample', which caps the sources AND stops every
+          // side-effect node from firing. It used to send 'live' here, so
+          // the only thing separating Sample from Run was a row cap that
+          // did not apply to file sources either — Sample wrote to real
+          // sinks, sent real email and made real HTTP calls.
+          ? await api.runWorkflowEphemeral(wf, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues)
+          : await api.runWorkflow(workflowId, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues);
       } catch (err: any) {
         // 2026-05-22 — fallback for the "saved but actually unsaved"
         // edge case. An imported pipeline can land in the store with
@@ -1085,7 +1109,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             'Pipeline not saved yet — running a temporary copy',
             'This pipeline isn\'t saved yet, so it ran without a Pipelines list entry. Click Save to add it.',
           );
-          result = await api.runWorkflowEphemeral(wf, fullRun, 'dev', 'live', parameterValues);
+          // Same safety_mode as the primary path above — a fallback must
+          // not quietly upgrade a Sample into a live run.
+          result = await api.runWorkflowEphemeral(wf, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues);
         } else {
           throw err;
         }
@@ -1951,7 +1977,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }));
   },
 
-  addNode: (type, position) => {
+  addNode: (type, position, init) => {
     get().pushUndoState();
     const id = Math.random().toString(36).slice(2, 10);
 
@@ -1976,6 +2002,19 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     } catch {}
     // Preset params win over backend defaults (e.g. mode='explode').
     if (preset) initialParams = { ...initialParams, ...preset.params };
+
+    // A seeded add (Duplicate) wins over both: the caller already has the
+    // node it is copying. Cloned deeply enough that editing the copy does
+    // not mutate the original's nested param objects (_settings, column
+    // maps, merge keys are all objects/arrays).
+    if (init?.params) {
+      try {
+        initialParams = structuredClone(init.params);
+      } catch {
+        initialParams = JSON.parse(JSON.stringify(init.params));
+      }
+    }
+    if (init?.label) label = init.label;
 
     // Smart positioning: place near the last node or in a reasonable grid.
     //

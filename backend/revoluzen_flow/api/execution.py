@@ -199,6 +199,38 @@ class EphemeralRunBody(BaseModel):
     parameter_values: dict[str, Any] = _Field(default_factory=dict)
 
 
+def _sample_kwargs(safety_mode: str, run_key: str, sample_rows: int) -> dict:
+    """Executor kwargs that make `safety_mode="sample"` an actual sample.
+
+    Two implementations, because there are two ways to run safely and only
+    one of them exists in every build:
+
+    * With the sandbox extension, every sink is rewritten to a scratch
+      namespace and every source gets a row-limit hint. The write really
+      happens, just somewhere disposable — the better preview, so it wins
+      when available.
+
+    * Without it (OSS), those hooks are no-ops. Asking for a sandbox then
+      bought NOTHING: the rewrite silently did not happen, so a Sample run
+      wrote to the real destinations and read every row — identical to a
+      full run apart from a cap that also never applied. Fall back to
+      preview mode, where the executor short-circuits every side-effect
+      node (R8b in `_run_node_once`), plus an explicit source cap.
+
+    The old code took the sandbox branch unconditionally, which is why
+    Sample was indistinguishable from Run on an OSS install.
+    """
+    if safety_mode != "sample":
+        return {}
+    from revoluzen_flow.engine.executor import sandbox_rewrites_available
+    if sandbox_rewrites_available():
+        return {
+            "sandbox_namespace": f"sample_{run_key}",
+            "sandbox_row_limit": sample_rows,
+        }
+    return {"preview_mode": True, "sample_row_limit": sample_rows}
+
+
 # IMPORTANT: this route MUST be declared before /workflow/{workflow_id}
 # so FastAPI matches the literal "ephemeral" path before treating it as a
 # workflow_id path-parameter value.
@@ -324,12 +356,7 @@ async def run_workflow_ephemeral(
 
     try:
         SAMPLE_ROWS = 100
-        sample_kwargs: dict = {}
-        if safety_mode == "sample":
-            sample_kwargs = {
-                "sandbox_namespace": f"sample_{eff_id}",
-                "sandbox_row_limit": SAMPLE_ROWS,
-            }
+        sample_kwargs: dict = _sample_kwargs(safety_mode, eff_id, SAMPLE_ROWS)
 
         from revoluzen_flow.security.execution_codes import mint_for_run
         _eph_code = mint_for_run(wf, job_run_id=run_id)
@@ -609,20 +636,14 @@ async def run_workflow(
         # execution log so the UI can show usage and threshold alerts can
         # fire on the post-run check.
         # Sample-mode isolation (2026-05-11): the PreRunBanner promises
-        # "Sample = first N rows, no effect on destinations". The
-        # executor honours that by routing the run through the existing
-        # PR10 sandbox-namespace path — every destination is rewritten
-        # to a per-pipeline scratch namespace so the real sink stays
-        # untouched. Row count is capped at SAMPLE_ROWS regardless of
-        # `full_run`. Without this, sample mode would just shrink the
-        # row count but still write to the real destination.
+        # "Sample = first N rows, no effect on destinations". That promise
+        # was only kept on builds carrying the sandbox extension — the
+        # branch below asked for a scratch namespace unconditionally, and
+        # in OSS the rewrite hooks are no-ops, so the sinks wrote to their
+        # real destinations and the row cap was discarded too. See
+        # `_sample_kwargs`, which keeps the promise either way.
         SAMPLE_ROWS = 100
-        sample_kwargs: dict = {}
-        if safety_mode == "sample":
-            sample_kwargs = {
-                "sandbox_namespace": f"sample_{workflow_id}",
-                "sandbox_row_limit": SAMPLE_ROWS,
-            }
+        sample_kwargs: dict = _sample_kwargs(safety_mode, workflow_id, SAMPLE_ROWS)
         # Phase 7: mint a one-time, run-bound execution code for this
         # authorized run and hand it to the executor. No-op unless
         # REVOLUZEN_FLOW_REQUIRE_EXECUTION_CODE is on; the executor enforces it.

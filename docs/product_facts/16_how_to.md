@@ -287,7 +287,12 @@ You only need this after editing `docs/product_facts/*.md`:
 
 ## How do I set credentials encryption / which algorithm?
 
-You don't configure it — it's always-on. **Fernet (AES-128-CBC + HMAC-SHA256)**, master key at `~/.revoluzen-flow/secret.key`, chmod 600 on POSIX, fail-closed on world-readable. Revoluzen Flow refuses to start if the key file is misconfigured.
+You don't configure it — it's always-on. **Fernet (AES-128-CBC + HMAC-SHA256)**, master key at `~/.revoluzen-flow/secret.key`.
+
+The two platforms protect that file differently, and the difference is deliberate:
+
+- **POSIX** — chmod 600, fail-closed. Revoluzen Flow **refuses to start** if the key is group- or world-readable. The app owns the file it created, so `chmod 600` essentially cannot fail; refusing is safe.
+- **Windows** — the NTFS ACL is restricted to SYSTEM, Administrators and the owner, both at creation and when an existing key is loaded. It **repairs rather than refuses**: the app may legitimately lack the right to rewrite a DACL (a service account that is not the owner, a locked-down share), and refusing there would turn a hardening improvement into an outage for installs that work today. If the repair does not take, startup continues, an error is logged, and Settings → Security & Diagnostics shows **Master key permissions: Failed** with a **Fix this** button and the exact `icacls` command.
 
 To rotate the master key, see `docs/product_facts/13_backup_recovery.md` — it requires re-saving every credential after rotation.
 

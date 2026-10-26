@@ -585,19 +585,14 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
           className="text-xl hidden sm:inline leading-none italic"
           style={{
             fontFamily: "Georgia, 'Times New Roman', serif",
-            // revoluzen.io's own emphasis tokens (globals.css), including
-            // its dark-background correction: `.on-ink .serif-em` lifts to
-            // signal-fill-lift because, in their words, the deep gold goes
-            // muddy on the dark sections.
-            //
-            // On the light plate this takes --color-signal (#9a6b00), not
-            // --em-color (#d4a017). The site reserves #d4a017 for emphasis
-            // inside large headlines; at this size it is 2.4:1 on white,
-            // which fails AA. Their palette already names the fix —
-            // "#9a6b00 deep gold: the only gold that clears AA at label
-            // size" (4.6:1) — so this follows their system rather than
-            // inventing a shade.
-            color: isProd || dark ? '#f0c65a' : '#9a6b00',
+            // Black on the light plate. revoluzen.io's graphite
+            // (--color-graphite #0d2b33) is its "primary text on paper"
+            // token — a near-black with a trace of the brand teal, so it
+            // reads as black while still belonging to the palette. The
+            // dark plate takes the matching --color-bone (#f1f9fa), the
+            // site's "primary text on ink", since true black would vanish
+            // there.
+            color: isProd || dark ? '#f1f9fa' : '#0d2b33',
             letterSpacing: '-0.005em',  // --em-tracking
           }}
         >

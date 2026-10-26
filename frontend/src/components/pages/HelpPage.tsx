@@ -260,7 +260,7 @@ const HOW_TO_GUIDES = [
           'Pick a **Category** to group the entry (Database / Cloud / API / Messaging / Email / Data Warehouse / **AI Provider** / Other). Choosing **AI Provider** on a new credential pre-seeds `provider` / `api_key` / `base_url`, and that credential can then be imported on **Insights → AI Provider** via its *Use a saved credential* option — so your LLM key lives in the same governed store as every other secret.',
           'Set an expiry date to get notified before credentials expire.',
           'Toggle columns shown (Created By, Username, Source, Created, Expires) via the Columns button.',
-          'Storage is encrypted at rest. See **Insights → Trust** for the full threat model.',
+          'Storage is encrypted at rest. See **Settings → Security & Diagnostics** for what this install can actually verify about that, and what it cannot.',
         ],
       },
       {
@@ -300,6 +300,62 @@ const HOW_TO_GUIDES = [
           'You get back a **runtime (v1) manifest** that the SaaS Connector node can use immediately — paths, methods, and pagination are inferred from the spec.',
           'Two sibling endpoints generate the richer **certification (v2)** manifest for review/curation: `/from-openapi` (from a spec) and `/from-samples` (from 1–5 example API responses). A v2 manifest that ships as `<id>.v2.json` auto-promotes the connector to the **Certified** tier.',
           'Generated connectors start at the **Generated** tier in the picker until reviewed — treat them as a fast first draft, then tighten streams + auth before relying on them.',
+        ],
+      },
+    ],
+  },
+  {
+    category: 'Security & Diagnostics',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>,
+    guides: [
+      {
+        title: 'Read the security posture (and what the statuses mean)',
+        steps: [
+          'Go to **Settings → Security & Diagnostics**. The table reports what this installation can observe about *itself* — it is not a certificate, an audit, or a penetration test.',
+          '**Verified** — observed directly, on this run. The strongest thing the page says.',
+          '**Configured** — a setting was found, but enforcement was **not** exercised. Knowing a rate limit is configured is not the same as proving it rejects the 101st request.',
+          '**Not checked** — no check ran. This means *nothing was tested*; it does **not** mean the control passed. Each row says why in **What was checked**.',
+          '**Failed** — observed, and wrong. This is the only status that comes with a fix.',
+          'Every row carries the scope of what it did **not** cover. That line is the honest part of the page — read it before quoting a green result to anyone.',
+        ],
+      },
+      {
+        title: 'What is actually checked, and what is not',
+        steps: [
+          '**Checked — HTTP security headers.** A real loopback request is made and the response headers are read. Covers this process only; a reverse proxy in front of it can add or strip headers. HSTS is excluded because it is emitted only over HTTPS.',
+          '**Checked — stored credential encryption.** Your credential rows are inspected for the `ENC:v1:` envelope. Proves the stored form is ciphertext; does not prove key strength or that nothing was written elsewhere. With no credentials stored it reports **Not checked**, not a pass.',
+          '**Checked — master key permissions.** POSIX mode bits, or the real NTFS DACL on Windows. Covers the file\'s own permissions, not share permissions or the containing directory.',
+          '**Checked — audit retention.** Counts audit rows and reads the oldest. Does **not** establish that every auditable action produced an entry — that needs event-coverage testing.',
+          '**Not checked — SQL input handling.** Needs adversarial testing, which this page cannot do to itself.',
+          '**Not checked — HTTP rate limiting** and **intermediate data encryption.** The configuration can be read; enforcement cannot be exercised from here. Reporting a config read as "Verified" would be exactly the overclaim this page exists to avoid.',
+        ],
+      },
+      {
+        title: 'Fix a failing control',
+        steps: [
+          'A failing row leads with the verdict, then the exact command to run, with **What was checked** collapsed underneath.',
+          'Where Revoluzen Flow can apply the fix itself it also shows a **Fix this** button — today that is **Master key permissions**.',
+          '**Fix this** re-runs the real check afterwards and shows what the re-check saw. If the fix did not take, the row still says Failed — you never get a green result over a broken state.',
+          'If the button is refused, you need an admin account on this installation. If it runs but the row stays Failed, you are probably not the key file\'s owner: run the printed `icacls` command from an elevated prompt.',
+          'You can always run the command by hand instead — it is shown in full, with the real path and your SID already filled in.',
+        ],
+      },
+      {
+        title: 'How the master key is protected (and why it differs by OS)',
+        steps: [
+          'Credentials are encrypted with **Fernet (AES-128-CBC + HMAC-SHA256)**. One master key per install, at `~/.revoluzen-flow/secret.key` or `$REVOLUZEN_FLOW_DATA_DIR/secret.key`. **Back it up** — without it, encrypted credentials are unrecoverable.',
+          '**POSIX** — the file is chmod 600 and Revoluzen Flow **refuses to start** if it is group- or world-readable. The app owns the file it created, so tightening it cannot realistically fail; refusing is safe.',
+          '**Windows** — the NTFS ACL is restricted to SYSTEM, Administrators and the owner, both when the key is created and when an existing key is loaded. It **repairs rather than refuses**: the app may legitimately lack the right to rewrite a DACL (a service account that is not the owner, a locked-down share), and refusing there would stop installs that work today from booting.',
+          'When a Windows repair does not take, startup continues, an error is logged, and the control shows **Failed** here with the fix. Visible beats silent.',
+          'Before 2026-10-26 Windows did neither — the key inherited whatever ACL its directory had, and nothing ever looked. If your install predates that, loading the key now tightens it automatically.',
+        ],
+      },
+      {
+        title: 'Ask the Copilot about your security posture',
+        steps: [
+          'The Copilot can read this exact baseline via its `get_security_posture` tool, so "is my install secure?", "why is master key permissions failing?" or "what does Not checked mean?" are answered from **this** install rather than from general knowledge.',
+          'It sees the same scope lines you do, so it will tell you what a check did not cover instead of rounding a pass up to a guarantee.',
+          'It cannot apply fixes. Use the **Fix this** button or run the command yourself.',
         ],
       },
     ],

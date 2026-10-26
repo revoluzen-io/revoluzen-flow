@@ -1,4 +1,4 @@
-"""CSV Source node — reads a CSV file into the pipeline."""
+"""CSV Source node â€” reads a CSV file into the pipeline."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ class CsvSourceNode(BaseNode):
             delimiter=delimiter,
             header=header,
         )
-        return cap_rows(rel, label="CSV Source", full_run=ctx.full_run)
+        return cap_rows(rel, label="CSV Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
     @staticmethod
     def default_params() -> dict[str, Any]:

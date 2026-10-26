@@ -15,6 +15,9 @@ from dataclasses import dataclass
 
 import pytest
 
+from revoluzen_flow.ai.tool_selector import _FLOOR_TOOLS
+from revoluzen_flow.ai.tools import INITIAL_TOOLS
+
 pytestmark = pytest.mark.unit
 
 
@@ -33,17 +36,12 @@ def _stub_tools(names: list[str]) -> list[_StubTool]:
     return [_StubTool(name=n) for n in names]
 
 
-# A realistic catalogue mirroring the ~24 tools the agent registers today.
-ALL_TOOL_NAMES = [
-    "apply_pipeline_draft", "compose_report", "draft_alert_rule",
-    "draft_pipeline_from_intent", "explain_step", "get_installation_health",
-    "get_next_scheduled", "get_running_executions", "get_user_role",
-    "inspect_connections", "list_alerts", "list_catalog", "list_executions",
-    "list_pipelines", "list_projects", "list_schedules", "list_templates",
-    "lookup_help_topic", "modify_pipeline_step", "query_metrics",
-    "recall_history", "summarize_pipeline", "validate_pipeline",
-    "workspace_overview",
-]
+# The real catalogue, not a hand-written mirror of it. This list used to be
+# literal and had drifted: it carried "workspace_overview" while the tool is
+# registered as "get_workspace_overview", so the floor assertions below were
+# checking a name that exists in neither the registry nor (therefore) the
+# selector's output — and the inert floor entry went unnoticed for months.
+ALL_TOOL_NAMES = sorted(t.name for t in INITIAL_TOOLS)
 
 
 def test_tool_selector_no_op_when_disabled(monkeypatch):
@@ -73,7 +71,7 @@ def test_tool_selector_on_for_cloud_with_looser_cap(monkeypatch):
     names = {t.name for t in picked}
     assert len(picked) <= 14                       # cloud cap
     assert len(picked) < len(ALL_TOOL_NAMES)       # narrowed, not full passthrough
-    for floor in ("workspace_overview", "recall_history", "lookup_help_topic"):
+    for floor in _FLOOR_TOOLS:
         assert floor in names                      # floor tools always survive
 
 
@@ -113,8 +111,14 @@ def test_tool_selector_floor_tools_always_included(monkeypatch):
         prompt="random unrelated question", provider_hint="ollama",
     )
     names = {t.name for t in picked}
-    # Floor tools: workspace_overview, recall_history, lookup_help_topic.
-    for floor in ("workspace_overview", "recall_history", "lookup_help_topic"):
+    # Read the floor from the module rather than restating it, so a name
+    # that matches no registered tool fails here instead of passing.
+    assert _FLOOR_TOOLS, "the floor must not be empty"
+    for floor in _FLOOR_TOOLS:
+        assert floor in ALL_TOOL_NAMES, (
+            f"floor entry {floor!r} is not a registered tool name, so it can "
+            "never be selected"
+        )
         assert floor in names, f"floor tool {floor} should always be selected"
 
 

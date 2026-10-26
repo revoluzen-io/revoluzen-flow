@@ -104,15 +104,29 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close menu on outside click
+  // Close menu on outside click or Escape.
+  //
+  // CAPTURE phase, for the same reason as the node context menu: this
+  // toolbar sits directly above the React Flow canvas, and React Flow's
+  // pane runs d3-drag, which calls stopImmediatePropagation on mousedown.
+  // A bubble-phase document listener therefore never sees a click on the
+  // canvas — the single most natural way to dismiss this menu — so it
+  // stayed open over the pipeline (measured, not assumed).
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowMenu(false);
+    };
+    document.addEventListener('mousedown', handleClick, true);
+    document.addEventListener('keydown', handleKey, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClick, true);
+      document.removeEventListener('keydown', handleKey, true);
+    };
   }, []);
 
   const handleExport = async () => {

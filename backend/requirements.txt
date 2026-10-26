@@ -73,6 +73,15 @@ openpyxl>=3.1.0
 # Linux). If pip install fails on your platform, install the system
 # driver first or skip pyodbc and avoid the SQL Server connector.
 pyodbc>=5.0
+# 2026-10-26: Windows only. The master key file is hardened at creation
+# with `icacls` (ships with Windows, no dependency), but READING its ACL
+# back to verify it needs real SIDs, and there is no icacls flag that
+# prints them reliably — parsing its localised output to decide a
+# security question would be worse than not checking. Without pywin32 the
+# Security & Diagnostics master-key row degrades to "not checked" rather
+# than guessing, so this is a soft requirement: the app runs fine, the
+# check just cannot see anything.
+pywin32>=306; sys_platform == "win32"
 # 2026-08-02: Postgres + MySQL drivers. A data-pipeline tool has to
 # connect to the two most common databases out of the box — shipping
 # without them meant a user testing a Postgres/MySQL connection hit

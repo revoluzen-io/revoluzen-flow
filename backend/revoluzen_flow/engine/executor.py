@@ -97,6 +97,27 @@ def rewrite_for_sandbox(*_args, **_kwargs):
     """Default no-op — returns None to signal no rewrite was applied."""
     return None
 
+
+# Both hooks above are replaced by an optional extension. Callers need to
+# know which they have, because the difference is not cosmetic: with the
+# extension, a sample run rewrites every sink to a scratch namespace and
+# genuinely exercises the write; without it, the hooks rewrite NOTHING, so
+# asking for `sandbox_namespace` buys no isolation at all and the run
+# writes to the real destinations. That is exactly what `safety_mode=
+# "sample"` did in OSS — it set a sandbox namespace and a 100-row limit,
+# both of which the no-ops discarded, so "Sample" wrote to production
+# sinks and read every row.
+inject_sandbox_limit.is_default_noop = True
+rewrite_for_sandbox.is_default_noop = True
+
+
+def sandbox_rewrites_available() -> bool:
+    """True when a real sandbox extension has replaced the no-op hooks."""
+    return not (
+        getattr(inject_sandbox_limit, "is_default_noop", False)
+        and getattr(rewrite_for_sandbox, "is_default_noop", False)
+    )
+
 logger = logging.getLogger(__name__)
 
 
@@ -279,12 +300,28 @@ class WorkflowExecutor:
         run_id: str | None = None,
         resume_from_run_id: str | None = None,
         execution_code: str | None = None,
+        preview_mode: bool = False,
+        sample_row_limit: int | None = None,
     ) -> WorkflowRunResult:
         """Execute all steps in topological order.
 
         When ``full_run`` is False (default), source nodes limit to
         ``DEV_SAMPLE_ROWS`` in dev mode for fast iteration.  The frontend
         "Run Full" button passes ``full_run=True`` to load everything.
+
+        ``preview_mode`` makes the run a PREVIEW: the transforms execute
+        so every step has inspectable output, but any node with an
+        external side effect short-circuits instead of firing it — see
+        the R8b block in ``_run_node_once``. This is what the editor's
+        Sample button passes (``safety_mode=sample``). Before it was
+        wired up, Sample differed from a full run only by a row cap: it
+        still wrote to every sink, sent every email and fired every HTTP
+        request, and the UI had to tell the operator to go and deactivate
+        those nodes by hand before previewing anything.
+
+        Not applied when ``sandbox_namespace`` is set: that path already
+        rewrites every sink to a scratch namespace, which exercises the
+        write safely and is strictly better than not running it.
 
         ``sandbox_namespace`` switches the run into PROD-Sandbox mode (PR10):
         every destination is rewritten to point at the scratch namespace
@@ -434,9 +471,15 @@ class WorkflowExecutor:
             run_id = _uuid.uuid4().hex[:12]
 
         conn = _open_duckdb()
+        # A sandbox run already redirects every sink to a scratch
+        # namespace, so there is nothing to protect the operator from and
+        # skipping would only make the preview less faithful.
+        preview_mode = bool(preview_mode) and sandbox_namespace is None
         ctx = ExecutionContext(
             conn=conn, data_dir=self.data_dir, full_run=full_run,
             app_state=self.app_state, run_id=run_id,
+            preview_mode=preview_mode,
+            sample_row_limit=sample_row_limit,
         )
         ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
         # Z33 (2026-05-23) — expose workflow id + scaffold metadata +
@@ -1291,6 +1334,7 @@ class WorkflowExecutor:
                     sample_data=preview.get("sample_data", []),
                     schema_info=preview.get("schema_info", []),
                     duration_ms=round(elapsed, 2),
+                    skipped_reason=self._preview_skip_reason(step, ctx),
                 )
             except Exception as e:  # noqa: BLE001 — we want to handle every failure
                 last_error = e
@@ -1400,6 +1444,26 @@ class WorkflowExecutor:
             return int(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _preview_skip_reason(step: Step, ctx: ExecutionContext) -> str | None:
+        """Why this step's side effect did not fire, or None if it did.
+
+        A short-circuited sink still reports `success` with its rows —
+        downstream really did receive that data — so without this the
+        operator could not tell a write that happened from one that was
+        skipped. The UI renders it as "skipped (sample)".
+        """
+        if not getattr(ctx, "preview_mode", False):
+            return None
+        try:
+            from revoluzen_flow.ir.node_metadata import side_effect_class_for
+            cls_label = side_effect_class_for(step.type.value)
+        except Exception:  # noqa: BLE001 — never break a run over a label
+            return None
+        if cls_label is None:
+            return None
+        return "sample"
 
     def _run_node_once(
         self, step: Step, ctx: ExecutionContext,

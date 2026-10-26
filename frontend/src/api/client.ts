@@ -1660,6 +1660,15 @@ export const api = {
   // ── Trust posture (Gate 4, May 4 2026) ──
   getTrustPosture: () => request<any>('/trust/diagnostics'),
   getTrustEvalSummary: () => request<any>('/trust/eval-summary'),
+  // Apply the known fix for a failing security control. The response
+  // carries the RE-RUN control row, not a success flag — the caller
+  // renders whatever the re-check observed, so a fix that didn't take
+  // still shows as failed instead of flashing a green toast.
+  remediateTrustControl: (key: string) =>
+    request<{ control_key: string; attempted: boolean; message: string; control: any }>(
+      `/trust/remediate/${encodeURIComponent(key)}`,
+      { method: 'POST' },
+    ),
   getSupportedModels: () => request<any>('/trust/supported-models'),
 
   // ── Product knowledge (Layer 2 chat RAG, May 4 2026) ──

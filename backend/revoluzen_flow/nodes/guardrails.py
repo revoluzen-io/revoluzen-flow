@@ -56,6 +56,7 @@ def cap_rows(
     *,
     label: str = "source",
     full_run: bool = False,
+    limit: int | None = None,
 ) -> duckdb.DuckDBPyRelation:
     """Apply a LIMIT to the relation based on mode and run type.
 
@@ -73,6 +74,19 @@ def cap_rows(
     The LIMIT is pushed into DuckDB's query plan so it short-circuits
     early rather than materialising rows we'll throw away.
     """
+    # ── Explicit preview cap ──────────────────────────────────────
+    # An explicit `limit` is a Sample run asking for N rows and means it
+    # literally: no IS_DEV gate, no 1,000,000 default. Without this the
+    # block below never fired for a file source of ordinary size, so a
+    # Sample run read the whole file and differed from a full run by
+    # nothing at all.
+    if limit is not None and limit > 0 and not full_run:
+        try:
+            logger.info("guardrails: %s — preview cap, limiting to %s rows", label, f"{limit:,}")
+            return relation.limit(limit)
+        except Exception:  # noqa: BLE001
+            logger.warning("guardrails: could not apply preview cap to %s", label)
+
     # ── Sample mode (dev preview) ─────────────────────────────────
     sample = runtime_config.DEV_SAMPLE_ROWS
     if sample > 0 and runtime_config.IS_DEV and not full_run:

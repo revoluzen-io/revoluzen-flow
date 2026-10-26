@@ -64,45 +64,9 @@ import { formatNodeDocsTooltip } from '../../utils/nodeDocs';
 import { classifyIdempotency, IDEMPOTENCY_TONE_CLASSES } from '../../utils/idempotency';
 import { askCopilot } from '../../hooks/useAgentChatStore';
 
-/* ── Category accent bar — a NEUTRAL ramp, not brand colour.
- *
- * 2026-10-25. This used to be the saturated mid-tone of a Tailwind
- * family per category: blue sources, purple sinks, orange joins, amber
- * control flow, emerald transforms. On the square node that put a
- * second colour system on the same tile as the first: gold, red and
- * green already mean RUN STATE there — the running ring, the status
- * badge, the error ring — and two colour languages competing for one
- * glance means neither is read quickly.
- *
- * Category has not lost its colour; it moved to where it was always
- * strongest. The icon tile is still brand-coloured per node type (see
- * NodeIcon's gradients, and the real brand marks for ~70 connectors),
- * and that is a 48px block rather than a 4px strip. The bar is now a
- * neutral foot that orders the pipeline by lightness — darkest at the
- * ends where data enters and leaves, lightest for the transforms in
- * between — so it still groups at zoom-out without shouting.
- *
- * Same instinct as the card-colour standard: neutral surface, colour
- * reserved for the one thing that carries meaning.
- */
-function categoryAccent(stepType: string): string {
-  // Sources — graphite. Darkest: where data enters.
-  if (stepType === 'source' || stepType.endsWith('_source')) return '#334155';
-  // Destinations / sinks / outputs — the other end of the pipeline.
-  if (stepType === 'destination' || stepType === 'output' || stepType === 'db_sink' || stepType.endsWith('_sink')) return '#475569';
-  // Combine (multi-input joins).
-  if (stepType === 'join' || stepType === 'lookup' || stepType === 'union' || stepType === 'copy_data') return '#64748b';
-  // AI / Semantic.
-  if (stepType === 'embedder' || stepType === 'llm_guardrail' || stepType === 'semantic_router') return '#64748b';
-  // Control flow.
-  if (stepType === 'conditional_split' || stepType === 'validation' || stepType === 'fail' ||
-      stepType === 'execute_sql_task' || stepType === 'get_metadata' || stepType === 'delete_data' ||
-      stepType === 'file_system' || stepType === 'append_variable' || stepType === 'filter_array' ||
-      stepType === 'lookup_activity') return '#94a3b8';
-  // Transform / shape / quality — the default, and the largest
-  // category, so it gets the quietest stop.
-  return '#cbd5e1';
-}
+/* The category accent bar and its colour ramp were removed on 2026-10-26
+ * (see the note at its old site in the node body). Category colour lives
+ * on the icon tile, which is a 48px block rather than a 4px strip. */
 
 /* ── Mini SVG icons matching the ModulesPanel icons ── */
 function NodeIcon({ type, color, connectorType }: { type: string; color: string; connectorType?: string }) {
@@ -843,7 +807,16 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
     const pos = original
       ? { x: original.position.x + 48, y: original.position.y + 48 }
       : { x: 100, y: 200 };
-    addNode(stepType, pos);
+    // 2026-10-26 — carry the original's params and name across. This used
+    // to be a bare addNode(stepType, pos), which builds from the registry
+    // defaults: "Duplicate" on a configured Destination handed back an
+    // EMPTY Destination, losing the table, write mode, merge keys and any
+    // custom name, with no indication anything had been dropped.
+    const data = original?.data as { params?: Record<string, any>; label?: string } | undefined;
+    addNode(stepType, pos, {
+      params: data?.params,
+      label: data?.label ? `${data.label} copy` : undefined,
+    });
   };
 
   const handleDeactivate = () => {
@@ -886,14 +859,40 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
     return () => window.cancelAnimationFrame(id);
   }, [contextMenu]);
 
-  // Close context menu on outside click
+  // Close the context menu on an outside click, Escape, or a scroll.
+  //
+  // The listener must be on the CAPTURE phase. React Flow's pane runs
+  // d3-drag, which calls stopImmediatePropagation on mousedown, so a
+  // bubble-phase document listener never sees a click on the canvas —
+  // measured: a synthetic mousedown on .react-flow__pane reached a
+  // capture listener and NOT a bubble one. The menu therefore stayed
+  // open over the canvas until something else closed it, which is where
+  // it is most often dismissed.
+  //
+  // `mousedown` rather than `click` so the menu goes away as the press
+  // starts (a drag on the canvas should dismiss it too), and `wheel` /
+  // scroll because the menu is position:fixed at a viewport coordinate:
+  // panning or zooming the canvas underneath would otherwise leave it
+  // floating over unrelated nodes.
   useEffect(() => {
     if (!contextMenu) return;
-    const close = (e: MouseEvent) => {
+    const closeOnPointer = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setContextMenu(null);
     };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    const closeOnKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
+    };
+    const closeNow = () => setContextMenu(null);
+    document.addEventListener('mousedown', closeOnPointer, true);
+    document.addEventListener('keydown', closeOnKey, true);
+    document.addEventListener('wheel', closeNow, { capture: true, passive: true });
+    window.addEventListener('blur', closeNow);
+    return () => {
+      document.removeEventListener('mousedown', closeOnPointer, true);
+      document.removeEventListener('keydown', closeOnKey, true);
+      document.removeEventListener('wheel', closeNow, true);
+      window.removeEventListener('blur', closeNow);
+    };
   }, [contextMenu]);
 
   // Output ports decide the square's height: one port keeps it at
@@ -918,22 +917,19 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
       style={boxH !== BOX_SIZE ? { height: boxH } : undefined}
       onContextMenu={handleContextMenu}
     >
-      {/* Category accent bar — bottom edge, 4px tall, full width.
-          Driven by stepType via the categoryAccent() helper above. This
-          is the category-color clarity signal: at zoom-out where text is
-          illegible, the colored bar still tells the eye whether this is a
-          source (blue), transform (emerald), join (orange), control flow
-          (amber), AI (violet) or sink (purple).
+      {/* 2026-10-26 — category accent bar REMOVED. On the square node it
+          read as a stray underscore under the label rather than as a
+          category signal: the ramp was neutral slate, so neighbouring
+          categories differed by a shade most people cannot pick out, and
+          the icon tile already carries the category in full colour at the
+          same zoom level. Deleted with its categoryAccent() helper rather
+          than left dark.
+
+          Former intent, kept for anyone reconsidering it:
 
           2026-10-24 — was a 4px stripe down the LEFT edge, which read as
           a tab marker beside a wide pill. On a square with a centred icon
-          a full-width bar under the icon reads as part of the tile.
-          Pointer-events off so the bar never intercepts drag/click. */}
-      <div
-        className="absolute left-0 right-0 bottom-0 h-1 rounded-b-[12px] pointer-events-none"
-        style={{ background: categoryAccent(stepType) }}
-        aria-hidden="true"
-      />
+          a full-width bar under the icon reads as part of the tile. */}
 
       {/* Input handle — LEFT side (always rendered; universal nodes).
           2026-06-02 — bumped 10px → 14px (!w-2.5 → !w-3.5) so the
@@ -1170,7 +1166,18 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
             one number describes one flow instead of being repeated on
             both endpoints. Duration belongs to the step, so it stays
             here. */}
-        {result?.status === 'success' && (
+        {/* A Sample run short-circuits side-effect steps, which still
+            report success with their passthrough rows. Saying only
+            "12 ms" there would read as "it wrote" — say what happened. */}
+        {result?.status === 'success' && result.skipped_reason === 'sample' && (
+          <div
+            className="text-[10px] text-amber-700 font-semibold mt-0.5"
+            title="Sample run — this step's write / send / request was skipped. Run in full to perform it."
+          >
+            skipped (sample)
+          </div>
+        )}
+        {result?.status === 'success' && result.skipped_reason !== 'sample' && (
           <div
             className="text-[10px] text-slate-500 font-medium mt-0.5 tabular-nums"
             title={

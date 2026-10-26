@@ -29,19 +29,22 @@ import { navigateTo } from '../../router';
 // of the May 10 2026 slim-down. The page now focuses on verifiable
 // surfaces: live posture + cert matrix + artifact links + audit endpoints.
 
+// `name` is gone (2026-10-26): it was always contained in `path` — the
+// table showed `trust.md` next to `docs/trust.md` — so it bought a whole
+// column to repeat the end of the next one, in the table whose
+// description column was being squeezed for room.
 interface Artifact {
-  name: string;
   desc: string;
   path: string;
 }
 
 const ARTIFACTS: Artifact[] = [
-  { name: 'trust.md', desc: 'The full trust posture in markdown', path: 'docs/trust.md' },
-  { name: 'ai-boundary-contract.md', desc: 'What the agent never sends to LLMs and how data is sanitized', path: 'docs/ai-boundary-contract.md' },
-  { name: 'security.md', desc: 'Vulnerability disclosure + threat model', path: 'docs/security.md' },
-  { name: 'performance.md', desc: 'Performance + memory budget targets per tier', path: 'docs/performance.md' },
-  { name: 'customer-faq.md', desc: 'Privacy + data-handling FAQ in plain English', path: 'docs/customer-faq.md' },
-  { name: 'tests/architecture/test_invariants.py', desc: '10 architecture invariants enforced by CI', path: 'backend/tests/architecture/test_invariants.py' },
+  { desc: 'The full trust posture in markdown', path: 'docs/trust.md' },
+  { desc: 'What the agent never sends to LLMs and how data is sanitized', path: 'docs/ai-boundary-contract.md' },
+  { desc: 'Vulnerability disclosure + threat model', path: 'docs/security.md' },
+  { desc: 'Performance + memory budget targets per tier', path: 'docs/performance.md' },
+  { desc: 'Privacy + data-handling FAQ in plain English', path: 'docs/customer-faq.md' },
+  { desc: '10 architecture invariants enforced by CI', path: 'backend/tests/architecture/test_invariants.py' },
 ];
 
 export default function TrustPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -126,26 +129,45 @@ function TrustContent({ dark }: { dark: boolean }) {
             Reference documents describe intended behavior. Their presence does not verify this installation.
           </p>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            {/* Two columns, and `table-fixed` so the declared widths hold.
+                This was three: File, What it covers, Path — with File and
+                Path showing `trust.md` and `docs/trust.md`. Only File
+                carried a width, so auto-layout sized the rest by
+                min-content, and Path's unbroken mono token
+                (`docs/ai-boundary-contract.md`) is wide: Path took 329px
+                and File 284px to repeat its last 13 characters, leaving
+                the one column holding sentences with 110px. "What the
+                agent never sends to LLMs and how data is sanitized"
+                wrapped over five lines, every row stood 81px tall, and a
+                third of the table said the same thing twice. */}
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 border-b-2 border-amber-400/40">
-                  <th className="text-left px-5 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider w-1/4">File</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider">What it covers</th>
-                  <th className="text-left px-4 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider">Path</th>
+                  <th className="text-left px-5 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider w-1/3">File</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-bold text-amber-300 uppercase tracking-wider w-2/3">What it covers</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${dark ? 'divide-white/[0.06]' : 'divide-slate-100'}`}>
                 {ARTIFACTS.map((a) => (
                   <tr key={a.path} className={`align-top ${dark ? 'hover:bg-slate-900/40' : 'hover:bg-slate-50'}`}>
                     <td className="px-5 py-2.5">
-                      <code className={`font-mono text-xs font-bold ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>
-                        {a.name}
+                      {/* Under table-fixed the cell no longer widens to
+                          fit an unbroken token, so a long path has to
+                          wrap. `break-all` alone split it anywhere —
+                          "docs/ai-boundary-contrac / t.md" — so offer a
+                          break opportunity after each separator instead
+                          and let it fall back to break-all only if one
+                          segment is still too long on its own. */}
+                      <code className={`font-mono text-xs font-bold break-words ${dark ? 'text-emerald-300' : 'text-emerald-700'}`}>
+                        {a.path.split('/').map((seg, i, all) => (
+                          <span key={i}>
+                            {seg}{i < all.length - 1 ? '/' : ''}
+                            {i < all.length - 1 ? <wbr /> : null}
+                          </span>
+                        ))}
                       </code>
                     </td>
                     <td className={`px-4 py-2.5 text-sm ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{a.desc}</td>
-                    <td className="px-4 py-2.5">
-                      <code className={`font-mono text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{a.path}</code>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -266,9 +288,129 @@ interface LiveEval {
   message?: string;
 }
 
-function LivePostureSection({ dark, sectionLabel, sublabel }: {
+/** Status as a pill, so "Failed" is findable by scanning rather than by
+ *  reading every row. Deliberately quiet for `not_checked`: it is the
+ *  honest default on this page, not a warning. */
+function StatusPill({ status, label, dark }: { status: string; label: string; dark: boolean }) {
+  const tone =
+    status === 'failed' ? (dark ? 'bg-red-500/15 text-red-300' : 'bg-red-50 text-red-700 border-red-200')
+    : status === 'verified' ? (dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200')
+    : status === 'configured' ? (dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700 border-amber-200')
+    : (dark ? 'bg-slate-500/15 text-slate-400' : 'bg-slate-100 text-slate-600 border-slate-200');
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${tone}`}>
+      {label}
+    </span>
+  );
+}
+
+/** A control's evidence cell: the finding, then the fix, then the scope.
+ *
+ *  The scope sentence is what keeps this page honest — every check states
+ *  what it did NOT cover — but it is reference material, and leading with
+ *  it buried the finding. It now sits behind a disclosure, so the default
+ *  view answers "what is wrong and what do I do" and the caveat is one
+ *  click away rather than three lines of prose ahead of the answer.
+ */
+function ControlEvidence({ control, dark, onFixed }: {
+  control: any; dark: boolean; onFixed?: () => void;
+}) {
+  const [showScope, setShowScope] = useState(false);
+  const [fixing, setFixing] = useState(false);
+  const [fixNote, setFixNote] = useState<string | null>(null);
+  // The scope line is everything up to the first sentence that states a
+  // finding; the backend writes scope first, then appends the verdict.
+  const detail: string = control.detail || '';
+  const failed = control.status === 'failed';
+
+  // `can_auto_fix` comes from the server, which owns the list of controls
+  // it can repair. The command stays visible next to the button: the user
+  // should be able to see what the button is about to do, and to run it
+  // by hand on a host where the app lacks the rights.
+  async function applyFix() {
+    setFixing(true);
+    setFixNote(null);
+    try {
+      const res = await api.remediateTrustControl(control.key);
+      const after = res?.control?.status;
+      setFixNote(
+        after === 'failed'
+          ? `${res.message} The control still reports failed — see what was checked.`
+          : res.message,
+      );
+      onFixed?.();
+    } catch (err: any) {
+      setFixNote(
+        err?.status === 403
+          ? 'This needs an admin account on this installation.'
+          : `The fix could not be applied: ${err?.message || 'request failed'}`,
+      );
+    } finally {
+      setFixing(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {failed && control.remediation && (
+        <div>
+          <div className={`text-xs font-semibold ${dark ? 'text-red-300' : 'text-red-700'}`}>
+            To fix
+          </div>
+          <code
+            className={`block mt-0.5 px-2 py-1.5 rounded text-[11px] font-mono break-all ${
+              dark ? 'bg-slate-900 text-slate-200' : 'bg-slate-100 text-slate-800'
+            }`}
+          >
+            {control.remediation}
+          </code>
+          {control.can_auto_fix && (
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={applyFix}
+                disabled={fixing}
+                className={`px-2.5 py-1 rounded text-xs font-semibold disabled:opacity-60 ${
+                  dark
+                    ? 'bg-red-500/20 text-red-200 hover:bg-red-500/30'
+                    : 'bg-red-600 text-white hover:bg-red-700'
+                }`}
+              >
+                {fixing ? 'Fixing…' : 'Fix this'}
+              </button>
+              <span className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Runs the command above on this host.
+              </span>
+            </div>
+          )}
+          {fixNote && (
+            <div className="mt-1 text-xs" role="status">{fixNote}</div>
+          )}
+        </div>
+      )}
+      {!failed && <div>{detail}</div>}
+      {failed && (
+        <button
+          type="button"
+          onClick={() => setShowScope((v) => !v)}
+          className={`text-xs underline ${dark ? 'text-slate-400' : 'text-slate-500'}`}
+        >
+          {showScope ? 'Hide detail' : 'What was checked'}
+        </button>
+      )}
+      {failed && showScope && <div className="text-xs">{detail}</div>}
+      {control.evidence && <div className="text-xs opacity-80">{control.evidence}</div>}
+    </div>
+  );
+}
+
+function LivePostureSection({ dark, cardCls, sectionLabel, sublabel }: {
   dark: boolean; cardCls: string; sectionLabel: string; sublabel: string;
 }) {
+  // `cardCls` was in the props type and passed by the caller, but never
+  // destructured — so the first two sections of the page rendered with
+  // no card chrome while every section below them had it. The thing you
+  // see first was the one thing that looked unfinished.
   const [attempt, setAttempt] = useState(0);
   const [posture, setPosture] = useState<any>(null);
   const [evaluation, setEvaluation] = useState<any>(null);
@@ -296,8 +438,16 @@ function LivePostureSection({ dark, sectionLabel, sublabel }: {
     verified: 'Verified', configured: 'Configured', not_checked: 'Not checked', failed: 'Failed',
   };
   const controls = posture?.security_baseline || [];
+  // A <div>, not a <section>, and not by accident: globals.css normalises
+  // every card's radius, border width and border colour through selectors
+  // scoped to `:is(div, button, a)`. `section` was never in that list, so
+  // a card rendered as one silently opts out of the whole card theme —
+  // this block had an 8px radius and a slate-200 hairline while every
+  // other card on the page had 16px and slate-300. Widening the global
+  // selector would also catch the two small inner panels in
+  // NodeConfigFrame and inflate them into full cards, so the fix is here.
   return (
-    <section className="space-y-4">
+    <div className={`${cardCls} p-5 space-y-4`}>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className={`text-base font-semibold ${sectionLabel}`}>Installation diagnostics</h2>
         <button type="button" onClick={() => setAttempt(value => value + 1)} disabled={loading}
@@ -308,7 +458,11 @@ function LivePostureSection({ dark, sectionLabel, sublabel }: {
       {errors.map(error => <p key={error} role="alert" className="text-sm text-red-600">{error}</p>)}
       {posture && <>
         <p className={`text-xs ${sublabel}`}>Response generated: {new Date(posture.as_of).toLocaleString()}. This is not an audit timestamp.</p>
-        <dl className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+        {/* sm, not md: three short facts fit side by side well below
+            768px, and the md breakpoint never engages on a window under
+            ~950px once display scaling is on — so these stacked into a
+            tall column on exactly the widths most people use. */}
+        <dl className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div><dt className={sublabel}>AI provider (current account)</dt>
             <dd className={sectionLabel}>{provider?.provider || 'Unknown'} {provider?.model || ''}</dd>
             <dd className={sublabel}>{labels[provider?.status] || 'Not checked'}; connection not tested here.</dd></div>
@@ -323,9 +477,32 @@ function LivePostureSection({ dark, sectionLabel, sublabel }: {
             <thead><tr className="border-b"><th className="py-2 pr-3">Control</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Evidence / scope</th><th className="py-2">Checked at</th></tr></thead>
             <tbody>{controls.map((control: any) => <tr key={control.key} className="border-b align-top">
               <td className="py-3 pr-3">{control.label}</td>
-              <td className="py-3 pr-3 whitespace-nowrap">{labels[control.status] || 'Not checked'}</td>
-              <td className={`py-3 pr-3 ${sublabel}`}>{control.detail}{control.evidence && <div>{control.evidence}</div>}</td>
-              <td className="py-3">{control.checked_at ? new Date(control.checked_at).toLocaleString() : 'Not checked'}</td>
+              <td className="py-3 pr-3 whitespace-nowrap">
+                <StatusPill status={control.status} label={labels[control.status] || 'Not checked'} dark={dark} />
+              </td>
+              {/* Order is the point. A reader seeing red needs three
+                  things, in this order: what is wrong, what to type, and
+                  only then the caveats. Previously all of it was one prose
+                  blob with the scope sentence first and no command at all,
+                  so the row reported a problem and left the reader to
+                  work out the fix. The scope line still matters — it is
+                  what stops the page overclaiming — but it is reference,
+                  so it collapses. */}
+              <td className={`py-3 pr-3 ${sublabel}`}>
+                <ControlEvidence
+                  control={control}
+                  dark={dark}
+                  // Re-fetch the whole posture rather than patching the one
+                  // row: the fix changes the install, and the next render
+                  // should show what a fresh check saw, not a local guess.
+                  onFixed={() => setAttempt((a) => a + 1)}
+                />
+              </td>
+              <td className="py-3 whitespace-nowrap">
+                {control.checked_at
+                  ? new Date(control.checked_at).toLocaleString()
+                  : <span className="text-slate-400">—</span>}
+              </td>
             </tr>)}</tbody>
           </table>
         </div>
@@ -337,7 +514,7 @@ function LivePostureSection({ dark, sectionLabel, sublabel }: {
           : evaluation ? 'No recorded evaluation run.' : 'Evidence unavailable.'}</p>
         <p className={`text-xs mt-1 ${sublabel}`}>Results cover only the recorded test run, not every model, connector or workload. Failed cases are not automatically explained by roadmap coverage.</p>
       </div>
-    </section>
+    </div>
   );
 }
 

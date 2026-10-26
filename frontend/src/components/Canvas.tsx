@@ -19,7 +19,7 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { useEditorPreferences, getEditorPreferences } from '../hooks/useEditorPreferences';
 import { uiConfirm } from '../ui/dialog';
 import { validateWorkflow, type ValidationIssue } from '../utils/validateWorkflow';
-import { contractFor, sideEffectClassFor, sideEffectLabel } from '../utils/nodeArity';
+import { contractFor } from '../utils/nodeArity';
 import { wouldCreateCycle } from '../utils/graphCycles';
 // 2026-05-19 (OSS-8): the standalone requireNamedWorkflow helper is
 // gone — the store's `ensureWorkflow` runs the prompt loop internally
@@ -1048,48 +1048,35 @@ function BottomToolbar({ rfInstance }: { rfInstance: ReactFlowInstance | null })
                 // No errors — clear any stale red borders before
                 // kicking off the sample run.
                 setStoreValidationErrors({});
-                // A6 — Sample-run side-effect guard. Sample is meant
-                // for fast preview; running side-effect nodes (sinks,
-                // HTTP calls, email/Slack sends, file deletes) on a
-                // sample dataset can produce REAL writes / messages /
-                // mutations against external systems. Require explicit
-                // confirmation listing the impacted nodes.
-                const sideEffectHits = nodes
-                  .filter((n) => {
-                    const t: string = (n.data as any)?.stepType || '';
-                    return sideEffectClassFor(t) !== null;
-                  })
-                  .map((n) => {
-                    const t: string = (n.data as any)?.stepType || '';
-                    const lbl = (n.data as any)?.label || t;
-                    return `• ${lbl} — ${sideEffectLabel(t) || 'has external side effects'}`;
-                  });
-                if (sideEffectHits.length > 0) {
-                  const proceed = await uiConfirm({
-                    title: 'Sample run will trigger real-world side effects',
-                    danger: true,
-                    confirmLabel: 'Run anyway',
-                    cancelLabel: 'Cancel',
-                    message:
-                      `This pipeline has ${sideEffectHits.length} step` +
-                      `${sideEffectHits.length === 1 ? '' : 's'} that touch the outside world. ` +
-                      `Sample runs execute them for real — they don't dry-run:\n\n` +
-                      sideEffectHits.slice(0, 8).join('\n') +
-                      (sideEffectHits.length > 8 ? `\n… and ${sideEffectHits.length - 8} more` : '') +
-                      `\n\nDeactivate side-effect nodes from their context menu (right-click → Deactivate) if you only want to preview the data path.`,
-                  });
-                  if (!proceed) return;
-                }
+                // 2026-10-26 — the "Sample run will trigger real-world
+                // side effects" confirmation is GONE, because the thing
+                // it warned about no longer happens. Sample now sends
+                // safety_mode=sample, and the executor short-circuits
+                // every side-effect node (R8b in _run_node_once): sinks
+                // hand their input straight downstream without writing,
+                // and actions report what they would have done.
+                //
+                // The dialog had told the operator to go and deactivate
+                // their sinks by hand "if you only want to preview the
+                // data path" — which is what a Sample run is for. Asking
+                // someone to disable half their pipeline before every
+                // preview, then clicking through a red warning, trains
+                // them to click through red warnings.
                 // No silent create — Sample runs the canvas IR directly
                 // via the ephemeral endpoint (2026-05-22). The store's
                 // runWorkflow handler picks the ephemeral path automatically
                 // when the canvas is unsaved or dirty. Save remains the
                 // only gesture that adds a row to the Pipelines list.
                 runWorkflow(false);
-                toast.info('Sample Run', 'Running with sample mode (limited rows for fast preview)');
+                toast.info(
+                  'Sample run',
+                  'First 100 rows. Destinations and other side-effect steps are skipped, not written.',
+                );
               }}
               disabled={isRunning || nodes.length === 0}
-              title={isRunning ? 'Sample run in progress — please wait' : 'Run Sample — preview with limited rows'}
+              title={isRunning
+                ? 'Sample run in progress — please wait'
+                : 'Run Sample — first 100 rows, destinations skipped (nothing is written)'}
               className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-60 disabled:cursor-wait transition-colors min-w-[110px] justify-center"
             >
               {isRunning ? (

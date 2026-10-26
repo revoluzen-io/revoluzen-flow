@@ -49,10 +49,24 @@ from revoluzen_flow.ai.tools.base import ToolDefinition
 # hatch. Keep this list small — every floor entry costs prompt tokens
 # even when the page wouldn't otherwise surface it.
 _FLOOR_TOOLS: tuple[str, ...] = (
-    "workspace_overview",   # generic "what's in this workspace" question
-    "recall_history",       # cross-cutting RAG retrieval
-    "lookup_help_topic",    # in-app help atlas
+    # Registered as `get_workspace_overview` — the bare name here matched
+    # nothing, so `_add`'s `name not in by_name` guard silently dropped it
+    # and the floor was two tools, not three (fixed 2026-10-26).
+    "get_workspace_overview",  # generic "what's in this workspace" question
+    "recall_history",          # cross-cutting RAG retrieval
+    "lookup_help_topic",       # in-app help atlas
 )
+
+# How many slots a prompt keyword may claim ahead of the page pack.
+#
+# Page packs run up to six tools; with the floor that alone fills the tight
+# (8) cap, so on those pages keyword boosts were unreachable — a security
+# or schedule question asked from the editor got the editor's tools and
+# nothing else. The prompt is the stronger signal (the user said what they
+# want; the page is only a prior), so it gets first refusal on a few slots.
+# Capped rather than unlimited so a prompt matching several groups cannot
+# crowd the page pack out entirely.
+_KEYWORD_RESERVE = 3
 
 
 # Page-specific tool packs. The page identifier comes from
@@ -120,6 +134,12 @@ _PAGE_TOOLS: dict[str, tuple[str, ...]] = {
         "get_installation_health",
     ),
     "trust": (
+        # First deliberately: floor(3) + this pack already fills the
+        # tight (8) cap, so anything after the 5th entry here is only a
+        # candidate on the looser cloud cap. The posture tool IS the
+        # subject of this page — without it the model answers security
+        # questions from general knowledge instead of this install.
+        "get_security_posture",
         "get_installation_health",
         "list_steward_findings",
         "get_user_role",
@@ -132,6 +152,16 @@ _PAGE_TOOLS: dict[str, tuple[str, ...]] = {
 # regardless of the current page. Order within a list matters — earlier
 # entries win if the cap is tight.
 _KEYWORD_TOOLS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    # Security posture — FIRST on purpose. A security question is usually
+    # also a "failing" question ("why is master key permissions failing"),
+    # and the failures group below would otherwise spend the first three
+    # slots on list_executions/recall_history before posture is reached.
+    # "not checked" is here because that is the literal status text users
+    # read off the page and paste into the Copilot.
+    (("security", "secure", "master key", "secret.key", "posture",
+      "encrypt", "icacls", "acl", "hardening", "harden", "not checked",
+      "security header", "vulnerab"),
+     ("get_security_posture",)),
     # Failures / errors / debugging
     (("fail", "error", "broke", "crash", "timeout"),
      ("list_executions", "recall_history", "get_installation_health")),
@@ -141,9 +171,12 @@ _KEYWORD_TOOLS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # Schedules
     (("schedule", "cron", "run at", "next run"),
      ("list_schedules", "get_next_scheduled")),
-    # Permissions / role
+    # Permissions / role. "permission" is ambiguous: it means RBAC ("who
+    # can run this pipeline") but also file permissions ("Master key
+    # permissions: Failed"). Both tools are candidates so the model picks
+    # from the wording rather than being handed only the RBAC one.
     (("role", "permission", "rbac", "who can"),
-     ("get_user_role",)),
+     ("get_user_role", "get_security_posture")),
     # Reports / output
     (("report", "summary", "summarise", "summarize"),
      ("compose_report", "summarize_pipeline")),
@@ -257,18 +290,33 @@ def select_tools(
     for name in ("web_search", "web_fetch"):
         _add(name)
 
-    # 2. Page bucket
+    # 2. Keyword boosts, up to the reserve. The prompt beats the page: a
+    # user asking about security from the editor means the security
+    # question, not the editor. Bounded by _KEYWORD_RESERVE so the page
+    # pack still gets most of the budget.
+    p = (prompt or "").lower()
+    keyword_picks: list[str] = []
+    for triggers, boosted in _KEYWORD_TOOLS:
+        if any(t in p for t in triggers):
+            for name in boosted:
+                if name in by_name and name not in keyword_picks:
+                    keyword_picks.append(name)
+    reserved_floor = len(picked)
+    for name in keyword_picks:
+        if len(picked) - reserved_floor >= _KEYWORD_RESERVE:
+            break
+        _add(name)
+
+    # 3. Page bucket
     bucket = _page_bucket(page)
     if bucket and bucket in _PAGE_TOOLS:
         for name in _PAGE_TOOLS[bucket]:
             _add(name)
 
-    # 3. Keyword boosts
-    p = (prompt or "").lower()
-    for triggers, boosted in _KEYWORD_TOOLS:
-        if any(t in p for t in triggers):
-            for name in boosted:
-                _add(name)
+    # 3b. Any keyword picks that did not fit the reserve — they still beat
+    # the alphabetical fill below, they just do not displace the page pack.
+    for name in keyword_picks:
+        _add(name)
 
     # 4. Deterministic fill — by-name alphabetical order. Stable for
     # cache keys; doesn't accidentally pick destructive tools first

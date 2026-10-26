@@ -11,9 +11,15 @@ import asyncio
 
 import pytest
 
-from revoluzen_flow.ai.tools import register_initial_tools
+from revoluzen_flow.ai.tools import INITIAL_TOOLS, OPTIONAL_WEB_TOOLS, register_initial_tools
 from revoluzen_flow.ai.tools.base import ToolContext, ToolTier
 from revoluzen_flow.ai.tools.registry import ToolRegistry
+
+# Derived, not hard-coded: these assertions are about the web tools being
+# added on top of the base set, not about any particular total. The old
+# literals (29 / 31) went stale every time a tool was registered.
+BASE_COUNT = len(INITIAL_TOOLS)
+WEB_COUNT = len(OPTIONAL_WEB_TOOLS)
 
 
 def _ctx() -> ToolContext:
@@ -25,7 +31,7 @@ def _ctx() -> ToolContext:
 def test_web_tools_absent_by_default(monkeypatch):
     monkeypatch.delenv("REVOLUZEN_FLOW_AI_WEB_ACCESS", raising=False)
     reg = register_initial_tools(ToolRegistry())
-    assert len(reg) == 29
+    assert len(reg) == BASE_COUNT
     assert "web_fetch" not in reg
     assert "web_search" not in reg
 
@@ -33,7 +39,7 @@ def test_web_tools_absent_by_default(monkeypatch):
 def test_web_tools_present_when_enabled(monkeypatch):
     monkeypatch.setenv("REVOLUZEN_FLOW_AI_WEB_ACCESS", "1")
     reg = register_initial_tools(ToolRegistry())
-    assert len(reg) == 31
+    assert len(reg) == BASE_COUNT + WEB_COUNT
     assert "web_fetch" in reg
     assert "web_search" in reg
     # Both are READ tier — no idempotency key, no confirmation gate.
@@ -152,18 +158,20 @@ def test_admin_setting_enables_web_access(monkeypatch):
     monkeypatch.setattr(web, "read_admin_web_settings", lambda: settings)
 
     reg = register_initial_tools(ToolRegistry())
-    assert "web_fetch" not in reg and len(reg) == 29
+    assert "web_fetch" not in reg and len(reg) == BASE_COUNT
 
     # Flip the admin setting ON → same registry reconciles to include them.
     settings["ai_web_access"] = True
     assert web.web_access_enabled() is True
     register_initial_tools(reg)
-    assert "web_fetch" in reg and "web_search" in reg and len(reg) == 31
+    assert "web_fetch" in reg and "web_search" in reg
+    assert len(reg) == BASE_COUNT + WEB_COUNT
 
     # Flip OFF → tools are removed again (live).
     settings["ai_web_access"] = False
     register_initial_tools(reg)
-    assert "web_fetch" not in reg and "web_search" not in reg and len(reg) == 29
+    assert "web_fetch" not in reg and "web_search" not in reg
+    assert len(reg) == BASE_COUNT
 
 
 def test_web_search_searxng_parse(monkeypatch):

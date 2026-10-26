@@ -15,8 +15,9 @@
  * Destructive actions (Delete, Drop, Replace) warn first when usage
  * exists so a user doesn't silently corrupt a downstream pipeline.
  *
- * Theme: canonical 78px sticky header, slate gradient, HeroCard KPIs,
- * RowActionButton for row actions — matches Pipelines + Connections.
+ * Theme: canonical 78px sticky header, slate gradient, counts on the
+ * tabs rather than a KPI card strip, RowActionButton for row actions —
+ * matches Pipelines.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -25,7 +26,6 @@ import { toast } from '../Toast';
 import { uiConfirm } from '../../ui/dialog';
 import { useDarkMode } from '../../hooks/useDarkMode';
 import { DelayedSkeleton } from '../shared/Skeleton';
-import HeroCard from '../shared/HeroCard';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
 import RowActionButton from '../shared/RowActionButton';
@@ -740,6 +740,18 @@ export default function StoragePage({
                   }`}
                 >
                   {t.icon} {t.label}
+                  {/* Count moved here from the removed KPI cards — the
+                      cards repeated these three labels verbatim, one row
+                      above the tabs that carry them. A number on the tab
+                      both informs and filters. */}
+                  {(() => {
+                    const n = summary
+                      ? t.key === 'files' ? summary.file_count
+                        : t.key === 'tables' ? summary.table_count
+                          : summary.output_count
+                      : null;
+                    return n ? <span className="ml-0.5 text-xs opacity-70">{n}</span> : null;
+                  })()}
                 </button>
               );
             })}
@@ -816,67 +828,16 @@ export default function StoragePage({
           </span>
         </div>
 
-        {/* KPI strip */}
-        {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-            <HeroCard
-              gradient={isProd ? 'from-blue-500 to-sky-600' : 'from-blue-400 to-sky-500'}
-              icon={
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              }
-              dense
-              label="Files"
-              value={String(summary.file_count)}
-              footer={formatBytes(summary.file_size_bytes)}
-            />
-            <HeroCard
-              gradient={isProd ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500'}
-              icon={
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <ellipse cx="12" cy="5" rx="9" ry="3" />
-                  <path d="M3 5v6c0 1.66 4.03 3 9 3s9-1.34 9-3V5" />
-                  <path d="M3 11v6c0 1.66 4.03 3 9 3s9-1.34 9-3v-6" />
-                </svg>
-              }
-              dense
-              label="Managed Tables"
-              value={String(summary.table_count)}
-              footer={formatBytes(summary.table_size_bytes)}
-            />
-            <HeroCard
-              gradient={isProd ? 'from-indigo-500 to-indigo-600' : 'from-indigo-400 to-indigo-500'}
-              icon={
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 3h18v18H3z" />
-                  <path d="M3 9h18" />
-                  <path d="M9 21V9" />
-                </svg>
-              }
-              dense
-              label="Pipeline Outputs"
-              value={String(summary.output_count)}
-              footer={formatBytes(summary.output_size_bytes)}
-            />
-            <HeroCard
-              gradient={isProd ? 'from-slate-400 to-slate-500' : 'from-slate-300 to-slate-400'}
-              icon={
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6" />
-                  <path d="M10 11v6" />
-                  <path d="M14 11v6" />
-                </svg>
-              }
-              dense
-              label="Trash"
-              value={String(summary.trash_count)}
-              footer={formatBytes(summary.trash_size_bytes)}
-            />
-          </div>
-        )}
+        {/* 2026-10-26 — the four-card KPI strip that sat here is gone.
+            Three of its cards (Files / Managed Tables / Pipeline Outputs)
+            repeated the tab labels directly below them, so the page said
+            the same three words twice before showing any content; at
+            727px the grid stacked 2 x 2 and cost 188px, a quarter of the
+            viewport, above a table holding one row. The counts moved onto
+            the tabs, which filter as well as report. Nothing was lost:
+            per-file sizes are a column in the table, and Trash already
+            has its own section further down (with the cleanup action),
+            so its card was a third copy of the same number. */}
 
         {loading ? (
           <DelayedSkeleton>

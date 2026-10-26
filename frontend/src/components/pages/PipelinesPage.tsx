@@ -33,7 +33,6 @@ import ProjectContextBar from '../layout/ProjectContextBar';
 import { PlanModal } from '../PlanModal';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
-import HeroCard from '../shared/HeroCard';
 import { DelayedSkeleton, SkeletonTableRow } from '../shared/Skeleton';
 import MoveToProjectButton from '../shared/MoveToProjectButton';
 import { DensityToggle, useDensity } from '../shared/DensityToggle';
@@ -1541,22 +1540,12 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       });
     return () => { cancelled = true; };
   }, [projectId, folderRefreshTick]);
-  // Stats panel toggle — collapses the KPI grid (Total / Active /
-  // Drafts / Failed / Running / Scheduled). Persisted to localStorage
-  // so the user's preference survives reloads. Same pattern as the
-  // Executions page Stats button.
-  const [showDashboard, setShowDashboard] = useState<boolean>(() => {
-    // 2026-10-25 — defaults OFF. Every list page opened with a row of
-    // KPI cards above the table, and on a new instance every card reads
-    // 0, so the first thing the page says is nothing. The table is the
-    // work; the stats are a glance. Still one click away, still
-    // remembered per user.
-    try { return localStorage.getItem('revoluzen_flow_workflows_show_stats') === '1'; }
-    catch { return false; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('revoluzen_flow_workflows_show_stats', showDashboard ? '1' : '0'); } catch {}
-  }, [showDashboard]);
+  // The KPI panel and its persisted show/hide flag were removed on
+  // 2026-10-26 — the filter tabs and the header subtitle already carry
+  // every figure it showed. The old `revoluzen_flow_workflows_show_stats`
+  // key is simply left behind in localStorage; nothing reads it, and
+  // deleting other people's stored keys on upgrade is not worth a
+  // migration.
   const [sortBy, setSortBy] = useState<'name' | 'updated_at' | 'status'>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -4145,7 +4134,16 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         }
         title="Pipelines"
         titleAccessory={<TierChip tier={tier} environment={environment} />}
-        subtitle={`${pipelines.length} pipeline${pipelines.length !== 1 ? 's' : ''} · ${pipelines.filter(p => p.status === 'success').length} active`}
+        subtitle={(() => {
+          // Total and active were duplicated by the removed KPI panel;
+          // `scheduled` was the only figure it carried that no filter tab
+          // shows, so it lands here — and only when non-zero, so the line
+          // stays quiet on an instance with nothing scheduled.
+          const scheduled = Object.keys(scheduleMap).filter(id => pipelines.some(p => p.id === id)).length;
+          const active = pipelines.filter(p => p.status === 'success').length;
+          return `${pipelines.length} pipeline${pipelines.length !== 1 ? 's' : ''} · ${active} active`
+            + (scheduled > 0 ? ` · ${scheduled} scheduled` : '');
+        })()}
         tabs={
           <HubTabs
             tabs={WORKFLOWS_TABS}
@@ -4161,23 +4159,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           // that keeps every action reachable — the header grows a row
           // instead of hiding a button.
           <div className="flex flex-wrap justify-end items-center gap-2">
-            {/* Stats toggle — collapses/shows the KPI grid (Total /
-                Active / Drafts / Failed / Running / Scheduled). Same
-                affordance as the Executions page Stats button. */}
-            <button
-              onClick={() => setShowDashboard(s => !s)}
-              title={showDashboard ? 'Hide KPI cards' : 'Show KPI cards'}
-              className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                showDashboard
-                  ? 'bg-blue-50 text-blue-600 border-blue-200'
-                  : 'bg-white text-slate-500 border-slate-200 hover:text-slate-600'
-              }`}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline mr-1 -mt-0.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M9 21V9" />
-              </svg>
-              Stats
-            </button>
+            {/* The Stats toggle went with the KPI panel it controlled —
+                a button that shows nothing is worse than no button. */}
             {/* Export moved to canonical navy summary strip (Apr 18).
                 The rich multi-level Export dropdown lives above the table
                 so users get one Export per page. */}
@@ -4262,70 +4245,17 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       )}
 
       <div className="w-full max-w-[1500px] mx-auto px-6 py-5">
-        {/* Hero KPI cards — matches Executions / Dashboard / Pool visual
-            family (HeroCard with gradient backgrounds, centered icon + value).
-            DEV uses lighter 400→500 gradients; PROD uses richer 500→600.
-            Wrapped in showDashboard so the Stats button in the header
-            collapses the entire KPI strip. */}
-        {showDashboard && (() => {
-          // 2026-05-22: this IIFE renders inside the DEV branch of the
-          // function — the `if (isProd) { ... return ... }` early-return
-          // at line ~2832 means we only reach this code path when
-          // environment === 'dev'. TS narrows `environment` accordingly,
-          // so the prior `environment === 'prod'` check was dead code
-          // (TS flagged it as a no-overlap comparison). Constant-fold to
-          // false so the KPI gradients pick the DEV variants consistently.
-          const isProd = false;
-          const total = pipelines.length;
-          const active = pipelines.filter(p => {
-            const s = normalizeStatus(p.status);
-            return s === 'success' || s === 'published';
-          }).length;
-          const drafts = pipelines.filter(p => normalizeStatus(p.status) === 'draft').length;
-          const failed = pipelines.filter(p => normalizeStatus(p.status) === 'failed').length;
-          const running = pipelines.filter(p => normalizeStatus(p.status) === 'running').length;
-          const scheduled = Object.keys(scheduleMap).filter(id => pipelines.some(p => p.id === id)).length;
-          return (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-              <HeroCard
-                gradient={isProd ? 'from-indigo-500 to-indigo-600' : 'from-indigo-400 to-indigo-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>}
-                label="Total"
-                value={String(total)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
-                label="Active"
-                value={String(active)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-slate-400 to-slate-500' : 'from-slate-300 to-slate-400'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>}
-                label="Drafts"
-                value={String(drafts)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-red-500 to-rose-600' : 'from-red-400 to-rose-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>}
-                label="Failed"
-                value={String(failed)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-blue-500 to-sky-600' : 'from-blue-400 to-sky-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg>}
-                label="Running"
-                value={String(running)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-violet-500 to-purple-600' : 'from-violet-400 to-purple-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
-                label="Scheduled"
-                value={String(scheduled)}
-              />
-            </div>
-          );
-        })()}
+        {/* 2026-10-26 — the KPI panel above this table is GONE, not just
+            shrunk. It was six HeroCards (260px — a third of the viewport
+            below 768px, where the grid stacks 2 × 3), and every figure it
+            showed was already on screen twice over: the filter tabs
+            immediately below carry a count for Published / Draft / All /
+            Running / Failed / Archived, and the header subtitle carries
+            total and active. Two rows of the same numbers, one of which
+            also filtered, invited the reader to wonder what the
+            difference was. The filters stay, because they DO something;
+            `scheduled` was the one figure with no tab, so it moved into
+            the subtitle rather than being dropped. */}
 
         {/* Bulk actions bar (shown when items selected) */}
         {selectedIds.size > 0 && (

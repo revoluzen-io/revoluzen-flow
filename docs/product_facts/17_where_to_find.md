@@ -167,7 +167,7 @@ OSS Free has no approval workflow.
 
 ## Where do I find the master encryption key file?
 
-`~/.revoluzen-flow/secret.key` on POSIX (or `$REVOLUZEN_FLOW_DATA_DIR/secret.key` if `REVOLUZEN_FLOW_DATA_DIR` is set). Created on first run; chmod 600. **Back this up** — without it, encrypted credentials are unrecoverable.
+`~/.revoluzen-flow/secret.key` on POSIX (or `$REVOLUZEN_FLOW_DATA_DIR/secret.key` if `REVOLUZEN_FLOW_DATA_DIR` is set). Created on first run; chmod 600 on POSIX, or an NTFS ACL limited to SYSTEM, Administrators and the owner on Windows. **Back this up** — without it, encrypted credentials are unrecoverable. To check how it is protected on this install: Settings → Security & Diagnostics → **Master key permissions**.
 
 To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/secret.key`.
 

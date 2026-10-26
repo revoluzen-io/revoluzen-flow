@@ -110,9 +110,91 @@ def master_key_path() -> Path:
     return Path.home() / ".revoluzen-flow" / "secret.key"
 
 
+#: Paths whose ACL this process has already settled. Callers construct an
+#: Encryptor freely (`Encryptor.from_master_key()` is not cached), and
+#: reading an NTFS DACL through pywin32 on every one of those would be a
+#: pointless cost — the answer cannot change without someone editing the
+#: ACL out from under a running process.
+_WINDOWS_ACL_SETTLED: set[str] = set()
+
+
+def _harden_existing_key_windows(path: Path) -> None:
+    """Lock down a key file that already exists, at load time.
+
+    Creation has hardened the key since 2026-10-26, but that only ever
+    helped NEW installs. An install created before then — or one whose
+    data directory was later moved to a shared location — kept its
+    inherited ACL until someone opened Settings → Security & Diagnostics
+    and pressed "Fix this". Most operators never will, and a key that
+    decrypts every stored credential should not be waiting on a page
+    visit. So the load path repairs it.
+
+    This does NOT refuse to start the way the POSIX branch does, and the
+    difference is deliberate. On POSIX the app owns the file it created
+    and `chmod 600` essentially cannot fail, so refusing is safe. On
+    Windows the app may legitimately lack the right to rewrite the DACL
+    (a service account that is not the owner, a locked-down share), and
+    refusing there would turn a hardening improvement into an outage for
+    installs that work today. When hardening does not take, the process
+    starts, logs loudly, and the Security & Diagnostics page still shows
+    the control as failed with the exact command to run.
+    """
+    key = str(path)
+    if key in _WINDOWS_ACL_SETTLED:
+        return
+    try:
+        from revoluzen_flow.security.win_acl import harden_file, read_acl
+
+        acl = read_acl(path)
+        if acl is None:
+            # pywin32 missing — we cannot tell, so we do not touch the
+            # file. Hardening blind could strip an ACE the deployment
+            # needs, and the page already reports this as `not_checked`.
+            _WINDOWS_ACL_SETTLED.add(key)
+            return
+        if not acl["exposed"]:
+            _WINDOWS_ACL_SETTLED.add(key)
+            return
+
+        exposed = ", ".join(label for _sid, label in acl["exposed"][:4])
+        logger.warning(
+            "Revoluzen Flow: master key %s is readable by %s. Tightening its ACL.",
+            path, exposed,
+        )
+        harden_file(path)
+
+        after = read_acl(path)
+        if after is not None and not after["exposed"]:
+            logger.info(
+                "Revoluzen Flow: master key %s restricted to SYSTEM, "
+                "Administrators and the owner.", path,
+            )
+        else:
+            still = after["exposed"] if after else []
+            logger.error(
+                "Revoluzen Flow: could NOT restrict master key %s — still "
+                "readable by %s. Fix it on Settings -> Security & Diagnostics, "
+                "or run: icacls \"%s\" /inheritance:r /grant:r "
+                "\"*S-1-5-18:(F)\" \"*S-1-5-32-544:(F)\"",
+                path, ", ".join(lbl for _s, lbl in still[:4]) or "other principals",
+                path,
+            )
+    except Exception:  # noqa: BLE001 — hardening must never block startup
+        logger.debug("Windows key hardening skipped", exc_info=True)
+    finally:
+        _WINDOWS_ACL_SETTLED.add(key)
+
+
 def _verify_perms(path: Path) -> None:
-    """Refuse world-readable key files on POSIX. No-op on Windows where
-    NTFS ACLs are the responsibility of the operator's deployment."""
+    """Refuse world-readable key files on POSIX; repair them on Windows.
+
+    The two platforms differ because what the app can guarantee differs —
+    see `_harden_existing_key_windows` for why Windows repairs instead of
+    refusing.
+    """
+    if os.name == "nt":
+        _harden_existing_key_windows(path)
+        return
     if os.name != "posix":
         return
     try:
@@ -161,15 +243,26 @@ def load_or_create_master_key() -> bytes:
     # First run — generate and persist.
     key = Fernet.generate_key()
     path.write_bytes(key)
+    hardened = "unrestricted"
     if os.name == "posix":
         try:
             os.chmod(path, 0o600)
+            hardened = "mode 600"
         except OSError:
             pass
+    elif os.name == "nt":
+        # Windows got no hardening at all until 2026-10-26: the key was
+        # written with whatever ACL it inherited from the data directory,
+        # so pointing REVOLUZEN_FLOW_DATA_DIR at a shared location handed
+        # the key that decrypts every stored credential to whoever could
+        # read that directory — silently, because nothing checked either.
+        from revoluzen_flow.security.win_acl import harden_file
+        if harden_file(path):
+            hardened = "restricted to SYSTEM, Administrators and the owner"
     logger.info(
-        "Revoluzen Flow: created new master key at %s (mode 600). "
+        "Revoluzen Flow: created new master key at %s (%s). "
         "Back this file up — without it, encrypted credentials are unrecoverable.",
-        path,
+        path, hardened,
     )
     return key
 

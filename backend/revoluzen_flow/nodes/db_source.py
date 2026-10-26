@@ -543,7 +543,16 @@ class DbSourceNode(BaseNode):
 
         # Dev sample limit — dialect-aware.
         if not ctx.full_run:
-            limit = int(self.params.get("sample_rows", DEV_SAMPLE_ROWS))
+            # A Sample run's explicit cap wins over this node's default,
+            # so every source in the run reads the same number of rows.
+            # The node's own `sample_rows` still wins over both — that one
+            # the operator set deliberately.
+            preview_cap = getattr(ctx, "sample_row_limit", None)
+            limit = int(
+                self.params.get("sample_rows")
+                if self.params.get("sample_rows") is not None
+                else (preview_cap if preview_cap else DEV_SAMPLE_ROWS)
+            )
             up = query.upper()
             already_capped = "LIMIT" in up or " TOP " in up or " TOP(" in up
             if limit > 0 and not already_capped:

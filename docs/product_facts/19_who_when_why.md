@@ -209,6 +209,30 @@ forces the operator to fix the permissions before damage accumulates.
 
 To fix: `chmod 600 ~/.revoluzen-flow/secret.key`.
 
+**This is POSIX behaviour.** On Windows, Revoluzen Flow tightens the
+key's NTFS ACL instead of refusing — see the next entry for why.
+
+### Why does Windows repair the key's permissions instead of refusing to start?
+
+Because what the app can guarantee differs by platform. On POSIX it
+owns the file it created and `chmod 600` essentially cannot fail, so
+refusing costs nothing and catches a real misconfiguration. On Windows
+the process may legitimately lack the right to rewrite a DACL — a
+service account that is not the file's owner, a locked-down share, a
+container bind mount. Refusing there would take installs that work
+today and stop them booting, turning a hardening improvement into an
+outage.
+
+So Windows reads the ACL at load, tightens it to SYSTEM, Administrators
+and the owner if anyone else can read it, and starts either way. When
+the repair does not take it logs an error and Settings → Security &
+Diagnostics reports **Master key permissions: Failed** with a **Fix
+this** button and the exact `icacls` command — visible rather than
+silent, which is the property that actually matters.
+
+Before 2026-10-26 Windows did neither: the key inherited whatever ACL
+its directory had, and nothing ever looked.
+
 ### Why is bulk-loader faster than INSERT?
 
 `Database Sink` does row-by-row `INSERT INTO ... VALUES (...)` with
