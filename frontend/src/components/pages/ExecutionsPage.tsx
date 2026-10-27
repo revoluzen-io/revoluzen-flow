@@ -297,6 +297,63 @@ const LINEAGE_STATUS_STYLES: Record<string, { bg: string; border: string; text: 
   skipped: { bg: 'bg-slate-50', border: 'border-slate-200', text: 'text-slate-500', glow: '', icon: '→' },
 };
 
+/** A captured output sample, as a table rather than a JSON blob.
+ *  Column order follows the captured schema when there is one, so the
+ *  sample reads in the same order as the dataset; otherwise it falls
+ *  back to key order across the rows. */
+function SampleRowsTable({
+  rows,
+  schema,
+}: {
+  rows: Record<string, any>[];
+  schema?: Array<{ name: string; dtype?: string }>;
+}) {
+  const columns = schema?.length
+    ? schema.map((c) => c.name)
+    : [...new Set(rows.flatMap((r) => Object.keys(r || {})))];
+  const dtypeOf = new Map((schema || []).map((c) => [c.name, c.dtype]));
+  const render = (v: any) =>
+    v === null || v === undefined
+      ? '—'
+      : typeof v === 'object'
+        ? JSON.stringify(v)
+        : String(v);
+  return (
+    <table className="w-full text-xs font-mono border-collapse">
+      <thead>
+        <tr className="border-b border-slate-200">
+          {columns.map((c) => (
+            <th key={c} className="px-1.5 py-1 text-left align-bottom">
+              <div className="font-sans font-semibold text-slate-600 normal-case">{c}</div>
+              {dtypeOf.get(c) && (
+                <div className="text-[9px] uppercase tracking-wider text-slate-400 font-sans">
+                  {dtypeOf.get(c)}
+                </div>
+              )}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className="border-b border-slate-100 last:border-0">
+            {columns.map((c) => (
+              <td
+                key={c}
+                className={`px-1.5 py-1 whitespace-nowrap ${
+                  typeof r?.[c] === 'number' ? 'text-right tabular-nums text-slate-800' : 'text-slate-700'
+                }`}
+              >
+                {render(r?.[c])}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** Single active-filter chip rendered in the filter bar's "Active"
  *  row. The × button clears just this filter without nuking the
  *  others — much friendlier than the original blanket "Clear filters"
@@ -358,6 +415,57 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
   const [expandedSteps, setExpandedSteps] = useState<Record<string, boolean>>({});
   const toggleStepExpand = (stepId: string) =>
     setExpandedSteps((prev) => ({ ...prev, [stepId]: !prev[stepId] }));
+  // Captured samples for the expanded rows. They are NOT on the step log:
+  // `StepLog.output_preview` is a legacy fallback that the engine never
+  // writes, so reading it showed "No output sample captured" on every run
+  // that had in fact captured one. The samples live in the step_outputs
+  // store and are served per step, so fetch them when a row opens.
+  const [stepIO, setStepIO] = useState<
+    Record<string, { loading: boolean; output?: any; inputs?: any[] }>
+  >({});
+  // Which steps have already been asked for, so re-renders don't refetch.
+  // This is a ref, not the stepIO map itself: making the fetched map a
+  // dependency of the effect that fills it re-runs the effect on the
+  // first setState, and the cleanup then cancels the request still in
+  // flight — the panel sticks on "Loading sample…" forever.
+  const stepIORequested = useRef(new Set<string>());
+  useEffect(() => {
+    stepIORequested.current = new Set();
+    setStepIO({});
+  }, [selectedExec?.id]);
+  useEffect(() => {
+    const execId = selectedExec?.id;
+    if (!execId) return;
+    const pending = Object.keys(expandedSteps).filter(
+      (id) => expandedSteps[id] && !stepIORequested.current.has(id),
+    );
+    if (pending.length === 0) return;
+    for (const id of pending) stepIORequested.current.add(id);
+    setStepIO((prev) => {
+      const next = { ...prev };
+      for (const id of pending) next[id] = { loading: true };
+      return next;
+    });
+    for (const stepId of pending) {
+      Promise.allSettled([
+        api.getStepOutput(execId, stepId),
+        api.getStepInput(execId, stepId),
+      ]).then(([out, inp]) => {
+        // Guard on the run, not on a cleanup flag: the user may collapse
+        // and reopen the row while this is in flight, and the answer is
+        // still correct for as long as the same run is selected.
+        if (selectedExec?.id !== execId) return;
+        setStepIO((prev) => ({
+          ...prev,
+          [stepId]: {
+            loading: false,
+            output: out.status === 'fulfilled' ? out.value : undefined,
+            inputs: inp.status === 'fulfilled' ? inp.value.inputs : undefined,
+          },
+        }));
+      });
+    }
+  }, [expandedSteps, selectedExec?.id]);
   // Step-IO drawer — opened by clicking a node in the lineage tab to
   // inspect that step's captured input/output for the selected run.
   const [ioStep, setIOStep] = useState<{ stepId: string; label?: string } | null>(null);
@@ -2805,6 +2913,19 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                           const upstreamLogs = upstreams
                             .map((id) => stepLogById.get(id))
                             .filter(Boolean);
+                          // Captured samples, fetched on expand. Fall back to
+                          // the log's legacy output_preview if the store has
+                          // nothing (pre-capture runs still carry it).
+                          const io = stepIO[step.step_id];
+                          const outRows: any[] =
+                            io?.output?.sample_rows?.length
+                              ? io.output.sample_rows
+                              : Array.isArray(step.output_preview)
+                                ? step.output_preview
+                                : [];
+                          const inputsByStep = new Map(
+                            (io?.inputs || []).map((i: any) => [i.source_step_id, i]),
+                          );
                           return (
                             <Fragment key={step.step_id}>
                               <tr
@@ -2885,20 +3006,32 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                             <div className="text-xs text-slate-500 italic">
                                               {upstreams.length > 0 ? 'Upstream step did not produce captured output.' : 'Source step — no upstream input.'}
                                             </div>
-                                          ) : upstreamLogs.map((u: any) => (
-                                            <div key={u.step_id} className="mb-2 last:mb-0">
-                                              <div className="text-xs font-mono text-slate-500 mb-1">
-                                                ← {u.step_name || u.step_id} ({(u.rows_processed ?? 0).toLocaleString()} rows)
+                                          ) : upstreamLogs.map((u: any) => {
+                                            const captured = inputsByStep.get(u.step_id);
+                                            const rows: any[] = captured?.sample_rows?.length
+                                              ? captured.sample_rows
+                                              : Array.isArray(u.output_preview)
+                                                ? u.output_preview
+                                                : [];
+                                            return (
+                                              <div key={u.step_id} className="mb-2 last:mb-0">
+                                                <div className="text-xs font-mono text-slate-500 mb-1">
+                                                  ← {u.step_name || u.step_id} ({(u.rows_processed ?? 0).toLocaleString()} rows)
+                                                </div>
+                                                {rows.length > 0 ? (
+                                                  <pre className="text-xs font-mono text-slate-700 bg-slate-50 rounded px-2 py-1.5 whitespace-pre-wrap break-all">
+                                                    {JSON.stringify(rows.slice(0, 3), null, 2)}
+                                                  </pre>
+                                                ) : io?.loading ? (
+                                                  <div className="text-xs text-slate-400 italic">Loading sample…</div>
+                                                ) : captured?.sample_pruned ? (
+                                                  <div className="text-xs text-slate-500 italic">Sample expired after 30 days.</div>
+                                                ) : (
+                                                  <div className="text-xs text-slate-500 italic">No sample data captured.</div>
+                                                )}
                                               </div>
-                                              {Array.isArray(u.output_preview) && u.output_preview.length > 0 ? (
-                                                <pre className="text-xs font-mono text-slate-700 bg-slate-50 rounded px-2 py-1.5 whitespace-pre-wrap break-all">
-                                                  {JSON.stringify(u.output_preview.slice(0, 3), null, 2)}
-                                                </pre>
-                                              ) : (
-                                                <div className="text-xs text-slate-500 italic">No sample data captured.</div>
-                                              )}
-                                            </div>
-                                          ))}
+                                            );
+                                          })}
                                         </div>
                                       </div>
 
@@ -2916,12 +3049,17 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                             <div className="text-xs text-red-500 break-all whitespace-pre-wrap font-mono">
                                               {step.error_message || 'Step errored — no output produced.'}
                                             </div>
-                                          ) : Array.isArray(step.output_preview) && step.output_preview.length > 0 ? (
-                                            <pre className="text-xs font-mono text-slate-700 whitespace-pre-wrap break-all">
-                                              {JSON.stringify(step.output_preview.slice(0, 5), null, 2)}
-                                            </pre>
+                                          ) : outRows.length > 0 ? (
+                                            <SampleRowsTable
+                                              rows={outRows.slice(0, 5)}
+                                              schema={io?.output?.schema}
+                                            />
+                                          ) : io?.loading ? (
+                                            <div className="text-xs text-slate-400 italic">Loading sample…</div>
                                           ) : step.status === 'skipped' ? (
                                             <div className="text-xs text-slate-500 italic">Step was skipped.</div>
+                                          ) : io?.output?.sample_pruned ? (
+                                            <div className="text-xs text-slate-500 italic">Sample expired after 30 days.</div>
                                           ) : (
                                             <div className="text-xs text-slate-500 italic">No output sample captured.</div>
                                           )}

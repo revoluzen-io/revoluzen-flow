@@ -1,25 +1,22 @@
-<p align="center">
-  <a href="https://revoluzen.io"><img src="docs/assets/revoluzen-logo.png" alt="Revoluzen" width="88" height="88"></a>
-</p>
+<div align="center">
 
-<h1 align="center">Revoluzen Flow</h1>
+<a href="https://revoluzen.io"><img src="docs/assets/revoluzen-logo.png" alt="Revoluzen" width="96" height="96"></a>
 
-<p align="center">
-  <strong>Local-first data pipeline engine.</strong><br>
-  Visual ETL on a vectorised DuckDB core — on your laptop, your VM, your rules.
-</p>
+# Revoluzen Flow
 
-<p align="center">
-  <a href="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml"><img src="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
-  <a href="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml"><img src="https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml/badge.svg?branch=main" alt="Security Scan"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0"></a>
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/python-3.11+-blue" alt="Python 3.11+"></a>
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/status-1.0.1-blue" alt="Status: 1.0.1"></a>
-</p>
+### Local-first data pipeline engine
 
-<p align="center">
-  Built and maintained by <a href="https://revoluzen.io"><strong>Revoluzen</strong></a>
-</p>
+**Visual ETL on a vectorised DuckDB core — on your laptop, your VM, your rules.**
+
+[![CI](https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/ci.yml)
+[![Security Scan](https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml/badge.svg?branch=main)](https://github.com/revoluzen-io/revoluzen-flow/actions/workflows/security-scan.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-0b3c47?style=flat-square)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-0b3c47?style=flat-square)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-1.0.1-c9a227?style=flat-square)](CHANGELOG.md)
+
+[Quick start](#quick-start) · [What it looks like](#what-it-looks-like) · [Why](#why-revoluzen-flow) · [Connectors](#connectors) · [Docs](docs/)
+
+</div>
 
 ---
 
@@ -30,33 +27,36 @@ python -m revoluzen_flow open
 
 The backend boots on loopback, your browser opens, and you're in.
 
-Vectorised DuckDB engine · built-in scheduler, alerts and run history · 40 node
-types · embedded AI assistance that defaults to a local model · an open
-connector framework you can extend in minutes. Apache 2.0 forever, with
-predictable seat pricing for teams via Revoluzen Flow Enterprise.
+<div align="center">
+  <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a 15-node pipeline from CSV, Postgres and REST sources through validation, join, FX lookup, aggregation and a conditional branch to a managed table, a CSV export and a Slack alert" width="100%">
+  <em>Build pipelines on a canvas · 105 node types · run, schedule and alert from the same place</em>
+</div>
 
-> **Status: 1.0.1 stable.** The full test suite runs on **Python 3.11 and
-> 3.13** in CI (3.12 is smoke-tested and sits between the two) · Docker 25+ ·
-> DuckDB 1.1.3 · Postgres 16. See [CHANGELOG.md](CHANGELOG.md) for the full
-> tested-with matrix and known gaps. PyPI, Docker and source installs are all
-> supported today; prebuilt desktop installers are still pending.
+> [!NOTE]
+> **1.0.1 stable.** The full test suite runs on **Python 3.11 and 3.13** in CI
+> (3.12 is smoke-tested and sits between the two) · Docker 25+ · DuckDB 1.1.3 ·
+> Postgres 16. PyPI, Docker and source installs are all supported today;
+> prebuilt desktop installers are still pending. See
+> [CHANGELOG.md](CHANGELOG.md) for the tested-with matrix and known gaps.
 
 ## Contents
 
-- [Quick start](#quick-start) — pick an install path
-- [First run](#first-run) — from install to real output in a minute
-- [Running it](#running-it) — ports, background service, cloud
-- [Why Revoluzen Flow](#why-revoluzen-flow)
-- [Connectors](#connectors)
-- [Steward reliability layer](#steward-reliability-layer)
-- [Editions](#editions)
-- [Install troubleshooting](#install-troubleshooting)
-- [License](#license) · [Contributing](#contributing) · [Security](#security) · [Links](#links)
+| | |
+|---|---|
+| [🚀 Quick start](#quick-start) | Pick an install path |
+| [🖼 What it looks like](#what-it-looks-like) | The product, in screens |
+| [▶️ First run](#first-run) | Install to real output in a minute |
+| [⚙️ Running it](#running-it) | Ports, background service, cloud |
+| [💡 Why Revoluzen Flow](#why-revoluzen-flow) | What you get, and why it matters |
+| [🔌 Connectors](#connectors) | An open framework, not a vendor queue |
+| [🛡 Steward](#steward-reliability-layer) | Read-only pipeline health |
+| [📦 Editions](#editions) | OSS vs Enterprise |
+| [🔧 Install troubleshooting](#install-troubleshooting) | Every failure we know about |
 
 ## Quick start
 
 Revoluzen Flow is a **self-hosted server plus web app** — a backend that serves
-a browser UI, not a desktop program. Pick the path that fits you:
+a browser UI, not a desktop program.
 
 | You are | Path | Time |
 |---|---|---|
@@ -65,9 +65,10 @@ a browser UI, not a desktop program. Pick the path that fits you:
 | On Linux and would rather not run Docker | **[Linux package](#linux-package)** — `.deb` / `.rpm` / `.AppImage` | 2 min |
 | A developer or contributor | **[From source](#from-source)** | 10 min |
 
-Hitting an error? Everything we know about install failures is collected in
-[Install troubleshooting](#install-troubleshooting) rather than scattered
-through these steps.
+> [!TIP]
+> Hitting an error? Everything we know about install failures is collected in
+> [Install troubleshooting](#install-troubleshooting) rather than scattered
+> through these steps.
 
 ### Docker Compose
 
@@ -80,16 +81,15 @@ docker compose up -d            # Revoluzen Flow only
 docker compose --profile ai up -d   # Revoluzen Flow + local Ollama
 ```
 
-Open <http://localhost:8001>.
+Open <http://localhost:8001>. Upgrade later with `docker compose pull && docker compose up -d`.
 
+> [!IMPORTANT]
 > **The image builds locally on first run** — `revoluzen/flow` is not on Docker
 > Hub yet. `docker-compose.yml` declares `build: context: .`, so
 > `docker compose up` builds it from the `Dockerfile` at repo root: ~3–5 min,
 > one time, and no `pull access denied` despite the image name. `docker compose
 > pull` will fail until the image is published — use `docker compose build` to
 > pick up changes.
-
-To upgrade later: `docker compose pull && docker compose up -d`.
 
 <details>
 <summary><strong>Single container instead of compose</strong></summary>
@@ -137,8 +137,8 @@ found, `python -m revoluzen_flow open` always works — see
 ### Linux package
 
 Bundles a frozen Python runtime and the compiled UI — no Python, no Node, no
-Docker needed on the target machine. After install, Revoluzen Flow registers
-itself as a systemd **user** service that starts at login and survives reboots.
+Docker on the target machine. After install, Revoluzen Flow registers itself as
+a systemd **user** service that starts at login and survives reboots.
 
 Download from the [latest GitHub Release](https://github.com/revoluzen-io/revoluzen-flow/releases/latest):
 
@@ -150,6 +150,7 @@ Download from the [latest GitHub Release](https://github.com/revoluzen-io/revolu
 
 Then open <http://localhost:8001> — the service is already running.
 
+> [!WARNING]
 > **These packages are not GPG-signed**, so `apt` / `dnf` will note the package
 > is unauthenticated. Verify what you downloaded against `SHA256SUMS` on the
 > release: `sha256sum -c SHA256SUMS`. That proves the file arrived intact, not
@@ -163,8 +164,6 @@ Building these installers yourself (CI / private builds): see
 Requires Python 3.11+ and Node 20+. Install and run are **two separate steps**,
 and you must be **inside the cloned repo** — the `.` in `pip install -e .`
 means "the project in this folder".
-
-**macOS / Linux:**
 
 ```bash
 git clone https://github.com/revoluzen-io/revoluzen-flow.git
@@ -180,8 +179,10 @@ pip install -e .
 python -m revoluzen_flow open
 ```
 
-**Windows (PowerShell)** — one line at a time; `&&` chaining and `source` are
-not valid in Windows PowerShell:
+<details>
+<summary><strong>Windows (PowerShell) — one line at a time</strong></summary>
+
+`&&` chaining and `source` are not valid in Windows PowerShell:
 
 ```powershell
 git clone https://github.com/revoluzen-io/revoluzen-flow.git
@@ -200,15 +201,19 @@ pip install -e .
 python -m revoluzen_flow open
 ```
 
-> **If `Activate.ps1` is blocked by execution policy**, don't fight it — call
-> the venv's executables directly: `.\.venv\Scripts\pip.exe install -e .` then
-> `.\.venv\Scripts\python.exe -m revoluzen_flow open`.
+If `Activate.ps1` is blocked by execution policy, don't fight it — call the
+venv's executables directly: `.\.venv\Scripts\pip.exe install -e .` then
+`.\.venv\Scripts\python.exe -m revoluzen_flow open`.
 
+</details>
+
+> [!NOTE]
 > Skipping the UI build gets you a working API and a blank page. Revoluzen Flow
 > says so loudly at startup (`no frontend build found …`) rather than leaving
 > you to guess.
 
-### Where's the native Windows / macOS installer?
+<details>
+<summary><strong>Where's the native Windows / macOS installer?</strong></summary>
 
 For a self-hosted server app, the standard way to run it on Windows or macOS is
 Docker Desktop — that's how comparable tools (Grafana, Metabase, Gitea,
@@ -219,6 +224,74 @@ that. Want it anyway? Build it in one command — see
 [`installer/readme.md`](installer/readme.md). Signed installers land once we
 have an EV certificate and Apple notarization.
 
+</details>
+
+## What it looks like
+
+**Pipelines** — status, owner, schedule, alerts and last run, per project.
+
+<img src="docs/assets/screenshot-pipelines.png" alt="The Pipelines list showing eight pipelines across four projects with published and draft status, schedules, alerts and last-run times" width="100%">
+
+**Connections** — one open framework across databases, warehouses, object
+stores, streams and SaaS APIs, each with its own health state.
+
+<img src="docs/assets/screenshot-connections.png" alt="The Connections page listing twelve connections across Postgres, MySQL, Snowflake, BigQuery, S3, Kafka, MongoDB, Redshift, ClickHouse, SFTP, Elasticsearch and Databricks with per-connection test status" width="100%">
+
+**Executions** — every run, its steps, rows and duration.
+
+<img src="docs/assets/screenshot-executions.png" alt="The Executions page showing run history with status, pipeline, environment, trigger, start time, elapsed time and step counts" width="100%">
+
+**One run, opened** — runtime lineage of what actually ran, with rows in and
+out of each step, per-step timings, peak memory and CPU. Click any node to
+read the rows it produced, as a table, a schema or raw JSON, and export them.
+Re-run and Replay sit on the same screen.
+
+<img src="docs/assets/screenshot-execution-detail.png" alt="An execution summary showing four passed steps in sequence — source, filter, aggregate, sink — each with its row count and duration, with the aggregate node selected and its three output rows of revenue and order counts per region open below the graph, exportable as CSV or JSON" width="100%">
+
+**Every step, with its data** — open a step to see the parameters it ran with,
+the rows it received from upstream, and the rows it produced. Samples are
+captured at run time, so you are reading what the run actually did rather than
+re-querying a source that has since moved on.
+
+<img src="docs/assets/screenshot-step-output.png" alt="An expanded aggregate step showing three panels: its group-by and function configuration, a sample of the six rows received from the upstream filter, and the three rows it produced — revenue and order counts per region, with column types" width="100%">
+
+**Storage** — managed parquet tables written by your pipelines.
+
+<img src="docs/assets/screenshot-storage.png" alt="The Storage page listing managed parquet tables with row counts, column counts and sizes" width="100%">
+
+**Any dataset, inspected** — open a table to read its rows and column types,
+see which pipeline produced it and which ones consume it.
+
+<img src="docs/assets/screenshot-dataset.png" alt="A managed parquet table opened in the dataset viewer, showing a thousand rows across nine typed columns with the file it was promoted from and how many pipelines consume it" width="100%">
+
+**Steward** — a read-only reliability layer that watches for schema drift,
+null and duplicate spikes, connector failures and PII exposure, and tells you
+how many scans it has seen each one in.
+
+<img src="docs/assets/screenshot-steward.png" alt="The Steward findings panel showing eight open findings across schema drift, null spikes, a duplicate-key spike and PII detections, each with severity, category and resolve or dismiss actions" width="100%">
+
+**Bring your own LLM — or keep it on your machine.** Ten providers, two of
+them local. Point it at Ollama and pull a model from the list; nothing leaves
+the host. AI is optional throughout: turn it off and every feature falls back
+to a deterministic path, with the engine unchanged.
+
+<img src="docs/assets/screenshot-ai.png" alt="The AI provider page with AI enabled and Ollama selected as a local provider, showing ten providers, a catalogue of recommended local models with their RAM and speed trade-offs and a pull button for each, and a localhost base URL" width="100%">
+
+<details>
+<summary><strong>More screens — Execution Pool, API Explorer</strong></summary>
+
+**Execution Pool** — concurrency, reserved capacity per environment, and what
+is waiting for a slot.
+
+<img src="docs/assets/screenshot-pool.png" alt="The Execution Pool page showing worker slots, reserved capacity split between production and development, and queue depth" width="100%">
+
+**API Explorer** — load a spec, send one authenticated request, assert on the
+response, then generate a connector from it.
+
+<img src="docs/assets/screenshot-api-explorer.png" alt="The API Explorer page for loading an OpenAPI spec, sending an authenticated request and generating a connector from the response" width="100%">
+
+</details>
+
 ## First run
 
 On first launch Revoluzen Flow asks you to **create your account** — your email
@@ -228,6 +301,26 @@ Then open **Templates → First pipeline — CSV in, CSV out → Use Template �
 You'll see real output from a seeded sample dataset in under a minute: no
 Postgres, no API keys, no cloud account.
 
+```mermaid
+flowchart LR
+  subgraph Ingest
+    A[("CSV / Parquet<br/>Excel / JSON")]
+    B[("Postgres · MySQL<br/>Snowflake · BigQuery")]
+    C[("REST · Kafka<br/>S3 · SFTP")]
+  end
+  A --> T
+  B --> T
+  C --> T
+  subgraph Transform["Transform — vectorised DuckDB"]
+    T["join · aggregate · filter<br/>pivot · window · SCD2<br/>data quality · dedupe"]
+  end
+  T --> L{"Branch<br/>on a condition"}
+  L -->|pass| S[("Managed table<br/>warehouse · S3 · CSV")]
+  L -->|fail| N["Alert<br/>Slack · email"]
+  S --> O["Schedule · retry · lineage<br/>run history · rollback"]
+```
+
+> [!TIP]
 > **Automating a headless deploy** that can't do the interactive first run? Set
 > `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1` and Revoluzen Flow auto-creates
 > `admin@revoluzen.local` with a random password — read it with
@@ -238,8 +331,7 @@ Postgres, no API keys, no cloud account.
 
 `python -m revoluzen_flow open` starts the backend on a free port (8001 by
 default, falling back if in use) and opens your browser. If the output says
-`port 8001 was in use — using 8003 instead`, open the printed URL — no need to
-remember one.
+`port 8001 was in use — using 8003 instead`, open the printed URL.
 
 ```bash
 python -m revoluzen_flow serve             # start on 127.0.0.1:8001, open the browser yourself
@@ -254,6 +346,7 @@ automatically, skips the browser launch and prints the URL prominently so you
 can paste it into a browser on your host. `--no-open` force-skips the launch
 while keeping the port-fallback behaviour.
 
+> [!IMPORTANT]
 > **Binding defaults to loopback (127.0.0.1)** — invisible to your LAN, no port
 > exposed to coworkers, hotel WiFi or conference networks. If you genuinely need
 > LAN-visible binding for an on-prem multi-user install, set
@@ -286,9 +379,6 @@ python -m revoluzen_flow uninstall-service   # remove it (does NOT delete data)
 detached, and the compose file's restart policy brings the container back on
 reboot or crash.
 
-> This is the same OS-native supervisor the (not-yet-shipped) desktop installers
-> wrap, so power users get background operation today.
-
 ### Deploy to cloud
 
 Runs on any platform that takes a Docker image. Config files are in the repo root:
@@ -299,6 +389,7 @@ Runs on any platform that takes a Docker image. Config files are in the repo roo
 | Render | [`render.yaml`](render.yaml) | New → Blueprint → connect this repo |
 | Railway | [`railway.toml`](railway.toml) | New → Deploy from GitHub repo |
 
+> [!WARNING]
 > **Persistence matters.** Cloud filesystems are ephemeral by default — every
 > restart wipes the SQLite DB and all configuration. Each config above mounts
 > `/data` to a managed volume so your work survives restarts. Free tiers have
@@ -317,6 +408,7 @@ warehouse-first platform or a heavyweight IDE.
 | **Visual + code workflow** | Drag nodes on the canvas, use expressions for light logic, and drop into DuckDB SQL when the canvas is not enough. |
 | **Optional AI assistance** | Claude, OpenAI, Gemini, Ollama and OpenRouter can help with node setup, SQL and error diagnosis; deterministic fallbacks keep the app useful without an LLM. |
 
+> [!NOTE]
 > **Evaluating against another orchestrator?** See
 > [docs/vs-talend.md](docs/vs-talend.md) for the side-by-side comparison.
 
@@ -355,9 +447,12 @@ governance issues and user-defined YAML rules. Findings carry occurrence
 counts, severity escalation, rebound detection, sanitized dismiss reasons and
 notification de-duplication.
 
-Steward does not mutate workflows and does not use an LLM to decide findings.
-Its Memory Layer is gated: lessons are proposed first and stay inert until a
-human approves them. See [docs/steward/overview.md](docs/steward/overview.md),
+> [!NOTE]
+> Steward does not mutate workflows and does not use an LLM to decide
+> findings. Its Memory Layer is gated: lessons are proposed first and stay
+> inert until a human approves them.
+
+See [docs/steward/overview.md](docs/steward/overview.md),
 [docs/steward/positioning.md](docs/steward/positioning.md) and
 [docs/steward/architecture.md](docs/steward/architecture.md).
 
@@ -397,9 +492,7 @@ py -m site --user-base
 
 The direct command works only when the matching Python `Scripts` folder is on
 your user `PATH` (for example `<user-base>\Scripts`). After changing `PATH`,
-close and reopen PowerShell or VS Code. Running
-`C:\...\Scripts\revoluzen.exe open` proves the package installed, but
-`py -m revoluzen_flow open` avoids the shortcut-path issue entirely.
+close and reopen PowerShell or VS Code.
 
 </details>
 
@@ -478,9 +571,12 @@ you've already written.
 Found a vulnerability? See [SECURITY.md](SECURITY.md). Please do not file public
 issues for security reports.
 
-## Links
+---
 
-- **Documentation** — in-repo at [docs/](docs/), start with [docs/quickstart.md](docs/quickstart.md). A hosted site at `docs.revoluzen.io/flow` is on the launch checklist.
-- **Enterprise** — `revoluzen.io/flow`, or email <hello@revoluzen.io>
-- **Issues** — GitHub Issues on this repo
-- **Contact** — <hello@revoluzen.io>
+<div align="center">
+
+**[Documentation](docs/)** · **[Quick start](docs/quickstart.md)** · **[Enterprise](https://revoluzen.io)** · **[hello@revoluzen.io](mailto:hello@revoluzen.io)**
+
+Built and maintained by **[Revoluzen](https://revoluzen.io)** · Apache 2.0
+
+</div>
