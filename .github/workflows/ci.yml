@@ -166,7 +166,7 @@ jobs:
           echo "pip-installed wheel serves the UI, assets, connectors and docs."
 
   backend-pytest-fast-gate:
-    name: Backend pytest (fast gate — excludes stress + external)
+    name: Backend pytest (fast gate, Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     # 2026-06-08: the serial suite ran ~12 min (past a typical CI window).
     # With `-n auto` (pytest-xdist) it completes in ~1-4 min on a multi-core
@@ -174,11 +174,23 @@ jobs:
     # is xdist-safe (verified: 2846 passed / 0 failed under 14 workers).
     # A 20-min ceiling now catches a genuine hang rather than masking slowness.
     timeout-minutes: 20
+    strategy:
+      # 2026-10-27: 3.13 added. `requires-python` is `>=3.11` with no upper
+      # bound, so pip installs on 3.13 and 3.14 for anyone on PyPI — but the
+      # only job that had ever seen 3.12 installs `pydantic` alone and runs a
+      # smoke script, so the real suite had never run on anything but 3.11.
+      # That is the same unbounded-range trap that let duckdb 2.0 and fastapi
+      # 0.162 into CI, except pointed at users instead of at us. Either this
+      # passes and the floor is real, or it fails and `requires-python` gets
+      # a ceiling backed by evidence.
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
       - name: Install backend requirements
         # 2026-05-31: was `pip install pytest` only — but the suite has
         # tests decorated with `@pytest.mark.asyncio` (e.g. test_execution_
