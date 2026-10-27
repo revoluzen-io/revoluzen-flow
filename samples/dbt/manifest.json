@@ -1,0 +1,156 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v12.json",
+    "dbt_version": "1.8.7",
+    "project_name": "jaffle_shop",
+    "adapter_type": "duckdb"
+  },
+  "sources": {
+    "source.jaffle_shop.raw.raw_orders": {
+      "unique_id": "source.jaffle_shop.raw.raw_orders",
+      "resource_type": "source",
+      "name": "raw_orders",
+      "source_name": "raw",
+      "schema": "raw",
+      "database": "jaffle",
+      "identifier": "raw_orders",
+      "relation_name": "\"jaffle\".\"raw\".\"raw_orders\""
+    },
+    "source.jaffle_shop.raw.raw_customers": {
+      "unique_id": "source.jaffle_shop.raw.raw_customers",
+      "resource_type": "source",
+      "name": "raw_customers",
+      "source_name": "raw",
+      "schema": "raw",
+      "database": "jaffle",
+      "identifier": "raw_customers",
+      "relation_name": "\"jaffle\".\"raw\".\"raw_customers\""
+    }
+  },
+  "nodes": {
+    "seed.jaffle_shop.country_codes": {
+      "unique_id": "seed.jaffle_shop.country_codes",
+      "resource_type": "seed",
+      "name": "country_codes",
+      "schema": "main",
+      "database": "jaffle",
+      "alias": "country_codes",
+      "relation_name": "\"jaffle\".\"main\".\"country_codes\""
+    },
+    "snapshot.jaffle_shop.customers_snapshot": {
+      "unique_id": "snapshot.jaffle_shop.customers_snapshot",
+      "resource_type": "snapshot",
+      "name": "customers_snapshot",
+      "schema": "snapshots",
+      "database": "jaffle",
+      "alias": "customers_snapshot",
+      "relation_name": "\"jaffle\".\"snapshots\".\"customers_snapshot\""
+    },
+
+    "model.jaffle_shop.stg_orders": {
+      "unique_id": "model.jaffle_shop.stg_orders",
+      "resource_type": "model",
+      "name": "stg_orders",
+      "schema": "main",
+      "database": "jaffle",
+      "alias": "stg_orders",
+      "relation_name": "\"jaffle\".\"main\".\"stg_orders\"",
+      "config": { "materialized": "view" },
+      "depends_on": { "nodes": ["source.jaffle_shop.raw.raw_orders"] },
+      "raw_code": "select * from {{ source('raw', 'raw_orders') }}",
+      "compiled_code": "select\n    id as order_id,\n    user_id as customer_id,\n    order_date,\n    status,\n    amount\nfrom raw_orders"
+    },
+
+    "model.jaffle_shop.stg_customers": {
+      "unique_id": "model.jaffle_shop.stg_customers",
+      "resource_type": "model",
+      "name": "stg_customers",
+      "schema": "main",
+      "database": "jaffle",
+      "alias": "stg_customers",
+      "relation_name": "\"jaffle\".\"main\".\"stg_customers\"",
+      "config": { "materialized": "view" },
+      "depends_on": { "nodes": ["source.jaffle_shop.raw.raw_customers"] },
+      "raw_code": "select * from {{ source('raw', 'raw_customers') }}",
+      "compiled_code": "select\n    id as customer_id,\n    first_name,\n    last_name,\n    country_code\nfrom raw_customers"
+    },
+
+    "model.jaffle_shop.int_customer_country": {
+      "unique_id": "model.jaffle_shop.int_customer_country",
+      "resource_type": "model",
+      "name": "int_customer_country",
+      "schema": "main",
+      "database": "jaffle",
+      "alias": "int_customer_country",
+      "config": { "materialized": "ephemeral" },
+      "depends_on": {
+        "nodes": [
+          "model.jaffle_shop.stg_customers",
+          "seed.jaffle_shop.country_codes"
+        ]
+      },
+      "raw_code": "select c.*, cc.country_name from {{ ref('stg_customers') }} c left join {{ ref('country_codes') }} cc on c.country_code = cc.code",
+      "compiled_code": "select\n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    cc.country_name\nfrom stg_customers c\nleft join country_codes cc on c.country_code = cc.code"
+    },
+
+    "model.jaffle_shop.customers": {
+      "unique_id": "model.jaffle_shop.customers",
+      "resource_type": "model",
+      "name": "customers",
+      "schema": "analytics",
+      "database": "jaffle",
+      "alias": "dim_customers",
+      "relation_name": "\"jaffle\".\"analytics\".\"dim_customers\"",
+      "config": { "materialized": "table" },
+      "depends_on": {
+        "nodes": [
+          "model.jaffle_shop.int_customer_country",
+          "model.jaffle_shop.stg_orders",
+          "snapshot.jaffle_shop.customers_snapshot"
+        ]
+      },
+      "raw_code": "-- see compiled_code",
+      "compiled_code": "select\n    c.customer_id,\n    c.first_name,\n    c.last_name,\n    c.country_name,\n    count(o.order_id) as order_count,\n    sum(o.amount) as lifetime_value,\n    min(o.order_date) as first_order_date\nfrom int_customer_country c\nleft join stg_orders o on o.customer_id = c.customer_id\ngroup by 1, 2, 3, 4"
+    },
+
+    "model.jaffle_shop.fct_orders": {
+      "unique_id": "model.jaffle_shop.fct_orders",
+      "resource_type": "model",
+      "name": "fct_orders",
+      "schema": "analytics",
+      "database": "jaffle",
+      "alias": "fct_orders",
+      "relation_name": "\"jaffle\".\"analytics\".\"fct_orders\"",
+      "config": {
+        "materialized": "incremental",
+        "unique_key": "order_id",
+        "incremental_strategy": "merge"
+      },
+      "depends_on": { "nodes": ["model.jaffle_shop.stg_orders"] },
+      "raw_code": "select * from {{ ref('stg_orders') }} {% if is_incremental() %} where order_date > (select max(order_date) from {{ this }}) {% endif %}",
+      "compiled_code": "select\n    order_id,\n    customer_id,\n    order_date,\n    status,\n    amount\nfrom stg_orders\nwhere order_date > (select max(order_date) from \"jaffle\".\"analytics\".\"fct_orders\")"
+    },
+
+    "model.jaffle_shop.order_status_counts": {
+      "unique_id": "model.jaffle_shop.order_status_counts",
+      "resource_type": "model",
+      "name": "order_status_counts",
+      "schema": "analytics",
+      "database": "jaffle",
+      "alias": "order_status_counts",
+      "relation_name": "\"jaffle\".\"analytics\".\"order_status_counts\"",
+      "config": { "materialized": "incremental" },
+      "depends_on": { "nodes": ["model.jaffle_shop.fct_orders"] },
+      "raw_code": "select status, count(*) as n from {{ ref('fct_orders') }} group by 1",
+      "compiled_code": "select\n    status,\n    count(*) as order_count,\n    sum(amount) as total_amount\nfrom fct_orders\ngroup by 1"
+    },
+
+    "test.jaffle_shop.unique_customers_customer_id": {
+      "unique_id": "test.jaffle_shop.unique_customers_customer_id",
+      "resource_type": "test",
+      "name": "unique_customers_customer_id",
+      "depends_on": { "nodes": ["model.jaffle_shop.customers"] },
+      "compiled_code": "select customer_id from dim_customers group by 1 having count(*) > 1"
+    }
+  }
+}

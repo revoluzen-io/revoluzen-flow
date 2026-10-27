@@ -4153,25 +4153,44 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           />
         }
         actions={
-          // flex-wrap: at 375px this row measured 391px wide inside a
-          // non-scrolling sticky header, so "New Pipeline" sat past the
-          // right edge with no way to reach it. Wrapping is the only fix
-          // that keeps every action reachable — the header grows a row
-          // instead of hiding a button.
-          <div className="flex flex-wrap justify-end items-center gap-2">
+          // Keep the three actions on ONE line, like every other page
+          // (Connections, Executions, Storage all use a plain
+          // `flex justify-end items-center gap-2`).
+          //
+          // `flex-wrap` alone made this cluster the thing that gave way
+          // when the header ran short of room: at 1232px the row split
+          // Import + Import dbt from New Pipeline, which reads as two
+          // unrelated groups rather than one action set. `shrink-0` stops
+          // the cluster being compressed below its content, and the
+          // header row's own flex-wrap then moves the whole cluster to a
+          // second line instead of breaking it up. The tab strip is the
+          // element that yields first — it already scrolls
+          // (`overflow-x-auto` in PageHeader).
+          //
+          // The wrap survives below `sm` on purpose. At 375px this row
+          // measured 391px inside a non-scrolling sticky header, so
+          // "New Pipeline" sat past the right edge with no way to reach
+          // it; on a phone a wrapped cluster still beats an unreachable
+          // button.
+          // Both modifiers must be `sm:`-gated together. `shrink-0` alone
+          // is enough to defeat the wrap below `sm`: it keeps the cluster
+          // at its full 376px, so flex-wrap never gets the chance to
+          // break the line and "New Pipeline" lands at x=391 in a 375px
+          // viewport — the original bug, reintroduced from the other end.
+          <div className="flex flex-wrap justify-end items-center gap-2 sm:flex-nowrap sm:shrink-0">
             {/* The Stats toggle went with the KPI panel it controlled —
                 a button that shows nothing is worse than no button. */}
             {/* Export moved to canonical navy summary strip (Apr 18).
                 The rich multi-level Export dropdown lives above the table
                 so users get one Export per page. */}
             <RoleGate action="create">
-              <label className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer flex items-center gap-1.5">
+              <label className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer flex items-center gap-1.5">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 Import
                 <input type="file" accept=".json,.revoluzen-flow" className="hidden" onChange={handleImportFileSelect} />
               </label>
               <label
-                className={`px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg transition-colors flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg transition-colors flex items-center gap-1.5 ${
                   dbtImporting ? 'opacity-60 cursor-wait' : 'hover:bg-orange-100 cursor-pointer'
                 }`}
                 title="Import a compiled dbt manifest.json (target/manifest.json)"
@@ -4182,10 +4201,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               </label>
               <button
                 onClick={handleNewPipeline}
-                className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+                className="px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5"
                 style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                 New Pipeline
               </button>
             </RoleGate>

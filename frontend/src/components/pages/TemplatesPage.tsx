@@ -208,7 +208,7 @@ export default function TemplatesPage({ onOpenEditor, environment = 'dev', tier 
           <button
             type="button"
             onClick={onOpenEditor}
-            className="px-4 py-2 text-sm font-semibold rounded-lg bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-colors"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 transition-colors"
             title="Open the Editor on a blank canvas"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline mr-1.5 -mt-0.5">

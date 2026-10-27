@@ -107,11 +107,32 @@ def _run_one_window(
     start_ts = time.time()
     try:
         from revoluzen_flow.security.execution_codes import mint_for_run
-        result = executor.execute_workflow(
-            workflow,
-            parameter_values=bound,
+        from revoluzen_flow.engine.admission import run_through_pool
+
+        # Backfill windows go through the pool's admission point like
+        # every other run (2026-10-27). `parent.concurrency` still sets
+        # how many windows this backfill DISPATCHES at once; the pool
+        # decides how many actually run, alongside API and scheduled
+        # runs. Previously the two were independent: a backfill with
+        # concurrency 8 added 8 runs on top of whatever the rest of the
+        # host was doing, none of them visible on the Pool page.
+        result = run_through_pool(
+            getattr(executor, "app_state", None),
             run_id=exe.id,
-            execution_code=mint_for_run(workflow, job_run_id=exe.id),
+            workflow_id=getattr(workflow, "id", "") or "",
+            workflow_name=getattr(workflow, "name", "") or "backfill window",
+            workspace_id=getattr(parent, "workspace_id", None) or "default",
+            environment=getattr(exe, "environment", None) or "dev",
+            triggered_by="backfill",
+            # Backfills are catch-up work: they should yield to
+            # interactive and scheduled runs rather than starve them.
+            priority=4,
+            fn=lambda: executor.execute_workflow(
+                workflow,
+                parameter_values=bound,
+                run_id=exe.id,
+                execution_code=mint_for_run(workflow, job_run_id=exe.id),
+            ),
         )
         duration_ms = (time.time() - start_ts) * 1000
         exe.status = result.status

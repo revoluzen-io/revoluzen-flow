@@ -10,7 +10,6 @@ import { uiConfirm } from '../../ui/dialog';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
 import { DelayedSkeleton, SkeletonTableRow } from '../shared/Skeleton';
-import HeroCard from '../shared/HeroCard';
 import EmptyState from '../shared/EmptyState';
 import ProjectFolderTree from '../ProjectFolderTree';
 
@@ -631,8 +630,10 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
       />
 
       <div className="w-full max-w-[1500px] mx-auto px-8 py-6">
-        {/* Hero KPI cards — matches Pipelines / Connections / Executions
-            visual family (HeroCard gradient + centered icon + value). */}
+        {/* Compact stat strip. Was a 4-card HeroCard grid matching the
+            Pipelines / Connections / Executions family — that family has
+            since dropped the cards where the numbers were already on the
+            page in words. */}
         {!loading && (
           (() => {
             const isProdEnv = environment === 'prod';
@@ -647,32 +648,34 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
               return t && (Date.now() - t) < 7 * 24 * 3600 * 1000;
             }).length;
             const archived = archivedList.length;
+            // A compact strip, not four hero cards (2026-10-27). Four
+            // cards spent roughly a third of the viewport on four small
+            // integers, two of which the page already states in words:
+            // the header subtitle reads "N active" and each project row
+            // reads "N pipelines". Same treatment Pipelines and Storage
+            // got — the figures are worth keeping, the furniture is not.
+            const stats: [string, number][] = [
+              ['projects', total],
+              ['pipelines', totalPipelines],
+              ['edited this week', recentlyEdited],
+              ['archived', archived],
+            ];
             return (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                <HeroCard
-                  gradient={isProdEnv ? 'from-indigo-500 to-indigo-600' : 'from-indigo-400 to-indigo-500'}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>}
-                  label="Active Projects"
-                  value={String(total)}
-                />
-                <HeroCard
-                  gradient={isProdEnv ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500'}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>}
-                  label="Total Pipelines"
-                  value={String(totalPipelines)}
-                />
-                <HeroCard
-                  gradient={isProdEnv ? 'from-blue-500 to-sky-600' : 'from-blue-400 to-sky-500'}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
-                  label="Edited (7d)"
-                  value={String(recentlyEdited)}
-                />
-                <HeroCard
-                  gradient={isProdEnv ? 'from-slate-400 to-slate-500' : 'from-slate-300 to-slate-400'}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="4" rx="1" /><path d="M5 7v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7" /><line x1="10" y1="11" x2="14" y2="11" /></svg>}
-                  label="Archived"
-                  value={String(archived)}
-                />
+              <div
+                className={`flex items-center flex-wrap gap-x-5 gap-y-1 mb-4 text-sm ${
+                  isProdEnv ? 'text-slate-400' : 'text-slate-600'
+                }`}
+              >
+                {stats.map(([label, value]) => (
+                  <span key={label} className="inline-flex items-baseline gap-1.5">
+                    <span className={`font-bold tabular-nums ${
+                      isProdEnv ? 'text-slate-100' : 'text-slate-900'
+                    }`}>
+                      {value}
+                    </span>
+                    {label}
+                  </span>
+                ))}
               </div>
             );
           })()

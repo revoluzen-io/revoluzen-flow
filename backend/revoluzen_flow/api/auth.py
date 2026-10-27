@@ -24,6 +24,8 @@ from revoluzen_flow.auth.deps import current_user_optional, require_admin, requi
 from revoluzen_flow.common.client_ip import client_ip as _client_ip
 from revoluzen_flow.auth.models import User, LoginRequest, RegisterRequest, InviteRequest
 from revoluzen_flow.auth.password_policy import (
+    MAX_BYTES as PW_MAX_BYTES,
+    MIN_CLASSES as PW_MIN_CLASSES,
     MIN_LENGTH as PW_MIN_LENGTH,
     PasswordCheck,
     generate_strong_password,
@@ -446,6 +448,34 @@ def _read_signup_policy() -> dict:
     }
 
 
+#: The account `AuthStore.ensure_bootstrap_admin` creates, and the file it
+#: writes the one-time password to. Both only exist when the operator set
+#: REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1 (headless / Docker / CI); a normal
+#: interactive install creates neither.
+BOOTSTRAP_ADMIN_EMAIL = "admin@revoluzen.local"
+BOOTSTRAP_PASSWORD_FILENAME = "INITIAL_ADMIN_PASSWORD.txt"
+
+
+def _bootstrap_password_pending() -> bool:
+    """True while the one-time bootstrap password file is still on disk.
+
+    This is the precise signal for "the operator has not finished first
+    run yet": the file is written ONLY by the opt-in bootstrap path and
+    deleted the moment that admin rotates their password. Checking the
+    file rather than the account means an install that never bootstrapped
+    — the default — never claims the file exists.
+    """
+    try:
+        import os
+        from revoluzen_flow.main import app_state
+        data_dir = app_state.get("data_dir")
+        if not data_dir:
+            return False
+        return os.path.exists(os.path.join(data_dir, BOOTSTRAP_PASSWORD_FILENAME))
+    except Exception:  # noqa: BLE001 — a public endpoint must not 500 on this
+        return False
+
+
 @router.get("/signup-policy")
 async def signup_policy():
     """Public endpoint the LoginPage calls to decide whether to show the
@@ -456,12 +486,38 @@ async def signup_policy():
     token since the user isn't signed in yet. The information leaked is
     limited to "does this instance accept new signups" which is already
     implicit from the login screen showing or hiding the signup link.
+
+    It also reports whether the one-time bootstrap password is still
+    pending, so the sign-in screen can stop telling EVERY operator to go
+    and read `INITIAL_ADMIN_PASSWORD.txt`. That file is written only under
+    `REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1`, so on a normal install the advice
+    pointed at a file that was never created.
+
+    `bootstrap_admin_email` rides along only while the file exists. It is
+    a documented constant, not a secret, and the window it is exposed in
+    is exactly the window where the operator still needs it — it vanishes
+    the moment they rotate. Suppressed entirely under server security
+    mode, where anonymous callers should learn nothing about accounts.
     """
     policy = _read_signup_policy()
+    from revoluzen_flow import runtime_config
+
+    pending = _bootstrap_password_pending() and not runtime_config.IS_SERVER_MODE
     return {
         "allow_self_registration": policy["allow_self_registration"],
         "first_user_bootstrap": policy["first_user_bootstrap"],
+        "bootstrap_password_pending": pending,
+        "bootstrap_admin_email": BOOTSTRAP_ADMIN_EMAIL if pending else None,
     }
+
+
+# No setter for `allow_self_registration` in this edition, deliberately.
+# It stays read-only and False: Revoluzen Flow OSS is single-operator, so
+# opening signup is not a knob it offers. A second person runs their own
+# copy — download, install, sign in — rather than getting an account here.
+# Multi-user administration — invites, roles, groups, the auth queue — is
+# an Enterprise capability. The flag is still READ here because the
+# first-run bootstrap path and Enterprise both depend on it.
 
 
 @router.post("/register")
@@ -941,22 +997,30 @@ async def password_policy_endpoint():
     the 400 response. Keeping it public means the LoginPage can call it
     *before* the user is signed in, which is exactly when they need it.
     """
+    # These must describe what `validate_password` actually REJECTS.
+    # The four composition flags were advertised as required long after
+    # they stopped being the right rule; a form that lists a requirement
+    # the server does not enforce is just friction, and one that hides a
+    # rule the server does enforce is a trap.
     return {
         "min_length": PW_MIN_LENGTH,
-        "require_lower": True,
-        "require_upper": True,
-        "require_digit": True,
-        "require_symbol": True,
+        "max_bytes": PW_MAX_BYTES,
+        # No INDIVIDUAL class is required — any PW_MIN_CLASSES of the four
+        # will do — so these four stay False and `min_character_classes`
+        # carries the real rule.
+        "min_character_classes": PW_MIN_CLASSES,
+        "require_lower": False,
+        "require_upper": False,
+        "require_digit": False,
+        "require_symbol": False,
         "block_common": True,
         "block_email_in_password": True,
         "rules": [
-            f"At least {PW_MIN_LENGTH} characters",
-            "At least one lowercase letter (a-z)",
-            "At least one uppercase letter (A-Z)",
-            "At least one digit (0-9)",
-            "At least one symbol (!@#$%^&* etc.)",
-            "Not on the common-password blocklist",
+            f"Between {PW_MIN_LENGTH} and {PW_MAX_BYTES} characters",
+            f"At least {PW_MIN_CLASSES} of: lowercase, uppercase, number, symbol",
+            "Not a common or easily guessed password",
             "Does not contain your email or name",
+            "No long runs ('aaaa') or sequences ('12345')",
         ],
     }
 
@@ -996,8 +1060,12 @@ async def generate_password_endpoint(length: int = 20):
     """
     if length < PW_MIN_LENGTH:
         length = PW_MIN_LENGTH
-    if length > 128:  # sanity cap so a curl bomb can't allocate megabytes
-        length = 128
+    # Cap at the hash's own limit, not an arbitrary 128. The generator
+    # produces ASCII, so bytes == characters here. The old 128 cap handed
+    # back a password the validator now rejects and the hash cannot
+    # store — "Generate" would mint one that 500s on save.
+    if length > PW_MAX_BYTES:
+        length = PW_MAX_BYTES
     return {"password": generate_strong_password(length), "length": length}
 
 
@@ -1489,18 +1557,59 @@ async def forgot_password(body: ForgotPasswordRequest, request: Request):
         _single_user = len(store.list_users()) <= 1
     except Exception:
         _single_user = False
-    _inline_ok = _single_user or (_inline_flag and _loopback)
+    # 2026-10-27 — the single-user path now also requires that the
+    # instance is NOT network-exposed. "Only one account exists" was
+    # treated as self-evidently safe, but on an instance bound to the LAN
+    # it is the opposite: the sole account is the admin, so anyone who can
+    # reach the login page and knows (or guesses) that address is handed a
+    # live takeover token by an unauthenticated endpoint. SECURITY_MODE
+    # already flips to "server" when the operator opens the bind, so that
+    # is exactly the signal. Loopback + explicit opt-in is unaffected.
+    from revoluzen_flow import runtime_config
+    _inline_ok = (
+        (_single_user and not runtime_config.IS_SERVER_MODE)
+        or (_inline_flag and _loopback)
+    )
     token_in_body = reset_token if (reset_token and not smtp_configured and _inline_ok) else None
+
+    # The message branches on CONFIGURATION only — never on whether the
+    # email matched. Branching on `token_in_body` would have leaked
+    # exactly what the uniform response shape exists to hide: a real
+    # address would read "use it below" while an unknown one read "ask
+    # your administrator".
     if smtp_configured:
         message = (
             "If that email is registered, a reset link has been emailed to you. "
             "Check your inbox (and the spam folder) for a message from Revoluzen Flow."
         )
-    else:
+    elif _inline_ok:
+        # No "ask your administrator" here — this branch only fires on a
+        # single-operator instance that is not network-exposed, so the
+        # person reading it IS the administrator.
         message = (
             "If that email is registered, a reset link has been generated. "
-            "You can use it below to set a new password, or ask your "
-            "administrator to share it with you out-of-band."
+            "Use it below to set a new password. The link is single-use and "
+            "expires in an hour."
+        )
+    else:
+        # No SMTP and the token is deliberately withheld — this fires for
+        # a LAN-bound install (SECURITY_MODE=server) with no mail relay.
+        #
+        # Two earlier versions of this copy were both dead ends. The first
+        # said "You can use it below", promising a link the response did
+        # not contain. The second said "ask them to share it from
+        # Admin → Auth Queue" — but this edition has no Admin page and no
+        # Auth Queue screen (`getAuthQueue` exists in the API client with
+        # nothing rendering it), and the only CLI reset is the DEV-only
+        # `seed-admin`. So it named a screen the operator cannot open.
+        #
+        # These two routes are the ones that actually work here.
+        message = (
+            "If that email is registered, a reset link has been generated but is "
+            "not shown here, because this instance is reachable over the network. "
+            "Configure SMTP to have links emailed, or set "
+            "REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE=1 and retry from the machine "
+            "running Revoluzen Flow."
         )
     return {
         "queued": True,

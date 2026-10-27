@@ -1928,7 +1928,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               <button
                 onClick={() => setShowDashboard(s => !s)}
                 title={showDashboard ? 'Hide KPI cards' : 'Show KPI cards'}
-                className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                   showDashboard
                     ? 'bg-blue-50 text-blue-600 border-blue-200'
                     : 'bg-white text-slate-500 border-slate-200 hover:text-slate-600'
@@ -1942,7 +1942,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               {canCreate && (
               <button
                 onClick={() => setView('create')}
-                className="px-4 py-2 text-white text-sm font-bold rounded-lg transition-all shadow-sm hover:shadow-md"
+                className="px-3 py-1.5 text-white text-xs font-bold rounded-lg transition-all shadow-sm hover:shadow-md"
                 style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
               >
                 + New Connection

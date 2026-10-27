@@ -700,9 +700,6 @@ class PipelineScheduler:
         start = time.time()
         status = "error"
         error_msg = ""
-        _pool = None
-        _pool_job = None
-        _pool_worker = None
         # Persist a "running" execution record IMMEDIATELY so the user
         # sees the scheduled run in the Executions UI without waiting
         # for the executor to return. If anything below crashes or
@@ -712,41 +709,19 @@ class PipelineScheduler:
         exe: ExecutionRecord | None = None
 
         try:
-            # Track in worker pool for live admin UI
-            try:
-                from revoluzen_flow.engine.worker_pool import QueuedJob
-                pool = app_state.get("worker_pool")
-                if pool:
-                    _pool = pool
-                    # Default to "dev" — the schedule model doesn't
-                    # currently carry an env field. The previous code
-                    # referenced a `sched` dict that wasn't in scope
-                    # and silently NameError'd on every scheduled run.
-                    sched_env = "dev"
-                    _pool_job = QueuedJob(
-                        workflow_id=workflow_id,
-                        workflow_name=schedule_name,
-                        workspace_id=workspace_id,
-                        environment=sched_env,
-                        priority=3,
-                        triggered_by="schedule",
-                        schedule_id=schedule_id,
-                    )
-                    pool._lock.acquire()
-                    pool._total_submitted += 1
-                    w = pool._find_free_worker()
-                    if w:
-                        w.status = "busy"
-                        w.current_job_id = _pool_job.id
-                        w.current_workflow_id = workflow_id
-                        w.current_workflow_name = schedule_name
-                        w.current_priority = 3
-                        w.started_at = datetime.now(timezone.utc)
-                        pool._active[_pool_job.id] = _pool_job
-                        _pool_worker = w
-                    pool._lock.release()
-            except Exception:
-                pass
+            # Pool registration used to be hand-rolled here, reaching into
+            # `pool._lock` / `_workers` / `_active` and marking a slot busy
+            # BEFORE the workflow was even loaded — so a schedule that
+            # failed its lookup still showed as a running worker. It also
+            # only tracked; nothing capped the run. `run_through_pool`
+            # around the execute call below now does both, at the moment
+            # work actually starts.
+            #
+            # The schedule model carries no environment field, so
+            # scheduled runs are DEV. Named here rather than inside the
+            # old `if pool:` branch, where it was left unbound on every
+            # path that did not have a pool.
+            sched_env = "dev"
 
             # Persist a stub execution record FIRST — before the
             # workflow lookup — so the user sees the scheduled fire in
@@ -824,6 +799,7 @@ class PipelineScheduler:
             # already do this; the scheduler was the missing call site,
             # which is why every scheduled run in Pool → Run History showed
             # "—" in those columns even though shorter manual runs did.
+            from revoluzen_flow.engine.admission import run_through_pool as _run_through_pool
             from revoluzen_flow.engine.executor import WorkflowExecutor
             from revoluzen_flow.engine.resource_monitor import ResourceMonitor
             data_dir = app_state["data_dir"]
@@ -834,12 +810,36 @@ class PipelineScheduler:
             # lineage drawer while manual runs (which pass both) worked.
             executor = WorkflowExecutor(data_dir=data_dir, app_state=app_state)
             from revoluzen_flow.security.execution_codes import mint_for_run
-            with ResourceMonitor() as _resmon:
-                result = executor.execute_workflow(
+
+            def _execute():
+                return executor.execute_workflow(
                     wf,
                     parameter_values=schedule_param_values or None,
                     run_id=exe.id,
                     execution_code=mint_for_run(wf, job_run_id=exe.id),
+                )
+
+            # Scheduled runs go through the pool's admission point like
+            # every other path (2026-10-27). Before this they called the
+            # executor straight from the schedule thread: nothing capped
+            # them, so `MAX_CONCURRENT_RUNS=4` bounded API runs at 4
+            # while any number of schedules fired alongside, and none of
+            # them appeared on the Execution Pool page.
+            #
+            # `run_admitted` runs the work on THIS thread, so the
+            # scheduler's own watchdog — which checks whether the run
+            # thread is still alive — keeps working unchanged.
+            with ResourceMonitor() as _resmon:
+                result = _run_through_pool(
+                    app_state,
+                    run_id=exe.id,
+                    workflow_id=getattr(wf, "id", "") or "",
+                    workflow_name=getattr(wf, "name", "") or "scheduled run",
+                    workspace_id=workspace_id,
+                    environment=sched_env,
+                    triggered_by="schedule",
+                    schedule_id=schedule_id,
+                    fn=_execute,
                 )
 
             duration_ms = int((time.time() - start) * 1000)
@@ -993,17 +993,11 @@ class PipelineScheduler:
             logger.exception(f"Schedule {schedule_id}: pipeline execution failed: {e}")
 
         finally:
-            # Release worker pool slot
-            if _pool and _pool_job:
-                try:
-                    dur = (time.time() - start) * 1000
-                    _pool._on_job_complete(
-                        _pool_job,
-                        _pool_worker or _pool._workers[0],
-                        status, dur, error_msg if status == "error" else None,
-                    )
-                except Exception:
-                    pass
+            # The pool slot is released by `run_through_pool` when the
+            # run returns. The old release here passed
+            # `_pool_worker or _pool._workers[0]`, so a schedule that
+            # never got a slot freed slot 0 — belonging to a DIFFERENT
+            # running job, which then showed as idle while still working.
 
             # Make sure the persisted execution record reflects the
             # final outcome — if the run errored before reaching the

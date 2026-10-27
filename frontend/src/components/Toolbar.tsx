@@ -656,50 +656,43 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     // keeps the title truncatable) and the tabs center in the leftover
     // middle; at xl+ the original page-centered layout returns.
     <div ref={toolbarRef} data-testid="editor-toolbar" className={`editor-toolbar min-h-[56px] flex flex-wrap items-center px-4 py-3 gap-x-4 gap-y-2 shrink-0 shadow-sm relative z-40 border-b ${dark ? 'bg-[#0f1726] border-white/[0.06]' : 'bg-gradient-to-b from-slate-200 to-slate-300 border-slate-400/70'}`}>
-      {/* LEFT group — page title + subtitle (vertically stacked, same
-          pattern Insights / Settings use). Inner flex is `items-center`
-          to match <PageHeader>'s title cluster so the title + subtitle
-          sit at the same vertical position as the sibling Workflows
-          pages. (Project picker + Workflow Name live in
-          <EditorContextBar /> now, so there's no second baseline row to
-          align here anymore.) */}
-      {/* The page title and subtitle used to sit here. They said
-          "Editor / Build, test, and deploy pipelines visually" on a
-          page whose nav tab was already highlighted and whose sub-tab
-          already read Editor — three statements of the same fact, on a
-          78px band of their own. The pipeline context ribbon now
-          occupies this slot instead, which removes a whole band from
-          the editor: global nav, then this row, then the canvas. */}
-      {/* The page title and subtitle used to sit here: "Editor / Build,
-          test, and deploy pipelines visually", on a page whose nav tab
-          was already highlighted and whose sub-tab already read Editor.
-          Three statements of one fact, holding a 78px band open.
-          Removed 2026-10-25.
+      {/* LEFT group — title only.
+          2026-10-25 this slot was emptied: the title AND subtitle
+          ("Editor / Build, test, and deploy pipelines visually") sat on
+          a page whose nav tab was already highlighted and whose sub-tab
+          already read Editor, next to a DEV chip duplicating the
+          DEV/PROD switch directly above — one fact stated three times,
+          holding a 78px band open.
 
-          The pipeline context ribbon was moved in here first, to get the
-          editor from three bands to two. It does not fit: measured, the
-          three groups in this row need 1590px of content and the row has
-          about 1536 at a 1600px window, so it wrapped — and a wrapped
-          row is the band it was meant to remove, with worse alignment.
-          Merging those two bands means cutting navigation out of one of
-          them, which is a product decision rather than a layout one, so
-          the ribbon stays its own slim band and this slot stays empty.
-          The band is shorter now, which was most of the waste. */}
-      {/* Empty, but NOT absent. The tabs are centred on the toolbar by
-          the two side groups balancing each other — `visual-layout.spec`
-          asserts the tab group's midpoint is within 1px of the row's.
-          Deleting the old title block without leaving a flexible spacer
-          here pushed the tabs left and failed that check at every width
-          wide enough not to wrap. `flex-1 basis-0` makes this side match
-          the actions side whatever either contains.
+          Emptying it went too far the other way. Every sibling page
+          (Pipelines, Executions, Templates) carries a title here, so a
+          blank left third reads as a failed render rather than as
+          restraint — it was reported as "Editor page header is
+          missing?". Restored 2026-10-27 as the title alone: no
+          subtitle, no DEV chip. That keeps the visual anchor and the
+          page-to-page consistency while leaving the redundancy out.
 
-          What used to be here: a page title and subtitle reading
-          "Editor / Build, test, and deploy pipelines visually", on a
-          page whose nav tab was already highlighted and whose sub-tab
-          already read Editor, plus a DEV chip duplicating the DEV/PROD
-          switch directly above. Three statements of one fact holding a
-          78px band open. */}
-      <div className="flex-1 basis-0 min-w-0" aria-hidden="true" />
+          `flex-1 basis-0 min-w-0` is load-bearing and must stay. The
+          tabs are centred by the two side groups balancing each other,
+          and `visual-layout.spec` asserts the tab group's midpoint is
+          within 1px of the row's at six widths. The title is narrow
+          enough (~90px) to sit inside the track this gets, so it does
+          not reintroduce the wrap that pushed the pipeline-name ribbon
+          back out of this slot — that needed ~1590px of row content
+          against the ~1536px available at a 1600px window. */}
+      <div className="flex-1 basis-0 min-w-0 flex items-center gap-2">
+        <svg
+          width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className="text-blue-500 shrink-0"
+        >
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+        <h1 className={`text-base font-bold truncate ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
+          {surfaceCopy.title}
+        </h1>
+      </div>
       {/* Workflows submenu — sibling tabs centered at the true page
           midpoint via the auto-width middle grid column. */}
       <div className="editor-toolbar-tabs flex flex-wrap items-center min-w-0">

@@ -5,6 +5,7 @@ import { useDarkMode } from '../../hooks/useDarkMode';
 import { usePageContext } from '../../hooks/usePageContext';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
+import { checkPassword, MIN_LENGTH, MIN_CLASSES, MAX_BYTES } from '../../auth/password';
 
 /**
  * AccountPage
@@ -38,6 +39,9 @@ interface AccountPageProps {
 
 type Tab = 'profile' | 'password';
 
+const TAB_IDS: Tab[] = ['profile', 'password'];
+const isTab = (s: string): s is Tab => (TAB_IDS as string[]).includes(s);
+
 export default function AccountPage({ onProfileUpdated, onNavigate, environment = 'dev', tier = 'free' }: AccountPageProps) {
   const dark = useDarkMode();
   // 2026-06-01: read initial tab from URL hash so deep-links work +
@@ -46,7 +50,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const seg = (window.location.hash || '').split('/')[1];
-      if (seg === 'profile' || seg === 'password') return seg;
+      if (isTab(seg)) return seg;
     } catch { /* SSR */ }
     return 'profile';
   });
@@ -56,7 +60,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
   useEffect(() => {
     const onHash = () => {
       const seg = (window.location.hash || '').split('/')[1];
-      if (seg === 'profile' || seg === 'password') {
+      if (isTab(seg)) {
         setTab(seg);
       }
     };
@@ -138,26 +142,26 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
   const [confirmPwd, setConfirmPwd] = useState('');
   const [pwdMsg, setPwdMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  // Tiny strength heuristic — not bulletproof but enough to nudge users
-  // toward something that isn't "password". Length is the dominant factor.
-  const pwdStrength = (() => {
-    if (!newPwd) return { score: 0, label: '', color: 'bg-slate-200' };
-    let score = 0;
-    if (newPwd.length >= 8) score++;
-    if (newPwd.length >= 12) score++;
-    if (/[A-Z]/.test(newPwd) && /[a-z]/.test(newPwd)) score++;
-    if (/\d/.test(newPwd)) score++;
-    if (/[^A-Za-z0-9]/.test(newPwd)) score++;
-    const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong', 'Very strong'];
-    const colors = ['bg-red-400', 'bg-red-400', 'bg-amber-400', 'bg-yellow-400', 'bg-emerald-400', 'bg-emerald-500'];
-    return { score, label: labels[score], color: colors[score] };
-  })();
+  // Strength comes from the shared policy mirror, not a local heuristic.
+  // This page used to carry its own 0..5 class-counting score — a third
+  // implementation alongside password.ts and password_policy.py — which
+  // meant the same password could read "Fair" here and "Strong" on the
+  // sign-up form. One rule set, one verdict.
+  // Passing the signed-in identity lets the policy reject a password that
+  // contains the user's own email or name.
+  const pwdCheck = newPwd
+    ? checkPassword(newPwd, user?.email ?? '', user?.name ?? '')
+    : null;
+
 
   const submitPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwdMsg(null);
-    if (newPwd.length < 8) {
-      setPwdMsg({ type: 'err', text: 'New password must be at least 8 characters.' });
+    // Validate against the shared policy rather than length alone, so the
+    // form blocks exactly what the server would reject.
+    const verdict = checkPassword(newPwd, user?.email ?? '', user?.name ?? '');
+    if (!verdict.ok) {
+      setPwdMsg({ type: 'err', text: verdict.failures[0] });
       return;
     }
     if (newPwd !== confirmPwd) {
@@ -406,19 +410,52 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
                   value={newPwd}
                   onChange={(e) => setNewPwd(e.target.value)}
                   required
-                  minLength={8}
+                  minLength={MIN_LENGTH}
+                  maxLength={MAX_BYTES}
                   autoComplete="new-password"
                   className="w-full mt-1.5 px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
                 />
-                {newPwd && (
-                  <div className="mt-2">
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full transition-all ${pwdStrength.color}`}
-                        style={{ width: `${(pwdStrength.score / 5) * 100}%` }}
-                      />
+                {!newPwd && (
+                  <p className="text-xs text-slate-500 mt-1.5">
+                    At least {MIN_LENGTH} characters, using {MIN_CLASSES} of:
+                    lowercase, uppercase, a number, a symbol.
+                  </p>
+                )}
+                {/* Same treatment as the sign-up form: a strength bar, then
+                    only the things that actually block the change. The
+                    optional "add a symbol" nudges stay in pwdCheck.suggestions
+                    and off the screen. */}
+                {newPwd && pwdCheck && (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${
+                            pwdCheck.score >= 3 ? 'bg-emerald-500' : pwdCheck.score >= 2 ? 'bg-amber-400' : 'bg-red-400'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(8, (pwdCheck.score / 4) * 100))}%` }}
+                        />
+                      </div>
+                      <span className={`text-xs font-bold ${
+                        pwdCheck.score >= 3 ? 'text-emerald-600' : pwdCheck.score >= 2 ? 'text-amber-600' : 'text-red-500'
+                      }`}>{pwdCheck.label}</span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-1">{pwdStrength.label}</div>
+                    {newPwd.length >= 4 && pwdCheck.failures.length > 0 && (
+                      <ul className="space-y-0.5">
+                        {pwdCheck.failures.map((f, i) => (
+                          <li key={i} className="flex items-start gap-1.5 text-xs text-red-500">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mt-[3px] shrink-0"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                            <span>{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {newPwd.length >= 4 && pwdCheck.failures.length === 0 && (
+                      <p className="flex items-center gap-1.5 text-xs text-emerald-600">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+                        <span>Looks good.</span>
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -454,8 +491,9 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
             </form>
 
             <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-500 leading-relaxed max-w-md">
-              <strong className="text-slate-500">Tip:</strong> Use a unique passphrase you don't reuse anywhere else.
-              Minimum 8 characters; 12 or more is recommended.
+              <strong className="text-slate-500">Tip:</strong> Use a unique password you don't reuse anywhere else.
+              Minimum {MIN_LENGTH} characters with {MIN_CLASSES} of the four character
+              types; longer is still stronger.
             </div>
           </div>
         )}

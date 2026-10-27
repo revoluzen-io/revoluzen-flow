@@ -847,7 +847,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   <button
                     onClick={() => setProdView('runs')}
                     style={prodView === 'runs' ? { background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' } : undefined}
-                    className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 border ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 border ${
                       prodView === 'runs'
                         ? 'text-white border-blue-700 shadow-sm'
                         : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
@@ -858,7 +858,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   </button>
                   <button
                     onClick={() => setProdView('logs')}
-                    className={`px-4 py-2 text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 border ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 border ${
                       prodView === 'logs'
                         ? 'bg-gradient-to-r from-indigo-500 to-indigo-700 text-white border-indigo-700 shadow-sm hover:from-indigo-600 hover:to-indigo-800'
                         : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
@@ -873,7 +873,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
               {environment !== 'prod' && (
                 <button
                   onClick={() => setShowDashboard(!showDashboard)}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
                     showDashboard ? 'bg-blue-50 text-blue-600 border-blue-200' : 'bg-white text-slate-500 border-slate-200 hover:text-slate-600'
                   }`}
                 >
@@ -891,7 +891,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 onClick={loadData}
                 disabled={loading}
                 title="Reload executions from the server (does not change anything in the running pipeline)"
-                className={`px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-wait ${
                   environment === 'prod'
                     ? 'bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700'
                     : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'

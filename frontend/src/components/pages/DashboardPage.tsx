@@ -1239,6 +1239,12 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // Pool + system also have summary equivalents.
   const summaryPoolOk = summary?.pool?.status === 'loaded';
   const pool = (summaryPoolOk ? summary.pool.data : stats?.pool) || {};
+  // `capped: false` means no concurrency limit is configured, so the
+  // backend sends a null utilization instead of dividing by a CPU-count
+  // guess. Coercing that to 0 would read as "pool idle" while runs are
+  // in flight. A missing field is treated as capped, so payloads that
+  // don't carry it behave exactly as before.
+  const poolCapped = pool.capped !== false;
   const poolUtil = Math.round(pool.utilization_pct ?? 0);
   const queueDepth = pool.queue_depth ?? 0;
   const throughput = Math.round(pool.throughput_per_hour ?? 0);
@@ -1502,7 +1508,8 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           const failedListFull = visibleFailedPipelines;
           const failedList = failedListFull.slice(0, 3);
           const failedHiddenCount = Math.max(0, failedListFull.length - failedList.length);
-          const showPoolWarning = poolUtil >= 85;
+          // Uncapped: there is no capacity to be "at 85% of", so no warning.
+  const showPoolWarning = poolCapped && poolUtil >= 85;
           const showApprovals = isProd && isAdmin && approvalsPending > 0;
           const show = failedList.length > 0 || showPoolWarning || showApprovals;
           if (!show) return null;
@@ -1764,7 +1771,21 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
               <FlatKPI variant="striped" label="Deployed"   icon={kpiIcons.pipelines} value={stats?.pipelines ?? 0} accent="blue"    onClick={() => onNavigate('pipelines')}   hint="pipelines live" />
               <FlatKPI label="Running now" icon={kpiIcons.throughput} value={running}              accent={running > 0 ? 'cyan' : 'slate'}    onClick={() => onNavigate('executions')} hint="executions in flight" />
               <FlatKPI label="Queue depth" icon={kpiIcons.schedule} value={queueDepth}             accent={queueDepth > 0 ? 'amber' : 'slate'}   onClick={() => onNavigate('pool')}        hint="waiting to start" />
-              <FlatKPI label="Pool util"  icon={kpiIcons.cpu} value={poolUtil} suffix="%"          accent={poolUtil > 85 ? 'red' : poolUtil > 60 ? 'amber' : 'emerald'} onClick={() => onNavigate('pool')} hint={pool.busy_workers != null ? `${pool.busy_workers}/${pool.total_workers} workers` : 'workers'} />
+              <FlatKPI
+              label={poolCapped ? 'Pool util' : 'Running'}
+              icon={kpiIcons.cpu}
+              value={poolCapped ? poolUtil : (pool.busy_workers ?? 0)}
+              suffix={poolCapped ? '%' : ''}
+              accent={!poolCapped ? 'slate' : poolUtil > 85 ? 'red' : poolUtil > 60 ? 'amber' : 'emerald'}
+              onClick={() => onNavigate('pool')}
+              hint={
+                !poolCapped
+                  ? 'no concurrency limit'
+                  : pool.busy_workers != null
+                    ? `${pool.busy_workers}/${pool.total_workers} workers`
+                    : 'workers'
+              }
+            />
               <FlatKPI variant="striped" label="Schedules"  icon={kpiIcons.schedule} value={stats?.schedules ?? 0}   accent="violet"  onClick={() => onNavigate('pipelines')}   hint={`${stats?.activeSchedules.length || 0} active`} />
               <FlatKPI variant="striped" label="Connections" icon={kpiIcons.connection} value={stats?.connections ?? 0} accent="slate" onClick={() => onNavigate('connections')} hint="saved endpoints" />
             </div>

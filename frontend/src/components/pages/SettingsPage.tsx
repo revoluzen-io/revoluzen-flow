@@ -8,7 +8,6 @@ import { uiAlert } from '../../ui/dialog';
 import { api } from '../../api/client';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
-import AIProviderForm from '../ai/AIProviderForm';
 import ProviderComparison from '../agent/ProviderComparison';
 import AiPricingSection from '../settings/AiPricingSection';
 import PublishPolicyCard from '../settings/PublishPolicyCard';
@@ -29,6 +28,16 @@ function formatBytes(n: number): string {
 // 'ai' tab removed May 2 2026 — moved to Insights → AI Provider subtab
 // (Insights was briefly called "AI-Hub" but renamed May 17 2026 PR 4).
 // Settings is now strictly app-preference (general/security/notifications/about).
+// No 'users' tab: this edition is deliberately single-operator. User
+// management — invites, roles, groups, the auth queue — is an Enterprise
+// capability and lives in its AdminPage, not here.
+//
+// No 'ai' tab either. One was briefly added here on 2026-10-27 because
+// AI config looked missing from Settings, but the form already lives on
+// the AI hub as its FIRST tab — that hub is where the AI surfaces were
+// consolidated in May 2026. Two entry points to one form read as two
+// different settings screens. The real problem was that Settings gave
+// no hint the hub existed, so there is a pointer in General instead.
 type SettingsTab = 'general' | 'security' | 'notifications' | 'about';
 
 interface ToggleProps {
@@ -573,7 +582,10 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
     const onHash = () => {
       const raw = window.location.hash.replace('#', '');
       const seg = readSubRoute();
-      if (seg === 'notifications' || seg === 'security' || seg === 'about' || seg === 'general') {
+      if (
+        seg === 'notifications' || seg === 'security' || seg === 'about'
+        || seg === 'general'
+      ) {
         setTab(seg);
       }
     };
@@ -915,7 +927,6 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
       id: 'notifications', label: 'Notifications',
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
     },
-    // AI Provider tab removed May 2 2026 — lives in Insights → AI Provider.
     {
       id: 'about', label: 'About',
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>,
@@ -1319,6 +1330,34 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>}
                   />
                   <AiPricingSection dark={dark} />
+                </div>
+
+                {/* A pointer, not a second copy of the form. AI config
+                    lives on the AI hub; Settings gave no hint the hub
+                    existed, so operators concluded Revoluzen Flow could
+                    not use a local model at all. Sits next to AI Pricing,
+                    which is the other AI-adjacent thing on this tab. */}
+                <div className={`mt-6 rounded-lg border shadow-sm p-4 ${
+                  dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'
+                }`}>
+                  <div className={`text-sm font-bold ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
+                    AI provider
+                  </div>
+                  <p className={`text-xs mt-1 ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Revoluzen Flow runs without an LLM — every AI feature falls back to
+                    rule-based behaviour. Connect a cloud model, or <strong>Ollama</strong> to
+                    keep every prompt on this machine.
+                  </p>
+                  {/* `#ai` is the hub's AI Provider tab — TAB_TO_PAGE in
+                      AIPage maps 'settings' → 'ai', and it is the hub's
+                      default landing tab. */}
+                  <button
+                    type="button"
+                    onClick={() => { window.location.hash = 'ai'; }}
+                    className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700 underline"
+                  >
+                    Configure it in the AI hub →
+                  </button>
                 </div>
               </>
             )}
@@ -1814,6 +1853,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
 
                 {/* ── Publishing: require a business purpose (admin) ─── */}
                 <PublishPolicyCard dark={dark} />
+
               </>
             )}
 

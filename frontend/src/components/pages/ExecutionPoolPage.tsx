@@ -384,6 +384,12 @@ export default function ExecutionPoolPage({
   const workers = status?.workers || [];
   const queue = status?.queue || [];
   const active = status?.active || [];
+  // Runs parked in admission waiting for a slot. They hold no worker, so
+  // they appear nowhere else on this page — and a scheduled one is also
+  // holding its schedule's overlap lock for the whole wait, suppressing
+  // that schedule's next fire.
+  const waitingRuns: any[] = pool.waiting || [];
+  const totalWaiting = (pool.waiting_for_capacity || 0) + (queue.length || 0);
 
   // "Running long" detection (2026-06-16): per-pipeline duration baselines from
   // run history. A running job whose elapsed exceeds ~1.5× its own pipeline's
@@ -696,31 +702,48 @@ export default function ExecutionPoolPage({
                 400→500 gradient variant; PROD uses the richer 500→600. */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {/* Utilization — colour shifts by severity (emerald/amber/red) */}
+              {/* Utilization is only meaningful against a real cap. When
+                  REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS is 0 (the DEV default)
+                  nothing limits concurrent runs, so the backend sends
+                  `capped: false` and a null percentage rather than
+                  dividing by a CPU-count guess. Showing "37% of 8" there
+                  would invent both the number and the ceiling. */}
               <HeroCard
                 gradient={
-                  (pool.utilization_pct || 0) > 80
-                    ? (isProd ? 'from-red-500 to-rose-600'    : 'from-red-400 to-rose-500')
-                    : (pool.utilization_pct || 0) > 50
-                      ? (isProd ? 'from-amber-500 to-orange-600' : 'from-amber-400 to-orange-500')
-                      : (isProd ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500')
+                  !pool.capped
+                    ? (isProd ? 'from-slate-500 to-slate-600' : 'from-slate-400 to-slate-500')
+                    : (pool.utilization_pct || 0) > 80
+                      ? (isProd ? 'from-red-500 to-rose-600'    : 'from-red-400 to-rose-500')
+                      : (pool.utilization_pct || 0) > 50
+                        ? (isProd ? 'from-amber-500 to-orange-600' : 'from-amber-400 to-orange-500')
+                        : (isProd ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500')
                 }
                 icon={
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M12 2v4" /><path d="M5.6 5.6l2.9 2.9" /><path d="M2 12h4" /><path d="M5.6 18.4l2.9-2.9" /><circle cx="12" cy="12" r="3" />
                   </svg>
                 }
-                label="Utilization"
-                value={`${pool.utilization_pct || 0}%`}
-                footer={`${pool.busy_workers || 0} / ${pool.max_workers || 0} workers busy`}
-                bar={pool.utilization_pct || 0}
+                label={pool.capped ? 'Utilization' : 'Running now'}
+                value={pool.capped ? `${pool.utilization_pct || 0}%` : `${pool.busy_workers || 0}`}
+                footer={
+                  pool.capped
+                    ? `${pool.busy_workers || 0} / ${pool.concurrency_limit} concurrent runs`
+                    : 'No concurrency limit set'
+                }
+                bar={pool.capped ? (pool.utilization_pct || 0) : undefined}
               />
 
               {/* Queue Depth */}
+              {/* `waiting_for_capacity` is runs parked in admission — live
+                  callers blocked on a slot. `queue_depth` counts submit()
+                  jobs, which no run path currently uses, so a card showing
+                  only that read "0 waiting" while schedules piled up
+                  behind a full pool. Both are counted here. */}
               <HeroCard
                 gradient={
-                  (pool.queue_depth || 0) > 5
+                  (totalWaiting) > 5
                     ? (isProd ? 'from-red-500 to-rose-600' : 'from-red-400 to-rose-500')
-                    : (pool.queue_depth || 0) > 0
+                    : (totalWaiting) > 0
                       ? (isProd ? 'from-amber-500 to-orange-600' : 'from-amber-400 to-orange-500')
                       : (isProd ? 'from-slate-500 to-slate-600' : 'from-slate-400 to-slate-500')
                 }
@@ -730,9 +753,13 @@ export default function ExecutionPoolPage({
                   </svg>
                 }
                 label="Queue"
-                value={String(pool.queue_depth || 0)}
+                value={String(totalWaiting)}
                 valueSuffix="waiting"
-                footer={`Avg wait: ${formatDuration(throughput.avg_wait_ms || 0)}`}
+                footer={
+                  waitingRuns.length > 0
+                    ? `${waitingRuns.length} blocked on capacity`
+                    : `Avg wait: ${formatDuration(throughput.avg_wait_ms || 0)}`
+                }
               />
 
               {/* Throughput */}
@@ -885,7 +912,12 @@ export default function ExecutionPoolPage({
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 3h-8l-2 4h12z" /></svg>
-                    Workers ({pool.max_workers || 0})
+                    {/* Uncapped, the slot list tracks live concurrency rather
+                    than limiting it, so a bare count reads as a ceiling
+                    that does not exist. Say which it is. */}
+                {pool.capped
+                  ? `Workers (${pool.concurrency_limit ?? pool.max_workers ?? 0})`
+                  : `Workers (${pool.busy_workers || 0} running, no limit)`}
                   </h2>
                   {allIdle && (
                     <button
@@ -899,8 +931,13 @@ export default function ExecutionPoolPage({
                 {allIdle && !idleExpanded ? (
                   <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-100">
                     <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
+                    {/* Uncapped, "All 20 workers idle" states a ceiling
+                        that does not exist — the 20 is a CPU-count guess,
+                        not a limit on concurrent runs. */}
                     <span className="text-xs font-semibold text-slate-600">
-                      All {idleWorkers.length} worker{idleWorkers.length === 1 ? '' : 's'} idle
+                      {pool.capped
+                        ? `All ${idleWorkers.length} worker${idleWorkers.length === 1 ? '' : 's'} idle`
+                        : 'Nothing running'}
                     </span>
                     <span className="text-xs text-slate-500">
                       · {totalJobsDone} job{totalJobsDone === 1 ? '' : 's'} completed lifetime
@@ -984,16 +1021,61 @@ export default function ExecutionPoolPage({
                   {longRunningCount} running long
                 </span>
               )}
-              <span className="text-slate-600"><span className="font-bold text-slate-800 tabular-nums">{pool.queue_depth || 0}</span> waiting</span>
+              <span className="text-slate-600"><span className="font-bold text-slate-800 tabular-nums">{totalWaiting}</span> waiting</span>
               {throughput.avg_wait_ms ? (
                 <span className="text-slate-500">avg wait {formatDuration(throughput.avg_wait_ms)}</span>
               ) : null}
             </div>
+
+            {/* Runs blocked in admission. They hold no worker slot, so
+                without this they are invisible: the page would say
+                "nothing running, nothing queued" while schedules silently
+                stopped firing behind a full pool. */}
+            {waitingRuns.length > 0 && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="text-xs font-bold text-amber-800 mb-2">
+                  {waitingRuns.length} run{waitingRuns.length === 1 ? '' : 's'} waiting for a free worker
+                </div>
+                <ul className="space-y-1.5">
+                  {waitingRuns.slice(0, 8).map((w: any) => (
+                    <li key={w.job_id} className="flex items-center gap-2 text-xs">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                      <span className="font-semibold text-slate-700 truncate">{w.workflow_name}</span>
+                      <span className="text-slate-500 shrink-0">
+                        · {w.triggered_by}
+                        {w.environment === 'prod' ? ' · PROD' : ''}
+                      </span>
+                      <span className="ml-auto tabular-nums text-amber-800 font-semibold shrink-0">
+                        {formatDuration(w.waiting_ms || 0)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {waitingRuns.some((w: any) => w.schedule_id) && (
+                  <p className="mt-2 text-[11px] text-amber-800">
+                    A waiting <strong>scheduled</strong> run still holds its schedule's
+                    overlap lock, so that schedule will not fire again until it
+                    completes. Interval schedules catch up on the next tick; cron
+                    schedules lose the missed window.
+                  </p>
+                )}
+                <p className="mt-1.5 text-[11px] text-amber-700">
+                  Raise <code>REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS</code> or stagger the
+                  schedules to clear this.
+                </p>
+              </div>
+            )}
             {queue.length === 0 ? (
               <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-100">
                 <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                 <span className="text-xs font-semibold text-slate-600">No jobs waiting</span>
-                <span className="text-xs text-slate-500">· runs start as soon as a worker is free</span>
+                {/* With no cap there is nothing to wait for — runs never
+                    queue on a free worker, they start immediately. */}
+                <span className="text-xs text-slate-500">
+                  {pool.capped
+                    ? '· runs start as soon as a worker is free'
+                    : '· no concurrency limit — runs start immediately'}
+                </span>
               </div>
             ) : (
               <div className="space-y-1.5">

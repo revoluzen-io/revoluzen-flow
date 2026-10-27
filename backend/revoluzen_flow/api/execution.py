@@ -78,19 +78,17 @@ router = APIRouter(
 )
 
 # ── Concurrency gate ────────────────────────────────────────────────────
-# 0 = unlimited (no semaphore). Any positive value caps parallel runs.
-_MAX = runtime_config.MAX_CONCURRENT_RUNS
-_run_semaphore: asyncio.Semaphore | None = None
-
-
-def _get_semaphore() -> asyncio.Semaphore | None:
-    """Lazy-init the semaphore on the running event loop."""
-    global _run_semaphore
-    if _MAX <= 0:
-        return None
-    if _run_semaphore is None:
-        _run_semaphore = asyncio.Semaphore(_MAX)
-    return _run_semaphore
+# There used to be a module-level `asyncio.Semaphore(MAX_CONCURRENT_RUNS)`
+# here. It gated only this module, so `MAX_CONCURRENT_RUNS=4` capped API
+# runs at four while the scheduler (no gate) and backfills (their own
+# ThreadPoolExecutor) ran unbounded alongside — and none of those showed
+# on the Execution Pool page. Replaced 2026-10-27 by the pool's single
+# admission point, which every run path now shares.
+#
+# It also acquired on the EVENT LOOP, so a queued run held the request
+# coroutine open; admission now blocks the worker thread that is about
+# to do the work instead.
+from revoluzen_flow.engine.admission import run_through_pool as _admit
 
 
 def _safe_workspace_id(request: Request) -> str:
@@ -345,61 +343,65 @@ async def run_workflow_ephemeral(
     executor = WorkflowExecutor(data_dir=data_dir, app_state=_app_state)
     error_intel = ErrorIntelligence(data_dir=data_dir)
 
-    sem = _get_semaphore()
-    if sem is not None:
-        if sem._value == 0:
-            logger.info(
-                "execute (ephemeral): all %d slots busy — queueing draft '%s'",
-                _MAX, wf.name or eff_id,
-            )
-        await sem.acquire()
+    SAMPLE_ROWS = 100
+    sample_kwargs: dict = _sample_kwargs(safety_mode, eff_id, SAMPLE_ROWS)
 
-    try:
-        SAMPLE_ROWS = 100
-        sample_kwargs: dict = _sample_kwargs(safety_mode, eff_id, SAMPLE_ROWS)
-
-        from revoluzen_flow.security.execution_codes import mint_for_run
-        _eph_code = mint_for_run(wf, job_run_id=run_id)
-        with ResourceMonitor() as _resmon:
-            result = await anyio.to_thread.run_sync(
-                lambda: executor.execute_workflow(
+    from revoluzen_flow.security.execution_codes import mint_for_run
+    _eph_code = mint_for_run(wf, job_run_id=run_id)
+    # Admission happens inside the worker thread, not here: the pool
+    # blocks the thread that will do the work, which is the same
+    # thread anyio would have parked anyway. Acquiring on the event
+    # loop (the old semaphore) instead held the request open while
+    # contributing nothing the pool does not now do — and gated only
+    # this path, leaving schedules and backfills uncounted.
+    with ResourceMonitor() as _resmon:
+        result = await anyio.to_thread.run_sync(
+            lambda: _admit(
+                _app_state,
+                run_id=run_id,
+                workflow_id=eff_id,
+                workflow_name=wf.name or eff_id,
+                workspace_id=workspace_id,
+                # On this endpoint the environment arrives on the body,
+                # not as a query-param local like the saved-run route.
+                environment=body.environment,
+                triggered_by="manual",
+                fn=lambda: executor.execute_workflow(
                     wf, preview_limit=body.preview_limit, full_run=full_run,
                     parameter_values=body.parameter_values or None,
                     run_id=run_id,
                     execution_code=_eph_code,
                     **sample_kwargs,
-                )
+                ),
             )
+        )
 
-        # Error-intelligence enrichment — runs per failed step so the
-        # editor can show actionable hints even though the run isn't
-        # persisted.
-        error_analyses: dict[str, Any] = {}
-        for step in wf.steps:
-            step_result = result.step_results.get(step.id)
-            if step_result and step_result.status == "error" and step_result.error:
-                analysis = error_intel.analyze(
-                    error=step_result.error,
-                    step_id=step.id,
-                    step_type=step.type.value if hasattr(step.type, "value") else str(step.type),
-                    step_params=step.params,
-                    available_columns=step_result.columns or None,
-                )
-                error_analyses[step.id] = analysis.model_dump(mode="json")
+    # Error-intelligence enrichment — runs per failed step so the
+    # editor can show actionable hints even though the run isn't
+    # persisted.
+    error_analyses: dict[str, Any] = {}
+    for step in wf.steps:
+        step_result = result.step_results.get(step.id)
+        if step_result and step_result.status == "error" and step_result.error:
+            analysis = error_intel.analyze(
+                error=step_result.error,
+                step_id=step.id,
+                step_type=step.type.value if hasattr(step.type, "value") else str(step.type),
+                step_params=step.params,
+                available_columns=step_result.columns or None,
+            )
+            error_analyses[step.id] = analysis.model_dump(mode="json")
 
-        response = result.model_dump(mode="json")
-        if error_analyses:
-            response["error_intelligence"] = error_analyses
-        response["ephemeral"] = True
-        response["execution_id"] = run_id
-        response["validator"] = {
-            "errors": [],
-            "warnings": [w.dict() for w in warns],
-        }
-        return response
-    finally:
-        if sem is not None:
-            sem.release()
+    response = result.model_dump(mode="json")
+    if error_analyses:
+        response["error_intelligence"] = error_analyses
+    response["ephemeral"] = True
+    response["execution_id"] = run_id
+    response["validator"] = {
+        "errors": [],
+        "warnings": [w.dict() for w in warns],
+    }
+    return response
 
 
 @router.post("/workflow/{workflow_id}")
@@ -575,56 +577,14 @@ async def run_workflow(
     )
     error_intel = ErrorIntelligence(data_dir=data_dir)
 
-    # ── Record in worker pool for live tracking ──
-    # The pool tracks the job for the admin Execution Pool page.
-    # Actual execution still uses the semaphore + anyio dispatch below.
-    _pool = None
-    _pool_job = None
-    try:
-        from revoluzen_flow.main import app_state as _as
-        _pool = _as.get("worker_pool")
-        if _pool:
-            metadata = getattr(wf, "metadata", {}) or {}
-            priority = metadata.get("priority", 3)
-            from revoluzen_flow.engine.worker_pool import QueuedJob
-            _pool_job = QueuedJob(
-                id=exe.id,
-                workflow_id=workflow_id,
-                workflow_name=wf.name,
-                project_id=getattr(wf, "project_id", "default"),
-                workspace_id=workspace_id,
-                environment=environment,
-                priority=min(max(priority, 1), 5),
-                triggered_by="manual",
-            )
-            _pool._lock.acquire()
-            _pool._total_submitted += 1
-            worker = _pool._find_free_worker()
-            if worker:
-                worker.status = "busy"
-                worker.current_job_id = _pool_job.id
-                worker.current_workflow_id = _pool_job.workflow_id
-                worker.current_workflow_name = _pool_job.workflow_name
-                worker.current_priority = _pool_job.priority
-                worker.current_environment = _pool_job.environment
-                from datetime import datetime as _dt, timezone as _tz
-                worker.started_at = _dt.now(_tz.utc)
-                _pool._active[_pool_job.id] = _pool_job
-                _pool_job._kwargs["_worker"] = worker
-            _pool._lock.release()
-    except Exception:
-        pass
-
-    # Acquire the concurrency gate — if all slots are taken, callers
-    # wait here instead of launching a 3rd / 4th heavy DuckDB run.
-    sem = _get_semaphore()
-    if sem is not None:
-        if sem._value == 0:
-            logger.info(
-                "execute: all %d slots busy — queueing workflow %s",
-                _MAX, workflow_id,
-            )
-        await sem.acquire()
+    # Pool registration + the concurrency gate used to live here as two
+    # separate mechanisms: a hand-rolled slot claim for the Pool page,
+    # and an asyncio.Semaphore for the actual limit. Both are now the
+    # pool's job, applied at the `_admit` call around the run below, so
+    # a scheduled run and a backfill window are counted and capped by
+    # the same thing an API run is.
+    metadata = getattr(wf, "metadata", {}) or {}
+    priority = metadata.get("priority", 3)
 
     try:
         # DuckDB is CPU-bound → run off the async event loop so the API
@@ -659,12 +619,23 @@ async def run_workflow(
         )
         with ResourceMonitor() as _resmon:
             result = await anyio.to_thread.run_sync(
-                lambda: executor.execute_workflow(
-                    wf, preview_limit=preview_limit, full_run=full_run,
-                    parameter_values=parameter_values or None,
+                lambda: _admit(
+                    _app_state,
                     run_id=exe.id,
-                    execution_code=_exec_code,
-                    **sample_kwargs,
+                    workflow_id=workflow_id,
+                    workflow_name=wf.name or workflow_id,
+                    project_id=getattr(wf, "project_id", "default"),
+                    workspace_id=workspace_id,
+                    environment=environment,
+                    triggered_by="manual",
+                    priority=min(max(priority, 1), 5),
+                    fn=lambda: executor.execute_workflow(
+                        wf, preview_limit=preview_limit, full_run=full_run,
+                        parameter_values=parameter_values or None,
+                        run_id=exe.id,
+                        execution_code=_exec_code,
+                        **sample_kwargs,
+                    ),
                 )
             )
 
@@ -922,28 +893,15 @@ async def run_workflow(
             },
         )
     finally:
-        if sem is not None:
-            sem.release()
-        # Release worker pool slot
-        # Final elapsed time includes result capture and run finalization.
+        # The slot is released by `_admit` when the run returns, so
+        # nothing to free here. Final elapsed time includes result
+        # capture and run finalization.
         if exe.status not in ("running", "queued", "pending"):
             try:
                 exe.completed_at = datetime.now(timezone.utc)
                 exe_store.record(exe)
             except Exception:
                 logger.warning("Could not persist final execution timing", exc_info=True)
-        if _pool and _pool_job:
-            try:
-                duration_ms = (time.time() - start) * 1000
-                _pool._on_job_complete(
-                    _pool_job,
-                    _pool_job._kwargs.get("_worker") or _pool._workers[0],
-                    exe.status or "error",
-                    duration_ms,
-                    exe.error_message,
-                )
-            except Exception:
-                pass
 
 
 def _trigger_pipeline_alerts(
@@ -1151,7 +1109,14 @@ async def replay_execution(
     override individual values for the replay (the rest still inherit
     from the original run). Empty body = exact replay.
     """
-    from revoluzen_flow.monitoring.store import get_execution_store
+    # No import here: `get_execution_store` is defined at the top of this
+    # module (it reads the live store out of app_state). This line used to
+    # be `from revoluzen_flow.monitoring.store import get_execution_store`,
+    # which shadowed it with a name that module does not define — it has
+    # only the `ExecutionStore` class. Every Replay therefore raised
+    # ImportError and returned 500 before doing anything. The sibling
+    # call sites (the saved-run endpoint, `_require_execution`) always
+    # used the module-level helper, which is why only Replay was broken.
     exe_store = get_execution_store()
 
     original = exe_store.get(execution_id, workspace_id=workspace_id)
@@ -1227,11 +1192,20 @@ async def replay_execution(
         _replay_code = mint_for_run(wf, job_run_id=exe.id)
         with ResourceMonitor() as _resmon:
             result = await anyio.to_thread.run_sync(
-                lambda: executor.execute_workflow(
-                    wf,
-                    parameter_values=merged_param_values or None,
+                lambda: _admit(
+                    _app_state,
                     run_id=exe.id,
-                    execution_code=_replay_code,
+                    workflow_id=getattr(wf, "id", "") or "",
+                    workflow_name=getattr(wf, "name", "") or "replay",
+                    workspace_id=getattr(exe, "workspace_id", None) or "default",
+                    environment=getattr(exe, "environment", None) or "dev",
+                    triggered_by="replay",
+                    fn=lambda: executor.execute_workflow(
+                        wf,
+                        parameter_values=merged_param_values or None,
+                        run_id=exe.id,
+                        execution_code=_replay_code,
+                    ),
                 )
             )
 
