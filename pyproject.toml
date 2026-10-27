@@ -22,8 +22,14 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    # 2026-10-27: 3.13 added after the full fast-gate suite was run on it
+    # for the first time and passed. 3.12 sits between two suite-tested
+    # versions and is covered by the smoke job. `requires-python` stays
+    # open-ended because the floor is now actually evidenced rather than
+    # assumed.
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries",
     "Topic :: Scientific/Engineering",
 ]
