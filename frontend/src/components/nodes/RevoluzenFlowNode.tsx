@@ -573,24 +573,55 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
 }
 
 /* ── Param preview text ── */
-function paramPreview(stepType: string, params: any): string {
+
+/** Render a param that may be an array, a scalar, or absent.
+ *
+ * These previews used to read `(params?.group_by || []).join(', ')`. The
+ * `|| []` guards null and undefined only — a STRING passes straight
+ * through, and `"region".join` is not a function. Because the throw
+ * happens while ReactFlow renders a node, the nearest error boundary is
+ * the app's, so one scalar where an array was expected replaced the
+ * whole editor with "Something went wrong".
+ *
+ * A pipeline can carry a scalar here easily: hand-authored JSON, an
+ * importer, an older schema version, or the API. A label preview is
+ * cosmetic and must never be able to take the canvas down.
+ */
+function listPreview(value: unknown): string {
+  if (Array.isArray(value)) return value.filter((v) => v != null && v !== '').join(', ');
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  return String(value);
+}
+
+/** How many items a list-ish param holds, for "N columns" previews. */
+function listCount(value: unknown): number {
+  if (Array.isArray(value)) return value.length;
+  if (typeof value === 'string') return value.split(',').filter((s) => s.trim()).length;
+  return 0;
+}
+
+// Exported for tests: the subtitle only renders at `verbose` label
+// density, so asserting on it through the DOM would really be asserting
+// on a preference. The logic is pure — test it directly.
+export function paramPreview(stepType: string, params: any): string {
   switch (stepType) {
     case 'csv_source': return params?.file_path || 'No file selected';
     case 'db_source': return params?.query?.slice(0, 50) || 'No query';
     case 'api_source': return params?.url?.slice(0, 50) || 'No URL';
     case 'filter': return params?.condition?.slice(0, 50) || 'No condition';
     case 'transform': return params?.expression?.slice(0, 50) || 'No expression';
-    case 'deduplicate': return `Key: ${(params?.key || []).join(', ') || 'none'}`;
-    case 'aggregate': return `Group: ${(params?.group_by || []).join(', ') || 'none'}`;
+    case 'deduplicate': return `Key: ${listPreview(params?.key ?? params?.keys) || 'none'}`;
+    case 'aggregate': return `Group: ${listPreview(params?.group_by) || 'none'}`;
     case 'join': return `${params?.join_type || 'INNER'} JOIN on ${params?.join_key || '...'}`;
     case 'lookup': return `Lookup: ${params?.lookup_key || '...'}`;
     case 'lookup_activity': return `→ $vars.${params?.output_var || 'result'}`;
     case 'union': return `Mode: ${params?.union_type || 'all'}`;
-    case 'sort': return `By: ${(params?.columns || params?.sort_by || []).join(', ') || 'none'}`;
+    case 'sort': return `By: ${listPreview(params?.columns ?? params?.sort_by ?? params?.by) || 'none'}`;
     case 'rename': return `${Object.keys(params?.mappings || {}).length} columns`;
     case 'typecast': return `${Object.keys(params?.casts || {}).length} columns`;
     case 'pivot': return `Pivot: ${params?.pivot_column || '...'}`;
-    case 'unpivot': return `Unpivot: ${(params?.value_columns || []).length} columns`;
+    case 'unpivot': return `Unpivot: ${listCount(params?.value_columns)} columns`;
     case 'window': return `${params?.function || 'ROW_NUMBER'} OVER ...`;
     case 'sample': return `${params?.count || params?.fraction || '...'} rows`;
     case 'validate': return `${(params?.rules || []).length} rules`;
@@ -739,7 +770,19 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
   const isJoin = stepType === 'join' || stepType === 'lookup' || stepType === 'union';
   void category;
 
-  const preview = paramPreview(stepType, params);
+  // Belt and braces. The fixes inside `paramPreview` close the cases we
+  // know about, but this is one `switch` over ~40 node types reading
+  // free-form params that arrive from imports, the API and hand-edited
+  // JSON. Any throw in here renders during ReactFlow's node pass, where
+  // the nearest boundary is the app's — so a bad param string would blank
+  // the entire editor rather than one node's subtitle. A preview is
+  // decoration; it degrades to empty instead.
+  let preview = '';
+  try {
+    preview = paramPreview(stepType, params);
+  } catch (err) {
+    console.warn(`[node] param preview failed for ${stepType}:`, err);
+  }
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
