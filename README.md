@@ -35,7 +35,8 @@ types · embedded AI assistance that defaults to a local model · an open
 connector framework you can extend in minutes. Apache 2.0 forever, with
 predictable seat pricing for teams via Revoluzen Flow Enterprise.
 
-> **Status: 1.0.1 stable.** Tested with Python 3.11/3.12 · Docker 25+ ·
+> **Status: 1.0.1 stable.** The full test suite runs on **Python 3.11 and
+> 3.13** in CI (3.12 is smoke-tested and sits between the two) · Docker 25+ ·
 > DuckDB 1.1.3 · Postgres 16. See [CHANGELOG.md](CHANGELOG.md) for the full
 > tested-with matrix and known gaps. PyPI, Docker and source installs are all
 > supported today; prebuilt desktop installers are still pending.
@@ -109,8 +110,8 @@ docker run -d --name revoluzen-flow \
 
 ### PyPI
 
-**Requires Python 3.11+.** Check first — an older Python fails with `No matching
-distribution found`:
+**Requires Python 3.11+** (the suite is run on 3.11 and 3.13). Check first — an
+older Python fails with `No matching distribution found`:
 
 ```bash
 py --version        # Windows
