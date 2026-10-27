@@ -126,7 +126,7 @@ function ActiveProviderSummary({ dark }: { dark: boolean }) {
               ? (dark ? 'text-emerald-300' : 'text-emerald-600')
               : badgeState === 'unreachable'
                 ? (dark ? 'text-amber-300' : 'text-amber-600')
-                : (dark ? 'text-slate-500' : 'text-slate-400')
+                : (dark ? 'text-slate-500' : 'text-slate-500')
           }>
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -143,14 +143,19 @@ function ActiveProviderSummary({ dark }: { dark: boolean }) {
                 ? (dark ? 'text-emerald-300 bg-emerald-500/15 border border-emerald-500/25' : 'text-emerald-700 bg-emerald-50 border border-emerald-200')
                 : badgeState === 'unreachable'
                   ? (dark ? 'text-amber-300 bg-amber-500/15 border border-amber-500/25' : 'text-amber-700 bg-amber-50 border border-amber-200')
-                  : (dark ? 'text-slate-400 bg-slate-700/30 border border-slate-600' : 'text-slate-500 bg-slate-100 border border-slate-200')
+                  // slate-600 on the slate-100 pill: slate-500 measures
+                  // 4.34:1 there, just under AA.
+                  : (dark ? 'text-slate-400 bg-slate-700/30 border border-slate-600' : 'text-slate-600 bg-slate-100 border border-slate-200')
             }`}>
               {badgeLabel}
             </span>
           </div>
           <div className={`mt-0.5 text-sm font-bold flex items-center gap-2 flex-wrap ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
             <span className="capitalize">{provider}</span>
-            <span className={dark ? 'text-slate-600' : 'text-slate-300'}>/</span>
+            {/* Decorative separator between two labels. Marked aria-hidden
+                and given slate-500 — at slate-300 it was 1.48:1, which
+                reads as a rendering glitch rather than a divider. */}
+            <span aria-hidden="true" className={dark ? 'text-slate-600' : 'text-slate-500'}>/</span>
             <span className="font-mono">{model}</span>
             {badgeState === 'connected' && (
               <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${dark ? 'bg-slate-800 text-slate-400 border border-slate-700' : 'bg-slate-100 text-slate-500 border border-slate-200'}`}>
@@ -435,7 +440,7 @@ export default function AIPage({
                       try { sessionStorage.setItem('revoluzen_flow_docs_jump_to', 'eval-harness.md'); } catch { /* noop */ }
                       navigateTo('help');
                     }}
-                    className={`inline-flex items-center gap-1 text-xs font-semibold mt-1.5 ${dark ? 'text-emerald-300 hover:text-emerald-200' : 'text-emerald-700 hover:text-emerald-900'}`}
+                    className={`tap-24 inline-flex items-center gap-1 text-xs font-semibold mt-1.5 ${dark ? 'text-emerald-300 hover:text-emerald-200' : 'text-emerald-700 hover:text-emerald-900'}`}
                   >
                     Open eval-harness.md
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -463,9 +468,9 @@ export default function AIPage({
                   </svg>
                 </span>
                 <div className="flex-1 min-w-0">
-                  <h3 className={`text-sm font-bold uppercase tracking-wider ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
+                  <h2 className={`text-sm font-bold uppercase tracking-wider ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
                     Compare providers
-                  </h3>
+                  </h2>
                   <p className={`text-xs mt-0.5 ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
                     Reference pricing across providers — pick one in the form above. Per-token rates and estimated cost per agent turn at typical workload.
                   </p>

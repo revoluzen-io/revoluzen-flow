@@ -16,9 +16,63 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 
-# Minimum length we'll accept. 12 is the NIST 2024 floor for human-chosen
-# passwords paired with a complexity rule.
-MIN_LENGTH = 12
+# Minimum length we'll accept.
+#
+# 2026-10-27 — lowered 12 → 8. NIST SP 800-63B says verifiers SHALL
+# require at least 8 characters and SHOULD allow at least 64, so the old
+# 12 was stricter than it needed to be.
+#
+# The four all-or-nothing composition rules were dropped at the same time
+# and then partly reinstated as MIN_CLASSES (any 2 of 4) by product
+# decision later the same day — see the MIN_CLASSES comment for the
+# trade-off that was weighed. This file therefore does NOT follow NIST on
+# composition, and that divergence is deliberate and documented rather
+# than accidental.
+#
+# What carries most of the security either way: the common-password
+# blocklist, the email/name containment check, and the run/sequence
+# checks, all of which NIST explicitly endorses.
+MIN_LENGTH = 8
+
+# How many of the four character classes (lowercase, uppercase, digit,
+# symbol) a password must contain.
+#
+# 2026-10-27, product decision. The trade-off was put explicitly and this
+# side was chosen, so the reasoning is recorded rather than re-argued:
+#
+#   For  — 8 characters of one class ("quietriv") is the weakest thing
+#          the policy allowed, and two classes is a cheap floor that
+#          costs the user almost nothing.
+#   Against — it rejects "quiet river morning", which is far harder to
+#          guess than "Summer24", which it accepts. NIST SP 800-63B says
+#          verifiers SHALL NOT impose composition rules for exactly that
+#          reason.
+#
+# Requiring ANY two rather than all four is what keeps this tolerable: no
+# single class is mandatory, so nobody is forced into the `Password1!`
+# shape that rules-based cracking models best. The blocklist, the
+# email/name containment check and the run/sequence checks still do the
+# heavy lifting.
+MIN_CLASSES = 2
+
+# Upper bound, in BYTES of UTF-8 — not characters.
+#
+# bcrypt (see auth/models.py) only ever reads the first 72 bytes of a
+# password. Older bindings truncated silently; bcrypt 5.x raises
+# ValueError instead, so without this rule a long passphrase reached
+# `User.hash_password` and came back as a 500 from /register,
+# /reset-password and /me/password. Nothing capped it and nothing told
+# the user, while the sign-up form actively encourages passphrases
+# ("a few ordinary words beat one hard-to-type scramble") — which is
+# exactly how you end up over 72.
+#
+# Bytes, because that is what bcrypt counts: "café" is 5 bytes from 4
+# characters, and an emoji is 4 bytes on its own. Checking len() would
+# let a 70-character accented passphrase through and still 500.
+#
+# NIST SP 800-63B says verifiers SHOULD allow at least 64 characters,
+# and 72 clears that. Raising it further means changing the hash.
+MAX_BYTES = 72
 
 # Embedded common-password blocklist. Lowercased; the validator
 # lowercases the candidate before checking.
@@ -60,23 +114,32 @@ def validate_password(password: str, *, email: str = "", name: str = "") -> Pass
         failures.append(f"Password must be at least {MIN_LENGTH} characters (need {deficit} more).")
         suggestions.append(f"Add {deficit} more character{'s' if deficit != 1 else ''}.")
 
+    # Hard upper bound — see MAX_BYTES. Must be a failure, not a
+    # suggestion: past this the hash call raises and the request 500s.
+    # The limit is measured in bytes, but nobody types bytes — the user
+    # gets one plain sentence. The byte/character distinction only shows
+    # up for accented or emoji passwords, where "72 characters or fewer"
+    # is still the right thing to do, just conservative. The reasoning
+    # lives in the MAX_BYTES comment, not on the login screen.
+    n_bytes = len(password.encode("utf-8"))
+    if n_bytes > MAX_BYTES:
+        failures.append(f"Password is too long. Use {MAX_BYTES} characters or fewer.")
+        suggestions.append("Shorten it — a few words is plenty.")
+
     has_lower = any(c.islower() for c in password)
     has_upper = any(c.isupper() for c in password)
     has_digit = any(c.isdigit() for c in password)
     has_symbol = any(not c.isalnum() and not c.isspace() for c in password)
 
-    if not has_lower:
-        failures.append("Add at least one lowercase letter.")
-        suggestions.append("Mix in a lowercase letter (a-z).")
-    if not has_upper:
-        failures.append("Add at least one uppercase letter.")
-        suggestions.append("Mix in an uppercase letter (A-Z).")
-    if not has_digit:
-        failures.append("Add at least one number.")
-        suggestions.append("Mix in a digit (0-9).")
-    if not has_symbol:
-        failures.append("Add at least one symbol.")
-        suggestions.append("Mix in a symbol (!@#$%^&* etc.).")
+    # At least MIN_CLASSES of the four character types. No specific class
+    # is mandatory — any two will do — so there is no forced trailing `!`.
+    classes_passed = sum([has_lower, has_upper, has_digit, has_symbol])
+    if classes_passed < MIN_CLASSES:
+        failures.append(
+            f"Use at least {MIN_CLASSES} of these: a lowercase letter, an "
+            "uppercase letter, a number, a symbol."
+        )
+        suggestions.append("Adding a capital or a number is usually the easiest fix.")
 
     if password.lower() in _COMMON_PASSWORDS:
         failures.append("This password is on the common-passwords blocklist.")
@@ -102,16 +165,34 @@ def validate_password(password: str, *, email: str = "", name: str = "") -> Pass
         failures.append("Avoid keyboard or alphabetic sequences (e.g. 'abcde', '12345').")
         suggestions.append("Break up sequences with random characters.")
 
-    classes_passed = sum([has_lower, has_upper, has_digit, has_symbol])
-    length_bonus = 0
-    if len(password) >= 16:
-        length_bonus += 1
-    if len(password) >= 20:
-        length_bonus += 1
-    raw_score = classes_passed + length_bonus
+    # Strength is driven by LENGTH, not by how many character classes the
+    # password happens to contain. The old model was
+    # `classes + length_bonus - 2`, which scored "quiet river morning" —
+    # 19 characters, lowercase only — as 0, i.e. "Weak", while the rules
+    # above accept it. Telling someone their good passphrase is weak is
+    # what pushes them back to `Passw0rd!` (4 classes, 9 characters, on
+    # every cracking list, and it scored "Good"). Length is the term that
+    # actually tracks guessing cost, so it sets the floor and variety can
+    # only nudge it up by one.
+    n = len(password)
+    if n >= 20:
+        score = 4
+    elif n >= 16:
+        score = 3
+    elif n >= 12:
+        score = 2
+    elif n >= MIN_LENGTH:
+        score = 1
+    else:
+        score = 0
+    # A mix of classes is worth something, but only as a bonus, and only
+    # once the password is long enough for it to matter.
+    if classes_passed >= 3 and n >= 10:
+        score += 1
+    score = min(4, score)
+    # Anything that fails a rule cannot advertise itself as strong.
     if failures:
-        raw_score = min(raw_score, 1)
-    score = min(4, max(0, raw_score - 2))
+        score = 0
     label = ["Weak", "Fair", "Good", "Strong", "Excellent"][score]
 
     return PasswordCheck(
@@ -170,7 +251,11 @@ _GEN_SYMBOL = "!@#$%^&*-_=+?"
 
 def generate_strong_password(length: int = 20) -> str:
     """Generate a random password that is guaranteed to pass ``validate_password``."""
+    # Clamp to BOTH ends. The docstring promises the result passes
+    # validate_password, so it has to respect MAX_BYTES too — the output
+    # is ASCII, so one character is one byte here.
     length = max(length, MIN_LENGTH)
+    length = min(length, MAX_BYTES)
     rng = secrets.SystemRandom()
     chars = [
         rng.choice(_GEN_LOWER),

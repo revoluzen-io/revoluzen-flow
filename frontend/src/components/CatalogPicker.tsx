@@ -388,10 +388,10 @@ export default function CatalogPicker({ connectionId, kinds, onPick, label = 'Br
                 </span>
               )}
               {catalog.auth && (
-                <span className="text-slate-400">· auth: {catalog.auth.replace(/_/g, ' ')}</span>
+                <span className="text-slate-500">· auth: {catalog.auth.replace(/_/g, ' ')}</span>
               )}
               {!loading && allowedItems.length > 0 && (
-                <span className="ml-auto text-slate-400">{allowedItems.length.toLocaleString()} total</span>
+                <span className="ml-auto text-slate-500">{allowedItems.length.toLocaleString()} total</span>
               )}
             </div>
           )}
@@ -446,7 +446,7 @@ export default function CatalogPicker({ connectionId, kinds, onPick, label = 'Br
           {/* Body */}
           <div className="flex-1 overflow-auto">
             {loading && (
-              <div className="px-4 py-6 text-xs text-slate-400 text-center">Loading catalog…</div>
+              <div className="px-4 py-6 text-xs text-slate-500 text-center">Loading catalog…</div>
             )}
             {!loading && error && (
               <div className="px-4 py-3 text-xs text-red-500">{error}</div>
@@ -455,7 +455,7 @@ export default function CatalogPicker({ connectionId, kinds, onPick, label = 'Br
               <div className="px-4 py-3 text-xs text-slate-500 italic">{catalog.reason}</div>
             )}
             {!loading && !error && catalog && catalog.supported && filtered.length === 0 && recentFiltered.length === 0 && (
-              <div className="px-4 py-6 text-xs text-slate-400 text-center">
+              <div className="px-4 py-6 text-xs text-slate-500 text-center">
                 {search ? 'No matches.' : 'Catalog is empty.'}
               </div>
             )}
@@ -488,7 +488,7 @@ export default function CatalogPicker({ connectionId, kinds, onPick, label = 'Br
                           <polyline points="9 18 15 12 9 6" />
                         </svg>
                         <span className="truncate">{parent}</span>
-                        <span className="ml-auto text-slate-400 normal-case tracking-normal font-medium">
+                        <span className="ml-auto text-slate-500 normal-case tracking-normal font-medium">
                           {total.toLocaleString()}
                         </span>
                       </button>
@@ -569,7 +569,7 @@ function RecentSection({ items, onPick }: RecentSectionProps) {
             {item.name}
           </span>
           {item.parent && (
-            <span className="min-w-0 truncate text-xs text-slate-400">{item.parent}</span>
+            <span className="min-w-0 truncate text-xs text-slate-500">{item.parent}</span>
           )}
         </button>
       ))}

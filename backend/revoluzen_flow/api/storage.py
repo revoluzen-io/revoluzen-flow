@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from revoluzen_flow.auth.deps import current_workspace_id, require_auth
+from revoluzen_flow.auth.deps import current_workspace_id, require_admin, require_auth
 from revoluzen_flow.datastore.models import (
     CleanupRequest,
     OBJECT_KIND_FILE,
@@ -279,8 +279,14 @@ _MAX_UPLOAD_BYTES = _MAX_UPLOAD_MB * 1024 * 1024
 
 
 @router.post("/_repair_schema")
-def repair_storage_schema():
+def repair_storage_schema(_admin=Depends(require_admin)):
     """Idempotent schema repair for the storage_objects table.
+
+    2026-10-23 — admin-gated. It ran for an unauthenticated caller and
+    returned the table's full column list with it, so it was both a schema
+    mutation and a small information disclosure. It is a maintenance escape
+    hatch documented in docs/storage.md, which makes admin the right rank —
+    not the workspace gate the rest of this router uses.
 
     Some installs ended up with `_meta.schema_version` stamped past 26
     but the actual `folder_id` ALTER TABLE never ran (CREATE TABLE IF

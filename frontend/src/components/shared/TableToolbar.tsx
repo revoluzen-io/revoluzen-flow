@@ -243,6 +243,7 @@ export default function TableToolbar<T>({
             </svg>
             <input value={searchValue || ''} onChange={e => onSearchChange(e.target.value)}
               placeholder={searchPlaceholder || `Search ${recordLabel}s...`}
+              aria-label={searchPlaceholder || `Search ${recordLabel}s`}
               className={`pl-7 pr-2.5 py-1.5 text-xs rounded-lg outline-none w-36 ${chrome.search}`} />
           </div>
         )}
@@ -262,7 +263,7 @@ export default function TableToolbar<T>({
                 <div className="flex items-center gap-2">
                   <button onClick={onSelectAll} className="text-xs text-blue-500 hover:text-blue-600 font-medium">All</button>
                   <span className="text-slate-300">|</span>
-                  <button onClick={onResetDefaults} className="text-xs text-slate-400 hover:text-slate-600 font-medium">Default</button>
+                  <button onClick={onResetDefaults} className="text-xs text-slate-500 hover:text-slate-600 font-medium">Default</button>
                 </div>
               </div>
               <div className="max-h-[320px] overflow-y-auto py-0.5">
@@ -271,7 +272,7 @@ export default function TableToolbar<T>({
                   if (cols.length === 0) return null;
                   return (
                     <div key={group.key}>
-                      <div className="px-3 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
+                      <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
                         {isIconName(group.icon)
                           ? <Icon name={group.icon} size={11} />
                           : <span>{group.icon}</span>}
@@ -304,7 +305,7 @@ export default function TableToolbar<T>({
             </button>
             {showExportMenu && (
               <div className="absolute right-0 top-full mt-1 w-52 bg-white rounded-xl shadow-xl border border-slate-200 z-50 overflow-hidden py-1">
-                <div className="px-3 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider">Current View</div>
+                <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase tracking-wider">Current View</div>
                 <button onClick={() => { doExport('visible', 'csv'); setShowExportMenu(false); }}
                   className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                   📄 Visible Columns (CSV)
@@ -314,7 +315,7 @@ export default function TableToolbar<T>({
                   📄 Visible Columns (JSON)
                 </button>
                 <div className="border-t border-slate-100 my-0.5" />
-                <div className="px-3 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider">Full Metadata</div>
+                <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase tracking-wider">Full Metadata</div>
                 <button onClick={() => { doExport('full', 'csv'); setShowExportMenu(false); }}
                   className="w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                   📋 All Fields (CSV)

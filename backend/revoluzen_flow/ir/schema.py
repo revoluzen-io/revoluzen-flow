@@ -631,6 +631,13 @@ class StepRunResult(BaseModel):
     # data_quality / user_input / fatal / unknown. None on success.
     failure_class: str | None = None
     duration_ms: float = 0
+    # 2026-10-26 — set when a Sample run short-circuited this step instead
+    # of letting it fire its side effect (R8b in `executor._run_node_once`).
+    # The step still reports `success` with its passthrough rows, because
+    # downstream genuinely received that data — but "success" alone would
+    # leave the operator unable to tell whether the sink wrote. This is
+    # what the UI renders as "skipped (sample)".
+    skipped_reason: str | None = None
 
 
 class WorkflowRunResult(BaseModel):

@@ -126,14 +126,14 @@ export function PlanModal({
           <div>
             <h2 className="text-sm font-bold text-slate-800">
               Review changes
-              {workflowName && <span className="text-slate-400 font-normal"> &middot; {workflowName}</span>}
+              {workflowName && <span className="text-slate-500 font-normal"> &middot; {workflowName}</span>}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 mt-0.5">
               Comparing against {against === 'deployed' ? 'currently deployed' : 'latest saved'} version
               {plan && ` (v${plan.baseline_version})`}
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-600">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -152,7 +152,7 @@ export function PlanModal({
             />
           )}
           {loading && (
-            <div className="flex items-center justify-center py-8 text-xs text-slate-400">
+            <div className="flex items-center justify-center py-8 text-xs text-slate-500">
               Computing plan…
             </div>
           )}
@@ -170,7 +170,7 @@ export function PlanModal({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-400"><polyline points="9 18 15 12 9 6" /></svg>
                 <HashPill label="proposed" hash={plan.proposed_hash} accent={plan.hash_changed} />
                 {!plan.hash_changed && (
-                  <span className="text-slate-400">— identical content</span>
+                  <span className="text-slate-500">— identical content</span>
                 )}
               </div>
 
@@ -254,12 +254,12 @@ export function PlanModal({
                 <Section title={`Saved connections referenced (${plan.diff.connection_refs.added.length} added, ${plan.diff.connection_refs.removed.length} removed)`} tone="indigo" sectionKey="conns" openKey={openSection} setOpenKey={setOpenSection}>
                   {plan.diff.connection_refs.added.map((c) => (
                     <div key={`ca${c.id}`} className="text-xs text-emerald-700">
-                      + {c.name} <span className="text-slate-400">({c.type})</span>
+                      + {c.name} <span className="text-slate-500">({c.type})</span>
                     </div>
                   ))}
                   {plan.diff.connection_refs.removed.map((c) => (
                     <div key={`cr${c.id}`} className="text-xs text-rose-700">
-                      − {c.name} <span className="text-slate-400">({c.type})</span>
+                      − {c.name} <span className="text-slate-500">({c.type})</span>
                     </div>
                   ))}
                 </Section>
@@ -277,7 +277,7 @@ export function PlanModal({
                     <BaselineStat label="Avg rows" value={fmtRows(plan.baseline.avg_rows_processed)} />
                   </div>
                   {plan.baseline.last_run_status && (
-                    <div className="text-xs text-slate-400 mt-1.5 text-center">
+                    <div className="text-xs text-slate-500 mt-1.5 text-center">
                       Last run {plan.baseline.last_run_status}
                       {plan.baseline.last_run_at && ` · ${new Date(plan.baseline.last_run_at).toLocaleString()}`}
                     </div>
@@ -290,7 +290,7 @@ export function PlanModal({
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
-          <div className="text-xs text-slate-400">
+          <div className="text-xs text-slate-500">
             {hasErrors && <span className="text-rose-600 font-semibold">Validation errors must be fixed before this can proceed.</span>}
           </div>
           <div className="flex items-center gap-3">
@@ -318,7 +318,7 @@ function HashPill({ label, hash, accent }: { label: string; hash: string; accent
   const short = (hash || '').slice(0, 8) || '—';
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-mono ${accent ? 'bg-indigo-50 border border-indigo-200 text-indigo-700' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
-      <span className="text-[9px] uppercase tracking-wide opacity-70">{label}</span>
+      <span className="text-[10px] uppercase tracking-wide opacity-70">{label}</span>
       <span>{short}</span>
     </span>
   );
@@ -385,15 +385,15 @@ function DiffRow({ stepId, type, name, accent, fields }: { stepId: string; type:
       <div className="flex-1 min-w-0">
         <div className="text-slate-700 truncate">
           <span className="font-semibold">{name}</span>
-          <span className="text-slate-400"> &middot; {type}</span>
+          <span className="text-slate-500"> &middot; {type}</span>
         </div>
         {fields && fields.length > 0 && (
-          <div className="text-xs text-slate-400 mt-0.5">
+          <div className="text-xs text-slate-500 mt-0.5">
             Changed: {fields.join(', ')}
           </div>
         )}
       </div>
-      <span className="text-[9px] text-slate-300 font-mono shrink-0">{stepId}</span>
+      <span className="text-[10px] text-slate-300 font-mono shrink-0">{stepId}</span>
     </div>
   );
 }
@@ -402,7 +402,7 @@ function BaselineStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-sm font-bold text-slate-700">{value}</div>
-      <div className="text-xs text-slate-400 uppercase tracking-wide">{label}</div>
+      <div className="text-xs text-slate-500 uppercase tracking-wide">{label}</div>
     </div>
   );
 }

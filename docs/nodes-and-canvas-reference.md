@@ -235,7 +235,7 @@ The locked rule (2026-05-09): every caller that may create a workflow row goes t
 
 **Test Node** (ConfigPanel button) — `requireNamedWorkflow()` → `ensureWorkflow({allowCreate:true})` → `runStep(nodeId)` → POST `/api/workflows/{id}/steps/{stepId}/run`. Runs the node + the minimum upstream chain needed to feed it.
 
-**Sample** (Canvas footer) — validation → `requireNamedWorkflow()` → `ensureWorkflow({allowCreate:true})` → `runWorkflow(false)` (fullRun=false → backend applies row caps for fast preview).
+**Sample** (Canvas footer) — validation → `requireNamedWorkflow()` → `ensureWorkflow({allowCreate:true})` → `runWorkflow(false)` with `safety_mode='sample'`. The backend caps source rows AND skips every side-effect node, so no sink writes; see §A6.
 
 **Resume from here** (right-click context menu) — cache-aware rerun; reuses upstream `stepResults` if their params are unchanged.
 
@@ -1372,9 +1372,33 @@ Three tiers via `schemaStabilityFor(stepType) → 'static' | 'inference' | 'dyna
 
 `validateWorkflow.ts` walks ancestors of every pass-through sink. If ANY ancestor is in `METADATA_PRODUCERS` (`foreach_loop`, `conditional_split`, `data_quality`, `validate`, `llm_guardrail`, `kafka_source`, `set_variable`), it emits a warning telling the user to drop the metadata columns via a `rename` or `select` step before the sink — otherwise engine-internal columns land in their output table.
 
-## A6 — Sample-run side-effect guard
+## A6 — Sample is a preview, enforced in the engine
 
-The Canvas footer "Sample" button now scans the pipeline for any node with `sideEffectClassFor(t) !== null` BEFORE invoking `runWorkflow(false)`. If side-effect nodes exist, a danger-styled confirmation dialog lists each affected node with its humanized description ("Posts to a Slack channel", "Calls an external API", "Writes a CSV file") and offers Run-anyway / Cancel. Users can deactivate side-effect nodes from the context menu first if they only want to preview the data path.
+**Superseded 2026-10-26.** This section used to describe a confirmation
+dialog: Sample scanned for `sideEffectClassFor(t) !== null` and, if it
+found any, warned that the run would post to Slack / call an API / write
+a file, offering Run-anyway or Cancel. That dialog is gone, because it
+was the wrong fix. Sample really did write to sinks — the dialog only
+asked the user to accept it, and told them to deactivate nodes by hand
+if they wanted a real preview.
+
+Sample now means what the word says, and the guarantee lives in the
+engine rather than in a prompt the user can click through:
+
+- the frontend sends `safety_mode='sample'` (`workflowStore.ts`);
+- `_sample_kwargs()` in `api/execution.py` turns that into
+  `preview_mode=True` + `sample_row_limit`, or, when a Plus sandbox
+  extension is installed, into real sandbox isolation instead;
+- `executor._run_node_once` short-circuits every node whose
+  `SIDE_EFFECT_CLASS` is not `passthrough`, returning
+  `skipped_reason='sample'`;
+- the node renders a **skipped (sample)** badge
+  (`RevoluzenFlowNode.tsx`), so the canvas shows which writes did not
+  happen.
+
+Sources are capped by `cap_rows(..., limit=sample_row_limit)`, which
+honours an explicit cap regardless of the `IS_DEV` gate. Transforms run
+normally — the point is to see real transformed data without writing it.
 
 ## A7 — `'skipped'` node status
 
@@ -1452,7 +1476,7 @@ The `scd2.py` docstring gained an explicit IMPORTANT note that SCD2 is RELATION-
 | Dynamic-schema downstream signal | `frontend/src/hooks/useUpstreamSchema.ts` (`UpstreamSchemaResult.dynamic` / `dynamicSources`) |
 | Dynamic-schema UI banner | `frontend/src/components/ConfigPanel.tsx` (banner above config body) |
 | Loop-metadata leak warning | `frontend/src/utils/validateWorkflow.ts` |
-| Sample-run side-effect guard | `frontend/src/components/Canvas.tsx` (Sample button onClick) |
+| Sample preview enforcement | `backend/revoluzen_flow/api/execution.py` (`_sample_kwargs`) + `engine/executor.py` (`_preview_skip_reason`) |
 | `'skipped'` status badge | `frontend/src/components/nodes/RevoluzenFlowNode.tsx` |
 | User-intent regrouping | `frontend/src/components/modulesPanelData.ts` (`INTENT_FOR_STEP_TYPE`, `regroupByIntent`) |
 | Edge schema-delta badges | `frontend/src/components/nodes/CustomEdge.tsx` |

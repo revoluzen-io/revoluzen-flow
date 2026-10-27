@@ -44,8 +44,15 @@ export async function addNode(page: Page, type: string, offset = 0): Promise<str
     // node (offset 20) stays high in the pane. The old `160 + off*20` put the
     // sink at y≈560 — capped at the pane's bottom edge, where its handles
     // render below the visible area and the filter→sink drag can't land.
-    const x = r.left + Math.min(r.width - 220, 200 + off * 30);
-    const y = r.top + Math.min(r.height - 140, 140 + off * 8);
+    //
+    // 2026-10-24 — the Y step is now ZERO. The node became a 96px square
+    // with a caption below it (~130px of vertical footprint, up from ~50),
+    // so the old 8px-per-offset step had consecutive nodes overlapping
+    // each other, and an overlapping node can sit on the drag path between
+    // two handles. One row also puts every source and target handle at the
+    // same Y, which is the easiest possible drag for react-flow to accept.
+    const x = r.left + Math.min(r.width - 140, 200 + off * 30);
+    const y = r.top + 160;
     const fire = (name: string) =>
       pane.dispatchEvent(new DragEvent(name, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: x, clientY: y }));
     fire('dragenter'); fire('dragover'); fire('drop');
@@ -118,6 +125,15 @@ export async function addEdge(page: Page, sourceId: string, targetId: string) {
       .then(() => true)
       .catch(() => false);
     if (landed) return;
+    // Reset react-flow's connection state before retrying. A drag that was
+    // started but not accepted can leave the pane in "connecting" mode with
+    // a dangling connection line; the next mousedown on the same handle is
+    // then interpreted as part of THAT gesture rather than a new one, so
+    // every subsequent attempt fails the same way and the retry loop is
+    // just five copies of one failure. Escape cancels it, and moving the
+    // pointer off the handles clears any hover state.
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.mouse.move(sx, sy - 120, { steps: 3 });
     await page.waitForTimeout(250 * attempt); // linear backoff between attempts
   }
   throw new Error(`addEdge: edge ${sourceId} -> ${targetId} did not connect after 5 attempts`);
@@ -133,9 +149,17 @@ export async function openConfig(page: Page, id: string) {
   await page.evaluate((nid) => {
     const el = document.querySelector(`.react-flow__node[data-id="${nid}"]`);
     if (el) {
-      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-      el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      // `view: window` is load-bearing. d3-drag's `nodrag` — which
+      // react-flow installs on every node — reads `event.view.document`,
+      // and a MouseEvent constructed without a view has `view === null`,
+      // so each of these mousedowns threw an uncaught "Cannot read
+      // properties of null (reading 'document')" into the page. The
+      // click still worked, so the suite passed while filling the console
+      // with errors that would hide a real one.
+      const opts = { bubbles: true, view: window } as const;
+      el.dispatchEvent(new MouseEvent('mousedown', opts));
+      el.dispatchEvent(new MouseEvent('mouseup', opts));
+      el.dispatchEvent(new MouseEvent('click', opts));
     }
     window.dispatchEvent(new CustomEvent('revoluzen-flow-node-opened', { detail: { id: nid } }));
   }, id);

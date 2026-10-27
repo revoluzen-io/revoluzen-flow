@@ -6,7 +6,7 @@ labels: ["node-request", "needs-triage"]
 assignees: []
 ---
 
-> **Before you file:** could the existing **SQL Transform** (DuckDB) node solve this? It's a catch-all for custom logic that doesn't require us to ship anything new. See [docs/extend/build-a-node.md](https://github.com/revoluzen-data-systems/revoluzen-flow/blob/main/docs/extend/build-a-node.md). If you've tried it and it's not the right shape, please continue.
+> **Before you file:** could the existing **SQL Transform** (DuckDB) node solve this? It's a catch-all for custom logic that doesn't require us to ship anything new. See [docs/extend/build-a-node.md](https://github.com/revoluzen-io/revoluzen-flow/blob/main/docs/extend/build-a-node.md). If you've tried it and it's not the right shape, please continue.
 
 ## What node do you need?
 

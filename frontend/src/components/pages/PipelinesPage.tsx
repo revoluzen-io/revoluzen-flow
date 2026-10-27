@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+﻿import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import RowActionsPopover from '../shared/RowActionsPopover';
 import { useTableColumns, type TColumn, type TColumnGroup } from '../shared/TableToolbar';
@@ -33,7 +33,6 @@ import ProjectContextBar from '../layout/ProjectContextBar';
 import { PlanModal } from '../PlanModal';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
-import HeroCard from '../shared/HeroCard';
 import { DelayedSkeleton, SkeletonTableRow } from '../shared/Skeleton';
 import MoveToProjectButton from '../shared/MoveToProjectButton';
 import { DensityToggle, useDensity } from '../shared/DensityToggle';
@@ -597,9 +596,9 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
                 Quick Schedule
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">{pipelineName}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{pipelineName}</p>
             </div>
-            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
@@ -827,7 +826,7 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                               setWeeklyTimes(prev => prev.filter((_, i) => i !== idx));
                               setTouched(true);
                             }}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            className="tap-24 w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                             title="Remove this time"
                           >
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
@@ -1141,9 +1140,9 @@ function QuickAlertDialog({ pipelineId, pipelineName, onClose }: { pipelineId: s
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
                 Quick Alert
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">{pipelineName}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{pipelineName}</p>
             </div>
-            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
@@ -1165,7 +1164,7 @@ function QuickAlertDialog({ pipelineId, pipelineName, onClose }: { pipelineId: s
                       <span className={`w-2 h-2 rounded-full shrink-0 ${r.enabled ? 'bg-amber-500' : 'bg-slate-400'}`} />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs font-semibold text-slate-700 truncate">
-                          {(r.conditions || [r.condition]).join(' · ')} <span className="text-slate-400 font-normal">via</span> {r.channel}
+                          {(r.conditions || [r.condition]).join(' · ')} <span className="text-slate-500 font-normal">via</span> {r.channel}
                         </div>
                         <div className="text-xs text-slate-500 font-mono truncate" title={alertRuleTarget(r)}>
                           {alertRuleTarget(r) || '—'}
@@ -1541,17 +1540,12 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       });
     return () => { cancelled = true; };
   }, [projectId, folderRefreshTick]);
-  // Stats panel toggle — collapses the KPI grid (Total / Active /
-  // Drafts / Failed / Running / Scheduled). Persisted to localStorage
-  // so the user's preference survives reloads. Same pattern as the
-  // Executions page Stats button.
-  const [showDashboard, setShowDashboard] = useState<boolean>(() => {
-    try { return localStorage.getItem('revoluzen_flow_workflows_show_stats') !== '0'; }
-    catch { return true; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('revoluzen_flow_workflows_show_stats', showDashboard ? '1' : '0'); } catch {}
-  }, [showDashboard]);
+  // The KPI panel and its persisted show/hide flag were removed on
+  // 2026-10-26 — the filter tabs and the header subtitle already carry
+  // every figure it showed. The old `revoluzen_flow_workflows_show_stats`
+  // key is simply left behind in localStorage; nothing reads it, and
+  // deleting other people's stored keys on upgrade is not worth a
+  // migration.
   const [sortBy, setSortBy] = useState<'name' | 'updated_at' | 'status'>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
@@ -2987,7 +2981,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     draft: { bg: 'bg-slate-50', text: 'text-slate-500', dot: 'bg-slate-400', label: 'Draft' },
     running: { bg: 'bg-blue-50', text: 'text-blue-600', dot: 'bg-blue-500', label: 'Running', animate: true },
     published: { bg: 'bg-green-50', text: 'text-green-600', dot: 'bg-green-500', label: 'Published' },
-    archived: { bg: 'bg-slate-100', text: 'text-slate-400', dot: 'bg-slate-300', label: 'Archived' },
+    archived: { bg: 'bg-slate-100', text: 'text-slate-500', dot: 'bg-slate-300', label: 'Archived' },
     failed: { bg: 'bg-red-50', text: 'text-red-500', dot: 'bg-red-500', label: 'Failed' },
     // Legacy statuses map to lifecycle
     success: { bg: 'bg-green-50', text: 'text-green-600', dot: 'bg-green-500', label: 'Published' },
@@ -3231,7 +3225,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 </span>
                 <TierChip tier={tier} environment={environment} />
               </h1>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5">
                 {deploymentStatuses.pending.length} pending · {deploymentStatuses.deployed.length} deployed · {deploymentStatuses.failed.length} failed
                 {Object.keys(projectGroups).length > 1 && ` · ${Object.keys(projectGroups).length} projects`}
               </p>
@@ -3268,7 +3262,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               >
                 <span className={`w-2 h-2 rounded-full ${prodTab === tab.key ? 'bg-white' : tab.dot}`} />
                 {tab.label}
-                <span className={`text-xs px-1.5 py-0.5 rounded-full ${prodTab === tab.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${prodTab === tab.key ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
                   {tab.count}
                 </span>
               </button>
@@ -3307,7 +3301,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               <p className="text-sm font-semibold text-slate-600">
                 {prodTab === 'pending' ? 'No pending deployments' : prodTab === 'deployed' ? 'No deployed pipelines' : prodTab === 'failed' ? 'No failed deployments' : 'No pipelines'}
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 mt-1">
                 {prodTab === 'pending' ? 'Pipelines created in DEV will appear here for review' : 'Deploy pipelines from the Pending Review tab'}
               </p>
             </div>
@@ -3354,7 +3348,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           <div className="flex items-center gap-2">
                             <button onClick={selectAllColumns} className="text-xs text-blue-500 hover:text-blue-600 font-medium">All</button>
                             <span className="text-slate-300">|</span>
-                            <button onClick={resetColumnsToDefault} className="text-xs text-slate-400 hover:text-slate-600 font-medium">Default</button>
+                            <button onClick={resetColumnsToDefault} className="text-xs text-slate-500 hover:text-slate-600 font-medium">Default</button>
                           </div>
                         </div>
                         <div className="max-h-[360px] overflow-y-auto py-1">
@@ -3362,7 +3356,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                             const cols = DEPLOY_COLUMNS.filter(c => c.group === group.key);
                             return (
                               <div key={group.key}>
-                                <div className="px-4 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
+                                <div className="px-4 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
                                   <span>{group.icon}</span> {group.label}
                                 </div>
                                 {cols.map(col => (
@@ -3410,7 +3404,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                 <Icon name={item.icon} size={14} />
                                 <span className="text-xs font-semibold text-slate-700">{item.label}</span>
                               </div>
-                              <p className="text-xs text-slate-400 mb-2 ml-6">{item.desc}</p>
+                              <p className="text-xs text-slate-500 mb-2 ml-6">{item.desc}</p>
                               <div className="flex items-center gap-2 ml-6">
                                 <button
                                   onClick={() => { exportMultiLevel(item.level, 'csv'); setShowExportPanel(false); }}
@@ -3432,7 +3426,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               <Icon name="link" size={14} />
                               <span className="text-xs font-semibold text-slate-700">Per Pipeline</span>
                             </div>
-                            <p className="text-xs text-slate-400 ml-6">Right-click any row → Export pipeline</p>
+                            <p className="text-xs text-slate-500 ml-6">Right-click any row → Export pipeline</p>
                           </div>
                         </div>
                       </div>
@@ -3473,7 +3467,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           }`} />
                           <div className="min-w-0">
                             <span className="text-xs font-semibold text-slate-800 truncate block">{pipeline.name}</span>
-                            {!visibleColumns.has('project') && <span className="text-xs text-slate-400 truncate block">{pipeline.project_id || 'default'}</span>}
+                            {!visibleColumns.has('project') && <span className="text-xs text-slate-500 truncate block">{pipeline.project_id || 'default'}</span>}
                             {/* N4 — recent-statuses sparkline. Hidden
                                 when we haven't fetched yet, OR when the
                                 pipeline has fewer than 2 runs (a single
@@ -3535,20 +3529,20 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         ? <span className="text-xs text-emerald-600 font-mono">{scheduleMap[pipeline.id].cron_expression}</span>
                         : <span className="text-xs text-slate-300">—</span>;
                     case 'created':
-                      return <span className="text-xs text-slate-400">{pipeline.created_at ? new Date(pipeline.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
+                      return <span className="text-xs text-slate-500">{pipeline.created_at ? new Date(pipeline.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
                     case 'modified':
-                      return <span className="text-xs text-slate-400">{pipeline.updated_at ? formatRelativeTime(pipeline.updated_at) : '—'}</span>;
+                      return <span className="text-xs text-slate-500">{pipeline.updated_at ? formatRelativeTime(pipeline.updated_at) : '—'}</span>;
                     case 'submitted':
                       return (
                         <div>
                           <span className="text-xs text-slate-500">{pipeline.submitted_at ? new Date(pipeline.submitted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</span>
-                          {pipeline.submitted_by && <div className="text-[9px] text-slate-400">{pipeline.submitted_by}</div>}
+                          {pipeline.submitted_by && <div className="text-[10px] text-slate-500">{pipeline.submitted_by}</div>}
                         </div>
                       );
                     case 'submittedBy':
                       return <span className="text-xs text-slate-500 truncate">{pipeline.submitted_by || '—'}</span>;
                     case 'approved':
-                      return <span className="text-xs text-slate-400">{pipeline.approved_at ? new Date(pipeline.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
+                      return <span className="text-xs text-slate-500">{pipeline.approved_at ? new Date(pipeline.approved_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
                     case 'approvedBy':
                       return pipeline.approved_by ? (
                         <div className="flex items-center gap-1 min-w-0">
@@ -3559,24 +3553,24 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         </div>
                       ) : <span className="text-xs text-slate-300">—</span>;
                     case 'deployedAt':
-                      return <span className="text-xs text-slate-400">{pipeline.deployed_at ? new Date(pipeline.deployed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
+                      return <span className="text-xs text-slate-500">{pipeline.deployed_at ? new Date(pipeline.deployed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}</span>;
                     case 'deployedBy':
                       return <span className="text-xs text-slate-500 truncate">{pipeline.deployed_by || '—'}</span>;
                     case 'department':
                       return pipeline.department
-                        ? <span className="text-[9px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">{pipeline.department}</span>
+                        ? <span className="text-[10px] font-semibold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded">{pipeline.department}</span>
                         : <span className="text-xs text-slate-300">—</span>;
                     case 'project':
                       return <span className="text-xs text-slate-500 truncate">{pipeline.project_id || 'default'}</span>;
                     case 'description':
-                      return <span className="text-xs text-slate-400 truncate block" title={pipeline.description}>{pipeline.description || '—'}</span>;
+                      return <span className="text-xs text-slate-500 truncate block" title={pipeline.description}>{pipeline.description || '—'}</span>;
                     case 'tags':
                       return pTags.length > 0 ? (
                         <div className="flex flex-wrap gap-0.5">
                           {pTags.slice(0, 2).map(t => (
                             <span key={t} className="text-xs font-medium px-1 py-0.5 rounded bg-slate-100 text-slate-500">{t}</span>
                           ))}
-                          {pTags.length > 2 && <span className="text-xs text-slate-400">+{pTags.length - 2}</span>}
+                          {pTags.length > 2 && <span className="text-xs text-slate-500">+{pTags.length - 2}</span>}
                         </div>
                       ) : <span className="text-xs text-slate-300">—</span>;
                     case 'priority':
@@ -3589,7 +3583,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         }`}>{pipeline.priority}</span>
                       ) : <span className="text-xs text-slate-300">—</span>;
                     case 'lastRun':
-                      return <span className="text-xs text-slate-400">{pipeline.last_run ? formatRelativeTime(pipeline.last_run) : '—'}</span>;
+                      return <span className="text-xs text-slate-500">{pipeline.last_run ? formatRelativeTime(pipeline.last_run) : '—'}</span>;
                     case 'connections':
                       return <span className="text-xs text-slate-500 tabular-nums">{pipeline.connections?.length || 0}</span>;
                     case 'storage': {
@@ -3625,14 +3619,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           )}
                           {canDeploy && isPending && (
                             <button onClick={() => openPreDeployCheck(pipeline)} disabled={isDeploying}
-                              className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
+                              className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded shadow-sm transition-all flex items-center gap-1 disabled:opacity-50">
                               {isDeploying ? <div className="w-2.5 h-2.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                                 : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>}
                               Deploy to PROD
                             </button>
                           )}
                           {isDeployed && !hasNewerVersion && (
-                            <span className="text-[9px] text-emerald-500 font-semibold flex items-center gap-1">
+                            <span className="text-[10px] text-emerald-500 font-semibold flex items-center gap-1">
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
                               Live</span>
                           )}
@@ -3663,10 +3657,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               })}
               {/* Column count indicator */}
               <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-[9px] text-slate-400">
+                <span className="text-[10px] text-slate-500">
                   {prodFiltered.length} pipeline{prodFiltered.length !== 1 ? 's' : ''} · {activeColumns.length} of {DEPLOY_COLUMNS.length} columns
                 </span>
-                <button onClick={() => setShowColumnPicker(true)} className="text-[9px] text-blue-500 hover:text-blue-600 font-medium">
+                <button onClick={() => setShowColumnPicker(true)} className="text-[10px] text-blue-500 hover:text-blue-600 font-medium">
                   Customize columns
                 </button>
               </div>
@@ -3689,9 +3683,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   </svg>
                   Pre-Deploy Validation
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">{preDeployDialog.name}{preDeployDialog.version ? ` · v${preDeployDialog.version}` : ''}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{preDeployDialog.name}{preDeployDialog.version ? ` · v${preDeployDialog.version}` : ''}</p>
               </div>
-              <button onClick={() => { setPreDeployDialog(null); setPreDeployChecks(null); }} className="text-slate-400 hover:text-white">
+              <button onClick={() => { setPreDeployDialog(null); setPreDeployChecks(null); }} className="text-slate-500 hover:text-white">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
@@ -3702,7 +3696,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 <div className="flex flex-col items-center justify-center py-12 gap-3">
                   <div className="w-8 h-8 border-3 border-slate-200 border-t-blue-500 rounded-full animate-spin" />
                   <p className="text-sm text-slate-500 font-medium">Running validation checks...</p>
-                  <p className="text-xs text-slate-400">Checking structure, approval, connections, schedules, alerts</p>
+                  <p className="text-xs text-slate-500">Checking structure, approval, connections, schedules, alerts</p>
                 </div>
               ) : preDeployChecks ? (
                 <div className="space-y-2">
@@ -3816,7 +3810,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                             {fixAction && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); fixAction.onClick(); }}
-                                className={`flex items-center gap-1 text-[9px] font-bold px-2 py-1 rounded-md transition-colors ${
+                                className={`flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-md transition-colors ${
                                   check.status === 'fail'
                                     ? 'bg-red-100 text-red-700 hover:bg-red-200'
                                     : 'bg-amber-100 text-amber-700 hover:bg-amber-200'
@@ -3826,7 +3820,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                 {fixAction.label}
                               </button>
                             )}
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase ${
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full uppercase ${
                               check.status === 'pass' ? 'bg-emerald-100 text-emerald-600' :
                               check.status === 'fail' ? 'bg-red-100 text-red-600' :
                               'bg-amber-100 text-amber-600'
@@ -3849,7 +3843,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               {/* Structural validation — show steps & connections */}
                               {check.name === 'structural_validation' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Validated</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Validated</p>
                                   <div className="grid grid-cols-2 gap-2 text-xs">
                                     <div className="flex items-center gap-2 px-2 py-1.5 bg-slate-50 rounded border border-slate-100">
                                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
@@ -3893,14 +3887,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                       </>
                                     )}
                                   </button>
-                                  <p className="text-[9px] text-slate-400 mt-1">DAG validated — no cycles, no orphaned nodes, all required params present.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">DAG validated — no cycles, no orphaned nodes, all required params present.</p>
                                 </div>
                               )}
 
                               {/* Approval — show who approved / status */}
                               {check.name === 'approval' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Approval Details</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Approval Details</p>
                                   <div className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${
                                     check.status === 'pass' ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'
                                   }`}>
@@ -3911,27 +3905,27 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                     )}
                                     <span className={check.status === 'pass' ? 'text-emerald-700' : 'text-red-700'}>{check.detail}</span>
                                   </div>
-                                  <p className="text-[9px] text-slate-400 mt-1">Pipeline must be reviewed and approved before deployment to PROD.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">Pipeline must be reviewed and approved before deployment to PROD.</p>
                                 </div>
                               )}
 
                               {/* Tested — show execution history */}
                               {check.name === 'tested' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Execution History</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Execution History</p>
                                   <div className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${
                                     check.status === 'pass' ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'
                                   }`}>
                                     <span className={check.status === 'pass' ? 'text-emerald-700' : 'text-amber-700'}>{check.detail}</span>
                                   </div>
-                                  <p className="text-[9px] text-slate-400 mt-1">At least one successful execution in DEV is required to ensure the pipeline works end-to-end.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">At least one successful execution in DEV is required to ensure the pipeline works end-to-end.</p>
                                 </div>
                               )}
 
                               {/* Connections — show source/sink details */}
                               {check.name === 'connections' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Connection Mapping</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Connection Mapping</p>
                                   {check.connections && check.connections.length > 0 ? (
                                     <div className="space-y-1">
                                       {check.connections.map((conn: any, ci: number) => (
@@ -3942,7 +3936,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                           <span className="font-semibold text-slate-700 truncate">{conn.node}</span>
                                           <span className="text-slate-300">→</span>
                                           <span className="font-mono text-slate-600 truncate">{conn.connection_name}</span>
-                                          <span className="text-slate-400 text-xs ml-auto uppercase px-1.5 py-0.5 bg-white rounded border border-slate-100">{conn.type?.replace(/-/g, ' ')}</span>
+                                          <span className="text-slate-500 text-xs ml-auto uppercase px-1.5 py-0.5 bg-white rounded border border-slate-100">{conn.type?.replace(/-/g, ' ')}</span>
                                         </div>
                                       ))}
                                     </div>
@@ -3951,7 +3945,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                       {check.detail}
                                     </div>
                                   )}
-                                  <p className="text-[9px] text-slate-400 mt-1">Every source/sink node must have a connection or file path configured. DEV connections should be remapped to PROD equivalents in the deploy wizard.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">Every source/sink node must have a connection or file path configured. DEV connections should be remapped to PROD equivalents in the deploy wizard.</p>
                                 </div>
                               )}
 
@@ -3989,28 +3983,28 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               {/* Schedule — show schedule details */}
                               {check.name === 'schedule' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Schedule Details</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Schedule Details</p>
                                   <div className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${
                                     check.status === 'pass' ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'
                                   }`}>
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={check.status === 'pass' ? '#10b981' : '#f59e0b'} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                                     <span className={check.status === 'pass' ? 'text-emerald-700' : 'text-amber-700'}>{check.detail}</span>
                                   </div>
-                                  <p className="text-[9px] text-slate-400 mt-1">Pipelines without schedules will only run when triggered manually in PROD.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">Pipelines without schedules will only run when triggered manually in PROD.</p>
                                 </div>
                               )}
 
                               {/* Alerts — show alert config */}
                               {check.name === 'alerts' && (
                                 <div className="space-y-1">
-                                  <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Alert Rules</p>
+                                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alert Rules</p>
                                   <div className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${
                                     check.status === 'pass' ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'
                                   }`}>
                                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={check.status === 'pass' ? '#10b981' : '#f59e0b'} strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
                                     <span className={check.status === 'pass' ? 'text-emerald-700' : 'text-amber-700'}>{check.detail}</span>
                                   </div>
-                                  <p className="text-[9px] text-slate-400 mt-1">Without alert rules, pipeline failures in PROD will go unnoticed. Configure email/Slack/webhook alerts.</p>
+                                  <p className="text-[10px] text-slate-500 mt-1">Without alert rules, pipeline failures in PROD will go unnoticed. Configure email/Slack/webhook alerts.</p>
                                 </div>
                               )}
 
@@ -4052,7 +4046,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                     <button
                       onClick={() => handleDeployPipeline(preDeployDialog.id, preDeployDialog.version)}
                       disabled={deployingIds.has(preDeployDialog.id)}
-                      className="px-5 py-2 text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      className="px-5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
                     >
                       {deployingIds.has(preDeployDialog.id) ? (
                         <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
@@ -4092,10 +4086,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 </svg>
                 <div>
                   <h2 className="text-sm font-bold text-white">DAG Lineage &mdash; {dagPreview.name}</h2>
-                  <p className="text-xs text-slate-400">Read-only preview &middot; scroll to zoom, drag to pan</p>
+                  <p className="text-xs text-slate-500">Read-only preview &middot; scroll to zoom, drag to pan</p>
                 </div>
               </div>
-              <button onClick={() => setDagPreview(null)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setDagPreview(null)} className="text-slate-500 hover:text-white">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               </button>
             </div>
@@ -4140,7 +4134,16 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         }
         title="Pipelines"
         titleAccessory={<TierChip tier={tier} environment={environment} />}
-        subtitle={`${pipelines.length} pipeline${pipelines.length !== 1 ? 's' : ''} · ${pipelines.filter(p => p.status === 'success').length} active`}
+        subtitle={(() => {
+          // Total and active were duplicated by the removed KPI panel;
+          // `scheduled` was the only figure it carried that no filter tab
+          // shows, so it lands here — and only when non-zero, so the line
+          // stays quiet on an instance with nothing scheduled.
+          const scheduled = Object.keys(scheduleMap).filter(id => pipelines.some(p => p.id === id)).length;
+          const active = pipelines.filter(p => p.status === 'success').length;
+          return `${pipelines.length} pipeline${pipelines.length !== 1 ? 's' : ''} · ${active} active`
+            + (scheduled > 0 ? ` · ${scheduled} scheduled` : '');
+        })()}
         tabs={
           <HubTabs
             tabs={WORKFLOWS_TABS}
@@ -4150,35 +4153,44 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           />
         }
         actions={
-          <div className="flex justify-end items-center gap-2">
-            {/* Stats toggle — collapses/shows the KPI grid (Total /
-                Active / Drafts / Failed / Running / Scheduled). Same
-                affordance as the Executions page Stats button. */}
-            <button
-              onClick={() => setShowDashboard(s => !s)}
-              title={showDashboard ? 'Hide KPI cards' : 'Show KPI cards'}
-              className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                showDashboard
-                  ? 'bg-blue-50 text-blue-600 border-blue-200'
-                  : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'
-              }`}
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="inline mr-1 -mt-0.5">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18" /><path d="M9 21V9" />
-              </svg>
-              Stats
-            </button>
+          // Keep the three actions on ONE line, like every other page
+          // (Connections, Executions, Storage all use a plain
+          // `flex justify-end items-center gap-2`).
+          //
+          // `flex-wrap` alone made this cluster the thing that gave way
+          // when the header ran short of room: at 1232px the row split
+          // Import + Import dbt from New Pipeline, which reads as two
+          // unrelated groups rather than one action set. `shrink-0` stops
+          // the cluster being compressed below its content, and the
+          // header row's own flex-wrap then moves the whole cluster to a
+          // second line instead of breaking it up. The tab strip is the
+          // element that yields first — it already scrolls
+          // (`overflow-x-auto` in PageHeader).
+          //
+          // The wrap survives below `sm` on purpose. At 375px this row
+          // measured 391px inside a non-scrolling sticky header, so
+          // "New Pipeline" sat past the right edge with no way to reach
+          // it; on a phone a wrapped cluster still beats an unreachable
+          // button.
+          // Both modifiers must be `sm:`-gated together. `shrink-0` alone
+          // is enough to defeat the wrap below `sm`: it keeps the cluster
+          // at its full 376px, so flex-wrap never gets the chance to
+          // break the line and "New Pipeline" lands at x=391 in a 375px
+          // viewport — the original bug, reintroduced from the other end.
+          <div className="flex flex-wrap justify-end items-center gap-2 sm:flex-nowrap sm:shrink-0">
+            {/* The Stats toggle went with the KPI panel it controlled —
+                a button that shows nothing is worse than no button. */}
             {/* Export moved to canonical navy summary strip (Apr 18).
                 The rich multi-level Export dropdown lives above the table
                 so users get one Export per page. */}
             <RoleGate action="create">
-              <label className="px-4 py-2 text-sm font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer flex items-center gap-1.5">
+              <label className="px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors cursor-pointer flex items-center gap-1.5">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 Import
                 <input type="file" accept=".json,.revoluzen-flow" className="hidden" onChange={handleImportFileSelect} />
               </label>
               <label
-                className={`px-4 py-2 text-sm font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg transition-colors flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 text-xs font-semibold text-orange-700 bg-orange-50 border border-orange-200 rounded-lg transition-colors flex items-center gap-1.5 ${
                   dbtImporting ? 'opacity-60 cursor-wait' : 'hover:bg-orange-100 cursor-pointer'
                 }`}
                 title="Import a compiled dbt manifest.json (target/manifest.json)"
@@ -4189,10 +4201,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               </label>
               <button
                 onClick={handleNewPipeline}
-                className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-2"
+                className="px-3 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1.5"
                 style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                 New Pipeline
               </button>
             </RoleGate>
@@ -4226,7 +4238,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               All
             </button>
             {folders.length === 0 ? (
-              <span className="text-xs text-slate-400 italic">
+              <span className="text-xs text-slate-500 italic">
                 No folders yet — open the Projects page → Tree view to add one.
               </span>
             ) : (
@@ -4236,7 +4248,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   onClick={() => setActiveFolderId(f.id)}
                   className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors flex items-center gap-1 ${
                     activeFolderId === f.id
-                      ? 'bg-amber-500 text-white border-amber-500'
+                      ? 'bg-amber-700 text-white border-amber-500'
                       : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                   }`}
                 >
@@ -4252,70 +4264,17 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       )}
 
       <div className="w-full max-w-[1500px] mx-auto px-6 py-5">
-        {/* Hero KPI cards — matches Executions / Dashboard / Pool visual
-            family (HeroCard with gradient backgrounds, centered icon + value).
-            DEV uses lighter 400→500 gradients; PROD uses richer 500→600.
-            Wrapped in showDashboard so the Stats button in the header
-            collapses the entire KPI strip. */}
-        {showDashboard && (() => {
-          // 2026-05-22: this IIFE renders inside the DEV branch of the
-          // function — the `if (isProd) { ... return ... }` early-return
-          // at line ~2832 means we only reach this code path when
-          // environment === 'dev'. TS narrows `environment` accordingly,
-          // so the prior `environment === 'prod'` check was dead code
-          // (TS flagged it as a no-overlap comparison). Constant-fold to
-          // false so the KPI gradients pick the DEV variants consistently.
-          const isProd = false;
-          const total = pipelines.length;
-          const active = pipelines.filter(p => {
-            const s = normalizeStatus(p.status);
-            return s === 'success' || s === 'published';
-          }).length;
-          const drafts = pipelines.filter(p => normalizeStatus(p.status) === 'draft').length;
-          const failed = pipelines.filter(p => normalizeStatus(p.status) === 'failed').length;
-          const running = pipelines.filter(p => normalizeStatus(p.status) === 'running').length;
-          const scheduled = Object.keys(scheduleMap).filter(id => pipelines.some(p => p.id === id)).length;
-          return (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-              <HeroCard
-                gradient={isProd ? 'from-indigo-500 to-indigo-600' : 'from-indigo-400 to-indigo-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>}
-                label="Total"
-                value={String(total)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-emerald-500 to-emerald-600' : 'from-emerald-400 to-emerald-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
-                label="Active"
-                value={String(active)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-slate-400 to-slate-500' : 'from-slate-300 to-slate-400'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>}
-                label="Drafts"
-                value={String(drafts)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-red-500 to-rose-600' : 'from-red-400 to-rose-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>}
-                label="Failed"
-                value={String(failed)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-blue-500 to-sky-600' : 'from-blue-400 to-sky-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="3" fill="currentColor" /></svg>}
-                label="Running"
-                value={String(running)}
-              />
-              <HeroCard
-                gradient={isProd ? 'from-violet-500 to-purple-600' : 'from-violet-400 to-purple-500'}
-                icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
-                label="Scheduled"
-                value={String(scheduled)}
-              />
-            </div>
-          );
-        })()}
+        {/* 2026-10-26 — the KPI panel above this table is GONE, not just
+            shrunk. It was six HeroCards (260px — a third of the viewport
+            below 768px, where the grid stacks 2 × 3), and every figure it
+            showed was already on screen twice over: the filter tabs
+            immediately below carry a count for Published / Draft / All /
+            Running / Failed / Archived, and the header subtitle carries
+            total and active. Two rows of the same numbers, one of which
+            also filtered, invited the reader to wonder what the
+            difference was. The filters stay, because they DO something;
+            `scheduled` was the one figure with no tab, so it moved into
+            the subtitle rather than being dropped. */}
 
         {/* Bulk actions bar (shown when items selected) */}
         {selectedIds.size > 0 && (
@@ -4324,7 +4283,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             <button onClick={handleBulkDelete} className="text-xs text-red-600 font-bold hover:text-red-700 underline">
               Delete
             </button>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-400 hover:text-slate-600 ml-1">
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-slate-500 hover:text-slate-600 ml-1">
               Cancel
             </button>
           </div>
@@ -4350,7 +4309,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               className={`px-3.5 py-2 text-sm font-semibold rounded-lg transition-colors ${
                 statusFilter === key
                   ? 'bg-pipe-100 text-pipe-700 shadow-sm'
-                  : 'text-slate-900 font-bold hover:text-black hover:bg-slate-100'
+                  : 'text-slate-900 font-bold hover:text-slate-950 hover:bg-slate-100'
               }`}
             >
               {label}
@@ -4397,7 +4356,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                     }`}
                   >
                     All
-                    <span className="text-xs text-slate-400">{pipelines.length}</span>
+                    <span className="text-xs text-slate-500">{pipelines.length}</span>
                   </button>
                   {allTags.map((tag) => {
                     const color = getColorForTag(tag);
@@ -4414,7 +4373,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           <span className={`w-2 h-2 rounded-full ${color.dot}`} />
                           {tag}
                         </span>
-                        <span className="text-xs text-slate-400">{count}</span>
+                        <span className="text-xs text-slate-500">{count}</span>
                       </button>
                     );
                   })}
@@ -4425,7 +4384,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           {tagFilter && (
             <button
               onClick={() => setTagFilter('')}
-              className="px-2 py-1 text-xs text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 flex items-center gap-1"
+              className="px-2 py-1 text-xs text-slate-500 hover:text-slate-600 rounded-lg hover:bg-slate-100 flex items-center gap-1"
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
               Clear tag
@@ -4481,18 +4440,18 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               </div>
                               <div className="min-w-0">
                                 <div className="text-sm font-medium text-slate-500 line-through truncate" title={item.name}>{item.name}</div>
-                                <div className="text-xs text-slate-400 font-mono">{item.id.slice(0, 8)}</div>
+                                <div className="text-xs text-slate-500 font-mono">{item.id.slice(0, 8)}</div>
                               </div>
                             </div>
                           </td>
                           <td className="px-3 py-3">
-                            <span className="text-xs text-slate-400">{item.project_id || 'default'}</span>
+                            <span className="text-xs text-slate-500">{item.project_id || 'default'}</span>
                           </td>
                           <td className="px-3 py-3">
-                            <span className="text-xs text-slate-400">{formatRelativeTime(item.deleted_at)}</span>
+                            <span className="text-xs text-slate-500">{formatRelativeTime(item.deleted_at)}</span>
                           </td>
                           <td className="px-3 py-3">
-                            <span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-500' : 'text-slate-400'}`}>
+                            <span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-500' : 'text-slate-500'}`}>
                               {daysLeft} day{daysLeft !== 1 ? 's' : ''}
                             </span>
                           </td>
@@ -4631,7 +4590,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         <div className="flex items-center gap-2">
                           <button onClick={pipeColState.selectAll} className="text-xs text-blue-500 hover:text-blue-600 font-medium">All</button>
                           <span className="text-slate-300">|</span>
-                          <button onClick={pipeColState.resetToDefaults} className="text-xs text-slate-400 hover:text-slate-600 font-medium">Default</button>
+                          <button onClick={pipeColState.resetToDefaults} className="text-xs text-slate-500 hover:text-slate-600 font-medium">Default</button>
                         </div>
                       </div>
                       <div className="max-h-[320px] overflow-y-auto py-0.5">
@@ -4640,7 +4599,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           if (cols.length === 0) return null;
                           return (
                             <div key={group.key}>
-                              <div className="px-3 py-1 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
+                              <div className="px-3 py-1 text-xs font-bold text-slate-500 uppercase tracking-wider bg-slate-50 flex items-center gap-1.5">
                                 <span>{group.icon}</span>
                                 <span>{group.label}</span>
                               </div>
@@ -4706,7 +4665,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         Schedules (CSV)
                       </button>
                       <div className="border-t border-slate-100 my-1" />
-                      <div className="px-4 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wider">Multi-Level</div>
+                      <div className="px-4 py-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider">Multi-Level</div>
                       <button
                         onClick={() => { exportMultiLevel('metadata', 'csv'); setShowExportMenu(false); }}
                         className="w-full px-4 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-2"
@@ -4878,7 +4837,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                 {canEdit && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleStartRename(p); }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-pipe-600 p-0.5 rounded"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-pipe-600 p-0.5 rounded"
                                     title="Rename pipeline"
                                   >
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -4889,11 +4848,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               </div>
                             )}
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-xs text-slate-400 font-mono">{p.id.slice(0, 8)}</span>
+                              <span className="text-xs text-slate-500 font-mono">{p.id.slice(0, 8)}</span>
                               {getTagsForPipeline(p.id).map((tag) => {
                                 const c = getColorForTag(tag);
                                 return (
-                                  <span key={tag} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${c.bg} ${c.text}`}>
+                                  <span key={tag} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${c.bg} ${c.text}`}>
                                     <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
                                     {tag}
                                   </span>
@@ -4916,7 +4875,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                       onChange={(e) => setNewTagInput(e.target.value)}
                                       onKeyDown={(e) => { if (e.key === 'Enter') addNewTag(p.id); }}
                                       placeholder="New tag name..."
-                                      className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-pipe-300 mb-2 placeholder:text-slate-400"
+                                      className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-pipe-300 mb-2 placeholder:text-slate-500"
                                       autoFocus
                                     />
                                     {allTags.length > 0 && (
@@ -4942,7 +4901,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                     {/* Color picker for selected/new tag */}
                                     {newTagInput.trim() && (
                                       <div className="border-t border-slate-100 pt-2 mt-1">
-                                        <div className="text-xs text-slate-400 mb-1.5">Color for "{newTagInput.trim()}"</div>
+                                        <div className="text-xs text-slate-500 mb-1.5">Color for "{newTagInput.trim()}"</div>
                                         <div className="flex items-center gap-1.5">
                                           {TAG_COLORS.map((c) => (
                                             <button
@@ -4957,7 +4916,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                     )}
                                     {!newTagInput.trim() && allTags.length > 0 && (
                                       <div className="border-t border-slate-100 pt-2 mt-1">
-                                        <div className="text-xs text-slate-400 mb-1.5">Change tag color</div>
+                                        <div className="text-xs text-slate-500 mb-1.5">Change tag color</div>
                                         {getTagsForPipeline(p.id).map((tag) => (
                                           <div key={tag} className="flex items-center gap-1.5 mb-1.5">
                                             <span className="text-xs text-slate-600 w-14 truncate">{tag}</span>
@@ -5006,7 +4965,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                   {projName}
                                 </span>
                                 {folderName && (
-                                  <span className="text-[10px] text-slate-400 truncate" title={folderName}>
+                                  <span className="text-[10px] text-slate-500 truncate" title={folderName}>
                                     / {folderName}
                                   </span>
                                 )}
@@ -5053,7 +5012,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               const flag = (p as any).is_active_dev;
                               if (flag === false) {
                                 return (
-                                  <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200" title="This pipeline is paused — schedules and triggers are disabled">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200" title="This pipeline is paused — schedules and triggers are disabled">
                                     <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="0.5" /><rect x="14" y="4" width="4" height="16" rx="0.5" /></svg>
                                     Paused
                                   </span>
@@ -5076,7 +5035,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                       )}
                       {pipeColState.isVisible('last_run') && (
                         <td className="px-3 py-3">
-                          <TimeAgo value={p.last_run} className="text-xs !text-slate-400" />
+                          <TimeAgo value={p.last_run} className="text-xs !text-slate-500" />
                         </td>
                       )}
                       {/* Priority cell — chip that opens a P1–P5 popover.
@@ -5142,7 +5101,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               return (
                                 <button
                                   onClick={() => setQuickSchedule({ id: p.id, name: p.name })}
-                                  className="text-xs text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors"
+                                  className="text-xs text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors"
                                 >
                                   + Schedule
                                 </button>
@@ -5178,7 +5137,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           ) : (
                             <button
                               onClick={() => setQuickAlert({ id: p.id, name: p.name })}
-                              className="text-xs text-slate-400 hover:text-amber-600 hover:bg-amber-50 px-2 py-1 rounded-lg transition-colors whitespace-nowrap"
+                              className="text-xs text-slate-500 hover:text-amber-600 hover:bg-amber-50 px-2 py-1 rounded-lg transition-colors whitespace-nowrap"
                             >
                               + Alert
                             </button>
@@ -5257,17 +5216,17 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
 
                               {/* Approval badge */}
                               {approval === 'pending' && (
-                                <span className="px-2 py-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-300 rounded-full" title="Awaiting review">
+                                <span className="px-2 py-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-300 rounded-full" title="Awaiting review">
                                   PENDING
                                 </span>
                               )}
                               {approval === 'approved' && (
-                                <span className="px-2 py-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 rounded-full">
+                                <span className="px-2 py-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-300 rounded-full">
                                   APPROVED
                                 </span>
                               )}
                               {approval === 'rejected' && (
-                                <span className="px-2 py-0.5 text-[9px] font-bold text-red-700 bg-red-100 border border-red-300 rounded-full">
+                                <span className="px-2 py-0.5 text-[10px] font-bold text-red-700 bg-red-100 border border-red-300 rounded-full">
                                   REJECTED
                                 </span>
                               )}
@@ -5464,10 +5423,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             </table>
             {/* Footer */}
             <div className="px-4 py-2.5 bg-slate-50/60 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 Showing {filtered.length} of {pipelines.length} workflows
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-500">
                 {selectedIds.size > 0 ? `${selectedIds.size} selected` : ''}
               </span>
             </div>
@@ -5494,7 +5453,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                       <div className="text-sm font-semibold text-slate-700 truncate group-hover:text-pipe-700">
                         {p.name}
                       </div>
-                      <div className="text-xs text-slate-400">
+                      <div className="text-xs text-slate-500">
                         {p.steps?.length || p.steps_count || 0} steps · {formatRelativeTime(p.updated_at)}{p.owner_name ? ` · ${p.owner_name}` : ''}
                       </div>
                     </div>
@@ -5505,7 +5464,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   {getTagsForPipeline(p.id).map((tag) => {
                     const c = getColorForTag(tag);
                     return (
-                      <span key={tag} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${c.bg} ${c.text}`}>
+                      <span key={tag} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${c.bg} ${c.text}`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
                         {tag}
                       </span>
@@ -5527,7 +5486,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           onChange={(e) => setNewTagInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') addNewTag(p.id); }}
                           placeholder="New tag name..."
-                          className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-pipe-300 mb-2 placeholder:text-slate-400"
+                          className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-pipe-300 mb-2 placeholder:text-slate-500"
                           autoFocus
                         />
                         {allTags.length > 0 && (
@@ -5552,7 +5511,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         )}
                         {newTagInput.trim() && (
                           <div className="border-t border-slate-100 pt-2 mt-1">
-                            <div className="text-xs text-slate-400 mb-1.5">Color for "{newTagInput.trim()}"</div>
+                            <div className="text-xs text-slate-500 mb-1.5">Color for "{newTagInput.trim()}"</div>
                             <div className="flex items-center gap-1.5">
                               {TAG_COLORS.map((c) => (
                                 <button
@@ -5567,7 +5526,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         )}
                         {!newTagInput.trim() && getTagsForPipeline(p.id).length > 0 && (
                           <div className="border-t border-slate-100 pt-2 mt-1">
-                            <div className="text-xs text-slate-400 mb-1.5">Change tag color</div>
+                            <div className="text-xs text-slate-500 mb-1.5">Change tag color</div>
                             {getTagsForPipeline(p.id).map((tag) => (
                               <div key={tag} className="flex items-center gap-1.5 mb-1.5">
                                 <span className="text-xs text-slate-600 w-14 truncate">{tag}</span>
@@ -5640,7 +5599,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         {/* Alert */}
                         <button
                           onClick={() => setQuickAlert({ id: p.id, name: p.name })}
-                          className="w-6 h-6 rounded flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50"
+                          className="tap-24 w-6 h-6 rounded flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50"
                           title="Alert"
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
@@ -5737,10 +5696,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                             </div>
                           );
                         })()}
-                        <button onClick={() => handleDuplicate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100" title="Copy Pipeline">
+                        <button onClick={() => handleDuplicate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100" title="Copy Pipeline">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
                         </button>
-                        <button onClick={() => handleSaveAsTemplate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Save as template">
+                        <button onClick={() => handleSaveAsTemplate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-violet-600 hover:bg-violet-50" title="Save as template">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <rect x="3" y="3" width="7" height="7" rx="1" />
                             <rect x="14" y="3" width="7" height="7" rx="1" />
@@ -5750,7 +5709,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           </svg>
                         </button>
                         {canDelete && (ns === 'draft' || ns === 'failed' || ns === 'archived') && (
-                          <button onClick={() => handleDelete(p.id, p.name)} className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50" title="Delete">
+                          <button onClick={() => handleDelete(p.id, p.name)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50" title="Delete">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14H7L5 6" /><path d="M9 6V4h6v2" /></svg>
                           </button>
                         )}
@@ -5771,9 +5730,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         <div className="px-4 py-3 border-b border-slate-300 flex items-center justify-between shrink-0">
           <div className="min-w-0">
             <h2 className="text-sm font-bold text-slate-800 truncate">Version History</h2>
-            <p className="text-xs text-slate-400 truncate">{historyPipelineName}</p>
+            <p className="text-xs text-slate-500 truncate">{historyPipelineName}</p>
           </div>
-          <button onClick={() => setHistoryPipelineId(null)} className="text-slate-400 hover:text-slate-600 shrink-0">
+          <button onClick={() => setHistoryPipelineId(null)} className="text-slate-500 hover:text-slate-600 shrink-0">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -5785,7 +5744,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             </div>
           ) : versions.length === 0 ? (
             <div className="text-center py-12 px-4">
-              <p className="text-xs text-slate-400">No version history available.</p>
+              <p className="text-xs text-slate-500">No version history available.</p>
             </div>
           ) : (
             <div className="p-3 space-y-0">
@@ -5793,10 +5752,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 <div key={v.version} className="flex gap-3 group">
                   {/* Timeline */}
                   <div className="flex flex-col items-center shrink-0">
-                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[9px] font-bold ${
+                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[10px] font-bold ${
                       idx === 0
                         ? 'bg-pipe-50 border-pipe-300 text-pipe-600'
-                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                        : 'bg-slate-50 border-slate-200 text-slate-500'
                     }`}>
                       v{v.version}
                     </div>
@@ -5813,23 +5772,23 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                       <div className="flex items-center gap-1.5 shrink-0">
                         {v.content_hash && (
                           <span
-                            className="font-mono text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 tracking-wide"
+                            className="font-mono text-[10px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 tracking-wide"
                             title={`Content hash: ${v.content_hash}\nSHA-256 of the pipeline definition. Stable across status/deploy changes; rollback verifies this matches before applying.`}
                           >
                             {v.content_hash.slice(0, 8)}
                           </span>
                         )}
-                        <span className="text-xs text-slate-400">{v.step_count} steps</span>
+                        <span className="text-xs text-slate-500">{v.step_count} steps</span>
                       </div>
                     </div>
                     {v.change_summary && (
                       <p className="text-xs text-slate-500 mt-0.5 truncate">{v.change_summary}</p>
                     )}
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[9px] text-slate-400">
+                      <span className="text-[10px] text-slate-500">
                         {new Date(v.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
-                      <span className="text-[9px] text-slate-300">by {v.created_by}</span>
+                      <span className="text-[10px] text-slate-300">by {v.created_by}</span>
                     </div>
                     {idx > 0 && (
                       <div className="flex items-center gap-1.5 mt-1.5">
@@ -5858,7 +5817,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                         <div className="mt-2 bg-slate-50 rounded-lg border border-slate-200 p-2.5 text-xs">
                           <div className="font-bold text-slate-600 mb-1.5">v{v.version} → v{versions[idx - 1].version}</div>
                           {!hasChanges ? (
-                            <div className="text-slate-400">No structural changes detected.</div>
+                            <div className="text-slate-500">No structural changes detected.</div>
                           ) : (
                             <div className="space-y-1">
                               {diff.addedSteps.map((s) => (
@@ -5929,9 +5888,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           }
           footer={
             <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-slate-400 flex flex-wrap gap-x-3 gap-y-0.5 min-w-0 flex-1">
+              <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 min-w-0 flex-1">
                 <span className="truncate">Created {detailPipeline.created_at ? new Date(detailPipeline.created_at).toLocaleDateString() : '—'}{detailPipeline.owner_name ? ` by ${detailPipeline.owner_name}` : detailPipeline.owner_id ? ` by ${detailPipeline.owner_id}` : ''}</span>
-                {detailPipeline.updated_at && <span>Modified <TimeAgo value={detailPipeline.updated_at} className="!text-slate-400" /></span>}
+                {detailPipeline.updated_at && <span>Modified <TimeAgo value={detailPipeline.updated_at} className="!text-slate-500" /></span>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {normalizeStatus(detailPipeline.status) === 'draft' && (
@@ -6041,7 +6000,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           </div>
                           <span className="text-xs font-bold text-slate-500">
                             {isRunning && stepRes?.__all_running ? '0' : progressPct}%
-                            <span className="font-normal text-slate-400 ml-1">({completedSteps}/{totalSteps} steps)</span>
+                            <span className="font-normal text-slate-500 ml-1">({completedSteps}/{totalSteps} steps)</span>
                           </span>
                         </div>
                         <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
@@ -6088,11 +6047,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-center">
-                  <div className="mb-2 flex justify-center text-slate-400">
+                  <div className="mb-2 flex justify-center text-slate-500">
                     <Icon name="list" size={32} strokeWidth={1.5} />
                   </div>
                   <p className="text-sm font-medium text-slate-500">No steps in this pipeline</p>
-                  <p className="text-xs text-slate-400 mt-1">Open in the Editor to start building</p>
+                  <p className="text-xs text-slate-500 mt-1">Open in the Editor to start building</p>
                   <button
                     onClick={() => { handleOpen(detailPipeline.id); setDetailPipeline(null); setDetailData(null); }}
                     className="mt-4 px-5 py-2 text-xs font-bold text-white rounded-lg shadow-sm"
@@ -6186,7 +6145,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   </div>
                   <div>
                     <div className="text-xs font-semibold text-slate-700">Archive</div>
-                    <div className="text-xs text-slate-400">Move to Archived. Can be restored anytime.</div>
+                    <div className="text-xs text-slate-500">Move to Archived. Can be restored anytime.</div>
                   </div>
                 </button>
               )}
@@ -6207,7 +6166,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-red-600">Delete</div>
-                  <div className="text-xs text-slate-400">
+                  <div className="text-xs text-slate-500">
                     Move to Bin. Auto-removed after 30 days (Free) or backed up (Plus).
                   </div>
                 </div>
@@ -6233,10 +6192,27 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             <h2 className="text-sm font-bold text-slate-800">dbt project imported</h2>
             <p className="mt-1 text-sm text-slate-600">
               Created <span className="font-semibold text-slate-900">{dbtResult.name}</span> —{' '}
-              {dbtResult.report?.models ?? 0} model(s), {dbtResult.report?.sources ?? 0} source(s),{' '}
+              {dbtResult.report?.models ?? 0} model(s),{' '}
+              {(dbtResult.report?.sources ?? 0)
+                + (dbtResult.report?.seeds ?? 0)
+                + (dbtResult.report?.snapshots ?? 0)} upstream relation(s),{' '}
+              {(dbtResult.report?.materialized_models?.length ?? 0)} write(s),{' '}
               {dbtResult.connections_imported ?? 0} edge(s).
             </p>
           </div>
+          {/* The server now validates the imported pipeline and returns the
+              findings. Before this the dialog said only "imported" and the
+              operator discovered every unbound node by opening the editor,
+              where the client re-ran the same checks. */}
+          {Array.isArray(dbtResult.errors) && dbtResult.errors.length > 0 && (
+            <div className="px-6 pt-4">
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+                <span className="font-semibold">{dbtResult.errors.length} node(s) need a connection</span>
+                {' '}before this pipeline can run — each imported source and each
+                model that writes a table. They show as errors in the editor.
+              </div>
+            </div>
+          )}
           {Array.isArray(dbtResult.report?.warnings) && dbtResult.report.warnings.length > 0 && (
             <div className="px-6 py-4 max-h-72 overflow-auto">
               <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Review before running</div>
@@ -6247,14 +6223,26 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               </ul>
             </div>
           )}
-          <div className="px-6 py-4 border-t border-slate-200 flex justify-end">
+          {/* "Done" was the only way out of this dialog, on a pipeline
+              whose own warnings say every source still needs binding
+              before it will run. Opening it is the next step in every
+              case, so it is the primary action and Done is the escape. */}
+          <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
             <button
               onClick={() => setDbtResult(null)}
-              className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all"
-              style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
+              className="px-4 py-2 text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors"
             >
               Done
             </button>
+            {dbtResult.id && (
+              <button
+                onClick={() => { const id = dbtResult.id; setDbtResult(null); handleOpen(id); }}
+                className="px-4 py-2 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all"
+                style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
+              >
+                Open in Editor
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -6268,11 +6256,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold text-slate-800">Import Pipeline</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5">
                 {importFileName} &middot; {importFile.pipeline?.steps?.length || 0} steps
               </p>
             </div>
-            <button onClick={() => setImportModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+            <button onClick={() => setImportModalOpen(false)} className="text-slate-500 hover:text-slate-600">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
@@ -6311,7 +6299,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
                   Connection Remapping
                 </label>
-                <p className="text-xs text-slate-400 mb-3">
+                <p className="text-xs text-slate-500 mb-3">
                   This pipeline references connections from another system. Map them to credentials on this server.
                 </p>
                 <div className="space-y-2">
@@ -6343,19 +6331,19 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div>
                   <div className="text-lg font-bold text-slate-700">{importFile.pipeline?.steps?.length || 0}</div>
-                  <div className="text-xs text-slate-400">Steps</div>
+                  <div className="text-xs text-slate-500">Steps</div>
                 </div>
                 <div>
                   <div className="text-lg font-bold text-slate-700">{importFile.pipeline?.connections?.length || 0}</div>
-                  <div className="text-xs text-slate-400">Connections</div>
+                  <div className="text-xs text-slate-500">Connections</div>
                 </div>
                 <div>
                   <div className="text-lg font-bold text-slate-700">{importConnRefs.length}</div>
-                  <div className="text-xs text-slate-400">Credentials</div>
+                  <div className="text-xs text-slate-500">Credentials</div>
                 </div>
               </div>
               {importFile.revoluzen_flow_version && (
-                <div className="text-xs text-slate-400 mt-2 text-center">
+                <div className="text-xs text-slate-500 mt-2 text-center">
                   Exported from Revoluzen Flow v{importFile.revoluzen_flow_version}
                   {importFile.exported_at && ` on ${new Date(importFile.exported_at).toLocaleDateString()}`}
                 </div>
@@ -6531,7 +6519,7 @@ function VersionChangeDetail(props: {
   const latest = versions[0]?.version;
   return (
     <div className="space-y-2">
-      <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">Version Info</p>
+      <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Version Info</p>
       <div className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs ${
         check.status === 'pass' ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'
       }`}>
@@ -6546,14 +6534,14 @@ function VersionChangeDetail(props: {
           the latest deploy, roll back to v(N-1) without reverting the
           source of truth in the editor. */}
       <div className="bg-white rounded border border-slate-200 p-2">
-        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Choose Version to Deploy</p>
+        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Choose Version to Deploy</p>
         {loading ? (
           <div className="flex items-center justify-center py-3 gap-2">
             <span className="w-3 h-3 border-2 border-slate-200 border-t-slate-500 rounded-full animate-spin" />
             <span className="text-xs text-slate-500">Loading versions…</span>
           </div>
         ) : versions.length === 0 ? (
-          <p className="text-xs text-slate-400 italic py-2">No prior versions found — this will be the first deployment.</p>
+          <p className="text-xs text-slate-500 italic py-2">No prior versions found — this will be the first deployment.</p>
         ) : (
           <div className="max-h-[160px] overflow-auto space-y-1">
             {versions.map((v: any) => {
@@ -6574,21 +6562,21 @@ function VersionChangeDetail(props: {
                   {isCurrent && <span className="text-xs font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 uppercase tracking-wider">Selected</span>}
                   {v.content_hash && (
                     <span
-                      className="font-mono text-[9px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1 py-0.5 tracking-wide shrink-0"
+                      className="font-mono text-[10px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1 py-0.5 tracking-wide shrink-0"
                       title={`Content hash: ${v.content_hash}`}
                     >
                       {v.content_hash.slice(0, 8)}
                     </span>
                   )}
                   <span className="text-slate-500 truncate flex-1">{v.change_summary || v.created_by || 'no summary'}</span>
-                  <span className="text-slate-400 text-[9px] tabular-nums shrink-0">{v.created_at ? new Date(v.created_at).toLocaleDateString() : ''}</span>
+                  <span className="text-slate-500 text-[10px] tabular-nums shrink-0">{v.created_at ? new Date(v.created_at).toLocaleDateString() : ''}</span>
                 </button>
               );
             })}
           </div>
         )}
       </div>
-      <p className="text-[9px] text-slate-400 mt-1">Each deployment creates a version snapshot. Pick any prior version to redeploy or rollback &mdash; the pre-deploy checks above re-run against the chosen snapshot.</p>
+      <p className="text-[10px] text-slate-500 mt-1">Each deployment creates a version snapshot. Pick any prior version to redeploy or rollback &mdash; the pre-deploy checks above re-run against the chosen snapshot.</p>
     </div>
   );
 }

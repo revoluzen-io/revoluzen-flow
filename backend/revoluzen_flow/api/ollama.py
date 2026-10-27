@@ -20,13 +20,23 @@ import os
 from typing import AsyncIterator
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import current_user_optional
+from revoluzen_flow.auth.deps import current_user_optional, current_workspace_id
 
-router = APIRouter(prefix="/api/ai/ollama", tags=["ai"])
+# 2026-10-23 — posture gate added ON TOP of the tier-aware gate below.
+# That gate's reasoning is "OSS: local user, local machine, no gating",
+# which is sound for a loopback install and false for a server one — in
+# SECURITY_MODE=server an anonymous caller could pull models (filling the
+# disk) or delete them. current_workspace_id keeps the laptop behaviour
+# exactly as described below and refuses anonymous callers on a server.
+router = APIRouter(
+    prefix="/api/ai/ollama",
+    tags=["ai"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 # ---------------------------------------------------------------------------

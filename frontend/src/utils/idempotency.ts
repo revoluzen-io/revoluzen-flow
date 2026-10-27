@@ -172,8 +172,23 @@ export function classifyIdempotency(
         const keys = params?.merge_on || params?.upsert_keys || params?.keys;
         return Array.isArray(keys) && keys.length > 0 ? MERGE_OK : MERGE_KEYLESS;
       }
-      if (mode === 'append' || mode === '') return APPEND;
-      // Unknown mode — default to the safest assumption.
+      if (mode === 'append') return APPEND;
+      // 2026-10-24 — an UNSET mode used to fall into APPEND, so a sink the
+      // user had not configured yet showed a red "Re-runs duplicate". That
+      // contradicted the engine: `local_table.py` reads
+      // `(params.get("mode") or SINK_MODE_REPLACE)` and the delta sink
+      // defaults to `overwrite` (`sinks.py`), so the default behaviour of
+      // both is replace, which is idempotent. Mirror the engine's own
+      // default where it is known, and say NOTHING where it is not —
+      // an unconfigured node has no re-run class to report, and a wrong
+      // red badge is worse than no badge.
+      if (mode === '') {
+        return (stepType === 'local_table_sink' || stepType === 'delta_sink')
+          ? REPLACE
+          : null;
+      }
+      // Unknown, non-empty mode — the user chose something the classifier
+      // doesn't recognise, so keep the pessimistic call.
       return APPEND;
     }
 
@@ -210,7 +225,12 @@ export function classifyIdempotency(
     case 'destination':
       if (mode === 'replace' || mode === 'overwrite') return REPLACE;
       if (mode === 'merge' || mode === 'upsert') return MERGE_KEYLESS;
-      return APPEND;
+      if (mode === 'append') return APPEND;
+      // Generic placeholder with nothing chosen yet. It does not know what
+      // it will write to, let alone how, so it has no re-run class to
+      // report — see the sink branch above. The badge appears as soon as
+      // the user picks a mode.
+      return null;
 
     default:
       return null;

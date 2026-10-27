@@ -322,7 +322,7 @@ export default function PrePublishCard({
             onClick={() => onConfirm(data.snapshot_hash)}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md ${
               hasBlockers
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                 : 'bg-indigo-600 text-white hover:bg-indigo-700'
             }`}
             title={hasBlockers ? 'Resolve blockers before publishing' : ''}

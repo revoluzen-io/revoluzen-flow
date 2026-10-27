@@ -78,7 +78,7 @@ export function EmptyState(props: EmptyStateProps) {
     <div className="flex items-center justify-center py-12 px-4">
       <div className="text-center max-w-md">
         {icon && (
-          <div className="mx-auto mb-4 w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400">
+          <div className="mx-auto mb-4 w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-500">
             {icon}
           </div>
         )}
@@ -92,7 +92,7 @@ export function EmptyState(props: EmptyStateProps) {
             ))}
           </div>
         )}
-        {hint && <div className="mt-4 text-xs text-slate-400">{hint}</div>}
+        {hint && <div className="mt-4 text-xs text-slate-500">{hint}</div>}
       </div>
     </div>
   );

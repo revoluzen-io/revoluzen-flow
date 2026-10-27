@@ -14,7 +14,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import (
+    current_workspace_id,
+    require_min_rank_when_identified,
+)
 from revoluzen_flow.intelligence.schema_detector import SchemaDetector, DetectedSchema
 from revoluzen_flow.intelligence.flatten_engine import FlattenEngine, FlattenResult
 from revoluzen_flow.intelligence.execution_intel import (
@@ -24,7 +27,39 @@ from revoluzen_flow.intelligence.pre_validator import PreValidator, PreValidatio
 from revoluzen_flow.intelligence.error_intel import ErrorIntelligence, ErrorAnalysis
 
 
-router = APIRouter(prefix="/api/intelligence", tags=["intelligence"])
+# 2026-10-23 — router-level posture gate. These handlers accept a
+# caller-supplied `file_path` and hand it to SchemaDetector / FlattenEngine,
+# which honour absolute paths. An unauthenticated probe used that to read a
+# CSV from outside the data directory and get its columns and sample rows
+# back in the response.
+#
+# The fix is the auth gate, NOT confining file_path: a pipeline reading
+# `D:\exports\sales.csv` is the product working as designed, and these
+# endpoints exist to profile exactly those files. What was wrong is that
+# nobody had to log in first.
+#
+# current_workspace_id is the project's standard posture dep — 401 for
+# anonymous callers under REVOLUZEN_FLOW_SECURITY_MODE=server, and a
+# fall-through to the `default` workspace on a loopback single-user
+# install, so the laptop flow is unchanged.
+#
+# `developer` rank on top of that: these endpoints read any file the server
+# process can read and hand back its columns and sample rows. That is a
+# legitimate authoring capability — it is how you profile a source before
+# wiring it up — but it is an authoring capability, not a reading one, so
+# a signed-in `viewer` or `analyst` has no business with it.
+#
+# require_min_rank_when_identified, NOT require_min_rank: the strict form
+# calls require_auth and so rejects every anonymous caller, which would
+# break the OSS loopback install where there is often no login at all.
+# The relaxed form defers to current_workspace_id when there is no
+# identity (refusing in server mode, allowing locally) and enforces the
+# rank whenever there is one.
+router = APIRouter(
+    prefix="/api/intelligence",
+    tags=["intelligence"],
+    dependencies=[Depends(require_min_rank_when_identified("developer"))],
+)
 
 
 # ---------------------------------------------------------------------------

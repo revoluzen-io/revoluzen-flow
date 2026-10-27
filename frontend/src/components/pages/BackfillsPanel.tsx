@@ -208,11 +208,11 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className={`px-4 py-10 text-center text-xs rounded-xl ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-400'}`}>
+        <div className={`px-4 py-10 text-center text-xs rounded-xl ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
           Loading backfills…
         </div>
       ) : rows.length === 0 ? (
-        <div className={`px-4 py-10 text-center text-xs rounded-xl ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-400'}`}>
+        <div className={`px-4 py-10 text-center text-xs rounded-xl ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-50 text-slate-500'}`}>
           No backfills yet. Open a pipeline in the editor and use{' '}
           <code className={`px-1 rounded ${dark ? 'bg-slate-700 text-slate-200' : 'bg-slate-200 text-slate-700'}`}>Pipeline menu → Backfill…</code>{' '}
           to kick one off.
@@ -242,7 +242,7 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
                 >
                   <svg
                     width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                    className={`shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''} ${dark ? 'text-slate-500' : 'text-slate-400'}`}
+                    className={`shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''} ${dark ? 'text-slate-500' : 'text-slate-500'}`}
                   >
                     <polyline points="9 18 15 12 9 6" />
                   </svg>
@@ -278,10 +278,10 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
                           style={{ width: `${progress}%` }}
                         />
                       </div>
-                      <div className={`text-[10px] mt-0.5 text-right ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{progress}%</div>
+                      <div className={`text-[10px] mt-0.5 text-right ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{progress}%</div>
                     </div>
                   </div>
-                  <div className={`hidden lg:block text-xs ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <div className={`hidden lg:block text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                     <TimeAgo value={bf.created_at} />
                   </div>
                   {(bf.status === 'running' || bf.status === 'pending') && (
@@ -315,7 +315,7 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
                       <div className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>No windows recorded yet.</div>
                     ) : (
                       <div>
-                        <div className={`text-[10px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                        <div className={`text-[10px] uppercase tracking-wider mb-2 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                           {windows.length} window{windows.length === 1 ? '' : 's'} · click a cell to open its execution
                         </div>
                         {/* Gantt strip — one column per window, colored by status */}
@@ -367,7 +367,7 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
                             </div>
                           ))}
                           {windows.length > 12 && (
-                            <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                            <div className={`text-[10px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                               + {windows.length - 12} more window{windows.length - 12 === 1 ? '' : 's'} above (Gantt strip)
                             </div>
                           )}

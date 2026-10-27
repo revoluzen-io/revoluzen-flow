@@ -101,7 +101,7 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
               step's params with <code className="bg-slate-100 px-1 rounded">{'${param.name}'}</code>.
             </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-600">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </button>
         </div>
@@ -110,7 +110,7 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
         <div className="px-5 py-4 overflow-auto flex-1">
           {draft.length === 0 && (
             <div className="text-center py-10">
-              <div className="text-slate-400 text-sm mb-3">No parameters declared.</div>
+              <div className="text-slate-500 text-sm mb-3">No parameters declared.</div>
               <button
                 type="button"
                 onClick={addRow}
@@ -212,7 +212,7 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
                       <button
                         type="button"
                         onClick={() => removeRow(i)}
-                        className="text-slate-400 hover:text-red-600"
+                        className="tap-24 text-slate-500 hover:text-red-600"
                         title="Remove"
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

@@ -19,7 +19,7 @@ import { useDarkMode } from '../hooks/useDarkMode';
 import { useEditorPreferences, getEditorPreferences } from '../hooks/useEditorPreferences';
 import { uiConfirm } from '../ui/dialog';
 import { validateWorkflow, type ValidationIssue } from '../utils/validateWorkflow';
-import { contractFor, sideEffectClassFor, sideEffectLabel } from '../utils/nodeArity';
+import { contractFor } from '../utils/nodeArity';
 import { wouldCreateCycle } from '../utils/graphCycles';
 // 2026-05-19 (OSS-8): the standalone requireNamedWorkflow helper is
 // gone — the store's `ensureWorkflow` runs the prompt loop internally
@@ -129,9 +129,31 @@ function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
     layers[l].push(id);
   }
 
-  // Position: 300px horizontal between layers, 120px vertical between nodes
-  const H_SPACING = 300;
-  const V_SPACING = 120;
+  // Layer pitch. These are PITCH values (node + gap), not gaps, so they
+  // must be read against the node box.
+  //
+  // 2026-10-23 — 300/120 -> 220/90, against the old 180 x ~50 pill.
+  //
+  // 2026-10-24 — the node is now a 96 x 96 square (BOX_SIZE in
+  // RevoluzenFlowNode.tsx) with its NAME in a caption below it. React
+  // Flow measures the square only, because the caption is absolutely
+  // positioned, so the layout has to leave room for the caption itself:
+  //
+  //   horizontal  96 node + 124 gap = 220 pitch. Kept at 220 even though
+  //               the node lost 84px of width: the gap now carries the
+  //               row-count / schema-delta chip that moved OFF the node
+  //               onto the edge, and branch-port labels, which render
+  //               outside the square. A narrower pitch would collide.
+  //   vertical    96 node + ~34 caption (two lines at 12px + run time)
+  //               + 40 gap = 170 pitch. At the old 90 the caption of one
+  //               row would have overlapped the node in the row below.
+  //
+  // A six-step single-layer pipeline spans 96 + 5*220 = 1196px, within a
+  // few pixels of the previous layout, while each node is now a square
+  // that stays recognisable at ~0.3 zoom where the old pill's text was
+  // already illegible.
+  const H_SPACING = 220;
+  const V_SPACING = 170;
   const START_X = 80;
   const START_Y = 80;
 
@@ -214,8 +236,8 @@ function GhostNode({
             </div>
             <span className="text-xs font-semibold text-indigo-600">{suggestion.label}</span>
           </div>
-          <div className="text-[9px] text-slate-400 leading-snug">{suggestion.reason}</div>
-          <div className="mt-2 text-[8px] text-indigo-400 font-medium">Click to add</div>
+          <div className="text-[10px] text-slate-500 leading-snug">{suggestion.reason}</div>
+          <div className="mt-2 text-[10px] text-indigo-400 font-medium">Click to add</div>
         </div>
         {/* Dismiss button */}
         <button
@@ -410,9 +432,12 @@ export default function Canvas() {
             const remapped = remapLegacyGhost(suggestion);
             if (!remapped) return;
             setGhostSuggestion(remapped);
-            // Position ghost to the right of the new node
+            // Position ghost to the right of the new node, one layer pitch
+            // away — same 220px the auto-layout uses, so a ghost the user
+            // accepts lands where auto-layout would have put it instead of
+            // 60px further out.
             setGhostPosition({
-              x: newNode.position.x + 280,
+              x: newNode.position.x + 220,
               y: newNode.position.y,
             });
           }
@@ -538,23 +563,25 @@ export default function Canvas() {
       if (!stepState) return node;
 
       const className = stepState.type === 'step_started' ? 'revoluzen-flow-executing' : '';
-      const badge = stepState.type === 'step_completed' && stepState.row_count !== undefined
-        ? `${stepState.row_count} rows`
-        : stepState.type === 'step_error'
-        ? 'Error'
+
+      // 2026-10-25 — this wrote `executionStatus` and `executionBadge`.
+      // RevoluzenFlowNode reads `status` (see its `statusClass` and the
+      // corner badge), and nothing anywhere read either of those two
+      // names — grep returned these lines and nothing else. So even once
+      // the events were flowing, no node would have lit up: the backend
+      // was silent on the REST path AND the two sides of the frontend
+      // were passing different keys. Both halves had to be wrong for
+      // the symptom to be "zero transitions", which is why it survived
+      // this long.
+      const status = stepState.type === 'step_completed' ? 'success'
+        : stepState.type === 'step_error' ? 'error'
+        : stepState.type === 'step_started' ? 'running'
         : undefined;
 
       return {
         ...node,
         className,
-        data: {
-          ...node.data,
-          executionBadge: badge,
-          executionStatus: stepState.type === 'step_completed' ? 'success'
-            : stepState.type === 'step_error' ? 'error'
-            : stepState.type === 'step_started' ? 'running'
-            : undefined,
-        },
+        data: { ...node.data, status },
       };
     });
   }, [nodes, stepStates, isExecuting]);
@@ -739,13 +766,13 @@ export default function Canvas() {
             <button
               type="button"
               onClick={() => setInspectEdge(null)}
-              className="text-slate-400 hover:text-slate-700 leading-none"
+              className="text-slate-500 hover:text-slate-700 leading-none"
               title="Close"
             >✕</button>
           </div>
           <div className="text-slate-700">
             <div className="font-semibold truncate" title={inspectEdge.source}>{inspectEdge.source}</div>
-            <div className="text-slate-400 my-0.5">↓ flows into</div>
+            <div className="text-slate-500 my-0.5">↓ flows into</div>
             <div className="font-semibold truncate" title={inspectEdge.target}>{inspectEdge.target}</div>
           </div>
           {inspectEdge.alias && (
@@ -1021,48 +1048,35 @@ function BottomToolbar({ rfInstance }: { rfInstance: ReactFlowInstance | null })
                 // No errors — clear any stale red borders before
                 // kicking off the sample run.
                 setStoreValidationErrors({});
-                // A6 — Sample-run side-effect guard. Sample is meant
-                // for fast preview; running side-effect nodes (sinks,
-                // HTTP calls, email/Slack sends, file deletes) on a
-                // sample dataset can produce REAL writes / messages /
-                // mutations against external systems. Require explicit
-                // confirmation listing the impacted nodes.
-                const sideEffectHits = nodes
-                  .filter((n) => {
-                    const t: string = (n.data as any)?.stepType || '';
-                    return sideEffectClassFor(t) !== null;
-                  })
-                  .map((n) => {
-                    const t: string = (n.data as any)?.stepType || '';
-                    const lbl = (n.data as any)?.label || t;
-                    return `• ${lbl} — ${sideEffectLabel(t) || 'has external side effects'}`;
-                  });
-                if (sideEffectHits.length > 0) {
-                  const proceed = await uiConfirm({
-                    title: 'Sample run will trigger real-world side effects',
-                    danger: true,
-                    confirmLabel: 'Run anyway',
-                    cancelLabel: 'Cancel',
-                    message:
-                      `This pipeline has ${sideEffectHits.length} step` +
-                      `${sideEffectHits.length === 1 ? '' : 's'} that touch the outside world. ` +
-                      `Sample runs execute them for real — they don't dry-run:\n\n` +
-                      sideEffectHits.slice(0, 8).join('\n') +
-                      (sideEffectHits.length > 8 ? `\n… and ${sideEffectHits.length - 8} more` : '') +
-                      `\n\nDeactivate side-effect nodes from their context menu (right-click → Deactivate) if you only want to preview the data path.`,
-                  });
-                  if (!proceed) return;
-                }
+                // 2026-10-26 — the "Sample run will trigger real-world
+                // side effects" confirmation is GONE, because the thing
+                // it warned about no longer happens. Sample now sends
+                // safety_mode=sample, and the executor short-circuits
+                // every side-effect node (R8b in _run_node_once): sinks
+                // hand their input straight downstream without writing,
+                // and actions report what they would have done.
+                //
+                // The dialog had told the operator to go and deactivate
+                // their sinks by hand "if you only want to preview the
+                // data path" — which is what a Sample run is for. Asking
+                // someone to disable half their pipeline before every
+                // preview, then clicking through a red warning, trains
+                // them to click through red warnings.
                 // No silent create — Sample runs the canvas IR directly
                 // via the ephemeral endpoint (2026-05-22). The store's
                 // runWorkflow handler picks the ephemeral path automatically
                 // when the canvas is unsaved or dirty. Save remains the
                 // only gesture that adds a row to the Pipelines list.
                 runWorkflow(false);
-                toast.info('Sample Run', 'Running with sample mode (limited rows for fast preview)');
+                toast.info(
+                  'Sample run',
+                  'First 100 rows. Destinations and other side-effect steps are skipped, not written.',
+                );
               }}
               disabled={isRunning || nodes.length === 0}
-              title={isRunning ? 'Sample run in progress — please wait' : 'Run Sample — preview with limited rows'}
+              title={isRunning
+                ? 'Sample run in progress — please wait'
+                : 'Run Sample — first 100 rows, destinations skipped (nothing is written)'}
               className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-60 disabled:cursor-wait transition-colors min-w-[110px] justify-center"
             >
               {isRunning ? (

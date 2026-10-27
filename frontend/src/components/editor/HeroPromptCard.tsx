@@ -232,28 +232,33 @@ export default function HeroPromptCard() {
           </div>
         </div>
 
-        {/* Example chips — one-click starting points */}
+        {/* One example, and it FILLS the box rather than submitting.
+            2026-10-25 — this was four chips that each fired a different
+            generation. With the prompt field and the Templates dropdown
+            already here, the empty canvas offered three competing ways
+            in and about ten things to click, so the one real instruction
+            ("tell it what you want") was the least prominent of them.
+            Now there are two ways in — type, or pick a template — and
+            the example teaches the shape of a good prompt instead of
+            racing the input for the click. */}
         <div className="mt-4">
-          <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 text-center">
-            or try one of these
-          </div>
           <div className="flex flex-wrap gap-2 justify-center">
-            {EXAMPLES.map((ex) => (
+            {EXAMPLES.slice(0, 1).map((ex) => (
               <button
                 key={ex.label}
                 type="button"
-                onClick={() => submit(ex.prompt)}
-                className="px-3 py-1.5 text-[12px] font-medium text-slate-700 bg-white hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 rounded-full ring-1 ring-slate-200 transition-colors"
+                onClick={() => setIntent(ex.prompt)}
+                className="px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:text-indigo-700 underline decoration-dashed decoration-slate-300 underline-offset-4 transition-colors"
                 title={ex.prompt}
               >
-                {ex.label}
+                Not sure? Start from an example
               </button>
             ))}
           </div>
         </div>
 
         {/* Footer hint */}
-        <div className="mt-5 text-center text-xs text-slate-400">
+        <div className="mt-5 text-center text-xs text-slate-500">
           Drafts are previewed before anything is saved · the Copilot never modifies your canvas without confirmation
         </div>
       </div>

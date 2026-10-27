@@ -44,6 +44,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger("revoluzen_flow.worker_pool")
 
 
+def _status_of(result: Any) -> str:
+    """Derive a job status from whatever the run returned.
+
+    Mirrors `_run_job`'s logic so a run admitted through
+    `run_admitted` lands in history with the same status it would have
+    had through `submit()`.
+    """
+    if result is None:
+        return "success"
+    status = getattr(result, "status", None)
+    if status is None and isinstance(result, dict):
+        status = result.get("status")
+    return str(status) if status else "success"
+
+
 # ── Priority levels ────────────────────────────────────────────────────
 
 class Priority(IntEnum):
@@ -342,15 +357,37 @@ class WorkerPool:
     ):
         # Auto-detect worker count from CPU cores if not specified
         cpu_count = multiprocessing.cpu_count() or 4
+        # Whether a real concurrency limit exists, as opposed to a slot
+        # count we invented from the CPU count. The distinction was lost
+        # here: both paths produced an int, so `max_workers` looked like a
+        # cap even when nothing enforced one, and the Pool page divided by
+        # it to show a utilization percentage against a denominator that
+        # did not exist. API runs are gated by the semaphore in
+        # api/execution.py, which is a NO-OP when MAX_CONCURRENT_RUNS is 0.
+        capped = max_workers > 0
         if max_workers <= 0:
             from revoluzen_flow import runtime_config
             max_workers = runtime_config.MAX_CONCURRENT_RUNS
+            capped = max_workers > 0
             if max_workers <= 0:
                 max_workers = max(4, cpu_count)
 
         self._max_workers = max_workers
+        self._capped = capped
+
+        # Re-entrancy depth, per thread. A pipeline that runs a
+        # sub-pipeline (exec_pipeline, or the executor's own dependency
+        # resolution) must NOT take a second slot: with a cap of 1 that
+        # deadlocks instantly, and at any cap it double-counts one run.
+        self._admission = threading.local()
+        # Runs blocked in admission: job_id -> (job, waiting_since).
+        # Distinct from `_queue`, which holds jobs submitted through
+        # submit() and not yet dispatched. These are live callers parked
+        # on a thread, waiting for a slot.
+        self._waiting: dict[str, tuple[QueuedJob, datetime]] = {}
         self._executor: ThreadPoolExecutor | None = None
         self._lock = threading.Lock()
+        self._slot_free = threading.Condition(self._lock)
 
         # Resource governor — controls admission, memory limits, concurrency
         self._governor = governor or ResourceGovernor()
@@ -678,6 +715,189 @@ class WorkerPool:
                 return w
         return None
 
+    # ── Display-only tracking for runs this pool does not dispatch ──────
+    #
+    # API runs do not go through submit()/the queue — they are gated by
+    # the semaphore in api/execution.py and executed with anyio. The pool
+    # still tracks them so the Execution Pool page can show what is
+    # running. That tracking used to be done by the endpoint reaching
+    # into `_workers` / `_active` directly, which had two bugs:
+    #
+    #   * when every slot was busy the run was simply not recorded, so
+    #     the page under-reported real concurrency — guaranteed whenever
+    #     MAX_CONCURRENT_RUNS is 0, because then nothing caps the number
+    #     of runs at the slot count;
+    #   * on completion it fell back to releasing `_workers[0]`, which
+    #     belongs to a DIFFERENT job and was marked idle while still busy.
+    #
+    # These two methods own that lifecycle instead.
+
+    def claim_tracking_slot(self, job: QueuedJob) -> WorkerSlot:
+        """Mark a slot busy for an externally-executed run.
+
+        Returns an idle slot when one exists, otherwise APPENDS a slot.
+        Growing is the honest option: the run IS happening, so a report
+        that cannot represent it is simply wrong. On an uncapped pool the
+        slot list is a picture of concurrency, not a limit on it.
+        """
+        with self._lock:
+            self._total_submitted += 1
+            worker = self._find_free_worker()
+            if worker is None:
+                worker = WorkerSlot(id=len(self._workers))
+                self._workers.append(worker)
+            worker.status = "busy"
+            worker.current_job_id = job.id
+            worker.current_workflow_id = job.workflow_id
+            worker.current_workflow_name = job.workflow_name
+            worker.current_priority = job.priority
+            worker.current_environment = job.environment
+            worker.started_at = datetime.now(timezone.utc)
+            self._active[job.id] = job
+            return worker
+
+    def release_tracking_slot(
+        self,
+        job: QueuedJob,
+        worker: WorkerSlot | None,
+        status: str,
+        duration_ms: float,
+        error: str | None = None,
+    ) -> None:
+        """Release a slot claimed by `claim_tracking_slot`.
+
+        A missing worker means the claim never happened, so there is
+        nothing to free — previously this released slot 0 and reported
+        an unrelated running job as idle.
+        """
+        if worker is None:
+            with self._lock:
+                self._active.pop(job.id, None)
+            return
+        self._on_job_complete(job, worker, status, duration_ms, error)
+        self._prune_grown_slots()
+
+    # ── Single admission point ─────────────────────────────────────────
+    #
+    # `run_admitted` gates a run that the CALLER executes on its own
+    # thread, rather than handing the work to the pool's executor. That
+    # shape matters: every run path in Revoluzen Flow is already
+    # synchronous and needs the result (the API awaits it through
+    # anyio.to_thread, the scheduler runs it on its schedule thread, a
+    # backfill runs each window on its own pool thread). Making them all
+    # submit-and-wait would double the threads per run and leave the
+    # result-plumbing untouched anyway.
+    #
+    # Before this existed, each path invented its own control: the API
+    # had an asyncio.Semaphore, backfills a private ThreadPoolExecutor,
+    # and the scheduler nothing at all — so `MAX_CONCURRENT_RUNS=4`
+    # capped API runs at 4 while schedules and backfills ran unbounded
+    # alongside, invisible to the Pool page.
+
+    def run_admitted(
+        self,
+        job: QueuedJob,
+        fn: Callable[..., Any],
+        kwargs: dict[str, Any] | None = None,
+    ) -> Any:
+        """Run `fn` on the calling thread, holding a pool slot.
+
+        Blocks before starting when the pool is capped and full; returns
+        or raises exactly what `fn` does. The slot is always released,
+        and the run appears on the Execution Pool page for its duration.
+
+        Nested calls on the same thread run inline without taking a
+        second slot — see `_admission`.
+        """
+        depth = getattr(self._admission, "depth", 0)
+        if depth > 0:
+            # Already inside an admitted run: this is a sub-pipeline, and
+            # it is covered by the parent's slot.
+            return fn(**(kwargs or {}))
+
+        try:
+            worker = self._acquire_admission(job)
+        except BaseException:
+            # A cancelled or interrupted wait must not leave the run
+            # showing as waiting forever.
+            with self._lock:
+                self._waiting.pop(job.id, None)
+            raise
+        self._admission.depth = depth + 1
+        start = time.time()
+        status = "error"
+        error_msg: str | None = None
+        try:
+            result = fn(**(kwargs or {}))
+            status = _status_of(result)
+            return result
+        except BaseException as exc:  # noqa: BLE001 — recorded, then re-raised
+            error_msg = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            self._admission.depth = depth
+            try:
+                self._on_job_complete(
+                    job, worker, status, (time.time() - start) * 1000, error_msg,
+                )
+                self._prune_grown_slots()
+            except Exception:  # noqa: BLE001 — never mask the run's own outcome
+                logger.warning("pool accounting failed after run", exc_info=True)
+
+    def _acquire_admission(self, job: QueuedJob) -> WorkerSlot:
+        """Take a slot, waiting when capped and full. Returns the slot."""
+        waiting_since: datetime | None = None
+        with self._slot_free:
+            self._total_submitted += 1
+            while True:
+                worker = self._find_free_worker()
+                if worker is None and not self._capped:
+                    # Uncapped means uncapped: `MAX_CONCURRENT_RUNS=0` is
+                    # documented as "no limit", so admission must not
+                    # invent one out of the CPU-count slot guess. Grow
+                    # instead, which also keeps the run visible.
+                    worker = WorkerSlot(id=len(self._workers))
+                    self._workers.append(worker)
+                if worker is not None:
+                    worker.status = "busy"
+                    worker.current_job_id = job.id
+                    worker.current_workflow_id = job.workflow_id
+                    worker.current_workflow_name = job.workflow_name
+                    worker.current_priority = job.priority
+                    worker.current_environment = job.environment
+                    worker.started_at = datetime.now(timezone.utc)
+                    job.started_at = worker.started_at
+                    self._active[job.id] = job
+                    self._waiting.pop(job.id, None)
+                    return worker
+                # Capped and full — wait for a slot to free.
+                #
+                # Recorded so the Execution Pool page can show it. A run
+                # stuck here is invisible otherwise: it holds no slot, so
+                # it looks idle, while a scheduled one is ALSO holding its
+                # schedule's overlap lock and silently suppressing that
+                # schedule's next fire. "Nothing is running and nothing is
+                # queued" was the worst possible thing to show an operator
+                # whose schedules had stopped firing.
+                if waiting_since is None:
+                    waiting_since = datetime.now(timezone.utc)
+                    self._waiting[job.id] = (job, waiting_since)
+                self._slot_free.wait(timeout=1.0)
+
+    def _prune_grown_slots(self) -> None:
+        """Drop trailing idle slots added by growth, back to the base size.
+
+        Without this the list only ever grows: one burst of 30 concurrent
+        runs would leave 30 slots showing "idle" forever, which overstates
+        capacity exactly as badly as the old code understated load.
+        """
+        with self._lock:
+            while (
+                len(self._workers) > self._max_workers
+                and self._workers[-1].status == "idle"
+            ):
+                self._workers.pop()
+
     def _dispatch(self, job: QueuedJob, worker: WorkerSlot) -> None:
         """Dispatch a job to a worker (must hold self._lock)."""
         worker.status = "busy"
@@ -805,11 +1025,18 @@ class WorkerPool:
             if next_job is not None:
                 self._dispatch(next_job, worker)
 
+            # Wake admission waiters. Unconditional: when the slot was
+            # immediately re-dispatched above, waiters re-check and go
+            # back to sleep, which is cheaper than reasoning about it
+            # here and cannot miss a wakeup.
+            self._slot_free.notify_all()
+
     # ── Status / Metrics ───────────────────────────────────────────────
 
     def get_status(self) -> dict:
         """Return complete pool status for the admin UI."""
         with self._lock:
+            now = datetime.now(timezone.utc)
             workers = []
             busy_count = 0
             for w in self._workers:
@@ -910,16 +1137,51 @@ class WorkerPool:
             active_dev = sum(1 for w in self._workers if w.status == "busy" and w.current_environment == "dev")
             active_prod = sum(1 for w in self._workers if w.status == "busy" and w.current_environment == "prod")
 
-            utilization = round(busy_count / self._max_workers * 100, 1) if self._max_workers > 0 else 0
+            # Utilization needs a real denominator. Uncapped, there isn't
+            # one: `_max_workers` is a CPU-count guess that nothing
+            # enforces, so "3 / 8 busy, 37%" would be a number we made
+            # up. Report None and let the UI say so.
+            if self._capped and self._max_workers > 0:
+                utilization = round(busy_count / self._max_workers * 100, 1)
+                idle = max(0, self._max_workers - busy_count)
+            else:
+                utilization = None
+                idle = None
 
             return {
                 "pool": {
-                    "max_workers": self._max_workers,
+                    # The concurrency LIMIT, or None when runs are uncapped.
+                    "capped": self._capped,
+                    "concurrency_limit": self._max_workers if self._capped else None,
+                    # Slot count — with growth this tracks live concurrency
+                    # rather than capping it, so it is not a limit.
+                    "max_workers": len(self._workers),
                     "busy_workers": busy_count,
-                    "idle_workers": self._max_workers - busy_count,
+                    "idle_workers": idle,
                     "utilization_pct": utilization,
                     "queue_depth": self._queue.depth(),
                     "active_jobs": len(self._active),
+                    # Live callers parked in admission waiting for a slot.
+                    # Separate from `queue_depth`, which counts jobs
+                    # submitted through submit() and not yet dispatched.
+                    "waiting_for_capacity": len(self._waiting),
+                    "waiting": sorted(
+                        (
+                            {
+                                "job_id": j.id,
+                                "workflow_id": j.workflow_id,
+                                "workflow_name": j.workflow_name,
+                                "environment": j.environment,
+                                "triggered_by": j.triggered_by,
+                                "schedule_id": j.schedule_id,
+                                "waiting_ms": round(
+                                    (now - since).total_seconds() * 1000, 1
+                                ),
+                            }
+                            for j, since in self._waiting.values()
+                        ),
+                        key=lambda w: -w["waiting_ms"],
+                    ),
                     "started_at": self._started_at.isoformat() if self._started_at else None,
                 },
                 "counters": {

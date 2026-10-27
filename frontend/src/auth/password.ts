@@ -13,7 +13,36 @@
  * rule logic below keeps the two in sync.
  */
 
-export const MIN_LENGTH = 12;
+// Must equal MIN_LENGTH in backend/revoluzen_flow/auth/password_policy.py.
+// Lowered 12 → 8 on 2026-10-27 with the composition rules dropped, per
+// NIST SP 800-63B: ≥8 characters, and no "one upper, one digit, one
+// symbol" requirements. If these two numbers ever diverge the form and
+// the server disagree about what is valid.
+export const MIN_LENGTH = 8;
+
+// Must equal MIN_CLASSES in password_policy.py. How many of the four
+// character classes a password needs. Any two — no single class is
+// mandatory, which is what avoids forcing everyone into `Password1!`.
+export const MIN_CLASSES = 2;
+
+// Must equal MAX_BYTES in backend/revoluzen_flow/auth/password_policy.py.
+// BYTES of UTF-8, not characters: bcrypt reads only the first 72 bytes
+// and bcrypt 5.x raises past that, so without this the server 500s on a
+// long passphrase. "café" is 5 bytes from 4 characters.
+// Also used as `maxLength` on the password inputs, so the field simply
+// stops accepting characters and the "too long" message is a backstop
+// rather than something people routinely read. maxLength counts UTF-16
+// code units, not bytes, so an all-emoji password can still slip past it
+// and get caught by the check below — rare, and handled.
+export const MAX_BYTES = 72;
+
+/** UTF-8 byte length, matching what the Python side measures. */
+function byteLength(s: string): number {
+  // TextEncoder is available in every browser this app supports; the
+  // fallback keeps the meter working under SSR or a test shim.
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s).length;
+  return unescape(encodeURIComponent(s)).length;
+}
 
 // Same lowercased blocklist as the Python module. Don't grow this list
 // unbounded — it bloats the bundle. The backend has the same set; if you
@@ -60,6 +89,15 @@ export function checkPassword(password: string, email = '', name = ''): Password
     suggestions.push(`Add ${deficit} more character${deficit === 1 ? '' : 's'}.`);
   }
 
+  // Hard upper bound — see MAX_BYTES. A failure, not a suggestion:
+  // past this the server cannot hash it and the request 500s.
+  // Measured in bytes, said in characters — nobody types bytes. Mirrors
+  // the wording in password_policy.py exactly.
+  if (byteLength(password) > MAX_BYTES) {
+    failures.push(`Password is too long. Use ${MAX_BYTES} characters or fewer.`);
+    suggestions.push('Shorten it — a few words is plenty.');
+  }
+
   const hasLower = /[a-z]/.test(password);
   const hasUpper = /[A-Z]/.test(password);
   const hasDigit = /[0-9]/.test(password);
@@ -67,21 +105,16 @@ export function checkPassword(password: string, email = '', name = ''): Password
   // Matches the Python `not c.isalnum() and not c.isspace()` rule.
   const hasSymbol = /[^A-Za-z0-9\s]/.test(password);
 
-  if (!hasLower) {
-    failures.push('Add at least one lowercase letter.');
-    suggestions.push('Mix in a lowercase letter (a-z).');
-  }
-  if (!hasUpper) {
-    failures.push('Add at least one uppercase letter.');
-    suggestions.push('Mix in an uppercase letter (A-Z).');
-  }
-  if (!hasDigit) {
-    failures.push('Add at least one number.');
-    suggestions.push('Mix in a digit (0-9).');
-  }
-  if (!hasSymbol) {
-    failures.push('Add at least one symbol.');
-    suggestions.push('Mix in a symbol (!@#$%^&* etc.).');
+  // At least MIN_CLASSES of the four. Mirrors MIN_CLASSES in
+  // password_policy.py — if these two disagree the form blocks something
+  // the server accepts, or says "Strong" and then the server 400s.
+  const classCount = [hasLower, hasUpper, hasDigit, hasSymbol].filter(Boolean).length;
+  if (classCount < MIN_CLASSES) {
+    failures.push(
+      `Use at least ${MIN_CLASSES} of these: a lowercase letter, an uppercase letter, ` +
+      'a number, a symbol.',
+    );
+    suggestions.push('Adding a capital or a number is usually the easiest fix.');
   }
 
   if (COMMON_PASSWORDS.has(password.toLowerCase())) {
@@ -114,16 +147,23 @@ export function checkPassword(password: string, email = '', name = ''): Password
     suggestions.push('Break up sequences with random characters.');
   }
 
-  // Score 0..4 from rules that PASSED + length bonus, knocked down on
-  // any failure. Same algorithm as the Python module so the two meters
-  // agree on what to call "Strong".
+  // Score 0..4, driven by LENGTH rather than character classes. Same
+  // algorithm as the Python module — if these drift, the meter and the
+  // server disagree about what counts as strong. See the comment in
+  // password_policy.py for why class-counting was dropped: it scored a
+  // 19-character passphrase as "Weak" and `Passw0rd!` as "Good".
   const classes = [hasLower, hasUpper, hasDigit, hasSymbol].filter(Boolean).length;
-  let lengthBonus = 0;
-  if (password.length >= 16) lengthBonus += 1;
-  if (password.length >= 20) lengthBonus += 1;
-  let raw = classes + lengthBonus;
-  if (failures.length > 0) raw = Math.min(raw, 1);
-  const score = (Math.min(4, Math.max(0, raw - 2)) as 0 | 1 | 2 | 3 | 4);
+  const n = password.length;
+  let raw: number;
+  if (n >= 20) raw = 4;
+  else if (n >= 16) raw = 3;
+  else if (n >= 12) raw = 2;
+  else if (n >= MIN_LENGTH) raw = 1;
+  else raw = 0;
+  if (classes >= 3 && n >= 10) raw += 1;
+  raw = Math.min(4, raw);
+  if (failures.length > 0) raw = 0;
+  const score = (raw as 0 | 1 | 2 | 3 | 4);
   const labels: PasswordCheck['label'][] = ['Weak', 'Fair', 'Good', 'Strong', 'Excellent'];
 
   return {

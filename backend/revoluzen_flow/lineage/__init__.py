@@ -95,7 +95,7 @@ class LineageStore:
     ) -> str:
         """Record a lineage node (one per pipeline step)."""
         node_id = f"ln_{uuid.uuid4().hex[:8]}"
-        self._db.execute(
+        self._db.execute_write(
             "INSERT OR REPLACE INTO lineage_nodes (id, workflow_id, step_id, step_label, step_type, columns, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (node_id, workflow_id, step_id, step_label, step_type, json.dumps(columns), time.time()),
@@ -126,7 +126,7 @@ class LineageStore:
             return ""
 
         edge_id = f"le_{uuid.uuid4().hex[:8]}"
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO lineage_edges (id, workflow_id, source_node_id, target_node_id, source_column, target_column, transform_type, expression, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (edge_id, workflow_id, src["id"], tgt["id"], source_column, target_column, transform_type, expression, time.time()),
@@ -142,8 +142,8 @@ class LineageStore:
         wf_id = workflow.id
 
         # Clear existing lineage for this workflow
-        self._db.execute("DELETE FROM lineage_edges WHERE workflow_id=?", (wf_id,))
-        self._db.execute("DELETE FROM lineage_nodes WHERE workflow_id=?", (wf_id,))
+        self._db.execute_write("DELETE FROM lineage_edges WHERE workflow_id=?", (wf_id,))
+        self._db.execute_write("DELETE FROM lineage_nodes WHERE workflow_id=?", (wf_id,))
 
         step_map: dict[str, Any] = {}
         for step in workflow.steps:
@@ -332,7 +332,7 @@ class LineageStore:
         this records what actually ran on a specific run_id.
         """
         rid = f"lsr_{uuid.uuid4().hex[:8]}"
-        self._db.execute(
+        self._db.execute_write(
             "INSERT INTO lineage_step_runs (id, workflow_id, run_id, step_id, step_label, step_type, "
             "columns_in, columns_out, rows_in, rows_out, started_at, completed_at, error) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -391,9 +391,9 @@ class LineageStore:
 
     def delete_workflow_lineage(self, workflow_id: str):
         """Remove all lineage data for a workflow (design-time AND runtime)."""
-        self._db.execute("DELETE FROM lineage_edges WHERE workflow_id=?", (workflow_id,))
-        self._db.execute("DELETE FROM lineage_nodes WHERE workflow_id=?", (workflow_id,))
-        self._db.execute("DELETE FROM lineage_step_runs WHERE workflow_id=?", (workflow_id,))
+        self._db.execute_write("DELETE FROM lineage_edges WHERE workflow_id=?", (workflow_id,))
+        self._db.execute_write("DELETE FROM lineage_nodes WHERE workflow_id=?", (workflow_id,))
+        self._db.execute_write("DELETE FROM lineage_step_runs WHERE workflow_id=?", (workflow_id,))
 
     # ── Consumer self-attestation (L3, 2026-06-08) ────────────────────
     #
@@ -455,7 +455,7 @@ class LineageStore:
         # UPSERT pattern via INSERT OR REPLACE - SQLite's UPSERT
         # (ON CONFLICT) is supported but using REPLACE keeps the
         # query portable to other backends.
-        self._db.execute(
+        self._db.execute_write(
             "INSERT OR REPLACE INTO lineage_consumers "
             "(id, output_id, consumer_id, consumer_type, "
             " last_read_at, attested_at, attested_by, notes) "
@@ -509,7 +509,7 @@ class LineageStore:
         """Remove one consumer registration. Returns True if a row
         was removed."""
         self._ensure_consumer_table()
-        cur = self._db.execute(
+        cur = self._db.execute_write(
             "DELETE FROM lineage_consumers WHERE output_id=? "
             "AND consumer_id=? AND consumer_type=?",
             (output_id, consumer_id, consumer_type),

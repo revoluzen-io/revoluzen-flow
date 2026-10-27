@@ -415,7 +415,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
               if (el) el.focus();
             }}
             aria-label="Focus search"
-            className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 z-10"
+            className="absolute left-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-600 z-10"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="7" />
@@ -446,12 +446,12 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
         {/* Stats: rows + duration */}
         <div className="shrink-0 flex items-center gap-3 text-[11px] text-slate-600">
           <span className="inline-flex items-center gap-1" title="Rows produced by this step">
-            <span className="text-slate-400">◈</span>
+            <span className="text-slate-500">◈</span>
             <span className="tabular-nums">{formatRowCount(headerRowCount)}</span>
-            <span className="text-slate-400">rows</span>
+            <span className="text-slate-500">rows</span>
           </span>
           <span className="inline-flex items-center gap-1" title="Wall-clock duration">
-            <span className="text-slate-400">⏱</span>
+            <span className="text-slate-500">⏱</span>
             <span className="tabular-nums font-mono">{formatDurationMs(headerDurationMs)}</span>
           </span>
         </div>
@@ -495,7 +495,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
           type="button"
           onClick={onClose}
           aria-label="Close step inspector"
-          className="shrink-0 p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white/60 transition-colors"
+          className="shrink-0 p-1 rounded-md text-slate-500 hover:text-slate-700 hover:bg-white/60 transition-colors"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <line x1="18" y1="6" x2="6" y2="18" />
@@ -526,7 +526,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
         )}
 
         {loading && (
-          <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+          <div className="flex items-center justify-center py-12 text-slate-500 text-sm">
             Loading captured data…
           </div>
         )}
@@ -534,7 +534,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
           <Banner tone="warn">Failed to load step data: {error}</Banner>
         )}
         {!loading && !error && !active && (
-          <div className="text-center py-12 text-slate-400 text-sm">
+          <div className="text-center py-12 text-slate-500 text-sm">
             {direction === 'output'
               ? 'No historical output is available for this step.'
               : 'This step has no captured inputs (root step, or upstream capture not available).'}
@@ -573,7 +573,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
             {view === 'schema' && (
               <div className="border border-slate-200 rounded-md overflow-auto" style={{ maxHeight: '36vh' }}>
                 {active.schema.length === 0 ? (
-                  <div className="text-center py-10 text-sm text-slate-400">
+                  <div className="text-center py-10 text-sm text-slate-500">
                     No schema captured.
                   </div>
                 ) : (
@@ -581,7 +581,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
                     {/* JSON-tree style schema — one field per line, types right-aligned.
                         Hover a row to see null + distinct stats. */}
                     <pre className="font-mono text-xs leading-relaxed text-slate-700 px-4 py-3 m-0">
-                      <span className="text-slate-400">{'{'}</span>
+                      <span className="text-slate-500">{'{'}</span>
                       {'\n'}
                       {active.schema.map((col, i) => {
                         const stats: string[] = [];
@@ -594,16 +594,16 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
                             className="block hover:bg-slate-50 px-2 -mx-2 rounded"
                             title={statsLabel ? statsLabel.slice(3) : undefined}
                           >
-                            <span className="text-slate-400">  </span>
+                            <span className="text-slate-500">  </span>
                             <span className="text-slate-900 font-semibold">{col.name}</span>
-                            <span className="text-slate-400">: </span>
+                            <span className="text-slate-500">: </span>
                             <span className="text-violet-600">{col.dtype.toLowerCase()}</span>
                             {i < active.schema.length - 1 && <span className="text-slate-300">,</span>}
-                            {statsLabel && <span className="text-slate-400">{statsLabel}</span>}
+                            {statsLabel && <span className="text-slate-500">{statsLabel}</span>}
                           </span>
                         );
                       })}
-                      <span className="text-slate-400">{'}'}</span>
+                      <span className="text-slate-500">{'}'}</span>
                     </pre>
                     {active.schema[0]?.from_sample && (
                       <div className="text-[11px] text-slate-500 px-4 py-1.5 bg-slate-50 border-t border-slate-100">
@@ -618,7 +618,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
             {view === 'table' && (
               <div className="border border-slate-200 rounded-md overflow-auto" style={{ maxHeight: '40vh' }}>
                 {filteredRows.length === 0 ? (
-                  <div className="text-center py-10 text-sm text-slate-400">
+                  <div className="text-center py-10 text-sm text-slate-500">
                     {search ? 'No rows match the search.' : active.pruned ? 'Sample expired after 30 days.' : active.missing ? 'No sample was captured.' : active.rowCount === 0 ? 'This step produced zero rows.' : 'No sample rows available.'}
                   </div>
                 ) : (
@@ -634,7 +634,7 @@ export default function StepIODrawer({ open, executionId, stepId, stepLabel, ste
                     <tbody className="divide-y divide-slate-100">
                       {filteredRows.map((row, i) => (
                         <tr key={i} className="hover:bg-slate-50">
-                          <td className="px-2 py-1.5 text-right text-slate-400 font-mono text-xs">{i + 1}</td>
+                          <td className="px-2 py-1.5 text-right text-slate-500 font-mono text-xs">{i + 1}</td>
                           {columns.map((c) => {
                             const v = row[c];
                             const display = v == null

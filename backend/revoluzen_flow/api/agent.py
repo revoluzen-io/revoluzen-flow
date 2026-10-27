@@ -61,7 +61,7 @@ def _log_router_decision(
     except Exception:  # noqa: BLE001
         pass
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -79,9 +79,19 @@ from revoluzen_flow.ai.tools import (
     default_registry,
     register_initial_tools,
 )
+from revoluzen_flow.common.client_ip import client_ip as _client_ip
 from revoluzen_flow.auth.deps import current_user_optional, current_workspace_id
 
-router = APIRouter(prefix="/api/ai", tags=["ai"])
+# 2026-10-23 — router-level posture gate. POST /api/ai/agent and
+# /agent/stream run the agent loop and spend LLM tokens; both reached their
+# handlers with no credentials (422 only because the probe sent an empty
+# body). current_user_optional() inside the handler identifies a caller but
+# refuses nobody. See api/ai.py for the full note.
+router = APIRouter(
+    prefix="/api/ai",
+    tags=["ai"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -421,8 +431,8 @@ async def run_agent(req: AgentRequest, request: Request) -> AgentResponse:
     # configurable via REVOLUZEN_FLOW_AI_RATE_* env vars. Disable in test
     # environments with REVOLUZEN_FLOW_AI_RATE_ENABLE=0.
     from revoluzen_flow.ai.rate_limit import check_ai_rate_limit
-    _client_ip = request.client.host if request.client else None
-    check_ai_rate_limit(user_id=user_id, fallback_ip=_client_ip)
+    _caller_ip = (_client_ip(request) or None)
+    check_ai_rate_limit(user_id=user_id, fallback_ip=_caller_ip)
 
     # Provider check — graceful no-op response if no provider configured.
     info = get_provider_info(user_id=user_id, workspace_id=workspace_id)
@@ -1166,8 +1176,8 @@ async def run_agent_stream(req: AgentRequest, request: Request) -> StreamingResp
     # streaming session typically runs more iterations than a single
     # synchronous call, so it represents more LLM-token spend.
     from revoluzen_flow.ai.rate_limit import check_ai_rate_limit
-    _client_ip = request.client.host if request.client else None
-    check_ai_rate_limit(user_id=user_id, fallback_ip=_client_ip, cost=2)
+    _caller_ip = (_client_ip(request) or None)
+    check_ai_rate_limit(user_id=user_id, fallback_ip=_caller_ip, cost=2)
 
     info = get_provider_info(user_id=user_id, workspace_id=workspace_id)
 

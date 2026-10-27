@@ -468,6 +468,42 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
   const [showRuleForm, setShowRuleForm] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Where the findings panel actually fits, measured — not assumed.
+  //
+  // It was `absolute right-0` with `width: min(92vw, 640px)`: the right
+  // edge pinned to the TRIGGER, which sits in the middle of the global
+  // nav, not near the window edge. At 900px that is an 828px panel
+  // hanging off a point ~595px in, so its left edge landed near -233
+  // and the first ~230px of every finding — the headings, the table
+  // names, the tab labels — was off-screen with no way to scroll to it.
+  //
+  // Right-anchoring only ever works for a trigger near the right edge.
+  // This clamps to the viewport instead: right-aligned to the trigger
+  // where there is room, pushed back inside where there is not.
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  useEffect(() => {
+    if (!open) { setPanelPos(null); return; }
+    const measure = () => {
+      const r = rootRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const GUTTER = 12;
+      const width = Math.min(640, window.innerWidth - GUTTER * 2);
+      const left = Math.max(
+        GUTTER,
+        Math.min(r.right - width, window.innerWidth - width - GUTTER),
+      );
+
+      setPanelPos({ top: r.bottom + 8, left, width });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open]);
+
   const refreshFindings = useCallback(async () => {
     if (!signedIn) return;
     try {
@@ -803,7 +839,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
         <button
           onClick={() => updateSetting({ enabled: true })}
           disabled={loading}
-          className="w-9 h-9 rounded-lg flex items-center justify-center border border-slate-300 bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 hover:border-slate-400 transition-colors disabled:opacity-60 disabled:cursor-wait"
+          className="w-9 h-9 rounded-lg flex items-center justify-center border border-slate-300 bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-600 hover:border-slate-400 transition-colors disabled:opacity-60 disabled:cursor-wait"
           title="Steward is off — click to enable"
           aria-label="Steward is off — click to enable"
         >
@@ -846,6 +882,14 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
         }`}
         title="Steward — duplicate detection + reliability findings"
         aria-label="Steward findings"
+        // A disclosure, declared as one. Beyond the a11y contract this is
+        // what lets an automated sweep tell "this button opens a panel"
+        // from "this button does something" — the placement audit was
+        // skipping this trigger because its tooltip contains the word
+        // "duplicate" and a keyword blocklist read that as destructive.
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls="steward-findings-panel"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
           <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -888,9 +932,15 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
         // distracting) but fast enough that the user sees motion when
         // their eye lands on it.
         <div
-          className="absolute right-0 top-full mt-2 z-50 rounded-xl"
+          id="steward-findings-panel"
+          role="dialog"
+          aria-label="Steward findings"
+          className="fixed z-50 rounded-xl"
           style={{
-            width: 'min(92vw, 640px)',
+            top: panelPos?.top ?? 0,
+            left: panelPos?.left ?? 0,
+            width: panelPos?.width ?? Math.min(640, window.innerWidth - 24),
+            visibility: panelPos ? 'visible' : 'hidden',
             padding: '3px', // visible "outer line" thickness
             background:
               'linear-gradient(120deg, #8b5cf6 0%, #6366f1 25%, #d946ef 50%, #6366f1 75%, #8b5cf6 100%)',
@@ -983,7 +1033,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
               </span>
               {/* Auto-refresh hint so the user knows scans happen
                   even without clicking Re-scan. */}
-              <span className="text-slate-400">auto every 60s</span>
+              <span className="text-slate-500">auto every 60s</span>
             </div>
           )}
 
@@ -1045,7 +1095,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
           <div className="overflow-y-auto" style={{ maxHeight: 'min(960px, 88vh)' }}>
             {tab === 'coverage' && (
               coverage === null ? (
-                <div className="px-5 py-12 text-center text-sm text-slate-400">Loading coverage…</div>
+                <div className="px-5 py-12 text-center text-sm text-slate-500">Loading coverage…</div>
               ) : (
                 <div className="px-5 py-4 space-y-4">
                   {/* Summary — counts are from the live scan, not hardcoded */}
@@ -1060,7 +1110,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                       </div>
                       <div className="text-right">
                         <div className="text-lg font-bold text-slate-800 tabular-nums">{coverage.open_total}</div>
-                        <div className="text-[10px] uppercase tracking-wider text-slate-400">open</div>
+                        <div className="text-[10px] uppercase tracking-wider text-slate-500">open</div>
                       </div>
                     </div>
                     {coverage.open_total > 0 && (
@@ -1089,7 +1139,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     ];
                     return levels.map((lvl) => (
                       <div key={lvl}>
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{LEVEL_LABEL[lvl] || lvl}</div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">{LEVEL_LABEL[lvl] || lvl}</div>
                         <div className="space-y-1">
                           {byLevel[lvl].map((d) => {
                             const m = MODE_CHIP[d.mode] || MODE_CHIP.state;
@@ -1099,10 +1149,10 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="text-xs font-semibold text-slate-700">{d.label}</span>
-                                    <span className={`text-[9px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded ${m.cls}`} title={m.title}>{d.mode}</span>
-                                    {d.enabled && d.open > 0 && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-rose-100 text-rose-700" title="Open findings from this detector">{d.open} open</span>}
-                                    {!d.enabled && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-200 text-slate-500" title="This detector is off — its findings are hidden">off</span>}
-                                    {d.severity_override && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700" title="Severity overridden from the detector default">&rarr; {d.severity_override.toUpperCase()}</span>}
+                                    <span className={`text-[10px] font-semibold uppercase tracking-wider px-1 py-0.5 rounded ${m.cls}`} title={m.title}>{d.mode}</span>
+                                    {d.enabled && d.open > 0 && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-rose-100 text-rose-700" title="Open findings from this detector">{d.open} open</span>}
+                                    {!d.enabled && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-slate-200 text-slate-500" title="This detector is off — its findings are hidden">off</span>}
+                                    {d.severity_override && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700" title="Severity overridden from the detector default">&rarr; {d.severity_override.toUpperCase()}</span>}
                                   </div>
                                   <div className="text-[11px] text-slate-500 leading-snug">{d.description}</div>
                                   {/* Tunable thresholds (rung 1.5) — save on blur */}
@@ -1127,7 +1177,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                                             <button
                                               type="button"
                                               onClick={() => updateDetector(d.kind, { thresholds: { [t.key]: t.default } })}
-                                              className="text-[9px] text-violet-600 hover:underline"
+                                              className="text-[10px] text-violet-600 hover:underline"
                                               title={`Reset to default (${t.default})`}
                                             >
                                               reset
@@ -1156,7 +1206,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                                     type="button"
                                     onClick={() => updateDetector(d.kind, { enabled: !d.enabled })}
                                     title={d.enabled ? 'Disable this detector' : 'Enable this detector'}
-                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${d.enabled ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100' : 'border-slate-200 text-slate-400 bg-slate-50 hover:bg-slate-100'}`}
+                                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded border transition-colors ${d.enabled ? 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100' : 'border-slate-200 text-slate-500 bg-slate-50 hover:bg-slate-100'}`}
                                   >
                                     {d.enabled ? 'On' : 'Off'}
                                   </button>
@@ -1169,7 +1219,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     ));
                   })()}
 
-                  <div className="text-[10px] text-slate-400 leading-snug pt-1 border-t border-slate-100">
+                  <div className="text-[10px] text-slate-500 leading-snug pt-1 border-t border-slate-100">
                     Only detectors that actually run are listed; counts come from the latest scan.
                     Turn a detector <b>Off</b> or change its severity to make Coverage match your
                     workspace. The Steward advises — it never changes your pipelines.
@@ -1179,7 +1229,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
             )}
             {tab === 'rules' && (
               rules === null ? (
-                <div className="px-5 py-12 text-center text-sm text-slate-400">Loading rules…</div>
+                <div className="px-5 py-12 text-center text-sm text-slate-500">Loading rules…</div>
               ) : (
                 <div className="px-5 py-4 space-y-3">
                   <div className="flex items-center justify-between gap-2">
@@ -1226,15 +1276,15 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                   )}
 
                   {rules.rules.length === 0 ? (
-                    <div className="text-[12px] text-slate-400 py-4 text-center">No custom rules yet. Click “+ New rule” to add one.</div>
+                    <div className="text-[12px] text-slate-500 py-4 text-center">No custom rules yet. Click “+ New rule” to add one.</div>
                   ) : (
                     <div className="space-y-1">
                       {rules.rules.map((r) => (
                         <div key={r.id} className="flex items-center gap-2 px-2.5 py-2 rounded-md border border-slate-100">
-                          <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${SEVERITY_BADGE[r.severity]}`}>{r.severity.toUpperCase()}</span>
+                          <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${SEVERITY_BADGE[r.severity]}`}>{r.severity.toUpperCase()}</span>
                           <div className="min-w-0 flex-1">
                             <div className="text-xs font-semibold text-slate-700 truncate">{r.title}</div>
-                            <div className="text-[10px] text-slate-400 truncate">{r.id} · {r.level}{r.enabled ? '' : ' · disabled'}</div>
+                            <div className="text-[10px] text-slate-500 truncate">{r.id} · {r.level}{r.enabled ? '' : ' · disabled'}</div>
                           </div>
                           <button type="button" onClick={() => deleteRule(r.id)} title="Delete this rule" className="text-[10px] font-semibold px-1.5 py-0.5 rounded border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100 shrink-0">Delete</button>
                         </div>
@@ -1242,7 +1292,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     </div>
                   )}
 
-                  <div className="text-[10px] text-slate-400 leading-snug pt-1 border-t border-slate-100">
+                  <div className="text-[10px] text-slate-500 leading-snug pt-1 border-t border-slate-100">
                     Rules save as YAML you can version-control or hand-edit for advanced matches.
                   </div>
                 </div>
@@ -1250,9 +1300,9 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
             )}
             {tab === 'findings' && (
               count === 0 ? (
-                <div className="px-5 py-12 text-center text-sm text-slate-400">
+                <div className="px-5 py-12 text-center text-sm text-slate-500">
                   <div className="mb-2">No open findings</div>
-                  <div className="text-[13px] text-slate-400">
+                  <div className="text-[13px] text-slate-500">
                     When the Steward spots duplicate sources, duplicate pipelines,
                     or other reliability concerns, they appear here.
                   </div>
@@ -1383,7 +1433,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     {/* Provenance line — when first detected + how sure, so a
                         finding reads as evidence-backed, not just an alert. */}
                     {(f.first_seen || f.confidence || f.baseline_window) && (
-                      <div className="mt-1 text-[11px] text-slate-400 flex flex-wrap gap-x-2">
+                      <div className="mt-1 text-[11px] text-slate-500 flex flex-wrap gap-x-2">
                         {f.first_seen && (
                           <span title={`First seen ${f.first_seen}; last seen ${f.last_seen}`}>
                             Detected {(() => { try { return new Date(f.first_seen).toLocaleDateString(); } catch { return f.first_seen.slice(0, 10); } })()}
@@ -1485,9 +1535,9 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
 
             {tab === 'memory' && (
               memory === null ? (
-                <div className="px-5 py-12 text-center text-xs text-slate-400">Loading audit trail…</div>
+                <div className="px-5 py-12 text-center text-xs text-slate-500">Loading audit trail…</div>
               ) : memory.events.length === 0 ? (
-                <div className="px-5 py-12 text-center text-sm text-slate-400">
+                <div className="px-5 py-12 text-center text-sm text-slate-500">
                   <div className="mb-2">No events yet</div>
                   <div className="text-[13px]">
                     Every emit, dismiss, and resolve is logged here. The
@@ -1528,7 +1578,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     {memory.events.map((ev, i) => (
                       <div key={i} className="px-5 py-2.5 text-[13px]">
                         <div className="flex items-center gap-2">
-                          <span className={`font-bold uppercase tracking-wide text-[9px] px-1.5 py-0.5 rounded ${
+                          <span className={`font-bold uppercase tracking-wide text-[10px] px-1.5 py-0.5 rounded ${
                             ev.kind === 'emit' ? 'bg-violet-100 text-violet-700' :
                             ev.kind === 'dismiss' ? 'bg-slate-200 text-slate-700' :
                             'bg-emerald-100 text-emerald-700'
@@ -1536,7 +1586,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                             {ev.kind}
                           </span>
                           <code className="font-mono text-slate-500">{ev.signature?.slice(0, 12)}…</code>
-                          <span className="text-slate-400 ml-auto">{ev.ts.slice(11, 19)} UTC</span>
+                          <span className="text-slate-500 ml-auto">{ev.ts.slice(11, 19)} UTC</span>
                         </div>
                         {ev.reason && (
                           <div className="mt-1 text-slate-600 italic">"{ev.reason}"</div>
@@ -1550,7 +1600,7 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
 
             {tab === 'settings' && (
               settings === null ? (
-                <div className="px-5 py-12 text-center text-xs text-slate-400">Loading settings…</div>
+                <div className="px-5 py-12 text-center text-xs text-slate-500">Loading settings…</div>
               ) : (
                 <div className="px-5 py-3 space-y-3">
                   <Toggle

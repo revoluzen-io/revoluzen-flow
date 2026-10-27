@@ -255,7 +255,7 @@ class ConnectionStore:
             if not existing:
                 return False
         # Cascade-delete reports
-        self._db.execute(
+        self._db.execute_write(
             "DELETE FROM connection_reports WHERE connection_id = ?",
             (connection_id,),
         )

@@ -8,7 +8,6 @@ import { uiAlert } from '../../ui/dialog';
 import { api } from '../../api/client';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
-import AIProviderForm from '../ai/AIProviderForm';
 import ProviderComparison from '../agent/ProviderComparison';
 import AiPricingSection from '../settings/AiPricingSection';
 import PublishPolicyCard from '../settings/PublishPolicyCard';
@@ -29,6 +28,16 @@ function formatBytes(n: number): string {
 // 'ai' tab removed May 2 2026 — moved to Insights → AI Provider subtab
 // (Insights was briefly called "AI-Hub" but renamed May 17 2026 PR 4).
 // Settings is now strictly app-preference (general/security/notifications/about).
+// No 'users' tab: this edition is deliberately single-operator. User
+// management — invites, roles, groups, the auth queue — is an Enterprise
+// capability and lives in its AdminPage, not here.
+//
+// No 'ai' tab either. One was briefly added here on 2026-10-27 because
+// AI config looked missing from Settings, but the form already lives on
+// the AI hub as its FIRST tab — that hub is where the AI surfaces were
+// consolidated in May 2026. Two entry points to one form read as two
+// different settings screens. The real problem was that Settings gave
+// no hint the hub existed, so there is a pointer in General instead.
 type SettingsTab = 'general' | 'security' | 'notifications' | 'about';
 
 interface ToggleProps {
@@ -44,7 +53,7 @@ export function Toggle({ enabled, onChange, label, description, dark }: TogglePr
     <div className="flex items-center justify-between gap-4 py-3">
       <div className="min-w-0">
         <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>{label}</div>
-        {description && <div className="text-xs text-slate-400 mt-0.5">{description}</div>}
+        {description && <div className="text-xs text-slate-500 mt-0.5">{description}</div>}
       </div>
       <button
         type="button"
@@ -52,7 +61,9 @@ export function Toggle({ enabled, onChange, label, description, dark }: TogglePr
         aria-checked={enabled}
         aria-label={label}
         onClick={() => onChange(!enabled)}
-        className={`relative w-10 h-5 shrink-0 rounded-full transition-colors ${enabled ? 'bg-pipe-500' : 'bg-slate-300'}`}
+        // tap-24: the painted track stays 40x20 so the dense settings rows
+        // don't reflow; the hit area becomes 40x24 (SC 2.5.8).
+        className={`tap-24 relative w-10 h-5 shrink-0 rounded-full transition-colors ${enabled ? 'bg-pipe-500' : 'bg-slate-300'}`}
       >
         <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'left-5' : 'left-0.5'}`} />
       </button>
@@ -64,7 +75,7 @@ function SectionHeader({ title, icon, dark }: { title: string; icon: React.React
   return (
     <div className={`flex items-center gap-2 mb-4 pb-2 border-b ${dark ? 'border-white/[0.06]' : 'border-slate-200'}`}>
       <span className={dark ? 'text-slate-400' : 'text-slate-500'}>{icon}</span>
-      <h3 className={`text-sm font-bold uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{title}</h3>
+      <h2 className={`text-sm font-bold uppercase tracking-wider ${dark ? 'text-slate-300' : 'text-slate-700'}`}>{title}</h2>
     </div>
   );
 }
@@ -263,7 +274,7 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
             onClick={handleRunNow}
             disabled={runningBackup}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${runningBackup
-              ? (dark ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400')
+              ? (dark ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500')
               : (dark ? 'bg-emerald-600/20 border-emerald-500/40 text-emerald-200 hover:bg-emerald-600/30' : 'bg-emerald-50 border-emerald-200 text-emerald-800 hover:bg-emerald-100')
             }`}
           >
@@ -388,7 +399,7 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
             disabled={!dirty || saving}
             onClick={handleSave}
             className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${saving
-              ? (dark ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400')
+              ? (dark ? 'bg-slate-800 border-slate-700 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500')
               : (dark ? 'bg-violet-600/30 border-violet-500/50 text-violet-100 hover:bg-violet-600/40' : 'bg-violet-50 border-violet-200 text-violet-800 hover:bg-violet-100')
             } disabled:opacity-40 disabled:cursor-not-allowed`}
           >
@@ -402,7 +413,7 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-slate-600'}`}>Backup destinations</div>
           {false && !isPlus && (
-            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
           )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -410,7 +421,7 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
           <div className={`px-3 py-2 rounded-lg border ${dark ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-emerald-50 border-emerald-200'}`}>
             <div className="flex items-center justify-between gap-2">
               <span className={`text-sm font-semibold ${dark ? 'text-slate-100' : 'text-slate-900'}`}>Local filesystem</span>
-              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500 text-white">Active</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-700 text-white">Active</span>
             </div>
             <p className={`text-[11px] mt-1 leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
               Snapshots written to the configured directory above. Default ships with OSS.
@@ -428,9 +439,9 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
               <div className="flex items-center justify-between gap-2">
                 <span className={`text-sm font-semibold ${dark ? 'text-slate-100' : 'text-slate-900'}`}>{c.label}</span>
                 {isPlus ? (
-                  <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${dark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>Off</span>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${dark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>Off</span>
                 ) : (
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
                 )}
               </div>
               <p className={`text-[11px] mt-1 leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-600'}`}>{c.hint}</p>
@@ -447,7 +458,7 @@ function BackupSettingsPanel({ dark, isPlus }: { dark: boolean; isPlus: boolean 
         <div className={`rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06]' : 'bg-white border-slate-200'}`}>
           <div className={`px-3 py-2 border-b ${dark ? 'border-white/[0.06] text-slate-400' : 'border-slate-100 text-slate-600'} text-xs font-bold uppercase tracking-wider flex items-center justify-between`}>
             <span>Recent backups</span>
-            <span className={dark ? 'text-slate-500' : 'text-slate-400'}>{backups.length} total</span>
+            <span className={dark ? 'text-slate-500' : 'text-slate-500'}>{backups.length} total</span>
           </div>
           <ul className={`divide-y ${dark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
             {backups.slice(0, 8).map((b) => (
@@ -571,7 +582,10 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
     const onHash = () => {
       const raw = window.location.hash.replace('#', '');
       const seg = readSubRoute();
-      if (seg === 'notifications' || seg === 'security' || seg === 'about' || seg === 'general') {
+      if (
+        seg === 'notifications' || seg === 'security' || seg === 'about'
+        || seg === 'general'
+      ) {
         setTab(seg);
       }
     };
@@ -913,7 +927,6 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
       id: 'notifications', label: 'Notifications',
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
     },
-    // AI Provider tab removed May 2 2026 — lives in Insights → AI Provider.
     {
       id: 'about', label: 'About',
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>,
@@ -1075,7 +1088,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   <Toggle dark={dark} enabled={confirmDelete} onChange={setConfirmDelete} label="Confirm before delete" description="Show a confirmation dialog when deleting nodes from the canvas" />
                   <Toggle dark={dark} enabled={showMinimap} onChange={setShowMinimap} label="Show minimap" description="Display the React Flow minimap in the bottom-right of the canvas" />
                   <Toggle dark={dark} enabled={snapToGrid} onChange={setSnapToGrid} label="Snap to grid" description="Align nodes to a 20px grid when dragging" />
-                  <Toggle dark={dark} enabled={showSchemaDeltas} onChange={setShowSchemaDeltas} label="Show schema deltas on nodes" description="Render a small +N/~N/−N chip on each node showing how it changed its input's schema (off by default — adds visual density)" />
+                  <Toggle dark={dark} enabled={showSchemaDeltas} onChange={setShowSchemaDeltas} label="Show schema deltas on connections" description="Add +N/~N/−N to the row-count chip on each connection, showing how the step changed its input's schema (off by default — adds visual density)" />
                 </div>
 
                 {/* ── Default Run Safety Mode (May 3 2026) ────────────
@@ -1090,7 +1103,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   />
                   <div className={`rounded-lg border shadow-sm px-4 py-3 ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'}`}>
                     <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Default safety mode for new pipeline runs</label>
-                    <p className="text-xs text-slate-400 mt-0.5 mb-3">Pre-selects this mode in the Run toolbar. Override per-run.</p>
+                    <p className="text-xs text-slate-500 mt-0.5 mb-3">Pre-selects this mode in the Run toolbar. Override per-run.</p>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {([
                         { v: 'live' as const, label: 'Live', tip: 'Run on full upstream data and write to configured destinations.' },
@@ -1153,8 +1166,9 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /></svg>}
                   />
                   <div className={`rounded-lg border shadow-sm px-4 py-3 ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'}`}>
-                    <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Timezone</label>
+                    <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`} htmlFor="settings-timezone">Timezone</label>
                     <select
+                      id="settings-timezone"
                       value={timezone}
                       onChange={(e) => setTimezone(e.target.value)}
                       className={`mt-1 block w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pipe-300 ${dark ? 'bg-[#0f1726] border-white/[0.1] text-slate-200' : 'bg-white border-slate-200 text-slate-700'}`}
@@ -1184,7 +1198,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                         <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
                           Total: {formatBytes(dbFiles.reduce((a, f) => a + (f.size_bytes || 0), 0))}
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5">SQLite database files used by Revoluzen Flow</p>
+                        <p className="text-xs text-slate-500 mt-0.5">SQLite database files used by Revoluzen Flow</p>
                       </div>
                       <button
                         onClick={refreshStorage}
@@ -1198,7 +1212,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <div className="text-xs text-red-500 mb-2">{storageError}</div>
                     )}
                     {dbFiles.length === 0 && !storageError && !refreshingStorage && (
-                      <div className="text-xs text-slate-400">No files reported.</div>
+                      <div className="text-xs text-slate-500">No files reported.</div>
                     )}
                     {dbFiles.length > 0 && (
                       <div className={`text-xs font-mono divide-y ${dark ? 'divide-white/[0.06] text-slate-300' : 'divide-slate-100 text-slate-600'}`}>
@@ -1242,7 +1256,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <div>
                             <div className="flex items-center justify-between">
                               <label className={`text-xs font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Memory limit per worker</label>
-                              <code className={`text-[9px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT</code>
+                              <code className={`text-[10px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT</code>
                             </div>
                             <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                               {poolRuntime.duckdb_memory_limit || '—'}
@@ -1251,16 +1265,16 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <div>
                             <div className="flex items-center justify-between">
                               <label className={`text-xs font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>DuckDB threads</label>
-                              <code className={`text-[9px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_THREADS</code>
+                              <code className={`text-[10px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_THREADS</code>
                             </div>
                             <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
-                              {poolRuntime.duckdb_threads ?? '—'} <span className="text-slate-400 text-xs">/ {poolRuntime.cpu_cores ?? '?'} cores</span>
+                              {poolRuntime.duckdb_threads ?? '—'} <span className="text-slate-500 text-xs">/ {poolRuntime.cpu_cores ?? '?'} cores</span>
                             </div>
                           </div>
                           <div>
                             <div className="flex items-center justify-between">
                               <label className={`text-xs font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Concurrent runs</label>
-                              <code className={`text-[9px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS</code>
+                              <code className={`text-[10px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS</code>
                             </div>
                             <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                               {poolRuntime.max_workers ?? '—'}
@@ -1269,7 +1283,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <div>
                             <div className="flex items-center justify-between">
                               <label className={`text-xs font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>Total RAM</label>
-                              <span className="text-[9px] uppercase tracking-wider text-slate-400">detected</span>
+                              <span className="text-[10px] uppercase tracking-wider text-slate-500">detected</span>
                             </div>
                             <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                               {poolRuntime.ram?.total_gb ? `${poolRuntime.ram.total_gb} GB` : '—'}
@@ -1279,7 +1293,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                         <div>
                           <div className="flex items-center justify-between">
                             <label className={`text-xs font-medium ${dark ? 'text-slate-300' : 'text-slate-600'}`}>DuckDB spill directory</label>
-                            <code className={`text-[9px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_TEMP_DIR</code>
+                            <code className={`text-[10px] font-mono px-1 rounded ${dark ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-600'}`}>REVOLUZEN_FLOW_DUCKDB_TEMP_DIR</code>
                           </div>
                           <div className={`mt-1 px-3 py-2 text-xs font-mono rounded-lg border break-all flex items-center justify-between gap-3 ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                             <span className="min-w-0 truncate">{poolRuntime.duckdb_temp_dir || '—'}</span>
@@ -1301,7 +1315,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                         </div>
                       </>
                     ) : (
-                      <p className="text-xs text-slate-400 italic">Loading pool config…</p>
+                      <p className="text-xs text-slate-500 italic">Loading pool config…</p>
                     )}
                   </div>
                 </div>
@@ -1316,6 +1330,34 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>}
                   />
                   <AiPricingSection dark={dark} />
+                </div>
+
+                {/* A pointer, not a second copy of the form. AI config
+                    lives on the AI hub; Settings gave no hint the hub
+                    existed, so operators concluded Revoluzen Flow could
+                    not use a local model at all. Sits next to AI Pricing,
+                    which is the other AI-adjacent thing on this tab. */}
+                <div className={`mt-6 rounded-lg border shadow-sm p-4 ${
+                  dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'
+                }`}>
+                  <div className={`text-sm font-bold ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
+                    AI provider
+                  </div>
+                  <p className={`text-xs mt-1 ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                    Revoluzen Flow runs without an LLM — every AI feature falls back to
+                    rule-based behaviour. Connect a cloud model, or <strong>Ollama</strong> to
+                    keep every prompt on this machine.
+                  </p>
+                  {/* `#ai` is the hub's AI Provider tab — TAB_TO_PAGE in
+                      AIPage maps 'settings' → 'ai', and it is the hub's
+                      default landing tab. */}
+                  <button
+                    type="button"
+                    onClick={() => { window.location.hash = 'ai'; }}
+                    className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700 underline"
+                  >
+                    Configure it in the AI hub →
+                  </button>
                 </div>
               </>
             )}
@@ -1338,7 +1380,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <Toggle dark={dark} enabled={twoFactor} onChange={setTwoFactor} label="Two-factor authentication" description="Require 2FA for all user logins (TOTP-based)" />
                       <div className="py-3">
                         <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Session timeout (minutes)</label>
-                        <p className="text-xs text-slate-400 mt-0.5">Auto-logout after inactivity</p>
+                        <p className="text-xs text-slate-500 mt-0.5">Auto-logout after inactivity</p>
                         <input
                           type="number"
                           value={sessionTimeout}
@@ -1424,7 +1466,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <div className={`mt-1 px-3 py-2 text-sm font-mono rounded-lg border ${dark ? 'bg-[#0f1726] border-white/[0.06] text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'}`}>
                         {(typeof window !== 'undefined' && (window as any).__revoluzenFlowTrustedProxies) || '(unset — direct exposure mode; rate limiter uses peer IP)'}
                       </div>
-                      <p className="text-xs text-slate-400 mt-1">Set to <code>1</code> when running behind nginx/Caddy/Cloudflare so the rate limiter sees the real client IP.</p>
+                      <p className="text-xs text-slate-500 mt-1">Set to <code>1</code> when running behind nginx/Caddy/Cloudflare so the rate limiter sees the real client IP.</p>
                     </div>
 
                     {/* Z4 (2026-05-23): Storage location + backend posture.
@@ -1516,7 +1558,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                             <span className={dark ? 'text-slate-400' : 'text-slate-500'}>
                               <b className={dark ? 'text-slate-200' : 'text-slate-800'}>{formatBytes(storageLocation.disk.free_bytes)}</b> free of {formatBytes(storageLocation.disk.total_bytes)}
                             </span>
-                            <span className={dark ? 'text-slate-500' : 'text-slate-400'}>
+                            <span className={dark ? 'text-slate-500' : 'text-slate-500'}>
                               · {formatBytes(storageLocation.disk.used_bytes)} used
                             </span>
                             <div className={`flex-1 max-w-[200px] h-1.5 rounded-full overflow-hidden ${dark ? 'bg-slate-800' : 'bg-slate-200'}`}>
@@ -1617,7 +1659,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           </div>
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-slate-500 mt-2">
                           <b>Relocate to a different local path:</b> click <b>Change…</b> above to pick a new directory, or set <code>REVOLUZEN_FLOW_DATA_DIR=/your/path</code> + move the existing tree + restart. The reconciler back-fills the metadata index on first boot.
                         </p>
                       )}
@@ -1643,11 +1685,11 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                                     {b.label}
                                   </span>
                                   {isActive ? (
-                                    <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500 text-white">Active</span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-700 text-white">Active</span>
                                   ) : isPlusGated ? (
                                     null
                                   ) : (
-                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${dark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>Off</span>
+                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${dark ? 'bg-slate-700 text-slate-400' : 'bg-slate-200 text-slate-600'}`}>Off</span>
                                   )}
                                 </div>
                                 <p className={`text-[11px] mt-1 leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
@@ -1657,7 +1699,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                             );
                           })}
                         </div>
-                        <p className="text-xs text-slate-400 mt-2">
+                        <p className="text-xs text-slate-500 mt-2">
                           Metadata is written to the <b>Local</b> backend.
                         </p>
                       </div>
@@ -1730,11 +1772,11 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`text-sm ${tone}`}>{item.label}</span>
                               {false && showsPlusChip && (
-                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
+                                <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-violet-100 text-violet-700">Revoluzen Flow Enterprise</span>
                               )}
                             </div>
                             {item.hint && !item.ok && (
-                              <p className="text-xs text-slate-400 mt-0.5">{item.hint}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">{item.hint}</p>
                             )}
                           </div>
                         </div>
@@ -1787,7 +1829,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                         }`} />
                       </button>
                     </div>
-                    <div className={`mt-3 pt-3 border-t text-xs ${dark ? 'border-white/[0.06] text-slate-500' : 'border-slate-100 text-slate-400'}`}>
+                    <div className={`mt-3 pt-3 border-t text-xs ${dark ? 'border-white/[0.06] text-slate-500' : 'border-slate-100 text-slate-500'}`}>
                       Status: <strong className={telemetryEnabled
                         ? (dark ? 'text-emerald-400' : 'text-emerald-700')
                         : (dark ? 'text-slate-300' : 'text-slate-600')}>
@@ -1811,6 +1853,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
 
                 {/* ── Publishing: require a business purpose (admin) ─── */}
                 <PublishPolicyCard dark={dark} />
+
               </>
             )}
 
@@ -1838,7 +1881,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <div className="flex items-center justify-between">
                         <div>
                           <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Long-running pipeline alert</div>
-                          <div className="text-xs text-slate-400 mt-0.5">Alert when a pipeline execution exceeds the threshold</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Alert when a pipeline execution exceeds the threshold</div>
                         </div>
                         <button
                           onClick={() => setNotifyOnLongRunning(!notifyOnLongRunning)}
@@ -1882,7 +1925,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     <div ref={smtpRef} className="py-3 space-y-2 scroll-mt-4">
                       <div>
                         <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>SMTP</label>
-                        <p className="text-xs text-slate-400 mt-0.5">
+                        <p className="text-xs text-slate-500 mt-0.5">
                           Outgoing mail server for email alerts. For Gmail use <code className="font-mono">smtp.gmail.com</code> / <code className="font-mono">587</code> with a Google <em>App Password</em> (Account → Security → 2-Step Verification → App passwords). Leave host empty to disable.
                         </p>
                       </div>
@@ -1943,7 +1986,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     }} label="Browser notifications" description="Desktop push notifications via the browser Notification API" />
                     <div className="py-3">
                       <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Slack Webhook</label>
-                      <p className="text-xs text-slate-400 mt-0.5">Incoming webhook URL for Slack channel notifications</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Incoming webhook URL for Slack channel notifications</p>
                       <input
                         type="url"
                         value={slackWebhookUrl}
@@ -1954,7 +1997,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     </div>
                     <div className="py-3">
                       <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Microsoft Teams Webhook</label>
-                      <p className="text-xs text-slate-400 mt-0.5">Incoming webhook URL for a Teams channel (Connector → Incoming Webhook)</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Incoming webhook URL for a Teams channel (Connector → Incoming Webhook)</p>
                       <input
                         type="url"
                         value={teamsWebhookUrl}
@@ -1965,7 +2008,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     </div>
                     <div className="py-3">
                       <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Discord Webhook</label>
-                      <p className="text-xs text-slate-400 mt-0.5">Discord channel webhook URL for pipeline event notifications</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Discord channel webhook URL for pipeline event notifications</p>
                       <input
                         type="url"
                         value={discordWebhookUrl}
@@ -1976,7 +2019,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     </div>
                     <div className="py-3">
                       <label className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>Generic Webhook</label>
-                      <p className="text-xs text-slate-400 mt-0.5">Custom webhook URL for any service that accepts JSON POST notifications</p>
+                      <p className="text-xs text-slate-500 mt-0.5">Custom webhook URL for any service that accepts JSON POST notifications</p>
                       <input
                         type="url"
                         value={genericWebhookUrl}
@@ -2003,7 +2046,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
                             Quiet hours
                           </div>
-                          <div className="text-xs text-slate-400 mt-0.5">Suppress non-critical notifications during off hours</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Suppress non-critical notifications during off hours</div>
                         </div>
                         <button
                           onClick={() => setQuietHoursEnabled(!quietHoursEnabled)}
@@ -2026,7 +2069,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                               className={`rounded-lg border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-pipe-300 ${dark ? 'bg-[#0f1726] border-white/[0.1] text-slate-200' : 'border-slate-200 text-slate-700'}`}
                             />
                           </div>
-                          <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Errors still delivered immediately</span>
+                          <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Errors still delivered immediately</span>
                         </div>
                       )}
                     </div>
@@ -2036,7 +2079,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
                         Notification debounce
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">Collapse repeated notifications from the same pipeline within this window</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Collapse repeated notifications from the same pipeline within this window</div>
                       <div className="mt-2 flex items-center gap-2">
                         <input
                           type="number"
@@ -2057,7 +2100,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <div className={`text-sm font-medium ${dark ? 'text-slate-200' : 'text-slate-700'}`}>
                             Daily digest
                           </div>
-                          <div className="text-xs text-slate-400 mt-0.5">Receive a summary email with all pipeline events from the past 24 hours</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Receive a summary email with all pipeline events from the past 24 hours</div>
                         </div>
                         <button
                           onClick={() => setDailyDigest(!dailyDigest)}
@@ -2072,7 +2115,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           <input type="time" value={dailyDigestTime} onChange={(e) => setDailyDigestTime(e.target.value)}
                             className={`rounded-lg border px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-pipe-300 ${dark ? 'bg-[#0f1726] border-white/[0.1] text-slate-200' : 'border-slate-200 text-slate-700'}`}
                           />
-                          <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-400'}`}>Workspace timezone</span>
+                          <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Workspace timezone</span>
                         </div>
                       )}
                     </div>
@@ -2110,17 +2153,17 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                           {initial}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Signed in as</div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed in as</div>
                           <div className={`text-sm font-bold truncate ${dark ? 'text-slate-100' : 'text-slate-800'}`}>{u.name || u.email}</div>
                           <div className="text-xs text-slate-500 truncate">{u.email}</div>
                           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                             {u.role && (
-                              <span className="text-[9px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
+                              <span className="text-[10px] font-bold uppercase tracking-wide bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
                                 {u.role.replace(/_/g, ' ')}
                               </span>
                             )}
                             {(u.environments || []).map((e) => (
-                              <span key={e} className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
+                              <span key={e} className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
                                 e === 'prod'
                                   ? 'bg-red-50 text-red-700 border-red-200'
                                   : 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -2156,7 +2199,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       and led with a moat (AI) that competitors will close
                       within 12 months; lead with the durable one. */}
                   <p className="text-sm text-slate-500 mt-1">Single-binary, local-first data pipeline engine</p>
-                  <p className="text-xs text-slate-400 mt-0.5">Version {APP_VERSION}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Version {APP_VERSION}</p>
 
                   {/* 2026-06-02 — stat tiles replaced with HONEST,
                       verifiable numbers:
@@ -2169,23 +2212,23 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   <div className="mt-6 grid grid-cols-4 gap-3 text-center">
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
                       <div className="text-lg font-bold text-pipe-600">40</div>
-                      <div className="text-xs text-slate-400 uppercase font-medium">Node Types</div>
+                      <div className="text-xs text-slate-500 uppercase font-medium">Node Types</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
                       <div className="text-lg font-bold text-pipe-600">33</div>
-                      <div className="text-xs text-slate-400 uppercase font-medium">Connectors</div>
+                      <div className="text-xs text-slate-500 uppercase font-medium">Connectors</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
                       <div className="text-lg font-bold text-pipe-600">27</div>
-                      <div className="text-xs text-slate-400 uppercase font-medium">Templates</div>
+                      <div className="text-xs text-slate-500 uppercase font-medium">Templates</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
                       <div className="text-lg font-bold text-pipe-600">Apache</div>
-                      <div className="text-xs text-slate-400 uppercase font-medium">License 2.0</div>
+                      <div className="text-xs text-slate-500 uppercase font-medium">License 2.0</div>
                     </div>
                   </div>
 
-                  <div className="mt-6 text-xs text-slate-400">
+                  <div className="mt-6 text-xs text-slate-500">
                     <p>DuckDB-powered. Scheduler, alerts, run history built in.</p>
                     <p className="mt-1">Built with React, React Flow, DuckDB, and FastAPI.</p>
                     <p className="mt-3 text-slate-300">by Revoluzen</p>
@@ -2202,13 +2245,13 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>}
                   />
                   <p className="text-xs text-slate-500 leading-relaxed">
-                    Revoluzen Flow runs as a local server you reach at <code className="text-slate-400">http://localhost:8001</code>.
+                    Revoluzen Flow runs as a local server you reach at <code className="text-slate-500">http://localhost:8001</code>.
                     Install it as a background service so it starts on its own and keeps running — and keeps firing
                     schedules — even after you sign out or close the window:
                   </p>
                   <pre className={`mt-2 text-[11px] rounded-md p-2 overflow-x-auto whitespace-pre-wrap ${dark ? 'bg-black/30 text-slate-300' : 'bg-slate-50 text-slate-600'}`}>{`python -m revoluzen_flow install-service --at-boot   # always-on, starts at boot
 python -m revoluzen_flow uninstall-service           # remove (data preserved)`}</pre>
-                  <p className="text-[11px] text-slate-400 mt-2">
+                  <p className="text-[11px] text-slate-500 mt-2">
                     Full walkthrough + the double-click installer: <b>Help &rarr; How-To &rarr; Install &amp; Run Revoluzen Flow as an App</b>.
                     Check for a newer version from <b>Help &rarr; Help &amp; Feedback &rarr; Check for updates</b>.
                   </p>

@@ -397,10 +397,21 @@ def _run_scan(workspace_id: str, *, record: bool = True) -> tuple[list[StewardFi
     workflows = _workflows_for_scan(workspace_id)
     suppressions = _load_suppressions(workspace_id)
     suppressed = set(suppressions.get("suppressed_signatures") or [])
+
+    # Per-detector numeric overrides, keyed by finding kind. Detectors that
+    # expose a THRESHOLD_SPEC read their knobs out of this; the rest ignore
+    # it. Built once here and passed down rather than re-derived per call.
+    _det_cfg = getattr(settings, "detectors", None) or {}
+    detector_thresholds = {
+        kind: (getattr(ov, "thresholds", None) or {})
+        for kind, ov in _det_cfg.items()
+    }
+
     findings = detect_duplicate_sources(
         workflows,
         workspace_id=workspace_id,
         suppressed_signatures=suppressed,
+        thresholds=detector_thresholds,
     )
 
     # 2026-06-07 — user-defined YAML rules run on the same workflow
@@ -498,10 +509,13 @@ def _run_scan(workspace_id: str, *, record: bool = True) -> tuple[list[StewardFi
         from revoluzen_flow.main import app_state
         _ds = app_state.get("datastore")
         _tables = _ds.list_tables(workspace_id) if _ds is not None else []
+        # The age gate is tunable from the Coverage page rather than
+        # hard-coded at 7 days.
         orphan_findings = detect_orphaned_tables(
             workflows, _tables,
             workspace_id=workspace_id,
             suppressed_signatures=suppressed,
+            thresholds=detector_thresholds,
         )
         findings.extend(orphan_findings)
     except Exception:
@@ -731,7 +745,15 @@ async def coverage(
 
     detectors = coverage_detectors()
     det_cfg = getattr(settings, "detectors", None) or {}
-    from revoluzen_flow.steward.node_cardinality import THRESHOLD_SPEC
+    # Threshold specs are per-module; merge every detector that exposes one
+    # so the Coverage page renders all of them, not just cardinality's.
+    from revoluzen_flow.steward.archeologist import THRESHOLD_SPEC as _ARCH_SPEC
+    from revoluzen_flow.steward.node_cardinality import THRESHOLD_SPEC as _CARD_SPEC
+    from revoluzen_flow.steward.storage_intel import THRESHOLD_SPEC as _STORAGE_SPEC
+    from revoluzen_flow.steward.thresholds import merge_threshold_specs
+    # Raises if two detectors claim the same kind — a plain dict merge would
+    # silently drop one detector's knobs from the page.
+    THRESHOLD_SPEC = merge_threshold_specs(_CARD_SPEC, _STORAGE_SPEC, _ARCH_SPEC)
     for d in detectors:
         d["open"] = by_kind.get(d["kind"], 0)  # live open count per detector
         # Per-detector config (rung 1): is it enabled, and any severity override.

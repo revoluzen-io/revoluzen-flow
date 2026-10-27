@@ -50,6 +50,33 @@ from .models import (
     StewardFinding,
     level_for_kind,
 )
+from .thresholds import threshold_resolver
+
+#: How many DISTINCT pipelines must read the same source before it counts
+#: as duplication worth reporting. Default 2 — the long-standing
+#: behaviour, unchanged.
+#:
+#: It is tunable because 2 is normal in plenty of architectures: a raw
+#: table read by both a daily job and a monthly rollup is deliberate fan-out,
+#: not waste. Before this knob existed the only way to quiet that was to
+#: dismiss each signature one at a time, which scales badly in a workspace
+#: that fans out on purpose. Raising it to 3 or 4 lets a team keep the
+#: detector for genuine sprawl while ignoring their normal shape.
+_DUP_SOURCE_MIN_PIPELINES = 2
+
+# Rendered on the Coverage page; same mechanism as the cardinality and
+# storage detectors (StewardSettings.detectors[<kind>].thresholds).
+THRESHOLD_SPEC: dict[str, list[dict]] = {
+    FindingKind.DUPLICATE_SOURCE.value: [
+        {"key": "min_pipelines",
+         "label": "Pipelines sharing a source before flagging",
+         "default": _DUP_SOURCE_MIN_PIPELINES,
+         "min": 2, "max": 50, "step": 1},
+    ],
+}
+
+
+_eff = threshold_resolver(THRESHOLD_SPEC)
 
 
 def _utc_now_iso() -> str:
@@ -249,6 +276,7 @@ def detect_duplicate_sources(
     *,
     workspace_id: str = "default",
     suppressed_signatures: set[str] | None = None,
+    thresholds: dict | None = None,
 ) -> list[StewardFinding]:
     """Scan a list of workflows and produce StewardFindings for each
     distinct duplicate-source / duplicate-pipeline pattern detected.
@@ -275,6 +303,9 @@ def detect_duplicate_sources(
     here — keeps the function pure-functional, easy to test).
     """
     suppressed = suppressed_signatures or set()
+    min_pipelines = max(
+        2, int(_eff(thresholds, FindingKind.DUPLICATE_SOURCE.value, "min_pipelines"))
+    )
     by_signature: dict[str, list[dict[str, Any]]] = defaultdict(list)
     workflow_shape: dict[str, dict[str, Any]] = {}
 
@@ -295,14 +326,14 @@ def detect_duplicate_sources(
     now = _utc_now_iso()
 
     # ── Duplicate-source pass ───────────────────────────────────────
-    # A source signature appearing in two or more DIFFERENT workflows
-    # is a duplicate-source. Same source twice in one workflow is a
-    # different question (handled by the validator, not the Steward).
+    # A source signature appearing in `min_pipelines` or more DIFFERENT
+    # workflows is a duplicate-source. Same source twice in one workflow is
+    # a different question (handled by the validator, not the Steward).
     for sig, occurrences in by_signature.items():
         if sig in suppressed:
             continue
         unique_workflows = {occ["workflow_id"]: occ for occ in occurrences}
-        if len(unique_workflows) < 2:
+        if len(unique_workflows) < min_pipelines:
             continue
         wf_list = sorted(unique_workflows.values(), key=lambda o: o["workflow_name"])
         names_csv = ", ".join(o["workflow_name"] for o in wf_list[:3])
@@ -336,12 +367,15 @@ def detect_duplicate_sources(
                 f"table that the downstream pipelines read from instead.\n\n"
                 f"If this is intentional (e.g. DR replication, data-vault layering), "
                 f"dismiss the finding — the Steward will remember and stop flagging "
-                f"this signature."
+                f"this signature. If fan-out is normal across this whole workspace, "
+                f"raise **Pipelines sharing a source before flagging** (currently "
+                f"{min_pipelines}) on the Coverage page instead of dismissing one by one."
             ),
             evidence={
                 "source_signature": sig,
                 "source_node_type": sample["step_type"],
                 "source_node_label": sample["node_label"],
+                "min_pipelines": min_pipelines,
                 "workflows": [
                     {"id": w["workflow_id"], "name": w["workflow_name"]}
                     for w in wf_list

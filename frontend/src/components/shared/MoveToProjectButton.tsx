@@ -213,7 +213,7 @@ export default function MoveToProjectButton({
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); toggleProject(p.id); }}
-                          className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-slate-700"
+                          className="w-6 h-6 flex items-center justify-center text-slate-500 hover:text-slate-700"
                           aria-label={isOpen ? 'Collapse folders' : 'Expand folders'}
                           title={isOpen ? 'Collapse folders' : 'Show folders'}
                         >
@@ -240,7 +240,7 @@ export default function MoveToProjectButton({
                     {withFolders && isOpen && (
                       <div className="pl-7 pr-1 pb-1">
                         {folders === undefined ? (
-                          <div className="px-3 py-1.5 text-xs text-slate-400 italic">Loading folders…</div>
+                          <div className="px-3 py-1.5 text-xs text-slate-500 italic">Loading folders…</div>
                         ) : (
                           <>
                             {/* "Project root" entry — moves the pipeline
@@ -252,12 +252,12 @@ export default function MoveToProjectButton({
                               disabled={busy !== null || (isCurrentProject && !currentFolderId)}
                               className={`w-full text-left px-3 py-1 text-xs flex items-center gap-2 hover:bg-slate-50 rounded ${isCurrentProject && !currentFolderId ? 'text-indigo-700 font-medium' : 'text-slate-600'}`}
                             >
-                              <span className="text-slate-400">↳</span>
+                              <span className="text-slate-500">↳</span>
                               <span className="flex-1 italic">Project root (no folder)</span>
                               {isCurrentProject && !currentFolderId && <span className="text-xs">current</span>}
                             </button>
                             {folders.length === 0 ? (
-                              <div className="px-3 py-1 text-xs text-slate-400 italic">No folders in this project</div>
+                              <div className="px-3 py-1 text-xs text-slate-500 italic">No folders in this project</div>
                             ) : (
                               renderFolderTree(buildPickerFolderTree(folders), 0, {
                                 projectId: p.id,
@@ -306,7 +306,7 @@ function renderFolderTree(nodes: FolderTreeEntry[], depth: number, ctx: FolderRe
           className={`w-full text-left pr-3 py-1 text-xs flex items-center gap-2 hover:bg-slate-50 rounded ${isCurrentFolder ? 'text-indigo-700 font-medium cursor-default' : 'text-slate-600'} ${ctx.busy === folder.id ? 'opacity-60' : ''}`}
           style={{ paddingLeft: pad }}
         >
-          <span className="text-slate-400">↳</span>
+          <span className="text-slate-500">↳</span>
           <span className="flex-1 truncate">{folder.name}</span>
           {isCurrentFolder && <span className="text-xs">current</span>}
         </button>

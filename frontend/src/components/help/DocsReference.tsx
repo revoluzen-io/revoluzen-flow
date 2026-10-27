@@ -355,7 +355,7 @@ export default function DocsReference() {
             </p>
           </div>
           {loadingCatalog ? (
-            <div className="px-4 py-6 text-center text-sm text-slate-400">
+            <div className="px-4 py-6 text-center text-sm text-slate-500">
               Loading catalog…
             </div>
           ) : (
@@ -363,7 +363,7 @@ export default function DocsReference() {
               <div className="border-b border-slate-100 px-3 py-2.5">
                 <div className="relative">
                   <svg
-                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500"
                     width="16"
                     height="16"
                     viewBox="0 0 24 24"
@@ -381,12 +381,12 @@ export default function DocsReference() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search documentation…"
-                    className="w-full rounded-md border border-slate-200 bg-white py-2 pl-8 pr-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-200"
+                    className="w-full rounded-md border border-slate-200 bg-white py-2 pl-8 pr-2 text-sm text-slate-700 placeholder:text-slate-500 focus:border-violet-400 focus:outline-none focus:ring-1 focus:ring-violet-200"
                   />
                 </div>
               </div>
               {filteredGroups.length === 0 ? (
-                <div className="px-4 py-6 text-center text-sm text-slate-400">
+                <div className="px-4 py-6 text-center text-sm text-slate-500">
                   {isSearching ? `No documents match "${search}".` : 'No documents available.'}
                 </div>
               ) : (
@@ -403,7 +403,7 @@ export default function DocsReference() {
                         >
                           <span className="flex items-center gap-2">
                             <svg
-                              className={`text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`}
+                              className={`text-slate-500 transition-transform ${open ? 'rotate-90' : ''}`}
                               width="12"
                               height="12"
                               viewBox="0 0 24 24"
@@ -473,7 +473,7 @@ export default function DocsReference() {
             </div>
           )}
           {loadingContent ? (
-            <div className="py-10 text-center text-sm text-slate-400">
+            <div className="py-10 text-center text-sm text-slate-500">
               Loading document…
             </div>
           ) : (

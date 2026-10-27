@@ -134,12 +134,12 @@ export default function OpenRouterModelPicker({ value, onChange, disabled }: Pro
               {value || '(no model selected)'}
             </code>
             {selectedMeta?.is_free && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">
                 Free
               </span>
             )}
             {selectedMeta?.supports_tools && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded shrink-0">
                 Tools
               </span>
             )}
@@ -268,12 +268,12 @@ export default function OpenRouterModelPicker({ value, onChange, disabled }: Pro
                   <code className="text-[12px] font-mono text-slate-800 truncate">{m.id}</code>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {m.is_free && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
                         Free
                       </span>
                     )}
                     {m.supports_tools && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded">
                         Tools
                       </span>
                     )}
@@ -291,7 +291,7 @@ export default function OpenRouterModelPicker({ value, onChange, disabled }: Pro
       ) : null}
 
       {refreshedAt && !showFallback && browseOpen && (
-        <div className="text-xs text-slate-400">
+        <div className="text-xs text-slate-500">
           Catalog refreshed {new Date(refreshedAt).toLocaleString()} · cached 1 h
         </div>
       )}

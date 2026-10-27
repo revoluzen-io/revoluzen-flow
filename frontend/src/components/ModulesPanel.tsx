@@ -1482,7 +1482,7 @@ export default function ModulesPanel() {
       <div data-revoluzen-flow-panel="nodes" className="w-10 bg-slate-50 border-r border-pipe-200 flex flex-col items-center py-2 gap-1 shrink-0">
         <button
           onClick={() => setCollapsed(false)}
-          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all"
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-50 transition-all"
           title="Expand activities panel"
         >
           {/* Chevron points RIGHT — panel sits on the left edge, so

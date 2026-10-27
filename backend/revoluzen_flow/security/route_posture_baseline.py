@@ -1,112 +1,38 @@
 """AUTO-GENERATED route-posture baseline (Phase 3 ratchet).
 
-Mutating routes with no *detected* auth/workspace dependency as of the
-freeze. The test in tests/test_route_posture.py fails if a NEW ungated
-mutating route appears that is not in this set ? forcing every new route
-to use a recognized auth gate (or a conscious addition here with a
-reason). Shrinking this set as legacy routes get classified is welcome.
+Mutating routes with no *detected* auth/workspace dependency. The test in
+tests/test_route_posture.py fails if a NEW ungated mutating route appears
+that is not in this set, forcing every new route to use a recognized auth
+gate (or a conscious addition here with a reason).
+
+Regenerated 2026-10-23 after an unauthenticated probe in
+REVOLUZEN_FLOW_SECURITY_MODE=server found nine of these were not merely
+undetected but genuinely reachable -- two of them (arbitrary file write via
+POST /api/upload, arbitrary file read via the intelligence endpoints) were
+exploitable. The routes fixed in that pass have been removed from the set.
+
+Being in this list does NOT mean a route is unprotected. Most entries are
+gated in the handler body, which the ratchet deliberately does not detect
+-- a dependency is auditable, an in-body call is not, so new routes should
+prefer the dependency. What the list means is "nobody has proved this one
+either way since the freeze".
 """
 
 KNOWN_UNGATED = frozenset({
-    'DELETE /api/ai/config/workspace',
-    'DELETE /api/ai/ollama/models/{model:path}',
-    'DELETE /api/auth/users/{user_id}',
-    'DELETE /api/backup/{backup_key}',
-    'DELETE /api/collaboration/comments/{comment_id}',
-    'DELETE /api/connectors/author/saved/{connector_id}',
-    'DELETE /api/gateway/endpoints/{endpoint_id}',
-    'DELETE /api/gateway/keys/{key_id}',
-    'DELETE /api/lineage/{workflow_id}',
-    'DELETE /api/marketplace/{template_id}',
     'DELETE /api/notifications/',
     'DELETE /api/notifications/{notification_id}',
-    'DELETE /api/projects/{project_id}',
-    'DELETE /api/workspaces/{workspace_id}',
-    'POST /api/admin/execution/reap',
-    'POST /api/admin/execution/{handle_id}/cancel',
-    'POST /api/ai/agent',
-    'POST /api/ai/agent/action',
-    'POST /api/ai/agent/refresh-provider',
-    'POST /api/ai/agent/stream',
-    'POST /api/ai/assist-node',
-    'POST /api/ai/auto-fill',
-    'POST /api/ai/connection-test-diagnose',
-    'POST /api/ai/diagnose-error',
-    'POST /api/ai/generate-sql',
-    'POST /api/ai/ollama/pull',
-    'POST /api/ai/optimize',
-    'POST /api/ai/page-assist',
-    'POST /api/ai/post-run-summary/{execution_id}',
-    'POST /api/ai/pre-publish/{workflow_id}',
-    'POST /api/ai/product-knowledge/reindex',
-    'POST /api/ai/profile-data',
-    'POST /api/ai/recommend',
-    'POST /api/ai/suggest-next',
-    'POST /api/ai/transform/cost-estimate',
-    'POST /api/ai/transform/explain',
-    'POST /api/ai/transform/explain-selection',
-    'POST /api/ai/transform/fix-error',
-    'POST /api/ai/transform/suggest-sql',
-    'POST /api/auth/auth-queue/dismiss',
     'POST /api/auth/check-password',
     'POST /api/auth/forgot-password',
-    'POST /api/auth/invite',
     'POST /api/auth/login',
     'POST /api/auth/logout',
     'POST /api/auth/register',
     'POST /api/auth/request-access',
     'POST /api/auth/reset-password',
-    'POST /api/auth/users/{user_id}/reset-password',
-    'POST /api/backup/create',
-    'POST /api/backup/import',
-    'POST /api/backup/restore',
-    'POST /api/backup/test-provider',
-    'POST /api/backup/{backup_key}/preview',
-    'POST /api/collaboration/comments/{comment_id}/resolve',
-    'POST /api/collaboration/comments/{comment_id}/unresolve',
-    'POST /api/collaboration/{workflow_id}/comments',
-    'POST /api/connectors/author/from-openapi',
-    'POST /api/connectors/author/from-openapi-runtime',
-    'POST /api/connectors/author/from-samples',
-    'POST /api/connectors/author/save',
-    'POST /api/extraction/freshness/check',
-    'POST /api/intelligence/analyze-error',
-    'POST /api/intelligence/detect-schema',
-    'POST /api/intelligence/detect-schema/upload',
-    'POST /api/intelligence/flatten',
-    'POST /api/intelligence/flatten/upload',
-    'POST /api/intelligence/suggest-pipeline',
-    'POST /api/marketplace/{template_id}/download',
-    'POST /api/marketplace/{template_id}/rate',
     'POST /api/notifications/read-all',
     'POST /api/notifications/{notification_id}/read',
-    'POST /api/plugins/reload',
-    'POST /api/plugins/{plugin_id}/disable',
-    'POST /api/plugins/{plugin_id}/enable',
-    'POST /api/pool/cancel/{job_id}',
     'POST /api/published/{path:path}',
-    'POST /api/storage/_repair_schema',
     'POST /api/system/shutdown',
-    'POST /api/upload',
     'POST /api/v1/mcp',
     'POST /api/v1/mcp/',
-    'POST /api/workspaces/',
-    'POST /api/ws/cancel/{workflow_id}',
-    'PUT /api/ai/config/workspace',
-    'PUT /api/auth/users/{user_id}',
-    'PUT /api/backup/settings',
-    'PUT /api/collaboration/comments/{comment_id}',
-    'PUT /api/gateway/endpoints/{endpoint_id}',
-    'PUT /api/notifications/config',
-    'PUT /api/notifications/telemetry/consent',
-    'PUT /api/projects/{project_id}',
     'PUT /api/published/{path:path}',
-    # 2026-08-02: the self-documenting-pipelines publish policy. This route
-    # IS gated — `dependencies=[Depends(require_min_rank("admin"))]`, admin
-    # only — but the detector recognizes gates by the dependency callable's
-    # __name__, and require_min_rank returns an inner `_dep` that doesn't
-    # match _AUTH_RE, so require_min_rank-gated routes register as "ungated"
-    # until reviewed and listed here — the conscious-addition step this
-    # baseline is for.
-    'PUT /api/admin/publish-policy',
 })

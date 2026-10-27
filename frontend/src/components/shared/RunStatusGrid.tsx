@@ -133,7 +133,7 @@ export default function RunStatusGrid({
           without forcing the user to count cells. */}
       <div className="flex items-center justify-between text-xs text-slate-500 mb-2 pr-1">
         <span className="font-medium">{summary}</span>
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           oldest <span className="text-slate-300">→</span> newest
         </span>
       </div>

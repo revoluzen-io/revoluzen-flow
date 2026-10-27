@@ -1,4 +1,4 @@
-/**
+﻿/**
  * useEditorPreferences — single source of truth for the General-tab
  * settings that the editor canvas consumes.
  *
@@ -88,6 +88,7 @@ const DEFAULTS: EditorPreferences = {
 function isCanvasLabelDensity(v: unknown): v is CanvasLabelDensity {
   return v === 'clean' || v === 'metrics' || v === 'verbose';
 }
+
 
 const STORAGE_KEY = 'revoluzen-flow-settings';
 export const SETTINGS_CHANGED_EVENT = 'revoluzen-flow-settings-changed';

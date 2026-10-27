@@ -134,6 +134,15 @@ async def mcp_dispatch(request: Request) -> dict[str, Any]:
         return {}
 
     if method == "tools/list":
+        # 2026-10-23 — authenticated in server mode. `initialize`, `ping` and
+        # /.well-known discovery stay open so an MCP client's config wizard can
+        # still probe the URL; the tool catalogue does not, because its names
+        # and descriptions map out what this instance can reach. `tools/call`
+        # was already gated, so this closes enumeration, not execution.
+        #
+        # Local single-user installs are unaffected: current_workspace_id
+        # returns "default" for an anonymous caller there.
+        current_workspace_id(request)
         return _ok(rpc_id, {
             "tools": _list_tools_for_mcp(),
         })

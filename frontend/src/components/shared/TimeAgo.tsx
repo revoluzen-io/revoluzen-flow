@@ -95,7 +95,7 @@ export function TimeAgo({
 
   const date = toDate(value);
   if (!date) {
-    return <span className={`text-slate-400 ${className ?? ''}`}>{emptyText}</span>;
+    return <span className={`text-slate-500 ${className ?? ''}`}>{emptyText}</span>;
   }
   return (
     <span

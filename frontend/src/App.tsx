@@ -1,10 +1,9 @@
-// rebuild-marker-v2
+﻿// rebuild-marker-v2
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import { DialogRoot, uiConfirm } from './ui/dialog';
 import BindWarningBanner from './components/BindWarningBanner';
 import Toolbar from './components/Toolbar';
-import EditorContextBar from './components/EditorContextBar';
 import CanvasCopyrightMark from './components/CanvasCopyrightMark';
 import PanelErrorBoundary from './components/PanelErrorBoundary';
 // ─── Eager imports — only the dashboard route + chrome ────────────────
@@ -66,6 +65,7 @@ import Toast, { toast } from './components/Toast';
 const FloatingAgentWidget = lazy(() => import('./components/agent/FloatingAgentWidget'));
 import CopyrightFooter from './components/CopyrightFooter';
 import { useWorkflowStore } from './stores/workflowStore';
+import EditorContextBar from './components/EditorContextBar';
 import { api } from './api/client';
 // 2026-05-23 (P0 Day 2): canAccessAdmin / canAccessAdminInEnv /
 // hasPermission dropped from the import — they were only used by the
@@ -949,6 +949,17 @@ export default function App() {
         Lets the old navy-gradient theads + bg-white page headers resolve to different colours
         per environment without touching every page's JSX. */}
     <div data-env={environment} className="h-screen w-screen flex flex-col overflow-hidden bg-canvas-bg">
+      {/* Skip link (2026-10-23). First focusable element in the shell, so the
+          very first Tab press on any page offers "skip to content". Off-screen
+          until focused — `sr-only` plus `focus:` overrides, not
+          `display:none`, which would take it out of the tab order entirely.
+          Targets the <main id="main-content"> landmark below. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-3 focus:left-3 focus:px-4 focus:py-2 focus:rounded-lg focus:bg-slate-900 focus:text-white focus:text-sm focus:font-semibold focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500"
+      >
+        Skip to main content
+      </a>
       {/* 2026-06-02 LAN-binding warning — visible only when the backend
           actually resolved to a non-loopback bind (REVOLUZEN_FLOW_ALLOW_LAN=1).
           Renders null in the common (loopback-default) case. */}
@@ -1056,8 +1067,14 @@ export default function App() {
           Global surfaces (Dashboard, Admin, Help, Runbook, Settings,
           Account) no longer show it — they aren't project-scoped. */}
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main content.
+          2026-10-23: this is now a real <main> landmark. The app previously
+          had none — an audit across eight pages found zero main, nav,
+          header or footer elements, so a screen-reader user had no way to
+          skip the navigation and the skip link above had nothing to target.
+          `tabIndex={-1}` lets the skip link move focus here without putting
+          the region in the tab order. */}
+      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col overflow-hidden outline-none">
         {/* V10 — OSS Production placeholder. When a Free-tier user
             switches env to PROD, replace the page content with a
             single clean CTA instead of greying out every page. Plus
@@ -1068,7 +1085,7 @@ export default function App() {
           <OSSProductionPlaceholder onSwitchToDev={() => setEnvironment('dev')} />
         ) : (
           <Suspense fallback={
-            <div className="flex-1 flex items-center justify-center text-slate-400">
+            <div className="flex-1 flex items-center justify-center text-slate-500">
               <div className="text-sm flex items-center gap-2">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="animate-spin">
                   <circle cx="12" cy="12" r="10" strokeDasharray="60" strokeDashoffset="20" />
@@ -1213,7 +1230,7 @@ export default function App() {
           </>
           </Suspense>
         )}
-      </div>
+      </main>
       {/* Floating AI Agent widget — the canonical Copilot on every page
           EXCEPT the Editor, which has its own docked ChatPanel (restored
           2026-06-17). Suppressing it on the editor route keeps exactly one

@@ -36,6 +36,7 @@ from revoluzen_flow.ai.tools.list_executions import DEFINITION as LIST_EXECUTION
 from revoluzen_flow.ai.tools.list_pipelines import DEFINITION as LIST_PIPELINES
 from revoluzen_flow.ai.tools.list_projects import DEFINITION as LIST_PROJECTS
 from revoluzen_flow.ai.tools.list_schedules import DEFINITION as LIST_SCHEDULES
+from revoluzen_flow.ai.tools.get_security_posture import DEFINITION as GET_SECURITY_POSTURE
 from revoluzen_flow.ai.tools.list_steward_findings import DEFINITION as LIST_STEWARD_FINDINGS
 from revoluzen_flow.ai.tools.list_storage import DEFINITION as LIST_STORAGE
 from revoluzen_flow.ai.tools.list_templates import DEFINITION as LIST_TEMPLATES
@@ -93,6 +94,11 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
     GET_RUNNING_EXECUTIONS,
     GET_NEXT_SCHEDULED,
     GET_INSTALLATION_HEALTH,
+    # Security & Diagnostics baseline — the same rows the Settings page
+    # shows. Added 2026-10-26 because the Copilot had no way to see them:
+    # asked "why is master key permissions failing", it answered from the
+    # model's general knowledge of ACLs rather than from this install.
+    GET_SECURITY_POSTURE,
     # Steward advisories — duplicate sources, governance, connector health,
     # user-rule matches (read-only; the only live-fed Steward detectors).
     LIST_STEWARD_FINDINGS,
@@ -115,8 +121,9 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
 
 # Opt-in web tools — READ-tier, registered ONLY when the operator sets
 # REVOLUZEN_FLOW_AI_WEB_ACCESS=1 (see revoluzen_flow.ai.web). Kept OUT of INITIAL_TOOLS so the
-# canonical count stays 29 and the air-gap default holds: with the flag off the
-# LLM never sees these tools at all.
+# air-gap default holds: with the flag off the LLM never sees these tools at all.
+# (The offline count is whatever INITIAL_TOOLS holds — 30 as of 2026-10-26;
+# the old hard-coded "29" here went stale the first time a tool was added.)
 OPTIONAL_WEB_TOOLS: tuple[ToolDefinition, ...] = (
     WEB_SEARCH,
     WEB_FETCH,
@@ -191,6 +198,7 @@ __all__ = [
     "GET_RUNNING_EXECUTIONS",
     "GET_NEXT_SCHEDULED",
     "GET_INSTALLATION_HEALTH",
+    "GET_SECURITY_POSTURE",
     "LIST_STEWARD_FINDINGS",
     # Safe-write
     "DRAFT_PIPELINE_FROM_INTENT",

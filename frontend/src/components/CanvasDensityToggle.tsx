@@ -8,11 +8,19 @@
  * CanvasLabelDensity enum (clean / metrics / verbose).
  *
  * Scope expanded 2026-06-02: previously controlled per-edge pill
- * density only. Now also drives node-text density in RevoluzenFlowNode.tsx:
- *   - clean   nodes show icon + title only (subtitle hidden)
- *   - metrics nodes show title + subtitle (type label)
- *   - verbose nodes additionally show a param-preview line
- * Edge behaviour from the original implementation is unchanged.
+ * density only; it also drove node-text density.
+ *
+ * 2026-10-24 — restated for the square node. The node now always shows
+ * its icon, its standard type name and (once renamed) the user's name,
+ * so density no longer gates the type subtitle; what it gates is how
+ * much the EDGES say:
+ *   - clean    edges show the row count after a run, nothing else
+ *   - metrics  + row delta and schema delta (+N / −N cols, ~N retyped)
+ *   - verbose  + the condition pill on every edge, and a param-preview
+ *              line on the node
+ * Making the row count unconditional (it moved off the node onto the
+ * edge) briefly left `metrics` adding no metric at all — the deltas are
+ * what now earn it its name.
  *
  * Why a top-level canvas control instead of burying this in
  * Settings → General: the noise that motivates this preference is
@@ -26,7 +34,7 @@ const MODES: { key: CanvasLabelDensity; label: string; hint: string; icon: React
   {
     key: 'clean',
     label: 'Clean',
-    hint: 'Compact. Nodes: icon + name only. Edges: labels hidden. Best for big pipelines you want to scan structurally.',
+    hint: 'Compact. Edges show the row count after a run and nothing else. Best for big pipelines you want to scan structurally.',
     icon: (
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="5" y1="12" x2="19" y2="12" />
@@ -36,7 +44,7 @@ const MODES: { key: CanvasLabelDensity; label: string; hint: string; icon: React
   {
     key: 'metrics',
     label: 'Metrics',
-    hint: 'Balanced. Nodes add the type subtitle. Edges add row counts and schema deltas when interesting.',
+    hint: 'Balanced. Edges add how the row count changed and which columns were added, dropped or retyped.',
     icon: (
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="4" y1="20" x2="4" y2="10" />
@@ -48,7 +56,7 @@ const MODES: { key: CanvasLabelDensity; label: string; hint: string; icon: React
   {
     key: 'verbose',
     label: 'Verbose',
-    hint: 'Full detail. Nodes show a param-preview line. Every edge label shown. Useful for small pipelines or debugging.',
+    hint: 'Full detail. Adds a param-preview line under each node and the condition pill on every edge. Useful for small pipelines or debugging.',
     icon: (
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <line x1="3" y1="6" x2="21" y2="6" />

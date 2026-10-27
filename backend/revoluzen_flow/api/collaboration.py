@@ -7,7 +7,16 @@ from pydantic import BaseModel
 
 from revoluzen_flow.auth.deps import current_workspace_id
 
-router = APIRouter(prefix="/api/collaboration", tags=["collaboration"])
+# 2026-10-23 — router-level posture gate. An unauthenticated probe posted a
+# comment onto an arbitrary workflow id and read it straight back; the row
+# was stored with author_id "anonymous" and served to every other user of
+# the workflow. Comments are user-visible content, so that is a spam and
+# content-injection surface, not just a missing check.
+router = APIRouter(
+    prefix="/api/collaboration",
+    tags=["collaboration"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 def _get_store(request: Request):

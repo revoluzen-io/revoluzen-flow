@@ -129,11 +129,11 @@ export default function PipelineOutline({ rfInstance }: PipelineOutlineProps) {
             <line x1="3" y1="18" x2="3.01" y2="18" />
           </svg>
           <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Outline</span>
-          <span className="text-[10px] text-slate-400 font-medium">{ordered.length}</span>
+          <span className="text-[10px] text-slate-500 font-medium">{ordered.length}</span>
         </div>
         <button
           onClick={() => setGeneralPreference('showPipelineOutline', false)}
-          className="w-5 h-5 rounded hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600"
+          className="w-5 h-5 rounded hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-600"
           title="Hide outline (toggle from canvas density widget)"
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -144,7 +144,7 @@ export default function PipelineOutline({ rfInstance }: PipelineOutlineProps) {
       </header>
       <div className="flex-1 overflow-y-auto py-1">
         {ordered.length === 0 && (
-          <div className="px-3 py-6 text-center text-[11px] text-slate-400">
+          <div className="px-3 py-6 text-center text-[11px] text-slate-500">
             No steps yet. Drag a node onto the canvas to begin.
           </div>
         )}
@@ -167,17 +167,17 @@ export default function PipelineOutline({ rfInstance }: PipelineOutlineProps) {
               <StatusDot status={status} />
               <div className="flex-1 min-w-0">
                 <div className="text-[11px] font-semibold text-slate-700 truncate leading-tight">{label}</div>
-                <div className="text-[9px] text-slate-400 truncate">
+                <div className="text-[10px] text-slate-500 truncate">
                   {stepType.replace(/_/g, ' ')}
                 </div>
               </div>
               {result?.status === 'success' && (
-                <span className="text-[9px] text-emerald-600 font-medium tabular-nums shrink-0">
+                <span className="text-[10px] text-emerald-600 font-medium tabular-nums shrink-0">
                   {result.row_count.toLocaleString()}
                 </span>
               )}
               {result?.status === 'error' && (
-                <span className="text-[9px] text-red-500 font-semibold shrink-0">err</span>
+                <span className="text-[10px] text-red-500 font-semibold shrink-0">err</span>
               )}
             </button>
           );

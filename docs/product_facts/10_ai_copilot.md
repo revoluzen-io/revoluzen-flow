@@ -35,32 +35,50 @@ Bounded tool-use loop with hard caps:
 
 ### The agent tools (canonical count: code in `backend/revoluzen_flow/ai/tools/`)
 
-The actual tool count derived from the codebase is **26 tools** organised in three tiers. The SOURCE OF TRUTH is the registry in `backend/revoluzen_flow/ai/tools/`. The breakdown:
+The tool count derived from the codebase is **30 tools** organised in three tiers (plus 2 opt-in web tools, registered only when the operator enables web access). The SOURCE OF TRUTH is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` — the counts below went stale twice by being retyped, so check the code before quoting them. The breakdown:
 
-**21 READ tier** (permissive RBAC, no confirmation, standard audit):
+**22 READ tier** (permissive RBAC, no confirmation, standard audit):
 
-- `workspace_overview` — top-level workspace counts
+- `get_user_role` — caller's role + env + tier
+- `get_workspace_overview` — top-level workspace counts
 - `list_pipelines` — pipelines + status + step count
 - `list_projects` — projects in the workspace
 - `list_schedules` — schedules + cadence + enabled flag
 - `list_alerts` — alert rules + channel + condition
 - `list_executions` — recent runs with status filter
-- `list_catalog` — available node types + connectors
+- `list_storage` — files, managed tables and pipeline outputs
 - `inspect_connections` — connection metadata (NEVER credential values)
+- `list_catalog` — available node types + connectors
+- `list_templates` — built-in starters + user-saved templates
+- `summarize_pipeline` — plain-English summary of a pipeline
+- `validate_pipeline` — validation errors + warnings for a pipeline
+- `explain_step` — what one step does and how it is configured
+- `query_metrics` — execution metrics aggregation
+- `recall_history` — RAG search across executions, definitions, catalog, docs
+- `lookup_help_topic` — structured product-knowledge atlas lookup
 - `get_running_executions` — pipelines running right now
-- `get_user_role` — caller's role + env + tier
 - `get_next_scheduled` — upcoming schedule fires
 - `get_installation_health` — installation health score + prioritised punch list (inline credentials, undeployed pipelines, top failing pipelines, 24h success rate, headline totals) in one call
-- `summarize_pipeline` — plain-English summary of a pipeline
-- `recall_history` — RAG search across executions, definitions, catalog, docs
-- `query_metrics` — execution metrics aggregation
+- `get_security_posture` — the Settings → Security & Diagnostics baseline for THIS install: each control's status, the scope of what was actually tested, and for failures the exact fix. Added 2026-10-26; before it, security questions were answered from the model's general knowledge rather than from the install.
+- `list_steward_findings` — Steward advisories (duplicates, governance, connector health)
 
-**4 SAFE_WRITE tier** (standard RBAC, inline preview, idempotency cache):
+**7 SAFE_WRITE tier** (standard RBAC, inline preview, idempotency cache):
 
 - `compose_report` — drafts a markdown/PDF report (no live data mutation)
 - `draft_pipeline_from_intent` — turns plain English into a pipeline IR draft
 - `draft_alert_rule` — turns "alert me if X" into an alert rule draft
 - `modify_pipeline_step` — edits a specific step's params in an existing pipeline
+- `draft_connector_from_openapi` — drafts a connector from a spec or URL
+- `draft_connector_from_samples` — drafts a connector from 1–5 sample responses
+- `test_connection` — tests a saved connection (no secrets reach the LLM)
+
+**Not every tool is offered on every turn.** `ai/tool_selector.py` narrows
+the candidate set to 8 (local models) or 14 (cloud) per request, because
+each schema costs ~80 tokens on every loop iteration and small models
+mis-route as the set grows. Selection combines a floor, the current page,
+and prompt keywords — so a tool that is registered but absent from both
+`_PAGE_TOOLS` and `_KEYWORD_TOOLS` can be invisible to the model in
+practice. Registering a tool is only half of shipping it.
 
 **1 HIGH_IMPACT_WRITE tier** (strict RBAC, required confirmation card, dry-run by default for first 3 successful runs):
 

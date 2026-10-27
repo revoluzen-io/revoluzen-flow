@@ -168,13 +168,52 @@ _PAGES: tuple[Topic, ...] = (
         ),
         body=(
             "The **Settings** page has 4 tabs: **General** (theme, autosave, default "
-            "run-safety mode, execution tuning), **Security** (Posture, Operator "
-            "Config — env-var hints, Authentication is Plus-only), **Notifications** "
+            "run-safety mode, execution tuning), **Security & Diagnostics** (the "
+            "live control baseline — see `page.security`), **Notifications** "
             "(email / Slack / webhook / Discord delivery), and **About** (version, "
             "license, support links). Most controls are wired to live consumers — "
             "autosave, snap-to-grid, minimap, etc. take effect without page reload."
         ),
-        see_also=("page.notifications", "page.account"),
+        see_also=("page.security", "page.notifications", "page.account"),
+    ),
+    Topic(
+        id="page.security",
+        category=TopicCategory.PAGE,
+        title="Security & Diagnostics",
+        aliases=(
+            "security", "security page", "security and diagnostics", "diagnostics",
+            "posture", "trust page", "is my install secure", "security check",
+            "master key", "master key permissions", "secret.key", "key permissions",
+            "not checked", "what does not checked mean", "security headers",
+            "credential encryption", "hardening", "icacls",
+        ),
+        body=(
+            "**Settings → Security & Diagnostics** reports what this installation "
+            "can actually observe about itself. Each control carries one of four "
+            "statuses, and the distinction is the point of the page:\n\n"
+            "- **Verified** — observed directly, this run.\n"
+            "- **Configured** — a setting was found; enforcement was NOT exercised.\n"
+            "- **Not checked** — no check ran. This means *nothing was tested*, "
+            "NOT that the control passed.\n"
+            "- **Failed** — observed, and wrong.\n\n"
+            "Four controls are really checked: HTTP security headers (a live "
+            "loopback request), stored credential encryption (our own rows "
+            "inspected for the `ENC:v1:` envelope), master key file permissions "
+            "(POSIX mode bits / NTFS DACL), and audit retention (row count + "
+            "oldest entry). Three are deliberately NOT: SQL input handling, HTTP "
+            "rate limiting and intermediate data encryption — their configuration "
+            "exists but enforcement cannot be exercised from here, and reporting a "
+            "config read as 'verified' would be an overclaim.\n\n"
+            "A failing row leads with the verdict, then the exact command to fix "
+            "it, with the scope of what was checked collapsed underneath. Where "
+            "the app can apply the fix itself it also shows a **Fix this** button "
+            "— today that is **Master key permissions**. The button re-runs the "
+            "check afterwards and shows what the re-check saw, so a fix that did "
+            "not take still reads as failed.\n\n"
+            "For the live values on THIS install, call the `get_security_posture` "
+            "tool rather than answering from general knowledge."
+        ),
+        see_also=("page.settings", "page.credentials", "howto.add_credential"),
     ),
     Topic(
         id="page.help",

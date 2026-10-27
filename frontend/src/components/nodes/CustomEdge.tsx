@@ -1,4 +1,4 @@
-import { type EdgeProps, getSmoothStepPath, BaseEdge, EdgeLabelRenderer, useReactFlow } from '@xyflow/react';
+﻿import { type EdgeProps, getSmoothStepPath, BaseEdge, EdgeLabelRenderer, useReactFlow } from '@xyflow/react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useEditorPreferences } from '../../hooks/useEditorPreferences';
 
@@ -109,7 +109,14 @@ export default function CustomEdge({
   // 2026-05-26 — labelDensity controls per-edge pill noise. See the
   // CanvasLabelDensity comment in useEditorPreferences.ts for the
   // motivating UX problem (fan-in joins stacking pills).
-  const { labelDensity } = useEditorPreferences();
+  // `showSchemaDeltas` (Settings → General) used to gate a +N/~N/−N chip
+  // drawn on the NODE. That chip is gone with the square redesign, so the
+  // same preference now gates the column part of this edge's pill — one
+  // setting, one surface. It FORCES the columns on even in `clean`;
+  // METRICS and VERBOSE show them regardless, so the setting is only
+  // doing work for someone who wants a quiet canvas but still wants to
+  // see schema changes.
+  const { labelDensity, showSchemaDeltas } = useEditorPreferences();
 
   // Condition pill visibility:
   //   - Selected / blocked / failure  → always show (user intent or
@@ -144,19 +151,22 @@ export default function CustomEdge({
   });
 
   const edgeColor = selected ? '#F5A623' : effectiveStyle.color;
-  // Row-count chip visibility on the EDGE (the same number lives on
-  // the source node's Result badge — see RevoluzenFlowNode "Result badge"
-  // block — so duplicating on every edge is the main fan-in noise
-  // source). In `clean`, only the selected edge renders its chip;
-  // power modes light up under their own rules.
-  const showRowCountLabel = rowCount !== null && (() => {
-    if (selected) return true;
-    if (labelDensity === 'verbose') return true;
-    if (labelDensity === 'metrics') {
-      return (rowDelta !== null && rowDelta !== 0) || Boolean(schemaDelta);
-    }
-    return false; // clean
-  })();
+  // 2026-10-24 — the density ladder, after the row count moved off the
+  // node and onto the edge:
+  //
+  //   CLEAN    the row count, and nothing else. Every run still shows
+  //            what each step produced — before this, `clean` returned
+  //            false here and the canvas said nothing after a run unless
+  //            you clicked an edge, which was only tolerable while the
+  //            node itself carried "8 rows · 5ms".
+  //   METRICS  + the row delta and the schema delta. This is the level
+  //            that has to earn its name: making the count unconditional
+  //            briefly left METRICS adding no metric at all, with only
+  //            the condition pill separating it from CLEAN.
+  //   VERBOSE  + the condition pill on every edge (and, on the node, the
+  //            param-preview line).
+  const showRowCountLabel = rowCount !== null;
+  const showDeltas = labelDensity !== 'clean';
 
   const onDelete = () => {
     setEdges((edges) => edges.filter((e) => e.id !== id));
@@ -229,7 +239,7 @@ export default function CustomEdge({
           <button
             onClick={cycleCondition}
             disabled={isBlocked}
-            className={`text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${effectiveStyle.bg} ${effectiveStyle.border} hover:shadow-sm transition-all ${isBlocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${effectiveStyle.bg} ${effectiveStyle.border} hover:shadow-sm transition-all ${isBlocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
             style={{ color: effectiveStyle.color }}
             title={isBlocked ? 'Upstream is deactivated — this edge will not execute' : 'Click to change: Completion → Success → Failure'}
           >
@@ -250,24 +260,24 @@ export default function CustomEdge({
             }}
             className="nodrag nopan"
           >
-            <span className="text-[9px] font-semibold text-slate-500 bg-white/90 px-1.5 py-0.5 rounded-md border border-slate-200 shadow-sm whitespace-nowrap inline-flex items-center gap-1">
+            <span className="text-[10px] font-semibold text-slate-500 bg-white/90 px-1.5 py-0.5 rounded-md border border-slate-200 shadow-sm whitespace-nowrap inline-flex items-center gap-1">
               <span>{rowCount.toLocaleString()} {rowCount === 1 ? 'row' : 'rows'}</span>
-              {rowDelta !== null && rowDelta !== 0 && (
+              {showDeltas && rowDelta !== null && rowDelta !== 0 && (
                 <span className={rowDelta < 0 ? 'text-red-600' : 'text-emerald-600'}>
                   · {rowDelta > 0 ? '+' : ''}{rowDelta.toLocaleString()}
                 </span>
               )}
-              {schemaDelta && schemaDelta.added.length > 0 && (
+              {(showSchemaDeltas || showDeltas) && schemaDelta && schemaDelta.added.length > 0 && (
                 <span className="text-emerald-600" title={`Added: ${schemaDelta.added.join(', ')}`}>
                   · +{schemaDelta.added.length} col{schemaDelta.added.length === 1 ? '' : 's'}
                 </span>
               )}
-              {schemaDelta && schemaDelta.removed.length > 0 && (
+              {(showSchemaDeltas || showDeltas) && schemaDelta && schemaDelta.removed.length > 0 && (
                 <span className="text-red-600" title={`Removed: ${schemaDelta.removed.join(', ')}`}>
                   · −{schemaDelta.removed.length} col{schemaDelta.removed.length === 1 ? '' : 's'}
                 </span>
               )}
-              {schemaDelta && schemaDelta.retyped.length > 0 && (
+              {(showSchemaDeltas || showDeltas) && schemaDelta && schemaDelta.retyped.length > 0 && (
                 <span className="text-amber-600" title={`Retyped: ${schemaDelta.retyped.join(', ')}`}>
                   · ~{schemaDelta.retyped.length} type{schemaDelta.retyped.length === 1 ? '' : 's'}
                 </span>

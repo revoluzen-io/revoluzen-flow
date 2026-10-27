@@ -102,10 +102,13 @@ def test_registry_register_initial_loads_all_tools():
     draft_pipeline_from_intent), +1 HIGH_IMPACT_WRITE (apply_pipeline_draft).
     Distribution: 21 READ + 4 SAFE_WRITE + 1 HIGH_IMPACT_WRITE = 26.
     (2026-06-16 — +list_steward_findings READ tool.)
+    (2026-10-26 — +get_security_posture READ tool, so the Copilot can
+    answer Security & Diagnostics questions from the real install rather
+    than from the model's general knowledge.)
     """
     reg = ToolRegistry()
     register_initial_tools(reg)
-    assert len(reg) == 29
+    assert len(reg) == 30
     for name in (
         # Original 10 READ
         "get_user_role", "get_workspace_overview",
@@ -157,6 +160,7 @@ def test_registry_filter_by_tiers_excludes_writes_for_read_only():
         "lookup_help_topic",  # Atlas lookup (2026-05-17)
         "list_storage",       # Storage inventory (2026-05-25)
         "list_steward_findings",  # Steward advisories (2026-06-16)
+        "get_security_posture",   # Security & Diagnostics baseline (2026-10-26)
     }
     assert names == expected_read
 
@@ -165,11 +169,12 @@ def test_registry_filter_by_tiers_includes_safe_write_when_allowed():
     reg = ToolRegistry()
     register_initial_tools(reg)
     rw = reg.filter_by_tiers([ToolTier.READ, ToolTier.SAFE_WRITE])
-    # 21 READ + 7 SAFE_WRITE = 28 (excludes the 1 HIGH_IMPACT_WRITE).
+    # 22 READ + 7 SAFE_WRITE = 29 (excludes the 1 HIGH_IMPACT_WRITE).
     # 2026-05-25 — bumped after +list_storage (Storage inventory tool).
     # 2026-06-16 — bumped after +list_steward_findings (Steward advisories).
     # 2026-07-21 — +draft_connector_from_openapi/_from_samples/test_connection.
-    assert len(rw) == 28
+    # 2026-10-26 — +get_security_posture (Security & Diagnostics baseline).
+    assert len(rw) == 29
 
 
 def test_rbac_unknown_role_allows_all_tiers_on_oss():
@@ -327,7 +332,12 @@ def test_initial_tools_count():
     """Canonical count is 29 — 21 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE.
     See `docs/product_facts/10_ai_copilot.md` for the per-tier breakdown.
 
-    Last bumped 2026-07-21: +draft_connector_from_openapi,
+    Last bumped 2026-10-26: +get_security_posture (READ — the Security &
+    Diagnostics baseline. Without it the Copilot could not see that page
+    at all, and the system prompt's "never refuse without trying the
+    obvious tool" pushed it to answer security questions from general
+    knowledge instead of from this install).
+    Earlier 2026-07-21: +draft_connector_from_openapi,
     +draft_connector_from_samples, +test_connection (SAFE_WRITE — agentic
     connector authoring: the Copilot drafts a connector, a human approves to
     activate; no secrets pass through the LLM).
@@ -336,7 +346,7 @@ def test_initial_tools_count():
     Earlier bumps: +list_storage (2026-05-25), +lookup_help_topic (2026-05-17),
     +validate_pipeline + explain_step (2026-05-12), and +list_templates.
     """
-    assert len(INITIAL_TOOLS) == 29
+    assert len(INITIAL_TOOLS) == 30
 
 
 def test_list_pipelines_handler_returns_shape():

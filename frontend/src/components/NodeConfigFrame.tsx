@@ -24,21 +24,37 @@ function ColumnChips({ columns, max = 8 }: { columns: string[]; max?: number }) 
         </span>
       ))}
       {columns.length > max && (
-        <span className="text-[10px] text-slate-400 self-center">+{columns.length - max} more</span>
+        <span className="text-[10px] text-slate-500 self-center">+{columns.length - max} more</span>
       )}
     </div>
   );
 }
 
-export function DataInBand({ d }: { d: DataInDescriptor }) {
+/**
+ * `compact` (2026-10-24) — set in the side-by-side config layout, where
+ * the Input pane beside this band already shows the upstream's columns
+ * with their types and real values. The COLUMN CHIPS are then genuine
+ * duplication and are dropped; everything else in the band is not, and
+ * stays. What the panes cannot tell you is the node's input CONTRACT:
+ * which roles it expects, which are required, and which are still
+ * unconnected — Join's Left/Right being the case that confused people
+ * most. Removing the whole band to kill the duplication would have
+ * thrown that away with it.
+ */
+export function DataInBand({ d, compact }: { d: DataInDescriptor; compact?: boolean }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Data In</span>
-        <span className="text-[11px] text-slate-400">{d.note}</span>
+        {/* The note is the header's right-hand summary ONLY when the body
+            below has ports to show. With no ports the body IS the note, and
+            rendering it in both places printed the same sentence twice side
+            by side — "No input — this node produces data." x2 on every
+            source node. */}
+        {d.ports.length > 0 && <span className="text-[11px] text-slate-500">{d.note}</span>}
       </div>
       {d.ports.length === 0 ? (
-        <p className="text-xs text-slate-400">{d.note}</p>
+        <p className="text-xs text-slate-500">{d.note}</p>
       ) : (
         <div className="space-y-1.5">
           {d.ports.map((p, i) => (
@@ -49,11 +65,11 @@ export function DataInBand({ d }: { d: DataInDescriptor }) {
               {p.connected ? (
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-700">{p.label || '(upstream)'}</span>
-                  <span className="text-slate-400"> · {p.columns.length} col{p.columns.length === 1 ? '' : 's'}</span>
-                  <ColumnChips columns={p.columns} />
+                  <span className="text-slate-500"> · {p.columns.length} col{p.columns.length === 1 ? '' : 's'}</span>
+                  {!compact && <ColumnChips columns={p.columns} />}
                 </div>
               ) : (
-                <span className="text-slate-400 italic self-center">
+                <span className="text-slate-500 italic self-center">
                   {p.required ? 'Not connected — connect an upstream node' : 'Optional — not connected'}
                 </span>
               )}
@@ -80,7 +96,10 @@ const DISPOSITION_CHIP: Record<string, { label: string; bg: string; fg: string }
   control:     { label: 'Control flow',     bg: '#F1EFE8', fg: '#444441' },
 };
 
-export function DataOutBand({ d }: { d: DataOutDescriptor }) {
+/** `compact` — see DataInBand. Drops the output-column chips, which the
+ *  Inspector pane beside this band shows with types and values; keeps the
+ *  disposition chip and the side-effect warning, which it does not. */
+export function DataOutBand({ d, compact }: { d: DataOutDescriptor; compact?: boolean }) {
   const chip = DISPOSITION_CHIP[d.disposition] || { label: d.disposition, bg: '#F1EFE8', fg: '#444441' };
   return (
     <section className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5">
@@ -116,9 +135,9 @@ export function DataOutBand({ d }: { d: DataOutDescriptor }) {
           ))}
         </div>
       )}
-      {d.columns.length > 0 && (
+      {!compact && d.columns.length > 0 && (
         <div className="mt-1.5">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-0.5">
             Output columns ({d.columns.length})
           </div>
           <ColumnChips columns={d.columns} max={12} />

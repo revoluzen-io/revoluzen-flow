@@ -24,12 +24,17 @@ import hashlib
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from revoluzen_flow.auth.deps import current_workspace_id
 
-router = APIRouter(prefix="/api/ai", tags=["ai"])
+# 2026-10-23 — posture gate; see api/ai.py.
+router = APIRouter(
+    prefix="/api/ai",
+    tags=["ai"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 class SeverityItem(BaseModel):

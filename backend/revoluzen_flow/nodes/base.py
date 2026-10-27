@@ -117,6 +117,7 @@ class ExecutionContext:
         app_state: dict[str, Any] | None = None,
         run_id: str | None = None,
         preview_mode: bool = False,
+        sample_row_limit: int | None = None,
     ):
         self.conn = conn
         self.data_dir = data_dir
@@ -145,6 +146,16 @@ class ExecutionContext:
         # dispatched via the Preview / Plan-only path. Pure transforms
         # ignore this flag.
         self.preview_mode: bool = preview_mode
+        # Hard row cap for a preview/sample run, applied by
+        # guardrails.cap_rows at every source. None = no explicit cap, so
+        # the existing DEV_SAMPLE_ROWS behaviour applies.
+        #
+        # This exists because cap_rows' own sample limit is 1,000,000 AND
+        # gated on IS_DEV, which means it never fires for a file source of
+        # any ordinary size — a 50k-row CSV came back whole, so "Sample"
+        # read exactly as much as a full run. A sample that reads
+        # everything is not a sample.
+        self.sample_row_limit: int | None = sample_row_limit
         # Z33 (2026-05-23) — sink nodes need to see workflow-level
         # context to record provenance. `workflow_id` lets the sink
         # back-link the managed table it writes to the pipeline that

@@ -301,9 +301,9 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
           <div className="px-5 py-4 border-b border-slate-200/60 flex items-center justify-between shrink-0">
             <div>
               <h2 className="text-base font-bold text-slate-800">Save Pipeline</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{stepCount} nodes, {connectionCount} connections</p>
+              <p className="text-xs text-slate-500 mt-0.5">{stepCount} nodes, {connectionCount} connections</p>
             </div>
-            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
             </button>
           </div>
@@ -320,7 +320,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 className={`flex-1 py-2.5 text-xs font-semibold transition-colors border-b-2 ${
-                  tab === t.key ? 'text-blue-600 border-blue-500' : 'text-slate-400 border-transparent hover:text-slate-600'
+                  tab === t.key ? 'text-blue-600 border-blue-500' : 'text-slate-500 border-transparent hover:text-slate-600'
                 }`}
               >
                 {t.label}
@@ -408,7 +408,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                         </svg>
                         Maximum Running Time
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">Alert if pipeline exceeds this duration</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Alert if pipeline exceeds this duration</div>
                     </div>
                     <button
                       onClick={() => setEnableTimeout(!enableTimeout)}
@@ -438,7 +438,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
 
                     {/* Custom input */}
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 font-medium">Or custom:</span>
+                      <span className="text-xs text-slate-500 font-medium">Or custom:</span>
                       <input
                         type="number"
                         min="1"
@@ -451,7 +451,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                         placeholder="minutes"
                         className="w-24 px-2 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-amber-200 text-slate-700"
                       />
-                      <span className="text-xs text-slate-400">minutes</span>
+                      <span className="text-xs text-slate-500">minutes</span>
                     </div>
 
                     {maxRuntimeMinutes > 0 && (
@@ -477,7 +477,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                         </svg>
                         Overlap Detection
                       </div>
-                      <div className="text-xs text-slate-400 mt-0.5">What to do when a scheduled run triggers while previous is still running</div>
+                      <div className="text-xs text-slate-500 mt-0.5">What to do when a scheduled run triggers while previous is still running</div>
                     </div>
                     <button
                       onClick={() => setEnableOverlapDetection(!enableOverlapDetection)}
@@ -503,7 +503,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                           <div className={`text-xs font-semibold ${overlapPolicy === p.value ? 'text-purple-700' : 'text-slate-600'}`}>
                             {p.label}
                           </div>
-                          <div className="text-xs text-slate-400 mt-0.5">{p.desc}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">{p.desc}</div>
                         </div>
                         <div className="ml-auto shrink-0 mt-1">
                           <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
@@ -554,7 +554,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold text-slate-700">Schedule</div>
-                    <div className="text-xs text-slate-400">Run this pipeline automatically on a schedule</div>
+                    <div className="text-xs text-slate-500">Run this pipeline automatically on a schedule</div>
                   </div>
                   <button
                     onClick={() => setEnableSchedule(!enableSchedule)}
@@ -577,7 +577,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                           }`}
                         >
                           {p.label}
-                          {p.cron && <span className="block text-[9px] text-slate-400 font-mono mt-0.5">{p.cron}</span>}
+                          {p.cron && <span className="block text-[10px] text-slate-500 font-mono mt-0.5">{p.cron}</span>}
                         </button>
                       ))}
                     </div>
@@ -592,7 +592,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                       placeholder="0 */6 * * *"
                       className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-200 font-mono text-slate-700"
                     />
-                    <p className="text-[9px] text-slate-400 mt-1">Format: minute hour day-of-month month day-of-week</p>
+                    <p className="text-[10px] text-slate-500 mt-1">Format: minute hour day-of-month month day-of-week</p>
                   </div>
 
                   <div>
@@ -623,7 +623,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold text-slate-700">Alerts</div>
-                    <div className="text-xs text-slate-400">Get notified when this pipeline runs</div>
+                    <div className="text-xs text-slate-500">Get notified when this pipeline runs</div>
                   </div>
                   <button
                     onClick={() => setEnableAlert(!enableAlert)}
@@ -699,7 +699,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
 
           {/* Footer */}
           <div className="px-5 py-3 border-t border-slate-200/60 flex items-center justify-between shrink-0">
-            <div className="text-xs text-slate-400">
+            <div className="text-xs text-slate-500">
               {workflowId ? `Updating "${name || workflowName}"` : 'Creating new pipeline'}
             </div>
             <div className="flex items-center gap-2">

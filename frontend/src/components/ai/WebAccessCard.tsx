@@ -97,9 +97,9 @@ export default function WebAccessCard({ dark = false }: { dark?: boolean }) {
     <div className={`rounded-xl border shadow-sm p-5 mt-4 ${cardCls}`}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h3 className={`text-base font-bold ${dark ? 'text-white' : 'text-slate-800'}`}>
+          <h2 className={`text-base font-bold ${dark ? 'text-white' : 'text-slate-800'}`}>
             Copilot web access
-          </h3>
+          </h2>
           <p className={`${helpCls} mt-1 max-w-xl`}>
             Off by default — Revoluzen Flow is local-first. Turn it on to let the Copilot
             fetch public URLs and (with a search key) search the web to find API docs.

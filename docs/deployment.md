@@ -28,6 +28,54 @@ green-lit. Anything else is best-effort.
 For Revoluzen Flow Enterprise deployments add a fourth component: **PostgreSQL**, pinned
 via `POSTGRES_IMAGE_TAG`. Same rules apply.
 
+### 1.1 Supported topologies — read this before you scale out
+
+Revoluzen Flow is a **single-node** orchestrator. You can run more than one
+process of it, but only in the shapes below. This section exists because
+every one of these limits is silent: nothing errors, the UI looks fine, and
+the behaviour is simply wrong.
+
+| Topology | Supported | What you must know |
+|---|:-:|---|
+| One process, SQLite on local disk | ✅ | The default. Nothing to configure. |
+| Several processes, one host, SQLite on **local** disk | ✅ | Set `REVOLUZEN_FLOW_TRUSTED_PROXIES`. See the caveats below. |
+| Several processes, SQLite on **NFS / SMB / any network share** | ❌ | SQLite's WAL mode relies on shared-memory locking that network filesystems do not implement correctly. You will get corruption, not an error message. |
+| Several **hosts**, any SQLite | ❌ | Same reason — the hosts cannot share the lock. |
+| Several hosts, PostgreSQL metastore | ⚠️ | The metastore is shared, but the two caveats below still apply. Enterprise. |
+
+**What works correctly across processes**
+
+* *Scheduling.* A durable lease means exactly one process fires schedules.
+  The others skip their tick. No duplicate runs.
+* *Sessions.* Held in the metastore, so your load balancer needs **no**
+  sticky sessions.
+* *The AI quota.* Set `REVOLUZEN_FLOW_AI_RATE_STORE=shared` (or leave it on
+  `auto` in server mode) so all processes share one window. On `memory`,
+  N processes allow N× the configured quota.
+
+**What does not, yet**
+
+* *Live run progress.* WebSocket connections are held per process. A browser
+  attached to process A sees no events for a run executing on process B.
+  Until there is a shared fan-out, route `/api/ws/*` to a single process, or
+  accept that the run log only tails for some users.
+* *Everything else in memory.* The pool's run-metadata cache is per process,
+  so pool views can be briefly stale across instances.
+
+**Behind a reverse proxy or load balancer**, set:
+
+```bash
+REVOLUZEN_FLOW_TRUSTED_PROXIES=10.0.0.0/8      # your proxy's address(es)
+```
+
+Without it the server believes every request comes from the proxy, which
+quietly breaks three things: login throttling collapses into one shared
+bucket, so a single attacker locks out every user; audit rows all record the
+proxy instead of the caller; and — if the proxy is on the same host — the
+loopback-only check that protects `POST /api/system/shutdown` sees
+`127.0.0.1` and lets it through from anywhere. Nothing is trusted by
+default, so this is opt-in and must be set deliberately.
+
 ---
 
 ## 2. Install
@@ -35,7 +83,7 @@ via `POSTGRES_IMAGE_TAG`. Same rules apply.
 ### 2.1 Recommended: Docker Compose
 
 ```bash
-git clone https://github.com/revoluzen-data-systems/revoluzen-flow
+git clone https://github.com/revoluzen-io/revoluzen-flow
 cd revoluzen-flow
 cp .env.example .env          # edit if you need overrides
 docker compose up -d          # Revoluzen Flow only

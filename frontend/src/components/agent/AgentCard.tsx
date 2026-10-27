@@ -149,7 +149,7 @@ function KpiStrip({ data }: { data: KpiStripCard }) {
       <div className={`grid gap-2 ${tiles.length <= 2 ? 'grid-cols-2' : tiles.length === 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
         {tiles.map((t, i) => (
           <div key={i} className="rounded-lg bg-white border border-slate-200 px-2.5 py-2" title={t.hint}>
-            <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500 truncate">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 truncate">
               {t.label}
             </div>
             <div className="mt-0.5 text-base font-bold text-slate-800 truncate">
@@ -333,7 +333,7 @@ function ConfirmRenderer({ data, onAction, disabled }: { data: ConfirmCard } & A
         <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 grid grid-cols-2 gap-x-3 gap-y-1">
           {data.details.map((d, i) => (
             <div key={i} className="flex flex-col">
-              <div className="text-[9px] font-bold uppercase tracking-wider text-slate-500">{d.label}</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{d.label}</div>
               <div className="text-[12px] text-slate-800 truncate">{d.value}</div>
             </div>
           ))}

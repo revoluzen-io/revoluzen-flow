@@ -21,15 +21,25 @@ import asyncio
 import json
 import os
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from revoluzen_flow.auth.deps import current_workspace_id
 from revoluzen_flow.extraction.events import get_bus
 from revoluzen_flow.extraction.freshness import FreshnessGate
 from revoluzen_flow.extraction.manifest import RunManifest
 
-router = APIRouter(prefix="/api/extraction", tags=["extraction"])
+# 2026-10-23 — router-level posture gate. This was the only router in the
+# API with no auth import at all: run state, per-run event logs and the
+# freshness check were all readable and callable by an unauthenticated
+# caller. Run events are an audit log of what the engine touched, so this
+# is operational-detail disclosure, not just a missing check.
+router = APIRouter(
+    prefix="/api/extraction",
+    tags=["extraction"],
+    dependencies=[Depends(current_workspace_id)],
+)
 
 
 class FreshnessCheckRequest(BaseModel):

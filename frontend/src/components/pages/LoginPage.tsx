@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../../api/client';
 import { WORKSPACES_ENABLED, DEFAULT_WORKSPACE_ID } from '../../config/edition';
+import { checkPassword, MIN_LENGTH, MIN_CLASSES, MAX_BYTES } from '../../auth/password';
 import { APP_VERSION } from '../../appMeta';
 
 interface LoginPageProps {
@@ -43,6 +44,10 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   // wiped data dir can still create its first account.
   const [signupAllowed, setSignupAllowed] = useState<boolean>(false);
   const [firstBootstrap, setFirstBootstrap] = useState<boolean>(false);
+  // `bootstrap_password_pending` / `bootstrap_admin_email` are still
+  // returned by /auth/signup-policy, but nothing on this screen renders
+  // them any more — the card shows the sign-in / sign-up control and
+  // nothing else. Read them again here if that ever changes.
 
   // Password policy + live strength check
   const [pwPolicy, setPwPolicy] = useState<{ min_length: number; rules: string[] } | null>(null);
@@ -143,16 +148,26 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   }, []);
 
   // 2026-05-19 (P0 #7 of PAGE_BY_PAGE_AUDIT.md): when the no-SMTP backend
-  // mints a reset_token and returns it in the response body, we used to
-  // unconditionally expose a "Set new password now" CTA. Convenient on a
-  // solo-developer laptop install, but it's an account-takeover endpoint
-  // if anyone deploys Revoluzen Flow behind a public URL — submitting any known
-  // email returns the live reset_token. We now gate that affordance on an
-  // explicit opt-in build flag (`VITE_REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE=1`). When
-  // OFF (production default), we ignore the token even if the server
-  // returns it; the user only sees the uniform "if the email is registered
-  // you'll get an email" message and must follow a real email link.
-  const allowInlineForgotToken = import.meta.env.VITE_REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE === '1';
+  // The decision about whether it is safe to show a reset token inline
+  // belongs to the SERVER, and the client honours it.
+  //
+  // This used to be gated here on a build-time flag
+  // (`VITE_REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE=1`, off by default), which
+  // broke the product's main deployment. The backend's `_inline_ok`
+  // already returns a token only when the instance is single-user and
+  // NOT network-exposed, or the operator opted in from loopback — and it
+  // writes a message saying "You can use it below to set a new password".
+  // The default build then discarded that token, so the user read "use it
+  // below" above a card with nothing below it, under a "Check your email"
+  // heading when no email had been sent. A dead end on the one install
+  // that is supposed to work without any infrastructure.
+  //
+  // A build-time flag cannot know how many accounts exist, whether the
+  // bind is open, or whether SMTP is configured, and one prebuilt binary
+  // ships the same flag to everyone. The server knows all three. So: if a
+  // token comes back, the server decided it was safe to show, and we show
+  // it. If it withheld the token, there is nothing to show and the
+  // message explains what to do instead.
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,18 +177,19 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     try {
       const r: any = await api.forgotPassword(email);
       setForgotMessage(r?.message || 'Request received.');
-      if (r?.reset_token && allowInlineForgotToken) {
-        // Single-binary / local-dev affordance — only honoured when the
-        // operator opted in via VITE_REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE=1. Stash
-        // the token so the follow-up CTA can open the reset form with it
-        // prefilled. We still don't auto-advance — the uniform message
-        // is worth showing once.
+      // `smtp_sent` is not a field the API returns; the absence of a token
+      // on a successful call means either SMTP delivered a link or the
+      // server deliberately withheld it. Either way there is nothing for
+      // this screen to offer, and `forgotMessage` says which it was.
+      if (r?.reset_token) {
+        // The server judged it safe to inline. Stash the token so the
+        // follow-up CTA opens the reset form with it prefilled. We don't
+        // auto-advance — the message is worth showing once.
         setResetToken(r.reset_token);
         setResetEmail(email);
       } else {
-        // Either no match, or production build that suppresses the inline
-        // token even when the backend returns one. Clear any stale state
-        // so the CTA doesn't offer to reset the wrong account.
+        // No token: emailed, withheld, or no such account. Clear any
+        // stale state so the CTA can't offer to reset the wrong account.
         setResetToken('');
         setResetEmail('');
       }
@@ -183,13 +199,24 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(false);
   };
 
-  // Submit the reset-password form. Password strength validation is
-  // enforced server-side — we just relay the error shape up. The
-  // confirm-password mismatch is client-side to avoid a pointless
-  // round-trip for a fat-finger.
+  // Live strength for the reset form. `resetEmail` is the address the
+  // token belongs to, so the policy can reject a password containing it.
+  const resetCheck = newPassword
+    ? checkPassword(newPassword, resetEmail, '')
+    : null;
+
+  // Submit the reset-password form. The server re-validates and remains
+  // the source of truth; checking here too means the user is told before
+  // they submit, instead of after. The confirm-password mismatch is
+  // client-side to avoid a pointless round-trip for a fat-finger.
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    const verdict = checkPassword(newPassword, resetEmail, '');
+    if (!verdict.ok) {
+      setError(verdict.failures[0]);
+      return;
+    }
     if (newPassword !== newPasswordConfirm) {
       setError('Passwords do not match.');
       return;
@@ -315,7 +342,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <div>
               <div className="mb-6 text-center">
                 <h2 className="text-lg font-bold text-slate-700">Forgot your password?</h2>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   Enter the email on your account and we'll generate a reset link.
                 </p>
               </div>
@@ -345,15 +372,19 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 </form>
               ) : (
                 <div className="space-y-5">
-                  {/* Two visual treatments share this slot:
-                      - SMTP path (no token in body): "Check your email"
-                        card with an envelope glyph and the API message.
-                        There is no follow-up CTA here — the user must
-                        click the link in the email they received.
-                      - No-SMTP path (token in body): the legacy inline
-                        success card with the "Set a new password now"
-                        CTA that opens the reset form prefilled with the
-                        token returned by the API. */}
+                  {/* Two treatments share this slot:
+                      - Token in body: the server judged inlining safe, so
+                        show the "Set a new password now" CTA, which opens
+                        the reset form prefilled with that token.
+                      - No token: either SMTP delivered a link or the
+                        server withheld it. This used to be headed "Check
+                        your email" with an envelope glyph, which was a
+                        guess — on the withheld path no email was ever
+                        sent, so the card asserted something untrue. The
+                        API message already distinguishes the cases
+                        ("emailed to you" vs "not shown here, because
+                        this instance is reachable over the network"), so
+                        the message alone is shown and is always right. */}
                   {resetToken ? (
                     <>
                       <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-xl">
@@ -368,12 +399,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                       </button>
                     </>
                   ) : (
-                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-4 rounded-xl">
-                      <div className="flex items-center gap-2 font-semibold text-emerald-800 mb-1">
-                        <span aria-hidden>✉</span>
-                        <span>Check your email</span>
-                      </div>
-                      <div className="text-sm">{forgotMessage}</div>
+                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-xl">
+                      {forgotMessage}
                     </div>
                   )}
                 </div>
@@ -382,7 +409,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="button"
                 onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
-                className="mt-5 w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
               >
                 ← Back to sign in
               </button>
@@ -400,7 +427,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <div className="mb-6 text-center">
                 <h2 className="text-lg font-bold text-slate-700">Choose a new password</h2>
                 {resetEmail && (
-                  <p className="text-xs text-slate-400 mt-1">
+                  <p className="text-xs text-slate-500 mt-1">
                     Resetting password for <span className="font-semibold text-slate-600">{resetEmail}</span>
                   </p>
                 )}
@@ -411,15 +438,64 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   <label className="text-sm font-semibold text-slate-600 mb-1.5 block">New password</label>
                   <input
                     type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                    placeholder="••••••••" required autoFocus minLength={8}
+                    placeholder="••••••••" required autoFocus
+                    minLength={MIN_LENGTH} maxLength={MAX_BYTES}
                     className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
                   />
+                  {/* Same treatment as the sign-up and change-password
+                      forms — bar plus blockers only, never the optional
+                      nudges. This was the one password field in the app
+                      with no feedback at all, so someone resetting found
+                      out their password was too weak only after the
+                      server rejected it. Uses the local mirror rather
+                      than the /check-password round-trip because this
+                      screen is reached while signed out. */}
+                  {!newPassword && (
+                    <p className="text-xs text-slate-500 mt-1.5">
+                      At least {MIN_LENGTH} characters, using {MIN_CLASSES} of:
+                      lowercase, uppercase, a number, a symbol.
+                    </p>
+                  )}
+                  {newPassword && resetCheck && (
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${
+                              resetCheck.score >= 3 ? 'bg-emerald-500' : resetCheck.score >= 2 ? 'bg-amber-400' : 'bg-red-400'
+                            }`}
+                            style={{ width: `${Math.min(100, Math.max(8, (resetCheck.score / 4) * 100))}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-bold ${
+                          resetCheck.score >= 3 ? 'text-emerald-600' : resetCheck.score >= 2 ? 'text-amber-600' : 'text-red-500'
+                        }`}>{resetCheck.label}</span>
+                      </div>
+                      {newPassword.length >= 4 && resetCheck.failures.length > 0 && (
+                        <ul className="space-y-0.5">
+                          {resetCheck.failures.map((f, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-red-500">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mt-[3px] shrink-0"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                              <span>{f}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {newPassword.length >= 4 && resetCheck.failures.length === 0 && (
+                        <p className="flex items-center gap-1.5 text-xs text-emerald-600">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+                          <span>Looks good.</span>
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Confirm new password</label>
                   <input
                     type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)}
-                    placeholder="••••••••" required minLength={8}
+                    placeholder="••••••••" required
+                    minLength={MIN_LENGTH} maxLength={MAX_BYTES}
                     className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
                   />
                 </div>
@@ -440,7 +516,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <button
                 type="button"
                 onClick={() => { setMode('login'); setError(''); }}
-                className="mt-5 w-full text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
               >
                 ← Cancel and go back to sign in
               </button>
@@ -462,7 +538,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               </div>
               <div>
                 <h2 className="text-lg font-bold text-slate-700">Password reset</h2>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-slate-500 mt-1">
                   Your password has been updated. Please sign in with the new one.
                 </p>
               </div>
@@ -487,13 +563,13 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-7">
               <button
                 onClick={() => { setMode('login'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'login' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'}`}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'login' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => { setMode('register'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'register' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400'}`}
+                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'register' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
               >
                 {firstBootstrap ? 'Create first account' : 'Register'}
               </button>
@@ -501,11 +577,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           ) : (
             <div className="mb-7 text-center">
               <h2 className="text-lg font-bold text-slate-700">Sign in</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Revoluzen Flow runs as a single operator. Sign in with this instance's
-                account — Docker and headless installs find the initial password in{' '}
-                <span className="font-mono">INITIAL_ADMIN_PASSWORD.txt</span> in the data folder.
-              </p>
+              {/* Heading only — no explanatory copy under it, by decision.
+                  This slot previously held an edition statement ("runs as a
+                  single operator") and then a first-run hint naming
+                  INITIAL_ADMIN_PASSWORD.txt. Both are gone: the card shows
+                  the sign-in / sign-up affordance and nothing else. The
+                  first-run password is still written to that file in the
+                  data folder and printed by the CLI on first boot, so the
+                  information is not lost — it just isn't on this screen. */}
             </div>
           )}
 
@@ -538,49 +617,69 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               <input
                 type="password" value={password} onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required
+                // Cap only when CREATING a password. The pre-2026-06-03
+                // scheme was salted SHA-256, which had no length limit,
+                // so an account from back then may legitimately have a
+                // password longer than MAX_BYTES — capping the sign-in
+                // field would lock them out of their own install.
+                maxLength={mode === 'register' ? MAX_BYTES : undefined}
                 className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
               />
-              {/* Live password strength hints — register mode only */}
+              {/* Password feedback — register mode only.
+                  Deliberately NOT a checklist. We used to render every rule
+                  the server advertises as a ✓/✗ row, with pass/fail decided
+                  by a substring match against the failure text. That meant a
+                  perfectly good passphrase showed a column of red crosses for
+                  rules that are only suggestions, which is the single fastest
+                  way to make someone abandon a sign-up form. The policy is
+                  NIST SP 800-63B — length and a blocklist, no composition —
+                  so the form states the rule once up front and then only
+                  reports what genuinely blocks submit. */}
+              {mode === 'register' && password.length === 0 && pwPolicy && (
+                <p className="text-xs text-slate-500 mt-1.5">
+                  At least {pwPolicy.min_length} characters, using {MIN_CLASSES} of:
+                  lowercase, uppercase, a number, a symbol.
+                </p>
+              )}
               {mode === 'register' && password.length > 0 && (
                 <div className="mt-2 space-y-1.5">
-                  {/* Strength bar */}
+                  {/* Strength bar. score is 0..4 (see password_policy.py), so
+                      the bar divides by 4 — dividing by 5 capped a perfect
+                      password at 80% and never filled. */}
                   {pwCheck && (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
-                            pwCheck.score >= 4 ? 'bg-emerald-500' : pwCheck.score >= 3 ? 'bg-amber-400' : 'bg-red-400'
+                            pwCheck.score >= 3 ? 'bg-emerald-500' : pwCheck.score >= 2 ? 'bg-amber-400' : 'bg-red-400'
                           }`}
-                          style={{ width: `${Math.min(100, (pwCheck.score / 5) * 100)}%` }}
+                          style={{ width: `${Math.min(100, Math.max(8, (pwCheck.score / 4) * 100))}%` }}
                         />
                       </div>
                       <span className={`text-xs font-bold ${
-                        pwCheck.score >= 4 ? 'text-emerald-600' : pwCheck.score >= 3 ? 'text-amber-600' : 'text-red-500'
+                        pwCheck.score >= 3 ? 'text-emerald-600' : pwCheck.score >= 2 ? 'text-amber-600' : 'text-red-500'
                       }`}>{pwCheck.label}</span>
                     </div>
                   )}
-                  {/* Policy checklist */}
-                  {pwPolicy && (
-                    <div className="space-y-0.5">
-                      {pwPolicy.rules.map((rule, i) => {
-                        const passed = pwCheck ? !pwCheck.failures.some(f => f.toLowerCase().includes(rule.toLowerCase().slice(0, 15))) : false;
-                        const checked = pwCheck && password.length >= (pwPolicy.min_length || 8) ? passed : false;
-                        return (
-                          <div key={i} className="flex items-center gap-1.5 text-xs">
-                            {password.length >= 4 && pwCheck ? (
-                              checked ? (
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3"><polyline points="20 6 9 17 4 12" /></svg>
-                              ) : (
-                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                              )
-                            ) : (
-                              <span className="w-[10px] h-[10px] rounded-full border border-slate-300" />
-                            )}
-                            <span className={password.length >= 4 && pwCheck ? (checked ? 'text-emerald-600' : 'text-red-500') : 'text-slate-400'}>{rule}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
+                  {/* Only real blockers, never the optional "add a symbol"
+                      nudges — those live in pwCheck.suggestions and stay off
+                      the form. Held back until the 4th character so the field
+                      doesn't go red on the first keystroke. */}
+                  {pwCheck && password.length >= 4 && pwCheck.failures.length > 0 && (
+                    <ul className="space-y-0.5">
+                      {pwCheck.failures.map((f, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-red-500">
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mt-[3px] shrink-0"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                          <span>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {pwCheck && password.length >= 4 && pwCheck.failures.length === 0 && (
+                    <p className="flex items-center gap-1.5 text-xs text-emerald-600">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
+                      <span>Looks good.</span>
+                    </p>
                   )}
                 </div>
               )}
@@ -617,7 +716,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   setError('');
                   setForgotMessage('');
                 }}
-                className="text-xs text-slate-400 hover:text-amber-600 transition-colors font-medium"
+                className="text-xs text-slate-500 hover:text-amber-600 transition-colors font-medium"
               >
                 Forgot password?
               </button>
@@ -628,7 +727,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <>
               <div className="flex items-center gap-2 my-4">
                 <div className="flex-1 h-px bg-slate-200" />
-                <span className="text-xs text-slate-400 font-semibold">OR</span>
+                <span className="text-xs text-slate-500 font-semibold">OR</span>
                 <div className="flex-1 h-px bg-slate-200" />
               </div>
               <a
@@ -644,7 +743,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-5">
+        <p className="text-center text-xs text-slate-500 mt-5">
           Revoluzen Flow v{APP_VERSION} · Local-first pipeline engine by Revoluzen
         </p>
       </div>

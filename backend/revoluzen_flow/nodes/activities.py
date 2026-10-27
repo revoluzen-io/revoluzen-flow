@@ -1705,6 +1705,65 @@ class ConditionalSplitNode(BaseNode):
 
 # ── Destinations ──
 
+def _as_column_list(value: Any) -> list[str]:
+    """Normalise a merge-key param to a list of column names.
+
+    The canvas sends an `array` param, but the same field arrives as a
+    comma-separated string from hand-edited JSON, the API and the dbt
+    importer. Accept both rather than silently reading an empty key list —
+    which would turn a merge into an append.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [p.strip() for p in value.split(",") if p.strip()]
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return []
+
+
+def _quote_ident(name: str, conn_type: str) -> str:
+    """Quote a table/column name for `conn_type`.
+
+    MySQL does not accept `"` as an identifier quote unless the session
+    runs with ANSI_QUOTES — by default `"x"` is a STRING, so every
+    statement this sink built for MySQL was a syntax error. That was true
+    of create, append and truncate long before merge existed: the writer
+    hard-coded `"` for every dialect, so the database sink had never
+    worked against MySQL at all. It surfaced only when the merge mode was
+    exercised against a real server.
+
+    The quote character is also doubled inside the identifier, so a column
+    named `we"ird` cannot terminate the quoting and inject SQL. These
+    names reach us from a DuckDB relation's columns and from user config,
+    neither of which is a trusted source of SQL.
+    """
+    if conn_type == "mysql":
+        return "`" + str(name).replace("`", "``") + "`"
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _validate_merge_columns(keys: list[str], columns: list[str]) -> None:
+    """Fail loudly when a merge key is not in the incoming relation.
+
+    A key that isn't a real column cannot match anything, so every row
+    would look new: the merge degrades to an append and duplicates on
+    every run. That is silent, so it has to be an error.
+    """
+    if not keys:
+        raise ValueError(
+            "DB Sink: merge mode requires `merge_on` — the column(s) that "
+            "identify a row."
+        )
+    missing = [k for k in keys if k not in columns]
+    if missing:
+        raise ValueError(
+            f"DB Sink: merge key(s) {missing} are not columns of the incoming "
+            f"data (available: {', '.join(columns) or 'none'}). Nothing would "
+            "match, so every run would insert duplicates instead of updating."
+        )
+
+
 @register(StepType.DB_SINK)
 class DbSinkNode(BaseNode):
     """Database Sink — writes data to a real database via saved Connection."""
@@ -1772,8 +1831,15 @@ class DbSinkNode(BaseNode):
             raise ValueError("DB Sink has no input data")
 
         table = self.params.get("table", "output_table")
-        mode = self.params.get("mode", "create")  # create | append | truncate
+        mode = self.params.get("mode", "create")  # create | append | truncate | merge
         connection_id = self.params.get("connection_id", "")
+        merge_on = _as_column_list(self.params.get("merge_on"))
+        if mode == "merge" and not merge_on:
+            raise ValueError(
+                "DB Sink: merge mode requires `merge_on` — the column(s) that "
+                "identify a row. Without keys there is nothing to match on and "
+                "the write would silently become an append."
+            )
 
         # Apply Mapping-tab settings BEFORE we materialize columns/types
         # so the writer sees the rename + skip applied. No-op when the
@@ -1785,6 +1851,24 @@ class DbSinkNode(BaseNode):
         if not connection_id:
             sink_data = ctx.register_scoped("__sink_data", source)
             if mode == "append":
+                ctx.conn.sql(f'INSERT INTO "{table}" SELECT * FROM {sink_data}')
+            elif mode == "merge":
+                # Same delete-then-insert as the real-database path, so the
+                # in-memory target behaves identically. Without this branch
+                # merge fell through to CREATE OR REPLACE and silently
+                # discarded every existing row — the opposite of an upsert.
+                _validate_merge_columns(merge_on, list(source.columns))
+                ctx.conn.sql(
+                    f'CREATE TABLE IF NOT EXISTS "{table}" AS '
+                    f'SELECT * FROM {sink_data} WHERE 1=0'
+                )
+                pred = " AND ".join(
+                    f'tgt."{k}" IS NOT DISTINCT FROM src."{k}"' for k in merge_on
+                )
+                ctx.conn.sql(
+                    f'DELETE FROM "{table}" tgt WHERE EXISTS '
+                    f'(SELECT 1 FROM {sink_data} src WHERE {pred})'
+                )
                 ctx.conn.sql(f'INSERT INTO "{table}" SELECT * FROM {sink_data}')
             else:
                 ctx.conn.sql(f'CREATE OR REPLACE TABLE "{table}" AS SELECT * FROM {sink_data}')
@@ -1804,12 +1888,13 @@ class DbSinkNode(BaseNode):
         types = source.types  # DuckDB type objects
         rows = ctx.conn.sql(f"SELECT * FROM {sink_export}").fetchall()
 
-        self._write_real(conn_type, config, table, columns, rows, mode, types)
+        self._write_real(conn_type, config, table, columns, rows, mode, types,
+                         merge_on=merge_on)
         return source
 
     def _write_real(self, conn_type: str, config: dict, table: str,
                     columns: list[str], rows: list[tuple], mode: str,
-                    types: list | None = None):
+                    types: list | None = None, merge_on: list[str] | None = None):
         """Write rows to a real database with proper type inference."""
         host = config.get("host")
         port = config.get("port")
@@ -1819,29 +1904,29 @@ class DbSinkNode(BaseNode):
         schema = config.get("schema")
 
         if conn_type == "sqlite":
-            self._write_sqlite(config, table, columns, rows, mode, types)
+            self._write_sqlite(config, table, columns, rows, mode, types, merge_on)
         elif conn_type == "postgresql":
-            self._write_postgresql(host, port, database, user, password, schema, table, columns, rows, mode, types)
+            self._write_postgresql(host, port, database, user, password, schema, table, columns, rows, mode, types, merge_on)
         elif conn_type == "mysql":
-            self._write_mysql(host, port, database, user, password, table, columns, rows, mode, types)
+            self._write_mysql(host, port, database, user, password, table, columns, rows, mode, types, merge_on)
         elif conn_type == "mssql":
-            self._write_mssql(host, port, database, user, password, table, columns, rows, mode, types)
+            self._write_mssql(host, port, database, user, password, table, columns, rows, mode, types, merge_on)
         else:
             raise ValueError(f"DB Sink: unsupported connection type '{conn_type}'")
 
-    def _write_sqlite(self, config, table, columns, rows, mode, types=None):
+    def _write_sqlite(self, config, table, columns, rows, mode, types=None, merge_on=None):
         import sqlite3
         db_path = config.get("database") or config.get("file")
         if not db_path:
             raise ValueError("SQLite Sink: no database path configured")
         conn = sqlite3.connect(db_path)
         try:
-            self._write_with_conn(conn, table, columns, rows, mode, "?", "sqlite", types)
+            self._write_with_conn(conn, table, columns, rows, mode, "?", "sqlite", types, merge_on)
             conn.commit()
         finally:
             conn.close()
 
-    def _write_postgresql(self, host, port, database, user, password, schema, table, columns, rows, mode, types=None):
+    def _write_postgresql(self, host, port, database, user, password, schema, table, columns, rows, mode, types=None, merge_on=None):
         import psycopg2  # type: ignore
         conn = psycopg2.connect(
             host=host, port=port or 5432,
@@ -1849,67 +1934,89 @@ class DbSinkNode(BaseNode):
             options=f"-c search_path={schema}" if schema else None,
         )
         try:
-            self._write_with_conn(conn, table, columns, rows, mode, "%s", "postgresql", types)
+            self._write_with_conn(conn, table, columns, rows, mode, "%s", "postgresql", types, merge_on)
             conn.commit()
         finally:
             conn.close()
 
-    def _write_mysql(self, host, port, database, user, password, table, columns, rows, mode, types=None):
+    def _write_mysql(self, host, port, database, user, password, table, columns, rows, mode, types=None, merge_on=None):
         import pymysql  # type: ignore
         conn = pymysql.connect(
             host=host, port=int(port or 3306),
             database=database, user=user, password=password, connect_timeout=10,
         )
         try:
-            self._write_with_conn(conn, table, columns, rows, mode, "%s", "mysql", types)
+            self._write_with_conn(conn, table, columns, rows, mode, "%s", "mysql", types, merge_on)
             conn.commit()
         finally:
             conn.close()
 
-    def _write_mssql(self, host, port, database, user, password, table, columns, rows, mode, types=None):
+    def _write_mssql(self, host, port, database, user, password, table, columns, rows, mode, types=None, merge_on=None):
         import pyodbc  # type: ignore
-        conn_str = (
-            f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-            f"SERVER={host},{port or 1433};DATABASE={database};"
-            f"UID={user};PWD={password};Connection Timeout=10;"
+        # Use the shared builder rather than a hard-coded driver string.
+        # connections/mssql_odbc.py exists precisely so that testing,
+        # browsing, reading and WRITING agree — its docstring says a path
+        # that builds its own string "can test successfully but fail during
+        # a real pipeline write". This path was that exception: it pinned
+        # "ODBC Driver 17", so the sink could not connect at all on a host
+        # carrying only Driver 18 (what current Linux images and CI runners
+        # install), and it set no Encrypt/TrustServerCertificate, which
+        # Driver 18 needs against a self-signed server certificate.
+        from revoluzen_flow.connections.mssql_odbc import build_mssql_odbc_conn_str
+        conn_str = build_mssql_odbc_conn_str(
+            {
+                "host": host, "port": port or 1433, "database": database,
+                "user": user, "password": password,
+            },
+            pyodbc,
         )
         conn = pyodbc.connect(conn_str)
         try:
-            self._write_with_conn(conn, table, columns, rows, mode, "?", "mssql", types)
+            self._write_with_conn(conn, table, columns, rows, mode, "?", "mssql", types, merge_on)
             conn.commit()
         finally:
             conn.close()
 
     def _write_with_conn(self, conn, table: str, columns: list[str], rows: list[tuple],
                          mode: str, placeholder: str, conn_type: str = "sqlite",
-                         types: list | None = None):
+                         types: list | None = None, merge_on: list[str] | None = None):
         """Generic write using DB-API 2.0 connection with proper type inference."""
         cur = conn.cursor()
-        col_names = ", ".join(f'"{c}"' for c in columns)
+        q = lambda ident: _quote_ident(ident, conn_type)  # noqa: E731
+        qtable = q(table)
+        col_names = ", ".join(q(c) for c in columns)
         placeholders = ", ".join([placeholder] * len(columns))
-        insert_sql = f'INSERT INTO "{table}" ({col_names}) VALUES ({placeholders})'
+        insert_sql = f'INSERT INTO {qtable} ({col_names}) VALUES ({placeholders})'
 
         # Build column definitions with proper types
         if types and len(types) == len(columns):
             col_defs = ", ".join(
-                f'"{c}" {self._map_type(str(t), conn_type)}'
+                f'{q(c)} {self._map_type(str(t), conn_type)}'
                 for c, t in zip(columns, types)
             )
         else:
-            col_defs = ", ".join(f'"{c}" TEXT' for c in columns)
+            # Route the untyped fallback through _map_type too, instead of
+            # hard-coding TEXT. On SQL Server, TEXT is the deprecated LOB
+            # type and cannot be used with `=` at all ("The data types text
+            # and varchar are incompatible in the equal to operator"), so a
+            # merge's `DELETE ... WHERE key = ?` fails outright on a table
+            # this path created. _map_type already knows the right string
+            # type per dialect (NVARCHAR(MAX) for mssql, TEXT elsewhere).
+            fallback = self._map_type("VARCHAR", conn_type)
+            col_defs = ", ".join(f'{q(c)} {fallback}' for c in columns)
 
         if mode == "create":
             try:
-                cur.execute(f'DROP TABLE IF EXISTS "{table}"')
+                cur.execute(f'DROP TABLE IF EXISTS {qtable}')
             except Exception:
                 pass
-            cur.execute(f'CREATE TABLE "{table}" ({col_defs})')
+            cur.execute(f'CREATE TABLE {qtable} ({col_defs})')
             if rows:
                 cur.executemany(insert_sql, rows)
 
         elif mode == "truncate":
             try:
-                cur.execute(f'DELETE FROM "{table}"')
+                cur.execute(f'DELETE FROM {qtable}')
             except Exception:
                 pass
             if rows:
@@ -1919,12 +2026,86 @@ class DbSinkNode(BaseNode):
             if rows:
                 cur.executemany(insert_sql, rows)
 
+        elif mode == "merge":
+            # Delete-then-insert on the key, in the caller's transaction.
+            #
+            # NOT a native upsert, deliberately. ON CONFLICT (Postgres,
+            # SQLite) and ON DUPLICATE KEY (MySQL) all require a unique
+            # index on the key columns, and they fail differently without
+            # one: Postgres and SQLite raise, but MySQL just INSERTs, so the
+            # same pipeline against MySQL would quietly accumulate duplicates
+            # — the exact failure this mode exists to remove. MERGE on SQL
+            # Server would need a fourth code path again. Delete-then-insert
+            # needs no constraint, means the same thing on every dialect, and
+            # is one statement pair to reason about.
+            #
+            # Cost: one DELETE per incoming row rather than one set-based
+            # statement. Fine at the row counts this sink already materializes
+            # in Python (it fetchall()s the whole relation first); a unique
+            # index on the keys is still worth having for the DELETE's sake.
+            keys = list(merge_on or [])
+            _validate_merge_columns(keys, columns)
+            self._ensure_table(cur, qtable, col_defs, conn_type, table)
+            if rows:
+                key_idx = [columns.index(k) for k in keys]
+                key_rows = [tuple(r[i] for i in key_idx) for r in rows]
+
+                # Two rows in ONE batch sharing a key is ambiguous: both
+                # survive the single DELETE and both get inserted, so the
+                # "upsert" would leave a duplicate behind. dbt fails the same
+                # way on a non-unique unique_key. Say so instead.
+                dupes = {k for k in key_rows if key_rows.count(k) > 1} if len(key_rows) < 5000 else set()
+                if dupes:
+                    sample = ", ".join(repr(d) for d in list(dupes)[:3])
+                    raise ValueError(
+                        f"DB Sink: merge keys {keys} are not unique in this "
+                        f"batch ({len(dupes)} duplicated, e.g. {sample}). Merge "
+                        "cannot decide which row wins — deduplicate upstream "
+                        "(a Deduplicate or Aggregate step) before the write."
+                    )
+
+                where = " AND ".join(f'{q(k)} = {placeholder}' for k in keys)
+                cur.executemany(f'DELETE FROM {qtable} WHERE {where}', key_rows)
+                cur.executemany(insert_sql, rows)
+
+        else:
+            # Previously any unrecognised mode fell off the end of this chain
+            # and wrote NOTHING, while the node returned its input and the run
+            # went green. A typo in `mode` was a silent no-op.
+            raise ValueError(
+                f"DB Sink: unknown write mode {mode!r}; expected one of "
+                "create | append | truncate | merge."
+            )
+
+    @staticmethod
+    def _ensure_table(cur, qtable: str, col_defs: str, conn_type: str,
+                      raw_table: str) -> None:
+        """Create the target if it isn't there yet, so the first merge works.
+
+        dbt's incremental models build the table on their first run and
+        upsert into it afterwards; a merge that required the operator to
+        create the table by hand would not reproduce that.
+
+        `qtable` is already quoted for the dialect; `raw_table` is the
+        unquoted name, which SQL Server's OBJECT_ID() needs as a STRING
+        literal rather than as an identifier.
+        """
+        if conn_type == "mssql":
+            # No CREATE TABLE IF NOT EXISTS on SQL Server.
+            literal = raw_table.replace("'", "''")
+            cur.execute(
+                f"IF OBJECT_ID(N'{literal}', N'U') IS NULL "
+                f"CREATE TABLE {qtable} ({col_defs})"
+            )
+        else:
+            cur.execute(f'CREATE TABLE IF NOT EXISTS {qtable} ({col_defs})')
+
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
             "table": "output_table", "mode": "create", "connection_id": "",
             "pre_sql": "", "post_sql": "", "schema": "",
-            "schema_evolution": "fail",
+            "schema_evolution": "fail", "merge_on": [],
         }
 
     @staticmethod
@@ -1940,12 +2121,28 @@ class DbSinkNode(BaseNode):
              "placeholder": "public",
              "description": "Database schema. Leave empty for default."},
             {"name": "mode", "type": "select", "label": "Write Mode",
-             "options": ["create", "append", "truncate"], "default": "create",
+             "options": ["create", "append", "truncate", "merge"], "default": "create",
              "tab": "Target",
              "description": (
                  "create = drop & recreate (CREATE OR REPLACE TABLE). "
                  "append = INSERT into existing rows; preserves history. "
-                 "truncate = empty target then INSERT; preserves table DDL."
+                 "truncate = empty target then INSERT; preserves table DDL. "
+                 "merge = upsert on the Merge Keys: rows whose keys already "
+                 "exist are replaced, new rows are inserted, untouched rows "
+                 "are left alone. Re-running is safe."
+             )},
+            # `column_list`, not `array`: DynamicConfig has no `array` case,
+            # so that type falls through to the default plain-text input and
+            # the operator gets a bare textbox instead of a column picker.
+            # (It still round-trips, because the sink parses a comma-separated
+            # string too — but that is a safety net, not the intended UI.)
+            {"name": "merge_on", "type": "column_list", "label": "Merge Keys",
+             "tab": "Target",
+             "show_when": {"mode": ["merge"]},
+             "help": "Required when mode = merge. Column names to match on.",
+             "description": (
+                 "The columns that identify a row. Same contract as the "
+                 "managed-table sink's Merge Keys."
              )},
             {"name": "schema_evolution", "type": "select", "label": "Schema Evolution",
              "options": ["fail", "ignore_extra", "add_column"], "default": "fail",

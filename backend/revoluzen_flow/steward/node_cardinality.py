@@ -37,6 +37,7 @@ from .models import (
     FindingStatus,
     StewardFinding,
 )
+from .thresholds import threshold_resolver
 
 
 _FILE_LOCK = threading.Lock()
@@ -80,19 +81,7 @@ THRESHOLD_SPEC: dict[str, list[dict]] = {
 }
 
 
-def _eff(thresholds: dict | None, kind_value: str, key: str) -> float:
-    """Effective threshold: the operator's override if present + parseable,
-    otherwise the built-in default from THRESHOLD_SPEC."""
-    default = next(
-        (s["default"] for s in THRESHOLD_SPEC.get(kind_value, []) if s["key"] == key),
-        0,
-    )
-    ov = (thresholds or {}).get(kind_value) or {}
-    try:
-        v = ov.get(key)
-        return float(v) if v is not None else float(default)
-    except (TypeError, ValueError):
-        return float(default)
+_eff = threshold_resolver(THRESHOLD_SPEC)
 
 
 def _iso_now() -> str:

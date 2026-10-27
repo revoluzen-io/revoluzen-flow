@@ -24,15 +24,21 @@ import logging
 import uuid as _uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from revoluzen_flow.ai.context import PageContext
 from revoluzen_flow.ai.foundation import get_provider_info
 from revoluzen_flow.ai.tools.base import ToolContext
+# Module level, not inside the handler: the router declaration below
+# references it at import time.
+from revoluzen_flow.auth.deps import current_workspace_id
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+# 2026-10-23 — posture gate; see api/ai.py. This router carries the agent's
+# action-execution endpoint, so an anonymous caller reaching it is strictly
+# worse than reaching a read.
+router = APIRouter(dependencies=[Depends(current_workspace_id)])
 
 
 # ─────────────────────────────────────────────────────────────────────

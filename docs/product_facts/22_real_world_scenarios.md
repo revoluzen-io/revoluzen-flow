@@ -291,6 +291,19 @@ the file is world-readable — fail-closed security.
 On Windows hosts with Docker Desktop, this sometimes requires
 explicit permission settings in the compose file.
 
+**On a native Windows install** the backend does NOT refuse to start —
+it tightens the key's NTFS ACL itself, at creation and at load. You will
+not see this error there. What you may see instead is **Master key
+permissions: Failed** on Settings → Security & Diagnostics, meaning the
+app tried and could not rewrite the DACL. Press **Fix this** on that
+row, or run the `icacls` command it prints (it already carries the real
+path and your SID). If both fail, you are not the file's owner — run it
+from an elevated prompt, or take ownership first:
+
+```
+takeown /f "%LOCALAPPDATA%\revoluzen-flow\secret.key"
+```
+
 ---
 
 ## 16. Product knowledge returns stale answers

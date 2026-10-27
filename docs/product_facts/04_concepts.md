@@ -38,7 +38,7 @@ A connection is a reusable handle to an external system: database (Postgres / My
 
 ## Credential
 
-A credential stores authentication material (password, API key, OAuth token, certificate). Credentials are encrypted at rest with **Fernet (AES-128-CBC + HMAC-SHA256)**. The master encryption key file lives at `~/.revoluzen-flow/secret.key` (or `$REVOLUZEN_FLOW_DATA_DIR/secret.key` if `REVOLUZEN_FLOW_DATA_DIR` is set). On POSIX it's chmod 600 and Revoluzen Flow refuses to start if the file is world-readable.
+A credential stores authentication material (password, API key, OAuth token, certificate). Credentials are encrypted at rest with **Fernet (AES-128-CBC + HMAC-SHA256)**. The master encryption key file lives at `~/.revoluzen-flow/secret.key` (or `$REVOLUZEN_FLOW_DATA_DIR/secret.key` if `REVOLUZEN_FLOW_DATA_DIR` is set). On POSIX it's chmod 600 and Revoluzen Flow refuses to start if the file is world-readable. On Windows the file's NTFS ACL is restricted to SYSTEM, Administrators and the owner — both when the key is created and, since 2026-10-26, when an existing key is loaded; if it cannot be tightened (for example the service account does not own the file) Revoluzen Flow starts anyway, logs an error, and reports the control as failed on Settings → Security & Diagnostics.
 
 Encryption is **always-on for both Free and Plus** (changed May 4 2026 — previous OSS versions stored credentials in plaintext on disk; upgrades re-encrypt on next save). Plus adds an additional path — the **Vault-Ref** pattern — where credentials live in an external vault (HashiCorp Vault, AWS Secrets Manager, etc.) and Revoluzen Flow stores only a reference. See `07_credentials.md` for the operator-level guide.
 

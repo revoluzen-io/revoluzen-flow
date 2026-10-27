@@ -50,16 +50,21 @@ jobs:
         with:
           node-version: "20"
 
+      # `npm ci`, not `npm install`: the lockfile is what we audit and what
+      # Dependabot reports on, so CI has to run exactly it.
       - name: Install
         working-directory: frontend
-        run: npm install
+        run: npm ci
 
-      - name: Install test deps
-        working-directory: frontend
-        run: |
-          npm install --no-save \
-            vitest@^2 @vitest/coverage-v8@^2 jsdom \
-            @testing-library/react @testing-library/jest-dom
+      # The "Install test deps" step that used to sit here force-installed
+      # `vitest@^2 @vitest/coverage-v8@^2 jsdom @testing-library/*` with
+      # --no-save, on top of the install above. Every one of those is already
+      # a devDependency, so the step did nothing except pin CI to a version
+      # range the repo had moved off — which is how CI kept running vitest 2
+      # (CVE-2026-47429, plus tinypool 1.x RCE advisories) after package.json
+      # said otherwise. Removed 2026-10-26; CI now tests what the lockfile
+      # actually resolves. Coverage is not run here, so @vitest/coverage-v8
+      # is not needed.
 
       - name: Run Vitest
         working-directory: frontend

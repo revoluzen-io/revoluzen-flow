@@ -18,7 +18,7 @@ from typing import Any, TYPE_CHECKING
 # Stage 2.5b: duckdb only used in type annotations (return types and
 # function signatures). Helper bodies use the `conn` argument they're
 # passed; node `execute()` methods use ctx.conn. Neither needs the
-# runtime module import — `from __future__ import annotations` makes
+# runtime module import â€” `from __future__ import annotations` makes
 # every annotation a string at runtime.
 if TYPE_CHECKING:
     import duckdb
@@ -29,7 +29,7 @@ from revoluzen_flow.nodes.registry import register
 from revoluzen_flow.nodes.guardrails import check_file_size, cap_rows
 
 
-# ── Helpers ──
+# â”€â”€ Helpers â”€â”€
 
 def _resolve_path(file_path: str, data_dir: str) -> str:
     """Resolve a READ file path: data_dir first, then project-CWD
@@ -74,13 +74,13 @@ def _rows_to_relation(conn: duckdb.DuckDBPyConnection, rows: list[dict],
         value_rows.append(f"({vals})")
 
     values_sql = ", ".join(value_rows)
-    # Name columns in the VALUES alias — DuckDB's positional auto-naming
+    # Name columns in the VALUES alias â€” DuckDB's positional auto-naming
     # shifted from `column0` to `col0` across versions, so the old
     # `column{i} AS "name"` rename raised a Binder Error on newer installs.
     quoted_cols = ", ".join(f'"{k}"' for k in all_keys)
     # Unique staging-table name per call so two same-type row-based sources
     # (e.g. two JSON Sources) in one pipeline don't clobber each other's
-    # CREATE OR REPLACE TEMP TABLE — which would otherwise make the first
+    # CREATE OR REPLACE TEMP TABLE â€” which would otherwise make the first
     # source's returned lazy relation silently read the second's data.
     import uuid as _uuid
     _tbl = f"{table_name}_{_uuid.uuid4().hex[:8]}"
@@ -88,7 +88,7 @@ def _rows_to_relation(conn: duckdb.DuckDBPyConnection, rows: list[dict],
     return conn.sql(f"SELECT * FROM {_tbl}")
 
 
-# ── JSON Source ──
+# â”€â”€ JSON Source â”€â”€
 
 @register(StepType.JSON_SOURCE)
 class JsonSourceNode(BaseNode):
@@ -123,7 +123,7 @@ class JsonSourceNode(BaseNode):
             if not isinstance(data, list):
                 data = [data]
 
-            return cap_rows(_rows_to_relation(ctx.conn, data, "__json_source"), label="JSON Source", full_run=ctx.full_run)
+            return cap_rows(_rows_to_relation(ctx.conn, data, "__json_source"), label="JSON Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
         # Use DuckDB native JSON reader
         if json_format == "records":
@@ -133,7 +133,7 @@ class JsonSourceNode(BaseNode):
         else:
             # Auto-detect: try array first, then newline-delimited
             rel = ctx.conn.read_json(file_path)
-        return cap_rows(rel, label="JSON Source", full_run=ctx.full_run)
+        return cap_rows(rel, label="JSON Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -153,7 +153,7 @@ class JsonSourceNode(BaseNode):
         ]
 
 
-# ── Parquet Source ──
+# â”€â”€ Parquet Source â”€â”€
 
 @register(StepType.PARQUET_SOURCE)
 class ParquetSourceNode(BaseNode):
@@ -167,7 +167,7 @@ class ParquetSourceNode(BaseNode):
 
         # Support glob patterns like "data/*.parquet"
         if "*" in file_path:
-            return cap_rows(ctx.conn.read_parquet(file_path), label="Parquet Source", full_run=ctx.full_run)
+            return cap_rows(ctx.conn.read_parquet(file_path), label="Parquet Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
         if not os.path.isfile(file_path):
             raise ValueError(f"Parquet Source: file not found: {file_path}")
@@ -182,9 +182,9 @@ class ParquetSourceNode(BaseNode):
             col_list = ", ".join(f'"{c}"' for c in columns)
             return cap_rows(ctx.conn.sql(
                 f"SELECT {col_list} FROM read_parquet('{file_path}')"
-            ), label="Parquet Source", full_run=ctx.full_run)
+            ), label="Parquet Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
-        return cap_rows(ctx.conn.read_parquet(file_path), label="Parquet Source", full_run=ctx.full_run)
+        return cap_rows(ctx.conn.read_parquet(file_path), label="Parquet Source", full_run=ctx.full_run, limit=getattr(ctx, "sample_row_limit", None))
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -201,7 +201,7 @@ class ParquetSourceNode(BaseNode):
         ]
 
 
-# ── Excel Source ──
+# â”€â”€ Excel Source â”€â”€
 
 @register(StepType.EXCEL_SOURCE)
 class ExcelSourceNode(BaseNode):
@@ -352,7 +352,7 @@ class ExcelSourceNode(BaseNode):
         ]
 
 
-# ── XML Source ──
+# â”€â”€ XML Source â”€â”€
 
 @register(StepType.XML_SOURCE)
 class XmlSourceNode(BaseNode):
@@ -438,7 +438,7 @@ class XmlSourceNode(BaseNode):
         ]
 
 
-# ── S3/MinIO Source ──
+# â”€â”€ S3/MinIO Source â”€â”€
 
 @register(StepType.S3_SOURCE)
 class S3SourceNode(BaseNode):
@@ -597,14 +597,14 @@ class S3SourceNode(BaseNode):
             {"name": "format", "type": "select", "label": "File Format",
              "options": ["auto", "csv", "json", "parquet"], "default": "auto",
              "description": "Auto-detects from file extension."},
-            # X3 (2026-05-30) — sync_mode declarative marker. S3 listings
+            # X3 (2026-05-30) â€” sync_mode declarative marker. S3 listings
             # support modified_after server-side via the LIST API's
-            # `--query` filter (boto3) — the operator embeds {cursor}
+            # `--query` filter (boto3) â€” the operator embeds {cursor}
             # in the `key` glob until the engine wires it natively.
             *__import__("revoluzen_flow.nodes._sync_mode_decl",
                         fromlist=["sync_mode_marker_entries"]).sync_mode_marker_entries(
                 "Embed {cursor} in the object key glob (e.g. "
-                "`raw/{cursor}/*.parquet`) — the engine substitutes "
+                "`raw/{cursor}/*.parquet`) â€” the engine substitutes "
                 "the last persisted cursor before listing. The auto-save "
                 "stamps the new high-water-mark as MAX of the listed "
                 "object keys.",
@@ -612,7 +612,7 @@ class S3SourceNode(BaseNode):
         ]
 
 
-# ── Kafka Source ──
+# â”€â”€ Kafka Source â”€â”€
 
 @register(StepType.KAFKA_SOURCE)
 class KafkaSourceNode(BaseNode):
@@ -800,13 +800,13 @@ class KafkaSourceNode(BaseNode):
         ]
 
 
-# ── FTP Source ──
+# â”€â”€ FTP Source â”€â”€
 
 @register(StepType.FTP_SOURCE)
 class FtpSourceNode(BaseNode):
     """Read files from an FTP, FTPS, or SFTP server.
 
-    FTP/FTPS use ``ftplib`` (stdlib); SFTP (SSH File Transfer Protocol — a
+    FTP/FTPS use ``ftplib`` (stdlib); SFTP (SSH File Transfer Protocol â€” a
     DIFFERENT protocol) uses ``paramiko`` (lazy-imported, with a clear install
     hint if missing). The file is downloaded to a temp path then read by the
     shared file reader, so all three protocols support csv/json/parquet/etc.
@@ -875,7 +875,7 @@ class FtpSourceNode(BaseNode):
                 import paramiko
             except ImportError as exc:
                 raise ValueError(
-                    "SFTP requires the 'paramiko' package — install it with "
+                    "SFTP requires the 'paramiko' package â€” install it with "
                     "`pip install paramiko`, then retry. (FTP/FTPS need no extra "
                     "package.)"
                 ) from exc
@@ -891,7 +891,7 @@ class FtpSourceNode(BaseNode):
                     try:
                         pkey = kcls.from_private_key(StringIO(str(private_key)))
                         break
-                    except Exception:  # noqa: BLE001 — try the next key type
+                    except Exception:  # noqa: BLE001 â€” try the next key type
                         continue
             if pkey is not None:
                 ckwargs["pkey"] = pkey
@@ -948,7 +948,7 @@ class FtpSourceNode(BaseNode):
             {"name": "username", "type": "text", "label": "Username", "default": "anonymous"},
             {"name": "password", "type": "password", "label": "Password"},
             {"name": "private_key", "type": "password", "label": "Private Key (SFTP, optional)",
-             "description": "PEM private key for SFTP key-based auth — alternative to password."},
+             "description": "PEM private key for SFTP key-based auth â€” alternative to password."},
             {"name": "remote_path", "type": "text", "label": "Remote File Path", "required": True,
              "placeholder": "/data/exports/report.csv"},
             {"name": "format", "type": "select", "label": "File Format",
@@ -956,7 +956,7 @@ class FtpSourceNode(BaseNode):
         ]
 
 
-# ── Google Sheets Source ──
+# â”€â”€ Google Sheets Source â”€â”€
 
 @register(StepType.GSHEET_SOURCE)
 class GSheetSourceNode(BaseNode):
@@ -1015,7 +1015,7 @@ class GSheetSourceNode(BaseNode):
                     tmp.write(resp.read())
             except urllib.error.HTTPError as exc:
                 raise ValueError(
-                    f"Google Sheets Source: HTTP {exc.code} — "
+                    f"Google Sheets Source: HTTP {exc.code} â€” "
                     f"the sheet may not be publicly shared."
                 ) from exc
             except urllib.error.URLError as exc:
@@ -1047,7 +1047,7 @@ class GSheetSourceNode(BaseNode):
              "description": "Alternative: just the sheet ID from the URL."},
             {"name": "gid", "type": "text", "label": "Tab GID", "default": "0",
              "description": "Sheet tab ID (0 = first tab). Found in the URL as gid=..."},
-            # X3 (2026-05-30) — declarative sync_mode marker. Google
+            # X3 (2026-05-30) â€” declarative sync_mode marker. Google
             # Sheets is append-only in most ops use; the cursor is
             # typically a row-id or last-edited timestamp column the
             # operator filters on post-fetch via a downstream Filter
@@ -1063,7 +1063,7 @@ class GSheetSourceNode(BaseNode):
         ]
 
 
-# ── Delta Lake Source ──
+# â”€â”€ Delta Lake Source â”€â”€
 
 @register(StepType.DELTA_SOURCE)
 class DeltaSourceNode(BaseNode):

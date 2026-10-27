@@ -810,7 +810,7 @@ async def submit_project_for_approval(
         for recipient in recipients:
             import uuid as _uuid
             nid = _uuid.uuid4().hex[:12]
-            db.execute_with_retry(
+            db.execute_write_with_retry(
                 """INSERT INTO approval_notifications
                    (id, workflow_id, workflow_name, recipient_id, sender_id,
                     action, message, card_data, read, created_at, workspace_id)
@@ -862,7 +862,7 @@ async def approve_project(
         if project.submitted_by:
             import uuid as _uuid
             nid = _uuid.uuid4().hex[:12]
-            db.execute_with_retry(
+            db.execute_write_with_retry(
                 """INSERT INTO approval_notifications
                    (id, workflow_id, workflow_name, recipient_id, sender_id,
                     action, message, card_data, read, created_at, workspace_id)
@@ -909,7 +909,7 @@ async def reject_project(
             import uuid as _uuid
             nid = _uuid.uuid4().hex[:12]
             now = datetime.now(timezone.utc).isoformat()
-            db.execute_with_retry(
+            db.execute_write_with_retry(
                 """INSERT INTO approval_notifications
                    (id, workflow_id, workflow_name, recipient_id, sender_id,
                     action, message, card_data, read, created_at, workspace_id)

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+﻿import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { api } from '../api/client';
 import { toast } from './Toast';
@@ -104,15 +104,29 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close menu on outside click
+  // Close menu on outside click or Escape.
+  //
+  // CAPTURE phase, for the same reason as the node context menu: this
+  // toolbar sits directly above the React Flow canvas, and React Flow's
+  // pane runs d3-drag, which calls stopImmediatePropagation on mousedown.
+  // A bubble-phase document listener therefore never sees a click on the
+  // canvas — the single most natural way to dismiss this menu — so it
+  // stayed open over the pipeline (measured, not assumed).
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setShowMenu(false);
       }
     };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowMenu(false);
+    };
+    document.addEventListener('mousedown', handleClick, true);
+    document.addEventListener('keydown', handleKey, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClick, true);
+      document.removeEventListener('keydown', handleKey, true);
+    };
   }, []);
 
   const handleExport = async () => {
@@ -641,49 +655,44 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     // 1024px). Below xl the side tracks size to content (minmax(0,…)
     // keeps the title truncatable) and the tabs center in the leftover
     // middle; at xl+ the original page-centered layout returns.
-    <div ref={toolbarRef} data-testid="editor-toolbar" className={`editor-toolbar min-h-[78px] flex flex-wrap items-center px-4 py-3 gap-x-4 gap-y-2 shrink-0 shadow-sm relative z-40 border-b ${dark ? 'bg-[#0f1726] border-white/[0.06]' : 'bg-gradient-to-b from-slate-200 to-slate-300 border-slate-400/70'}`}>
-      {/* LEFT group — page title + subtitle (vertically stacked, same
-          pattern Insights / Settings use). Inner flex is `items-center`
-          to match <PageHeader>'s title cluster so the title + subtitle
-          sit at the same vertical position as the sibling Workflows
-          pages. (Project picker + Workflow Name live in
-          <EditorContextBar /> now, so there's no second baseline row to
-          align here anymore.) */}
-      <div className="min-w-0 flex items-center gap-3">
-        <div className="shrink-0">
-          <h1 className={`text-xl font-bold flex items-center gap-2 ${dark ? 'text-white' : 'text-slate-800'}`}>
-            {/*
-              2026-05-22 — switched from the AI sparks / lightning-bolt
-              polygon to a pencil glyph. The canonical icon table
-              (memory rule `feedback_revoluzen_flow_icon_consistency.md`,
-              2026-05-12) says Editor = pencil; the lightning bolt is
-              the AI / sparks symbol and was misleading the user into
-              reading the Editor page header as "AI-powered Editor"
-              rather than "the page where you edit pipelines." Every
-              other AI / sparkle affordance on this app remains a
-              lightning bolt — only the Editor's page-title glyph
-              changed.
-            */}
-            {/* 2026-05-22 — icon tint changed from `text-pulse-500`
-                (brand orange) to `text-blue-500` to match the rest
-                of the page-header palette (Dashboard / Executions /
-                Help / Pipelines). Brand-orange is reserved for the
-                sidebar logo + login mark; per-page H1 icons follow
-                the cool-tone palette so no single page screams. */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-blue-500">
-              <path d="M12 20h9" />
-              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-            </svg>
-            {surfaceCopy.title}
-            <TierChip tier={tier} environment={environment} />
-          </h1>
-          <p className={`text-xs mt-0.5 truncate ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-            {surfaceCopy.subtitle}
-          </p>
-        </div>
+    <div ref={toolbarRef} data-testid="editor-toolbar" className={`editor-toolbar min-h-[56px] flex flex-wrap items-center px-4 py-3 gap-x-4 gap-y-2 shrink-0 shadow-sm relative z-40 border-b ${dark ? 'bg-[#0f1726] border-white/[0.06]' : 'bg-gradient-to-b from-slate-200 to-slate-300 border-slate-400/70'}`}>
+      {/* LEFT group — title only.
+          2026-10-25 this slot was emptied: the title AND subtitle
+          ("Editor / Build, test, and deploy pipelines visually") sat on
+          a page whose nav tab was already highlighted and whose sub-tab
+          already read Editor, next to a DEV chip duplicating the
+          DEV/PROD switch directly above — one fact stated three times,
+          holding a 78px band open.
 
+          Emptying it went too far the other way. Every sibling page
+          (Pipelines, Executions, Templates) carries a title here, so a
+          blank left third reads as a failed render rather than as
+          restraint — it was reported as "Editor page header is
+          missing?". Restored 2026-10-27 as the title alone: no
+          subtitle, no DEV chip. That keeps the visual anchor and the
+          page-to-page consistency while leaving the redundancy out.
+
+          `flex-1 basis-0 min-w-0` is load-bearing and must stay. The
+          tabs are centred by the two side groups balancing each other,
+          and `visual-layout.spec` asserts the tab group's midpoint is
+          within 1px of the row's at six widths. The title is narrow
+          enough (~90px) to sit inside the track this gets, so it does
+          not reintroduce the wrap that pushed the pipeline-name ribbon
+          back out of this slot — that needed ~1590px of row content
+          against the ~1536px available at a 1600px window. */}
+      <div className="flex-1 basis-0 min-w-0 flex items-center gap-2">
+        <svg
+          width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          className="text-blue-500 shrink-0"
+        >
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+        <h1 className={`text-base font-bold truncate ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
+          {surfaceCopy.title}
+        </h1>
       </div>
-
       {/* Workflows submenu — sibling tabs centered at the true page
           midpoint via the auto-width middle grid column. */}
       <div className="editor-toolbar-tabs flex flex-wrap items-center min-w-0">
@@ -700,7 +709,21 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
           Variables / Parameters / Close / Save / Run / Publish
           actions. Wrapped in a 1fr grid column matching the LEFT
           width so the centre column stays page-centered. */}
-      <div className="editor-toolbar-actions flex flex-wrap justify-end items-center gap-2 min-w-0 ml-auto">
+      {/* `flex-1 basis-0` mirrors the spacer on the left so the tab
+          group stays centred on the row. `ml-auto` used to do this job
+          by shoving the actions right, but that only centres the tabs
+          when the LEFT side happens to be the same width as this one —
+          it was coincidence, and it broke the moment the left content
+          changed. */}
+      {/* `min-w-max` is what stops the actions wrapping internally.
+          Both side groups are `flex-1 basis-0` so the tabs sit on the
+          row's true midpoint, but an equal split gave this group half
+          the row — 340px for 374px of buttons — and Publish fell to a
+          second line while the opposite spacer sat empty at the same
+          340px. With a max-content floor this group keeps its natural
+          width, the spacer takes whatever is left, and the row wraps as
+          a whole rather than breaking up the controls. */}
+      <div className="editor-toolbar-actions flex flex-nowrap justify-end items-center gap-2 min-w-max flex-1 basis-0">
 
       {/* Save indicator was here — moved to <EditorContextBar /> so it
           sits next to the Pipeline Name where users look for save
@@ -712,14 +735,19 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
           nav row; the editor-context ribbon sits below that row and
           has plenty of horizontal space next to the Save indicator. */}
 
-      {/* Spacer — push actions to right */}
-      <div className="flex-1" />
+      {/* The "push actions right" spacer that used to sit here is gone.
+          This group is `justify-end` and, since the page title was
+          removed, `flex-1 basis-0` — so it already occupies the right
+          half of the row and aligns its contents to the end. The extra
+          spacer pushed the buttons to the far edge of that half and
+          left a large empty gap to their left, which read as a
+          mis-placed toolbar rather than as alignment. */}
 
       {/* RIGHT group — File menu (Save/Export/Import) */}
       <div ref={menuRef} className="relative">
         <button
           onClick={() => setShowMenu(!showMenu)}
-          className={`p-1.5 rounded-lg transition-colors ${dark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+          className={`p-1.5 rounded-lg transition-colors ${dark ? 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]' : 'text-slate-500 hover:text-slate-600 hover:bg-slate-100'}`}
           title="Pipeline actions"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -861,7 +889,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         </svg>
         <span className="hidden xl:inline">Parameters</span>
         {pipelineParameters.length > 0 && (
-          <span className="text-[9px] bg-emerald-200 text-emerald-700 px-1 py-0.5 rounded font-bold">
+          <span className="text-[10px] bg-emerald-200 text-emerald-700 px-1 py-0.5 rounded font-bold">
             {pipelineParameters.length}
           </span>
         )}
@@ -1034,14 +1062,26 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
           }
         }}
         disabled={isRunning}
-        className="px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 shadow-sm disabled:opacity-50"
+        // 2026-10-25 — was a filled amber→orange gradient, which made it
+        // compete with Run for "the thing to press". The editor has one
+        // primary action and it is Run: publishing is the deliberate
+        // step you take afterwards, not the one you came here for.
+        // Outlined in the same amber so it stays findable and still
+        // reads as the lifecycle action, without a second filled button
+        // on the row. Run is now the only filled control in the editor.
+        className="px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 hover:border-amber-400 shadow-sm disabled:opacity-50"
         title="Validate, test end-to-end, and publish"
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 2L11 13" />
           <polygon points="22 2 15 22 11 13 2 9 22 2" />
         </svg>
-        Publish
+        {/* Collapses to the icon below xl, like Parameters, Close and
+            Save beside it. Publish was the only action still carrying
+            its label at every width, so it was the one that could not
+            fit and wrapped onto a second line on its own — the row was
+            about 60px too wide and this word is 60px. */}
+        <span className="hidden xl:inline">Publish</span>
       </button>
       )}
 

@@ -171,7 +171,7 @@ const palette = {
     accent: 'text-blue-600',
     accentBg: 'bg-blue-600 hover:bg-blue-700',
     greetingBg: 'bg-white border-slate-200',
-    ok: 'text-emerald-600',  okBg: 'bg-emerald-500',
+    ok: 'text-emerald-700',  okBg: 'bg-emerald-500',
     warn: 'text-amber-600',  warnBg: 'bg-amber-500',
     bad: 'text-red-600',     badBg: 'bg-red-500',
   },
@@ -187,7 +187,7 @@ const palette = {
     // the old slate-900 treatment. Matches the light canvas underneath
     // and keeps the greeting welcoming rather than somber.
     greetingBg: 'bg-white border-slate-200',
-    ok: 'text-emerald-600',  okBg: 'bg-emerald-500',
+    ok: 'text-emerald-700',  okBg: 'bg-emerald-500',
     warn: 'text-amber-600',  warnBg: 'bg-amber-500',
     bad: 'text-red-600',     badBg: 'bg-red-500',
   },
@@ -246,7 +246,7 @@ function HeroKPI({
   // text for crisp readability; PROD (richer 500-600 gradients) keeps
   // white for contrast — black on PROD's darker emerald/red would muddy.
   // Card standard: neutral white surface — colour lives only on the value.
-  const tone = trend?.tone === 'ok' ? 'text-emerald-600' : trend?.tone === 'bad' ? 'text-rose-600' : 'text-slate-500';
+  const tone = trend?.tone === 'ok' ? 'text-emerald-700' : trend?.tone === 'bad' ? 'text-rose-600' : 'text-slate-500';
   const hasSpark = sparkline && sparkline.length > 0 && sparkline.some(v => v > 0);
   // Shift shades one step lighter for DEV. Done via regex on the gradient
   // string so callers don't have to maintain two parallel palettes.
@@ -263,7 +263,7 @@ function HeroKPI({
   // onto the VALUE (and its sparkline), never a background fill. Derive the
   // value's text colour + sparkline hex from the caller's gradient family.
   const accentText =
-    finalGradient.includes('emerald') ? 'text-emerald-600' :
+    finalGradient.includes('emerald') ? 'text-emerald-700' :
     finalGradient.includes('rose') || finalGradient.includes('red') ? 'text-rose-600' :
     finalGradient.includes('amber') || finalGradient.includes('orange') ? 'text-amber-600' :
     finalGradient.includes('indigo') || finalGradient.includes('blue') ? 'text-blue-600' :
@@ -295,7 +295,7 @@ function HeroKPI({
       <div className="relative text-xs font-bold uppercase tracking-wide text-center text-slate-500">{label}</div>
       <div className="relative mt-0.5 flex items-baseline justify-center gap-1.5">
         <span className={`text-2xl font-extrabold tabular-nums leading-none ${accentText}`}>{value}</span>
-        {suffix && <span className="text-sm font-semibold text-slate-400">{suffix}</span>}
+        {suffix && <span className="text-sm font-semibold text-slate-500">{suffix}</span>}
       </div>
       {trend && (
         <div className={`relative mt-1 text-xs font-semibold text-center ${tone}`}>
@@ -524,7 +524,7 @@ function MetricStrip({
             const valueClass =
               m.alert === 'red'   ? 'text-red-700' :
               m.alert === 'amber' ? 'text-amber-700' :
-              m.muted             ? 'text-slate-400' :
+              m.muted             ? 'text-slate-500' :
                                     'text-slate-800';
             return (
               <Cmp
@@ -534,16 +534,16 @@ function MetricStrip({
                 className={`min-h-9 rounded-md px-2.5 py-1.5 flex items-baseline justify-between gap-3 text-left transition-colors ${m.onClick ? 'hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer' : 'cursor-default'}`}
                 title={m.onClick ? `Open ${m.label}` : m.label}
               >
-                <span className={`text-[12px] leading-none truncate ${m.muted ? 'text-slate-400' : 'text-slate-500'}`}>{m.label}</span>
+                <span className={`text-[12px] leading-none truncate ${m.muted ? 'text-slate-500' : 'text-slate-500'}`}>{m.label}</span>
                 <span className={`text-base font-bold tabular-nums leading-none whitespace-nowrap shrink-0 ${valueClass}`}>
                   {m.value}
-                  {m.suffix ? <span className="text-[11px] font-semibold text-slate-400 ml-1">{m.suffix}</span> : null}
+                  {m.suffix ? <span className="text-[11px] font-semibold text-slate-500 ml-1">{m.suffix}</span> : null}
                 </span>
               </Cmp>
             );
           })}
           {visible.length === 0 && (
-            <span className="px-2.5 py-2 text-xs italic text-slate-400">No data yet</span>
+            <span className="px-2.5 py-2 text-xs italic text-slate-500">No data yet</span>
           )}
       </div>
     </div>
@@ -623,7 +623,7 @@ function OverviewMetric({
   const valueClass =
     alert === 'red'   ? 'text-red-700' :
     alert === 'amber' ? 'text-amber-700' :
-    muted             ? 'text-slate-400' :
+    muted             ? 'text-slate-500' :
                         'text-slate-900';
   return (
     <Cmp
@@ -636,7 +636,7 @@ function OverviewMetric({
       <div className="text-[11px] font-medium text-slate-500 leading-none">{label}</div>
       <div className={`mt-1 text-sm font-bold tabular-nums leading-none ${valueClass}`}>
         {value}
-        {suffix ? <span className="ml-1 text-[11px] font-semibold text-slate-400">{suffix}</span> : null}
+        {suffix ? <span className="ml-1 text-[11px] font-semibold text-slate-500">{suffix}</span> : null}
       </div>
     </Cmp>
   );
@@ -669,7 +669,9 @@ function StatusDonut({ segments, centerTop, centerBottom, ariaLabel }: {
           return el;
         })}
         <text x="50" y="46" textAnchor="middle" dominantBaseline="central" className="fill-slate-800 font-extrabold" fontSize="18">{centerTop}</text>
-        <text x="50" y="62" textAnchor="middle" dominantBaseline="central" className="fill-slate-500 font-semibold" fontSize="8">{centerBottom}</text>
+        {/* fontSize 10, not 8 — this is the donut's only caption and 8px
+            was the smallest type anywhere in the app. */}
+        <text x="50" y="62" textAnchor="middle" dominantBaseline="central" className="fill-slate-500 font-semibold" fontSize="10">{centerBottom}</text>
       </svg>
       <div className="space-y-1 text-sm">
         {segments.map((s, i) => (
@@ -1237,6 +1239,12 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // Pool + system also have summary equivalents.
   const summaryPoolOk = summary?.pool?.status === 'loaded';
   const pool = (summaryPoolOk ? summary.pool.data : stats?.pool) || {};
+  // `capped: false` means no concurrency limit is configured, so the
+  // backend sends a null utilization instead of dividing by a CPU-count
+  // guess. Coercing that to 0 would read as "pool idle" while runs are
+  // in flight. A missing field is treated as capped, so payloads that
+  // don't carry it behave exactly as before.
+  const poolCapped = pool.capped !== false;
   const poolUtil = Math.round(pool.utilization_pct ?? 0);
   const queueDepth = pool.queue_depth ?? 0;
   const throughput = Math.round(pool.throughput_per_hour ?? 0);
@@ -1397,7 +1405,9 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                         : 'bg-indigo-600 text-white shadow-sm'
                       : isProd
                         ? 'text-slate-400 hover:text-slate-200'
-                        : 'text-slate-500 hover:text-slate-700'
+                        // slate-600 on the slate-100 track: slate-500 is
+                        // 4.34:1 there, slate-600 is 6.92:1.
+                        : 'text-slate-600 hover:text-slate-800'
                   }`}
                 >
                   {h === 24 ? '24h' : h === 168 ? '7d' : '30d'}
@@ -1431,13 +1441,13 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
               </div>
               <div className="mt-0.5 text-sm font-medium text-slate-600">
                 {formatDateLong(userTz)}
-                <span className="text-slate-400 mx-1.5">·</span>
+                <span className="text-slate-500 mx-1.5">·</span>
                 <span className="tabular-nums">{formatClock(userTz)}</span>
                 <span ref={tzMenuRef} className="relative inline-block ml-1.5">
                   <button
                     type="button"
                     onClick={() => setTzMenuOpen((o) => !o)}
-                    className="inline-flex items-center gap-0.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+                    className="tap-24 inline-flex items-center gap-0.5 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
                     title="Click to change dashboard timezone"
                   >
                     {formatTimezoneAbbr(userTz)}
@@ -1473,7 +1483,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                     );
                   })()}
                 </span>
-                <span className="text-slate-400 mx-1.5">·</span>
+                <span className="text-slate-500 mx-1.5">·</span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className={`inline-block w-2 h-2 rounded-full ${toneDot} ${headline.tone === 'ok' ? 'animate-pulse' : ''}`} />
                   <span className={toneClass}>{headline.text}</span>
@@ -1498,7 +1508,8 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           const failedListFull = visibleFailedPipelines;
           const failedList = failedListFull.slice(0, 3);
           const failedHiddenCount = Math.max(0, failedListFull.length - failedList.length);
-          const showPoolWarning = poolUtil >= 85;
+          // Uncapped: there is no capacity to be "at 85% of", so no warning.
+  const showPoolWarning = poolCapped && poolUtil >= 85;
           const showApprovals = isProd && isAdmin && approvalsPending > 0;
           const show = failedList.length > 0 || showPoolWarning || showApprovals;
           if (!show) return null;
@@ -1620,7 +1631,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                         onClick={() => dismissFailure(f)}
                         aria-label="Clear this failure"
                         title="Clear — acknowledge and hide. Reappears if it fails again; clears for good once it runs clean."
-                        className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-700 hover:bg-amber-100 transition-colors"
+                        className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-500 hover:text-slate-700 hover:bg-amber-100 transition-colors"
                       >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <line x1="18" y1="6" x2="6" y2="18" />
@@ -1760,7 +1771,21 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
               <FlatKPI variant="striped" label="Deployed"   icon={kpiIcons.pipelines} value={stats?.pipelines ?? 0} accent="blue"    onClick={() => onNavigate('pipelines')}   hint="pipelines live" />
               <FlatKPI label="Running now" icon={kpiIcons.throughput} value={running}              accent={running > 0 ? 'cyan' : 'slate'}    onClick={() => onNavigate('executions')} hint="executions in flight" />
               <FlatKPI label="Queue depth" icon={kpiIcons.schedule} value={queueDepth}             accent={queueDepth > 0 ? 'amber' : 'slate'}   onClick={() => onNavigate('pool')}        hint="waiting to start" />
-              <FlatKPI label="Pool util"  icon={kpiIcons.cpu} value={poolUtil} suffix="%"          accent={poolUtil > 85 ? 'red' : poolUtil > 60 ? 'amber' : 'emerald'} onClick={() => onNavigate('pool')} hint={pool.busy_workers != null ? `${pool.busy_workers}/${pool.total_workers} workers` : 'workers'} />
+              <FlatKPI
+              label={poolCapped ? 'Pool util' : 'Running'}
+              icon={kpiIcons.cpu}
+              value={poolCapped ? poolUtil : (pool.busy_workers ?? 0)}
+              suffix={poolCapped ? '%' : ''}
+              accent={!poolCapped ? 'slate' : poolUtil > 85 ? 'red' : poolUtil > 60 ? 'amber' : 'emerald'}
+              onClick={() => onNavigate('pool')}
+              hint={
+                !poolCapped
+                  ? 'no concurrency limit'
+                  : pool.busy_workers != null
+                    ? `${pool.busy_workers}/${pool.total_workers} workers`
+                    : 'workers'
+              }
+            />
               <FlatKPI variant="striped" label="Schedules"  icon={kpiIcons.schedule} value={stats?.schedules ?? 0}   accent="violet"  onClick={() => onNavigate('pipelines')}   hint={`${stats?.activeSchedules.length || 0} active`} />
               <FlatKPI variant="striped" label="Connections" icon={kpiIcons.connection} value={stats?.connections ?? 0} accent="slate" onClick={() => onNavigate('connections')} hint="saved endpoints" />
             </div>
@@ -2257,7 +2282,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 sub: `Submitted ${formatTimeAgo(a.submitted_at || a.created_at)}`,
                 onClick: () => onNavigate('approvals'),
               }))}
-              footer={<button onClick={() => onNavigate('approvals')} className={`text-sm font-semibold ${p.accent} hover:underline`}>Review all →</button>}
+              footer={<button onClick={() => onNavigate('approvals')} className={`tap-24 text-sm font-semibold ${p.accent} hover:underline`}>Review all →</button>}
             />
           ) : (
             <FeedColumn
@@ -2275,7 +2300,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   onClick: () => onNavigate('executions'),
                 };
               })}
-              footer={<button onClick={() => onNavigate('executions')} className={`text-sm font-semibold ${p.accent} hover:underline`}>View all →</button>}
+              footer={<button onClick={() => onNavigate('executions')} className={`tap-24 text-sm font-semibold ${p.accent} hover:underline`}>View all →</button>}
             />
           )}
 
@@ -2294,7 +2319,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   onClick: () => onNavigate('executions'),
                 };
               })}
-              footer={<button onClick={() => onNavigate('executions')} className={`text-sm font-semibold ${p.accent} hover:underline`}>Monitor →</button>}
+              footer={<button onClick={() => onNavigate('executions')} className={`tap-24 text-sm font-semibold ${p.accent} hover:underline`}>Monitor →</button>}
             />
           ) : (
             <FeedColumn
@@ -2308,7 +2333,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 sub: s.cron || s.schedule || 'Recurring',
                 onClick: () => onNavigate('pipelines'),
               }))}
-              footer={<button onClick={() => onNavigate('pipelines')} className={`text-sm font-semibold ${p.accent} hover:underline`}>Manage →</button>}
+              footer={<button onClick={() => onNavigate('pipelines')} className={`tap-24 text-sm font-semibold ${p.accent} hover:underline`}>Manage →</button>}
             />
           )}
         </section>
@@ -2344,7 +2369,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           <button
             onClick={dismissProdCard}
             aria-label="Dismiss the Revoluzen Flow Enterprise info card"
-            className="absolute top-3 right-3 w-7 h-7 rounded-md text-slate-400 hover:text-slate-600 hover:bg-amber-100 transition-colors flex items-center justify-center"
+            className="absolute top-3 right-3 w-7 h-7 rounded-md text-slate-500 hover:text-slate-600 hover:bg-amber-100 transition-colors flex items-center justify-center"
             title="Dismiss"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -2362,7 +2387,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
 
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-lg font-bold text-slate-900">Running Revoluzen Flow in a team?</h3>
+                  <h2 className="text-lg font-bold text-slate-900">Running Revoluzen Flow in a team?</h2>
                 </div>
                 <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
                   Revoluzen Flow Enterprise is a paid extension built on top of this open-source core.
@@ -2440,7 +2465,7 @@ function FeedColumn({
           canvases. Dark headers (previous design) were too heavy for a
           light canvas. */}
       <div className="px-4 py-2.5 border-b border-slate-300 flex items-center justify-between bg-gradient-to-b from-slate-100 to-slate-200">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{title}</h3>
+        <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{title}</h2>
         {count !== undefined && count > 0 && (
           <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillCls}`}>{count}</span>
         )}
@@ -2459,7 +2484,7 @@ function FeedColumn({
             {emptyCta && (
               <button
                 onClick={emptyCta.onClick}
-                className="text-xs font-semibold text-amber-600 hover:text-amber-700 hover:underline shrink-0"
+                className="tap-24 text-xs font-semibold text-amber-700 hover:text-amber-800 hover:underline shrink-0"
               >
                 {emptyCta.label}
               </button>

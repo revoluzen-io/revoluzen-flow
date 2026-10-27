@@ -58,17 +58,28 @@ def _origin_host(value: str) -> str | None:
 
 
 def _is_local_request(request: Request) -> bool:
-    """True iff the TCP peer for this request is a loopback address.
+    """True iff the caller is genuinely on this machine.
 
-    Honours forwarded-for headers only when the immediate peer is
-    loopback (i.e. behind a trusted local reverse proxy). On a Plus
-    server install behind a real LB, `_is_local_request` returning
-    False is correct — these defenses are intentionally OSS-only.
+    2026-10-23: this used to compare ``request.client.host`` against the
+    loopback set and nothing else, while its docstring claimed it honoured
+    forwarded headers "only when the immediate peer is loopback". The code
+    never did, and the gap mattered: with a reverse proxy on the same host
+    — nginx, Traefik, a sidecar, the normal self-hosted shape — EVERY
+    request arrives from 127.0.0.1. That made the loopback-only guard on
+    ``POST /api/system/shutdown`` vacuous, i.e. a remote unauthenticated
+    shutdown for anyone who could reach the proxy.
+
+    ``is_loopback_client`` closes it: a request relayed by a declared
+    trusted proxy (``REVOLUZEN_FLOW_TRUSTED_PROXIES``) is never local,
+    whatever the socket says. With no trusted proxies configured — the
+    default — it reduces to exactly the old peer check, so a plain
+    loopback install is unaffected.
     """
-    client = request.client
-    if client is None:
+    from revoluzen_flow.common.client_ip import is_loopback_client
+
+    if request.client is None:
         return False
-    return client.host in {"127.0.0.1", "::1"}
+    return is_loopback_client(request)
 
 
 def _backend_bound_loopback_only() -> bool:

@@ -368,7 +368,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                 type="button"
                 onClick={() => toggleKind(k)}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-md ring-1 transition-colors ${
-                  active ? KIND_TONES[k] : (dark ? 'bg-transparent text-slate-500 ring-white/[0.08]' : 'bg-white text-slate-400 ring-slate-200')
+                  active ? KIND_TONES[k] : (dark ? 'bg-transparent text-slate-500 ring-white/[0.08]' : 'bg-white text-slate-500 ring-slate-200')
                 }`}
               >
                 {KIND_LABELS[k]}
@@ -391,7 +391,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                 className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md ring-1 transition-colors ${
                   active
                     ? (dark ? 'bg-white/[0.06] text-slate-200 ring-white/[0.1]' : 'bg-white text-slate-700 ring-slate-300')
-                    : (dark ? 'text-slate-500 ring-white/[0.05]' : 'text-slate-400 ring-slate-200')
+                    : (dark ? 'text-slate-500 ring-white/[0.05]' : 'text-slate-500 ring-slate-200')
                 }`}
               >
                 <span className={`inline-block w-2 h-2 rounded-full ${SEVERITY_DOT_LIGHT[s]}`} />
@@ -413,7 +413,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
               className={`px-2 py-1 text-xs rounded-md ring-1 outline-none focus:ring-2 w-56 ${
                 dark
                   ? 'bg-white/[0.04] text-slate-200 ring-white/[0.08] focus:ring-amber-400/60 placeholder:text-slate-500'
-                  : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-400'
+                  : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-500'
               }`}
             />
             {searchTerm && (
@@ -537,7 +537,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                             const d = ev.details as { model?: string; provider?: string } | undefined;
                             const label = d?.model || d?.provider;
                             if (!label) {
-                              return <span className={dark ? 'text-slate-600' : 'text-slate-400'}>—</span>;
+                              return <span className={dark ? 'text-slate-600' : 'text-slate-500'}>—</span>;
                             }
                             const title = d?.model && d?.provider ? `${d.provider} · ${d.model}` : label;
                             return (
@@ -560,7 +560,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                             const ti = Number(d?.tokens_in || 0);
                             const to = Number(d?.tokens_out || 0);
                             if (!total && !ti && !to) {
-                              return <span className={dark ? 'text-slate-600' : 'text-slate-400'}>—</span>;
+                              return <span className={dark ? 'text-slate-600' : 'text-slate-500'}>—</span>;
                             }
                             return (
                               <div className="leading-tight">
@@ -576,7 +576,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                         </td>
                         <td className={`px-3 py-2 text-xs tabular-nums ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
                           <div>{fmtRelative(ev.timestamp)}</div>
-                          <div className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-400'}`}>{fmtTime(ev.timestamp)}</div>
+                          <div className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-500'}`}>{fmtTime(ev.timestamp)}</div>
                         </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1.5">
@@ -625,9 +625,9 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                                   {trace.steps.map((st) => (
                                     <div key={st.step_id} className="px-2 py-1.5 flex items-center gap-2 flex-wrap">
                                       <code className={`font-mono text-xs ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>{st.tool_name}</code>
-                                      <span className={`text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${st.tool_tier === 'read' ? (dark ? 'bg-slate-700/40 text-slate-300' : 'bg-slate-100 text-slate-600') : (dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')}`}>{st.tool_tier}</span>
+                                      <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${st.tool_tier === 'read' ? (dark ? 'bg-slate-700/40 text-slate-300' : 'bg-slate-100 text-slate-600') : (dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')}`}>{st.tool_tier}</span>
                                       <span className={`text-xs font-semibold ${st.outcome === 'success' ? (dark ? 'text-emerald-300' : 'text-emerald-700') : (dark ? 'text-red-300' : 'text-red-600')}`}>{st.outcome}</span>
-                                      <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-400'}`}>{st.latency_ms}ms</span>
+                                      <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{st.latency_ms}ms</span>
                                       {st.policy_rules_fired && st.policy_rules_fired.length > 0 && (
                                         <span className={`text-xs ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
                                           policy: {st.policy_rules_fired.join(', ')}
@@ -666,7 +666,7 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
         </div>
 
         {data && (
-          <div className={`text-center text-xs pt-2 ${dark ? 'text-slate-600' : 'text-slate-400'}`}>
+          <div className={`text-center text-xs pt-2 ${dark ? 'text-slate-600' : 'text-slate-500'}`}>
             {filtered.length} of {data.count} events shown · workspace-scoped · last 7 days by default
           </div>
         )}

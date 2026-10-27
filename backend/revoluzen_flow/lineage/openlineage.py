@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # at time of writing and is accepted by every active Marquez / DataHub.
 # Pin in module so the format string flows through every export.
 OPENLINEAGE_SCHEMA_URL = "https://openlineage.io/spec/1-0-5/OpenLineage.json"
-OPENLINEAGE_PRODUCER_DEFAULT = "https://github.com/revoluzen-data-systems/revoluzen-flow"
+OPENLINEAGE_PRODUCER_DEFAULT = "https://github.com/revoluzen-io/revoluzen-flow"
 OPENLINEAGE_NAMESPACE_DEFAULT = "revoluzen-flow"
 
 

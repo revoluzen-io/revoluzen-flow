@@ -148,9 +148,16 @@ class FileSourceNode(BaseNode):
 
         rel = self._read_by_format(ctx, file_path, fmt, encoding)
 
-        # Dev sample limit
+        # Dev sample limit. A Sample run's explicit cap wins over this
+        # node's default so every source reads the same number of rows;
+        # an operator-set `sample_rows` still wins over both.
         if not ctx.full_run:
-            limit = int(self.params.get("sample_rows", DEV_SAMPLE_ROWS))
+            preview_cap = getattr(ctx, "sample_row_limit", None)
+            limit = int(
+                self.params.get("sample_rows")
+                if self.params.get("sample_rows") is not None
+                else (preview_cap if preview_cap else DEV_SAMPLE_ROWS)
+            )
             if limit > 0:
                 file_src_sample = ctx.register_scoped("__file_src_sample", rel)
                 rel = ctx.conn.sql(f"SELECT * FROM {file_src_sample} LIMIT {limit}")

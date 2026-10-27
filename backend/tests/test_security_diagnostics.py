@@ -23,11 +23,45 @@ def test_provider_tuple_and_scope_do_not_expose_secrets(monkeypatch):
     assert trust._provider_status()['status'] == 'failed'
 
 
-def test_unmeasured_security_controls_have_no_verification_timestamp():
-    for row in trust._security_baseline():
-        assert row['status'] == 'not_checked'
-        assert row['checked_at'] is None
-        assert row['evidence'] is None
+def test_a_controls_status_matches_whether_it_was_actually_measured():
+    """The honesty invariant: status and evidence must agree.
+
+    This used to assert every row was `not_checked` with no timestamp,
+    which was correct while the baseline was entirely hard-coded. Three
+    of those controls now run a real check (credential encryption,
+    master-key permissions, audit retention), so a blanket
+    `not_checked` assertion just pinned the old placeholder behaviour
+    and went red the moment the checks started working.
+
+    What still has to hold is the thing the original test was guarding:
+    a control may only carry a timestamp and evidence if something
+    actually looked, and a control that looked must say when.
+    """
+    rows = trust._security_baseline()
+    assert rows, 'the baseline should never be empty'
+
+    for row in rows:
+        if row['status'] == 'not_checked':
+            assert row['checked_at'] is None, (
+                f"{row['key']} claims a verification time but was never checked"
+            )
+            assert row['evidence'] is None, (
+                f"{row['key']} cites evidence but was never checked"
+            )
+        else:
+            assert row['status'] in {'verified', 'failed'}, row['status']
+            assert row['checked_at'], f"{row['key']} was measured but has no timestamp"
+            assert row['evidence'], f"{row['key']} was measured but cites no evidence"
+
+
+def test_the_baseline_still_admits_what_it_cannot_measure():
+    """The page must not drift into claiming everything is verified."""
+    rows = trust._security_baseline()
+    unchecked = [r for r in rows if r['status'] == 'not_checked']
+    assert unchecked, (
+        'every control reports as measured — either the baseline grew real '
+        'checks for all of them, or something is overclaiming'
+    )
 
 
 def test_telemetry_read_distinguishes_false_and_failure(monkeypatch):

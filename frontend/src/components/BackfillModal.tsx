@@ -229,7 +229,7 @@ export default function BackfillModal({ open, onClose, onSubmitted }: BackfillMo
           </div>
           <button
             onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100"
             title="Close"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -411,14 +411,14 @@ export default function BackfillModal({ open, onClose, onSubmitted }: BackfillMo
         {(preflightLoading || preflightResult) && (
           <div className="mx-5 mb-3 px-3 py-2 rounded-lg border bg-slate-50 border-slate-200 text-[11px]">
             <div className="flex items-baseline justify-between">
-              <span className="font-semibold uppercase tracking-wider text-[9px] text-slate-500">
+              <span className="font-semibold uppercase tracking-wider text-[10px] text-slate-500">
                 Server preflight
               </span>
               {preflightLoading && (
-                <span className="text-[9px] text-slate-400">checking…</span>
+                <span className="text-[10px] text-slate-500">checking…</span>
               )}
               {!preflightLoading && preflightResult && (
-                <span className={`text-[9px] font-bold uppercase ${preflightResult.ok ? 'text-emerald-700' : 'text-amber-700'}`}>
+                <span className={`text-[10px] font-bold uppercase ${preflightResult.ok ? 'text-emerald-700' : 'text-amber-700'}`}>
                   {preflightResult.ok ? 'OK to launch' : 'Review before launch'}
                 </span>
               )}

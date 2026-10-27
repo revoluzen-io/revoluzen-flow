@@ -120,10 +120,24 @@ test('source → filter → sink: edges connect, chain executes, rows reach the 
   await openConfig(page, sinkId);
   await configBody(page).getByPlaceholder(/type a new table name/i).fill('e2e_filter_out');
 
-  // Test Node on the SINK runs the whole chain: source → filter → sink. Proves
-  // upstream nodes execute first (the engine resolves dependencies) and the 2
-  // filtered rows reach the sink write — i.e. an output table is produced.
-  await page.getByRole('button', { name: 'Test Node' }).click();
+  // Running the SINK runs the whole chain: source → filter → sink. Proves
+  // upstream nodes execute first (the engine resolves dependencies) and the
+  // 2 filtered rows reach the sink.
+  //
+  // 2026-10-23 — this button is NOT always called "Test Node". ConfigPanel
+  // renders "Preview Node" for a side-effect node (anything that writes or
+  // sends), and a managed-table sink is one, so `getByRole('button',
+  // { name: 'Test Node' })` matched nothing here and the test sat waiting
+  // for 60s. It had been masked by the onboarding modal failing the suite
+  // earlier.
+  //
+  // The old assertion also over-claimed: for a side-effect node the run is
+  // deliberately a preview — "checks upstream data and mapping, but skips
+  // the actual write/send action" — so "rows reach the sink write" is not
+  // something this click can ever demonstrate. What it does demonstrate,
+  // and what is asserted, is that the upstream chain executed and produced
+  // the 2 filtered rows at the sink's input.
+  await page.getByRole('button', { name: /^(Test|Preview) Node$/ }).click();
   await expect(
     page.getByText(/\b2 rows?\b|wrote|written|success/i).first(),
   ).toBeVisible({ timeout: 30_000 });

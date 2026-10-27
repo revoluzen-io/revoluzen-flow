@@ -15,7 +15,7 @@ import { toast } from '../components/Toast';
 import { uiPrompt } from '../ui/dialog';
 import { parsePipelineIntent, parseModification, classifyIntent } from '../ai/pipelineBuilder';
 import { validateWorkflow, type ValidationIssue } from '../utils/validateWorkflow';
-import { resolveSourceHandle } from '../utils/branchPorts';
+import { branchPortsFor, resolveSourceHandle } from '../utils/branchPorts';
 import { navigateTo } from '../router';
 import { buildConversationPayload } from '../util/conversationSummary';
 
@@ -188,6 +188,11 @@ export interface StepResult {
   schema_info: Array<{ name: string; type: string; nullable: boolean }>;
   error: string | null;
   duration_ms: number;
+  /** Set to 'sample' when a Sample run short-circuited this step's side
+   *  effect. The step still reports success with its passthrough rows,
+   *  so this is the only way to tell a write that happened from one that
+   *  was skipped. */
+  skipped_reason?: string | null;
 }
 
 /** One sub-step's preview output inside a Data Wrangler node. */
@@ -260,6 +265,9 @@ interface WorkflowState {
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
   onConnect: OnConnect;
+  /** `onConnect` without the undo checkpoint — for callers that already
+   *  took one (see `addNode`'s auto-wire). */
+  _connectNoUndo: OnConnect;
   /** Set/clear the per-edge table alias (SQL Transform table name) for the
    *  edge between two steps. Empty alias clears it. */
   updateEdgeAlias: (fromStepId: string, toStepId: string, alias: string) => void;
@@ -402,7 +410,20 @@ interface WorkflowState {
   createFromIntent: (intent: string) => Promise<void>;
   updateNodeParams: (nodeId: string, params: Record<string, any>) => void;
   updateNodeLabel: (nodeId: string, label: string) => void;
-  addNode: (type: string, position?: { x: number; y: number }) => void;
+  /**
+   * Add a node of `type`.
+   *
+   * `init` seeds the new node from an existing one — it is what makes
+   * Duplicate a duplicate. Without it the copy was built from the
+   * registry defaults, so duplicating a configured node produced an
+   * EMPTY node of the same type: table, write mode, merge keys, SQL and
+   * the custom name were all dropped silently.
+   */
+  addNode: (
+    type: string,
+    position?: { x: number; y: number },
+    init?: { params?: Record<string, any>; label?: string },
+  ) => void;
   deleteNode: (nodeId: string) => void;
   /**
    * Persist the canvas to the backend.
@@ -862,6 +883,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   onConnect: (connection) => {
     get().pushUndoState();
+    get()._connectNoUndo(connection);
+  },
+
+  /** Edge creation without an undo checkpoint.
+   *
+   *  Split out of `onConnect` 2026-10-23 so `addNode`'s auto-wire can
+   *  reuse the exact edge shape without pushing a SECOND undo state —
+   *  otherwise adding a connected node took two Ctrl+Z presses to undo and
+   *  the first one left a dangling node on the canvas. `onConnect` keeps
+   *  its checkpoint; callers that already took one call this.
+   */
+  _connectNoUndo: (connection) => {
     // Check if the source node is a flow-control type (conditional branches)
     const sourceNode = get().nodes.find((n) => n.id === connection.source);
     const isFlowNode = sourceNode && ['if_condition', 'switch_case', 'conditional_split', 'foreach_loop', 'until_loop'].includes(String((sourceNode.data as any)?.stepType ?? ''));
@@ -1047,8 +1080,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       let result: any;
       try {
         result = useEphemeral
-          ? await api.runWorkflowEphemeral(wf, fullRun, 'dev', 'live', parameterValues)
-          : await api.runWorkflow(workflowId, fullRun, 'dev', 'live', parameterValues);
+          // safety_mode follows fullRun: a Sample run (fullRun=false) asks
+          // for 'sample', which caps the sources AND stops every
+          // side-effect node from firing. It used to send 'live' here, so
+          // the only thing separating Sample from Run was a row cap that
+          // did not apply to file sources either — Sample wrote to real
+          // sinks, sent real email and made real HTTP calls.
+          ? await api.runWorkflowEphemeral(wf, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues)
+          : await api.runWorkflow(workflowId, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues);
       } catch (err: any) {
         // 2026-05-22 — fallback for the "saved but actually unsaved"
         // edge case. An imported pipeline can land in the store with
@@ -1070,7 +1109,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
             'Pipeline not saved yet — running a temporary copy',
             'This pipeline isn\'t saved yet, so it ran without a Pipelines list entry. Click Save to add it.',
           );
-          result = await api.runWorkflowEphemeral(wf, fullRun, 'dev', 'live', parameterValues);
+          // Same safety_mode as the primary path above — a fallback must
+          // not quietly upgrade a Sample into a live run.
+          result = await api.runWorkflowEphemeral(wf, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues);
         } else {
           throw err;
         }
@@ -1936,7 +1977,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }));
   },
 
-  addNode: (type, position) => {
+  addNode: (type, position, init) => {
     get().pushUndoState();
     const id = Math.random().toString(36).slice(2, 10);
 
@@ -1962,14 +2003,50 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Preset params win over backend defaults (e.g. mode='explode').
     if (preset) initialParams = { ...initialParams, ...preset.params };
 
-    // Smart positioning: place near the last node or in a reasonable grid
+    // A seeded add (Duplicate) wins over both: the caller already has the
+    // node it is copying. Cloned deeply enough that editing the copy does
+    // not mutate the original's nested param objects (_settings, column
+    // maps, merge keys are all objects/arrays).
+    if (init?.params) {
+      try {
+        initialParams = structuredClone(init.params);
+      } catch {
+        initialParams = JSON.parse(JSON.stringify(init.params));
+      }
+    }
+    if (init?.label) label = init.label;
+
+    // Smart positioning: place near the last node or in a reasonable grid.
+    //
+    // 2026-10-23 — when the user clicks a palette entry with a node
+    // selected, place the new node one layer pitch to the RIGHT of that
+    // node rather than past the right-most node on the canvas, and wire
+    // the two together below. Previously every click-to-add landed at
+    // `maxX + 280` unconnected, so building a six-step pipeline meant six
+    // manual edge drags. This is the single biggest reason n8n's canvas
+    // feels faster than ours.
+    //
+    // Drag-and-drop passes an explicit `position` — there the user has
+    // already said where it goes, so neither the placement nor the
+    // auto-wire applies.
+    const selectedId = get().selectedNodeId;
+    const selected = selectedId
+      ? get().nodes.find((n) => n.id === selectedId)
+      : undefined;
+
     let pos = position;
+    let autoConnectFrom: string | null = null;
     if (!pos) {
       const existing = get().nodes;
-      if (existing.length > 0) {
+      if (selected) {
+        // 220px matches Canvas.tsx autoLayout H_SPACING, so a chain built
+        // by clicking is already laid out the way Auto-Layout would.
+        pos = { x: selected.position.x + 220, y: selected.position.y };
+        autoConnectFrom = selected.id;
+      } else if (existing.length > 0) {
         const maxX = Math.max(...existing.map((n) => n.position.x));
         const avgY = existing.reduce((s, n) => s + n.position.y, 0) / existing.length;
-        pos = { x: maxX + 280, y: avgY };
+        pos = { x: maxX + 220, y: avgY };
       } else {
         pos = { x: 100, y: 100 };
       }
@@ -1989,6 +2066,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       },
     };
     set((s) => ({ nodes: [...s.nodes, node] }));
+
+    // Wire the selected node to the one just added. Routed through the
+    // existing `onConnect` so the edge carries exactly the same shape as a
+    // hand-drawn one — type, marker, animation and the success/completion
+    // condition that flow-control sources need. Select the new node too,
+    // so clicking three palette entries in a row builds a chain.
+    if (autoConnectFrom) {
+      // Name the port explicitly. React Flow falls back to a node's first
+      // source handle when `sourceHandle` is null, which happens to be
+      // right for ordinary nodes, but on a branch node (If Condition,
+      // Conditional Split, Semantic Router) "the first one" is an accident
+      // rather than a decision. Wiring to ports[0] by id says what it
+      // means and matches what a hand-drawn edge from that handle carries.
+      const fromPorts = branchPortsFor(
+        String((selected?.data as any)?.stepType ?? ''),
+        (selected?.data as any)?.params,
+      );
+      get()._connectNoUndo({
+        source: autoConnectFrom,
+        target: id,
+        sourceHandle: fromPorts[0]?.id ?? null,
+        targetHandle: null,
+      } as any);
+    }
+    // Select whatever we just click-added, so the NEXT palette click
+    // chains onto it. Without this only the first add could auto-wire,
+    // because nothing on the canvas was ever selected — clicking a
+    // palette entry adds a node but does not select it.
+    //
+    // Safe with respect to the config modal: that opens on the
+    // `revoluzen-flow-node-opened` event (see ConfigPanel), not on
+    // selection, so this does not pop a dialog on every add.
+    if (!position) set({ selectedNodeId: id });
   },
 
   deleteNode: (nodeId) => {

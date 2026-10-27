@@ -228,16 +228,16 @@ export default function GlobalSearch({ open, onClose, onNavigate, onAction }: Gl
       >
         {/* Search input */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100">
-          <Icon name="search" className="text-slate-400 shrink-0" />
+          <Icon name="search" className="text-slate-500 shrink-0" />
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search or jump to..."
-            className="w-full text-sm bg-transparent outline-none placeholder:text-slate-400 text-slate-800"
+            className="w-full text-sm bg-transparent outline-none placeholder:text-slate-500 text-slate-800"
           />
-          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-slate-400 bg-slate-100 rounded">
+          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-slate-500 bg-slate-100 rounded">
             esc
           </kbd>
         </div>
@@ -245,7 +245,7 @@ export default function GlobalSearch({ open, onClose, onNavigate, onAction }: Gl
         {/* Results */}
         <div ref={listRef} className="max-h-80 overflow-y-auto py-1">
           {results.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-slate-400">
+            <div className="flex flex-col items-center justify-center py-10 text-slate-500">
               <Icon name="file-x" className="w-8 h-8 mb-2 opacity-40" />
               <span className="text-sm">No results</span>
             </div>
@@ -253,7 +253,7 @@ export default function GlobalSearch({ open, onClose, onNavigate, onAction }: Gl
             grouped.map((group) => (
               <div key={group.category}>
                 <div className="px-4 pt-3 pb-1">
-                  <span className="text-xs uppercase font-bold text-slate-400 tracking-wider">
+                  <span className="text-xs uppercase font-bold text-slate-500 tracking-wider">
                     {CATEGORY_LABELS[group.category] ?? group.category}
                   </span>
                 </div>
@@ -280,13 +280,13 @@ export default function GlobalSearch({ open, onClose, onNavigate, onAction }: Gl
                             ? 'bg-blue-50 text-blue-500'
                             : item.category === 'actions'
                               ? 'bg-violet-50 text-violet-500'
-                              : 'bg-slate-100 text-slate-400'
+                              : 'bg-slate-100 text-slate-500'
                         }`}
                       >
                         {CATEGORY_LABELS[item.category]}
                       </span>
                       {item.shortcut && (
-                        <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-slate-400 bg-slate-100 rounded ml-1">
+                        <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-xs font-medium text-slate-500 bg-slate-100 rounded ml-1">
                           {item.shortcut}
                         </kbd>
                       )}
@@ -299,7 +299,7 @@ export default function GlobalSearch({ open, onClose, onNavigate, onAction }: Gl
         </div>
 
         {/* Footer hint */}
-        <div className="flex items-center gap-3 px-4 py-2 border-t border-slate-100 text-xs text-slate-400">
+        <div className="flex items-center gap-3 px-4 py-2 border-t border-slate-100 text-xs text-slate-500">
           <span>
             <kbd className="px-1 py-0.5 bg-slate-100 rounded">&#8593;&#8595;</kbd> navigate
           </span>
