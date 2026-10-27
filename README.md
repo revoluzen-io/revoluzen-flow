@@ -241,27 +241,49 @@ stores, streams and SaaS APIs, each with its own health state.
 
 <img src="docs/assets/screenshot-executions.png" alt="The Executions page showing run history with status, pipeline, environment, trigger, start time, elapsed time and step counts" width="100%">
 
+**One run, opened** — runtime lineage of what actually ran, with rows in and
+out of each step, per-step timings, peak memory and CPU. Click any node to
+read the rows it produced, as a table, a schema or raw JSON, and export them.
+Re-run and Replay sit on the same screen.
+
+<img src="docs/assets/screenshot-execution-detail.png" alt="An execution summary showing four passed steps in sequence — source, filter, aggregate, sink — each with its row count and duration, with the aggregate node selected and its three output rows of revenue and order counts per region open below the graph, exportable as CSV or JSON" width="100%">
+
+**Every step, with its data** — open a step to see the parameters it ran with,
+the rows it received from upstream, and the rows it produced. Samples are
+captured at run time, so you are reading what the run actually did rather than
+re-querying a source that has since moved on.
+
+<img src="docs/assets/screenshot-step-output.png" alt="An expanded aggregate step showing three panels: its group-by and function configuration, a sample of the six rows received from the upstream filter, and the three rows it produced — revenue and order counts per region, with column types" width="100%">
+
 **Storage** — managed parquet tables written by your pipelines.
 
 <img src="docs/assets/screenshot-storage.png" alt="The Storage page listing managed parquet tables with row counts, column counts and sizes" width="100%">
+
+**Any dataset, inspected** — open a table to read its rows and column types,
+see which pipeline produced it and which ones consume it.
+
+<img src="docs/assets/screenshot-dataset.png" alt="A managed parquet table opened in the dataset viewer, showing a thousand rows across nine typed columns with the file it was promoted from and how many pipelines consume it" width="100%">
 
 **Steward** — a read-only reliability layer that watches for schema drift,
 null and duplicate spikes, connector failures and PII exposure, and tells you
 how many scans it has seen each one in.
 
-<img src="docs/assets/screenshot-steward.png" alt="The Steward findings panel showing seven open findings: two schema drifts, two null spikes, a duplicate-key spike and two PII detections, each with severity, category and resolve or dismiss actions" width="100%">
+<img src="docs/assets/screenshot-steward.png" alt="The Steward findings panel showing eight open findings across schema drift, null spikes, a duplicate-key spike and PII detections, each with severity, category and resolve or dismiss actions" width="100%">
+
+**Bring your own LLM — or keep it on your machine.** Ten providers, two of
+them local. Point it at Ollama and pull a model from the list; nothing leaves
+the host. AI is optional throughout: turn it off and every feature falls back
+to a deterministic path, with the engine unchanged.
+
+<img src="docs/assets/screenshot-ai.png" alt="The AI provider page with AI enabled and Ollama selected as a local provider, showing ten providers, a catalogue of recommended local models with their RAM and speed trade-offs and a pull button for each, and a localhost base URL" width="100%">
 
 <details>
-<summary><strong>More screens — Execution Pool, AI provider, API Explorer</strong></summary>
+<summary><strong>More screens — Execution Pool, API Explorer</strong></summary>
 
 **Execution Pool** — concurrency, reserved capacity per environment, and what
 is waiting for a slot.
 
 <img src="docs/assets/screenshot-pool.png" alt="The Execution Pool page showing worker slots, reserved capacity split between production and development, and queue depth" width="100%">
-
-**AI provider** — bring your own, or keep it entirely local with Ollama.
-
-<img src="docs/assets/screenshot-ai.png" alt="The AI provider settings page showing a locally-hosted Ollama model configured as the workspace provider with a monthly budget" width="100%">
 
 **API Explorer** — load a spec, send one authenticated request, assert on the
 response, then generate a connector from it.
