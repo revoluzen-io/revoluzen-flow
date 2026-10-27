@@ -1,4 +1,26 @@
-fastapi>=0.115.0
+# 2026-10-27: upper bound added. CI resolved fastapi 0.162.0 / starlette
+# 1.10.0 (this file had no ceiling) and `test_workspace_isolation::
+# test_the_sweep_finds_routes` went from 14+ routes to ZERO, which also
+# makes `test_no_scoped_route_serves_another_tenant` vacuous — it sweeps
+# whatever that discovery returns, so an empty result silently stops
+# checking tenant isolation on every route.
+#
+# Reproduced in a clean venv with a minimal app carrying one endpoint-level
+# `Depends(current_workspace_id)` and one router-level
+# `APIRouter(dependencies=[Depends(current_workspace_id)])`:
+#   fastapi 0.129.0 -> both routes present in `app.routes`
+#   fastapi 0.162.0 -> the router-level route is ABSENT from `app.routes`
+# So this is a behaviour change around router-level dependencies, not a
+# test-only problem, and it is not something to paper over by loosening
+# the assertion.
+#
+# The ceiling is deliberately conservative: 0.129.0 is the version this
+# was verified against, and the exact release that changed it has not
+# been bisected. Lifting it means finding that release, confirming
+# router-level dependency routes still mount, and checking the sweep
+# still discovers them — the same "verify before widening" the duckdb
+# note below records.
+fastapi>=0.115.0,<0.130
 uvicorn[standard]>=0.34.0
 # 2026-10-23: the `<2` bound added earlier the same day is LIFTED. 2.0 is
 # supported — the 31 `Relation.fetchone()` call sites it removed were already

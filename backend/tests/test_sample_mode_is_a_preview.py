@@ -27,6 +27,7 @@ if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
 from revoluzen_flow.api.execution import _sample_kwargs  # noqa: E402
+from revoluzen_flow.common.duckdb_compat import fetch_scalar  # noqa: E402
 from revoluzen_flow.nodes.base import ExecutionContext  # noqa: E402
 from revoluzen_flow.nodes.guardrails import cap_rows  # noqa: E402
 
@@ -62,17 +63,25 @@ class TestTheRowCapIsReal:
     def _rel(self, n=5000):
         return duckdb.connect(':memory:').sql(f'SELECT * FROM range({n}) t(i)')
 
+    def _count(self, relation):
+        # `fetch_scalar`, not `.fetchone()[0]`. DuckDB 2.0 removed
+        # `Relation.fetchone()` and `duckdb>=1.2.0` has no upper bound, so
+        # CI resolves 2.x and these three asserts raised AttributeError
+        # while passing locally on 1.x. The production call sites were
+        # migrated to the compat helper; these tests were missed.
+        return fetch_scalar(relation.count('*'))
+
     def test_explicit_cap_applies(self):
-        assert cap_rows(self._rel(), label='CSV', full_run=False, limit=100).count('*').fetchone()[0] == 100
+        assert self._count(cap_rows(self._rel(), label='CSV', full_run=False, limit=100)) == 100
 
     def test_without_a_cap_a_small_file_is_read_whole(self):
         # Documents the old behaviour that made Sample meaningless on
         # files: 5,000 rows is far under DEV_SAMPLE_ROWS, so nothing was
         # limited and Sample read exactly as much as Run.
-        assert cap_rows(self._rel(), label='CSV', full_run=False).count('*').fetchone()[0] == 5000
+        assert self._count(cap_rows(self._rel(), label='CSV', full_run=False)) == 5000
 
     def test_full_run_ignores_the_cap(self):
-        assert cap_rows(self._rel(), label='CSV', full_run=True, limit=100).count('*').fetchone()[0] == 5000
+        assert self._count(cap_rows(self._rel(), label='CSV', full_run=True, limit=100)) == 5000
 
 
 class TestContextCarriesTheFlags:
