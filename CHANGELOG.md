@@ -197,7 +197,7 @@ follows the compatibility rules documented there.
 
 ## [1.0.1] — 2026-10-18
 
-First release published as **Revoluzen Flow**, by Revoluzen Technologies Pvt Ltd.
+First release published as **Revoluzen Flow**, by Revoluzen Private Limited.
 
 The engine, connectors and UI are unchanged from the 1.0.x line; this release
 renames the project and its published artifacts.

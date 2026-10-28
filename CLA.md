@@ -3,7 +3,7 @@
 **Status: DRAFT — REQUIRES LAWYER REVIEW BEFORE GOING LIVE**
 
 This Contributor License Agreement ("Agreement") is between you ("You")
-and **Revoluzen Technologies Pvt Ltd** ("Revoluzen"), an Indian private
+and **Revoluzen Private Limited** ("Revoluzen"), an Indian private
 limited company. It applies to any Contribution You submit to any
 Revoluzen project, including Revoluzen Flow.
 

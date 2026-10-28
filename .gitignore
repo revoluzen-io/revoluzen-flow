@@ -169,6 +169,10 @@ backend/_regress.txt
 /backend/revoluzen_flow/frontend_dist/
 /backend/revoluzen_flow/docs/
 /backend/revoluzen_flow/CHANGELOG.md
+# scripts/stage_docs.py stages README.md next to CHANGELOG.md for the wheel.
+# Only the CHANGELOG copy was ignored, so running the packaging step left the
+# README copy showing as an untracked file waiting to be committed by accident.
+/backend/revoluzen_flow/README.md
 /backend/revoluzen_flow/connectors/ci/last_local_status.json
 /backend/revoluzen_flow/connectors/ci/last_replay_status.json
 /Environment

@@ -1963,7 +1963,7 @@ _INTENTS: tuple[FastIntent, ...] = (
             "**Revoluzen** is the company that builds Revoluzen Flow — self-hosted, "
             "local-first data tooling that runs on your own infrastructure. "
             "No SaaS lock-in, nothing leaves your box by default.\n\n"
-            "Registered in India as an OPC."
+            "Revoluzen Private Limited, based in India."
             + _ask_chips(
                 ("What is Revoluzen Flow?", "what is revoluzen-flow"),
                 ("How to upgrade?", "how to upgrade to plus"),
@@ -1981,7 +1981,7 @@ _INTENTS: tuple[FastIntent, ...] = (
         ),
         static_answer=(
             "Revoluzen Flow is built by **Revoluzen** "
-            "(registered in India as an OPC).\n\n"
+            "(Revoluzen Private Limited, India).\n\n"
             "Revoluzen Flow is Apache 2.0, free forever, no open-core gates "
             "on the engine. Revoluzen Flow Enterprise is a paid extension for teams.\n\n"
             "Design ethos: deterministic core, AI as accelerator (never as "
