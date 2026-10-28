@@ -1200,20 +1200,36 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
                is the generic name, not something the user chose, and
                that keeps a canvas of renamed nodes visually dominant
                over the ones still carrying defaults. */
-            <div
-              className={
-                hasCustomName
-                  ? 'text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
-                  : 'text-[13px] font-medium text-slate-500 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
-              }
-              title={
-                hasCustomName
-                  ? `${label}\n\nDouble-click to open · F2 to rename`
-                  : `${typeLabel}\n\nNot renamed — F2 to give it a name`
-              }
-            >
-              {hasCustomName ? label : typeLabel}
-            </div>
+            <>
+              <div
+                className={
+                  hasCustomName
+                    ? 'text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
+                    : 'text-[13px] font-medium text-slate-500 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
+                }
+                title={
+                  hasCustomName
+                    ? `${label}\n\nDouble-click to open · F2 to rename`
+                    : `${typeLabel}\n\nNot renamed — F2 to give it a name`
+                }
+              >
+                {hasCustomName ? label : typeLabel}
+              </div>
+              {/* The node's KIND, under its name. Removing the in-card type
+                  label made the tile legible at low zoom, but it also meant a
+                  renamed node said "Orders x Customers" with nothing to say
+                  it is a Join — you had to hover. One line of 10px muted text
+                  under the name costs nothing at the sizes that matter and
+                  puts the kind back on the canvas.
+
+                  Only when the node HAS a custom name: otherwise the line
+                  above is already the type and this would print it twice. */}
+              {hasCustomName && (
+                <div className="text-[10px] font-medium text-slate-400 leading-tight truncate">
+                  {typeLabel}
+                </div>
+              )}
+            </>
           )}
           {/* Verbose-only — param preview line. Surfaces the most
               salient config (group-by columns / join key / filter
