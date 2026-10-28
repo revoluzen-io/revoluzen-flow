@@ -1,6 +1,6 @@
 # Add a custom node
 
-Revoluzen Flow ships 40 node types across 6 categories (Source / Destination / Transform / Filter / Control-flow / Storage). When you need a transform that's specific to your domain — apply a custom risk model, hit your internal compliance API mid-pipeline, run a proprietary classifier — you can add a node without touching the Revoluzen Flow core.
+Revoluzen Flow ships 44 node types across 6 categories (Data Movement / Transform / Combine / Control Flow / Action / AI / Semantic). When you need a transform that's specific to your domain — apply a custom risk model, hit your internal compliance API mid-pipeline, run a proprietary classifier — you can add a node without touching the Revoluzen Flow core.
 
 This page covers the **OSS path**: nodes added directly to your local install. For a polished plugin format that other Revoluzen Flow installs can drop in unchanged, see [docs/connector-authoring.md](../connector-authoring.md) — the same registration plumbing applies.
 

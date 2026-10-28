@@ -117,7 +117,7 @@ Info-disclosure / DoS / Elevation) and record the mitigation.
 | Threat | Mitigation today | Residual risk |
 |---|---|---|
 | Cross-pipeline data leak via shared DuckDB | Each run creates an isolated DuckDB connection; relations are not persisted across runs unless explicitly written to a Storage table | Spill files in `duckdb_spill/` are co-located. Different pipelines spilling at the same time could see each other's intermediate files until purge. Acceptable for single-tenant; on a busy multi-tenant box, set per-pipeline spill dirs. |
-| PII in run history | Run-history rows store row counts + status, NOT data. Failed-step error messages may include sample row values for debugging | Operators handling regulated data should disable error-row capture (`REVOLUZEN_FLOW_CAPTURE_ERROR_ROWS=0`). Documented in `docs/install/security-hardening.md`. |
+| PII in run history | Run-history rows store row counts + status, NOT data. Failed-step error messages may include sample row values for debugging, and captured step samples in the `step_outputs` store hold real rows (TTL 30 days) | ⚠ **No toggle exists today.** Earlier revisions of this table named `REVOLUZEN_FLOW_CAPTURE_ERROR_ROWS=0` and pointed at `docs/install/security-hardening.md`; neither the variable nor that guidance exists — nothing in the codebase reads it, so an operator setting it would get silence rather than protection. Until a real switch lands, operators handling regulated data should treat the run history and step-sample store as in-scope for their data-retention policy. Note that redaction *does* apply on the AI boundary (`backend/revoluzen_flow/ai/sanitize.py`) before anything reaches an LLM — that is a different control and does not limit what is stored. |
 
 ### 3.4 Master encryption key
 
@@ -126,7 +126,7 @@ Theft = full credential compromise.
 
 | Threat | Mitigation today | Residual risk |
 |---|---|---|
-| Accidental commit to source control | `.gitignore` excludes `data/`, `~/.revoluzen-flow/`; gitleaks CI job scans every commit | If the operator overrides `REVOLUZEN_FLOW_MASTER_KEY_FILE` to a path inside the repo, gitleaks won't catch it on the first commit. Documented as anti-pattern in `docs/anti-patterns.md`. |
+| Accidental commit to source control | `.gitignore` excludes `data/`, `~/.revoluzen-flow/`; gitleaks CI job scans every commit | If the operator overrides `REVOLUZEN_FLOW_MASTER_KEY_FILE` to a path inside the repo, gitleaks won't catch it on the first commit. Documented as anti-pattern in `docs/product_facts/25_anti_patterns.md`. |
 | Backup includes the key file | Documented — backup intentionally INCLUDES the key (otherwise the credential store is useless after restore). Operators must protect backups accordingly. | Operator must encrypt backups. We don't enforce. |
 | Insufficient file permissions | `_verify_perms()` refuses to start if mode is group/world readable | Windows / NTFS not checked — POSIX-only. Acceptable since enterprise Windows deployments typically use NTFS ACLs configured by the operator. |
 
@@ -160,7 +160,7 @@ attention because they touch user-supplied URLs / file paths / SQL:
 |---|---|
 | **File source READ paths** (`_path_utils.resolve_input_path`) | Resolves user paths against `data_dir` first, then CWD. **Accepts absolute paths as-is.** A pipeline-author role can therefore reference any path the Revoluzen Flow process can read. Acceptable for single-tenant local install; **becomes a real issue when the authoring role is RBAC-restricted but pipelines run as a privileged operator.** Mitigation today: gate authoring. |
 | **File sink WRITE paths** | Same `_path_utils` but writes are always rooted at `data_dir` (read fallback to CWD does NOT apply). |
-| **Spill directory** | Operator-configured via `REVOLUZEN_FLOW_DUCKDB_SPILL_DIR`. Defaults to a subdir of `data_dir`. |
+| **Spill directory** | Operator-configured via `REVOLUZEN_FLOW_DUCKDB_TEMP_DIR`. Defaults to a subdir of `data_dir`. |
 
 ### 4.3 SQL injection in transform nodes
 

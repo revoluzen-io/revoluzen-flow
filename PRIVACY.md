@@ -52,16 +52,46 @@ If a network connection is critical for your threat model, you can verify in cod
 
 ## Data retention
 
-Revoluzen Flow keeps data forever by default — operators choose retention policy. Override via these env vars or the workspace settings UI:
+**Revoluzen Flow keeps your data indefinitely, with one exception.** This
+build has no time-based retention policy and no retention settings UI — a
+retention scheduler is a Revoluzen Flow Enterprise feature. Everything stays
+on your disk until you delete it.
 
-| Setting | Default | Override |
+What is deleted automatically:
+
+| What | Behaviour | Control |
 |---|---|---|
-| Execution-log retention | unlimited | Workspace `Settings → Retention → Execution logs (days)` |
-| Audit-log retention | unlimited (recommended) | Workspace `Settings → Retention → Audit log (days)` — note: shortening audit retention reduces compliance evidence |
-| AI trace retention | 90 days | `REVOLUZEN_FLOW_AI_TRACE_RETENTION_DAYS` env var |
-| Backup retention | unlimited | `REVOLUZEN_FLOW_BACKUP_RETENTION_DAYS` env var |
+| Captured step-output **samples** (the example rows shown on a run's steps) | Sample rows are dropped 30 days after capture. Row counts and schema are kept indefinitely, so historical lineage still resolves. | `REVOLUZEN_FLOW_DISABLE_STEP_OUTPUT_PRUNE=1` turns the pruner off |
+| AI **agent traces** | **Off by default** — traces are kept forever. Set a number of days and a daily sweep deletes traces older than that. | `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS=90` (any positive number; `0` = keep forever) |
 
-A scheduled cleanup job runs nightly and deletes records past their retention window. You can disable it by leaving the values at "unlimited."
+Two stores are bounded **by count, not by age** — the oldest entries are
+discarded once the limit is reached:
+
+| What | Default | Control |
+|---|---|---|
+| Pipeline versions kept per pipeline | 20 | `REVOLUZEN_FLOW_VERSION_RETENTION` |
+| Backups kept | 5 | `REVOLUZEN_FLOW_BACKUP_RETENTION` |
+
+Sign-in sessions expire on their own schedule
+(`REVOLUZEN_FLOW_SESSION_TTL_DAYS`).
+
+Everything else — execution history, the audit log, token-wallet records —
+grows without bound in this build. If you handle regulated data,
+treat those stores as in scope for your own retention process; deleting a
+project or pipeline in the UI is the supported way to remove its records.
+
+> **Correction (2026-10-28).** Earlier revisions of this page described
+> execution-log and audit-log retention settings under
+> `Settings → Retention`, a 90-day AI-trace default via
+> `REVOLUZEN_FLOW_AI_TRACE_RETENTION_DAYS`, a
+> `REVOLUZEN_FLOW_BACKUP_RETENTION_DAYS` variable, and a nightly cleanup job
+> enforcing all of it. None of that existed. The settings page, both
+> variables and the general cleanup job were never implemented, and the real
+> backup limit is a count (`REVOLUZEN_FLOW_BACKUP_RETENTION`), not a number
+> of days. AI-trace age-out was genuinely not running — `purge_older_than()`
+> existed but nothing called it — and has since been wired up as the opt-in
+> `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS` above. The tables describe what the
+> build actually does.
 
 ## Access control
 

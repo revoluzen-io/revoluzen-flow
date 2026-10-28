@@ -1014,7 +1014,7 @@ Every connector ships unlocked in OSS — Plus differentiates on governance, not
 | Concern | File |
 |---|---|
 | Node registry (backend) | `backend/revoluzen_flow/nodes/*.py` + `backend/revoluzen_flow/ir/schema.py` |
-| Node IR types | `backend/revoluzen_flow/ir/types.py` |
+| Node IR types | `backend/revoluzen_flow/ir/schema.py` (the `StepType` enum and step models) |
 | Canvas | `frontend/src/components/Canvas.tsx` |
 | Node renderer | `frontend/src/components/nodes/RevoluzenFlowNode.tsx` |
 | Edge renderer | `frontend/src/components/nodes/CustomEdge.tsx` |

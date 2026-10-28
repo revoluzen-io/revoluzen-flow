@@ -27,16 +27,27 @@ The AI layer handles six distinct classes of data. Each has its own sensitivity,
 
 ## 2. Retention rules
 
-Each store has an explicit lifetime. Defaults shown; environment variables override.
+> ⚠ **Corrected 2026-10-28.** This table previously claimed 90-day defaults
+> for traces and the audit log, a rolling 30-day wallet sweep, a daily
+> archive to Parquet under `data/archive/traces/`, and four override
+> variables (`REVOLUZEN_FLOW_TRACE_RETENTION_DAYS`,
+> `…_AUDIT_RETENTION_DAYS`, `…_WALLET_RETENTION_DAYS`,
+> `…_IDEMPOTENCY_TTL_S`). None of them was read anywhere in the codebase,
+> there was no Parquet archive, and no retention sweep ran at all.
+>
+> `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS` has since been implemented and is
+> real — it is the one row below with a variable against it. The others
+> remain unbuilt: audit-log and wallet retention, and archive-to-Parquet,
+> are Revoluzen Flow Enterprise features.
 
-| Store | Default retention | Env var | Deletion behavior |
+| Store | Actual retention | Env var | Deletion behavior |
 |---|---|---|---|
-| `agent_traces` (trace store) | **90 days** | `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS` | Daily archive to Parquet under `data/archive/traces/`, then DELETE from SQLite. Set `0` to disable archive (purge only). |
-| `audit_log` (AI calls + tool calls) | **90 days** | `REVOLUZEN_FLOW_AUDIT_RETENTION_DAYS` | Same archive-then-purge pattern as trace store. |
+| `agent_traces` (trace store) | **indefinite by default; opt-in age-out** | `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS` | `0` (the default) keeps traces forever. Set a positive number of days and a daily sweep at 03:45 UTC deletes traces older than that window. The default is deliberately *not* finite — a finite default would delete operator data on upgrade. |
+| `audit_log` (AI calls + tool calls) | **indefinite** | — | No pruning in this build. Retention + export is an Enterprise row in `edition-matrix.md`. |
 | `rag_docs` (vector store) | **rebuilt nightly** | `REVOLUZEN_FLOW_DISABLE_RAG=1` to disable | Daily 03:00 UTC indexer re-derives the corpus from execution_logs / workflows / catalog / docs. The store is the index, not the source — deleting `rag.db` is safe; it rebuilds. |
-| `ai_wallet_usage` (token caps) | **rolling 30 days** | `REVOLUZEN_FLOW_WALLET_RETENTION_DAYS` | Older rows purged daily during retention sweep. Today's row is always preserved. |
+| `ai_wallet_usage` (token caps) | **indefinite** | — | One aggregate row per day; nothing purges them. The daily cap reads only the current day's row, so growth is one small row per day. |
 | `ai_dry_run_counters` (per-user write tool counters) | **indefinite** | — | One row per `(user_id, tool_name)`. Cleared only when the user is deleted or via admin endpoint. |
-| `idempotency_cache` (write-tool replay protection) | **24 hours** | `REVOLUZEN_FLOW_IDEMPOTENCY_TTL_S` | Bounded in-memory LRU + TTL; never on disk. Lost on restart (acceptable: re-issue of an old idempotency key on a fresh process is rare and the action re-executes). |
+| `idempotency_cache` (write-tool replay protection) | **24 hours** | — (compile-time `DEFAULT_TTL_SECONDS` in `ai/idempotency.py`; a constructor argument, not an env var) | Bounded in-memory LRU + TTL; never on disk. Lost on restart (acceptable: re-issue of an old idempotency key on a fresh process is rare and the action re-executes). |
 | `semantic_cache` (LLM response cache) | **30 minutes** | `REVOLUZEN_FLOW_SEMANTIC_CACHE_TTL_S` | In-memory only; lost on restart. Tenant-prefixed; never crosses workspaces. |
 | `ai_config` (provider keys) | **until user clears** | — | Encrypted at rest with Fernet. Plaintext key never returned via HTTP. "Clear key" button writes empty string. |
 
@@ -86,7 +97,7 @@ The shortest version a new operator needs to be useful in 10 minutes.
 
 ### One sentence
 
-> Revoluzen Flow AI is 26 tools the user can authorize an LLM to call on their behalf, with sanitization at the boundary, governance gates between the LLM and any side effect, and a daily-rebuilt retrieval layer that grounds answers in the user's own pipeline history.
+> Revoluzen Flow AI is 30 tools the user can authorize an LLM to call on their behalf, with sanitization at the boundary, governance gates between the LLM and any side effect, and a daily-rebuilt retrieval layer that grounds answers in the user's own pipeline history.
 
 ### One diagram
 
@@ -160,7 +171,7 @@ The current tier system is mutability-based: `READ` / `SAFE_WRITE` / `HIGH_IMPAC
 
 What an auditor needs to know in one paragraph.
 
-> Revoluzen Flow runs the LLM as a tool-using consultant, never as a data principal. All payloads sent to the LLM pass through `sanitize_for_llm` which drops credentials, PII, and oversize blobs and applies tenant-scoped redaction patterns. Every LLM call is logged to `audit_log` with provider, model, latency, token count, and success status. Every agent run is logged to `agent_traces` with replay-safe step records (input/output hashes only, never raw values). Workspace data is isolated at every store via `workspace_id` indexing. Encryption at rest uses Fernet for provider keys; the master key lives in `~/.revoluzen-flow/secret.key`. Retention defaults to 90 days for traces and audit, 30 days rolling for wallet usage, with explicit override env vars and DELETE-on-workspace-delete cascade. The system never trains models, never sends data to embedding training feeds, and respects `store: false` on OpenAI / no-retention agreements on Anthropic.
+> Revoluzen Flow runs the LLM as a tool-using consultant, never as a data principal. All payloads sent to the LLM pass through `sanitize_for_llm` which drops credentials, PII, and oversize blobs and applies tenant-scoped redaction patterns. Every LLM call is logged to `audit_log` with provider, model, latency, token count, and success status. Every agent run is logged to `agent_traces` with replay-safe step records (input/output hashes only, never raw values). Workspace data is isolated at every store via `workspace_id` indexing. Encryption at rest uses Fernet for provider keys; the master key lives in `~/.revoluzen-flow/secret.key`. Agent traces are kept indefinitely unless the operator sets `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS`, which enables a daily age-out; the audit log and wallet aggregates are retained indefinitely in this build, with DELETE-on-workspace-delete cascade as the supported way to remove them. The system never trains models, never sends data to embedding training feeds, and respects `store: false` on OpenAI / no-retention agreements on Anthropic.
 
 ---
 

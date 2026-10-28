@@ -34,9 +34,11 @@ notification service in isolation.
 
 ### 2. API Integration Tests (~50 tests)
 
-**Location:** `backend/tests/test_api_integration.py`
+**Location:** `backend/tests/` — split per API area rather than one file
+(`test_ai_agent_api.py`, `test_api_explorer.py`, `test_backfill_api.py`,
+`test_cert_matrix_api.py`, `test_trust_api.py`, and others alongside them).
 
-Tests all 70+ API endpoints via FastAPI `TestClient`. Covers:
+Tests the API surface via FastAPI `TestClient`. Covers:
 
 - **Health & utility** — `/api/health`, `/api/scheduler/status`, `/api/node-types`, `/api/files`
 - **Projects** — CRUD, list pipelines, delete protection
@@ -178,15 +180,16 @@ backend/
 │   ├── test_auth_store.py       # UserStore + auth unit tests
 │   ├── test_variable_store.py   # VariableStore unit tests
 │   ├── test_credential_store.py # CredentialStore unit tests
-│   ├── test_lifecycle_store.py  # LifecycleStore unit tests
 │   ├── test_validator.py        # IR validator unit tests
 │   ├── test_schema_contract.py  # Schema contracts unit tests
 │   ├── test_executor.py         # Execution engine unit tests
 │   ├── test_scheduler.py        # Scheduler unit tests
 │   ├── test_notifier.py         # Notification service unit tests
-│   ├── test_api_integration.py  # All 70+ API endpoints
+│   ├── test_*_api.py            # API endpoints, split per area
 │   ├── test_load_stress.py      # Performance + concurrency + memory
 │   └── test_e2e_pipeline.py     # Full lifecycle E2E
+│   …                            # ~270 test files in total; the names
+│                                # above are an illustrative subset
 ├── pytest.ini                   # pytest configuration
 └── run_tests.py                 # Test runner with report generation
 ```

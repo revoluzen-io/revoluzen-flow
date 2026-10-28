@@ -25,7 +25,7 @@ No. Docker is convenient but optional — the single-binary path (`python -m rev
 With proper tuning, large workloads run comfortably on a single tuned host. See the [scaling guide](scaling.md) for the volume-tier table.
 
 **Q: Can I run multiple pipelines in parallel?**
-Yes — set `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS=N`. Default is 4. Each pipeline gets its own DuckDB connection.
+Yes — set `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS=N`. Default is 4 in prod mode and 0 (uncapped) in dev. Each pipeline gets its own DuckDB connection.
 
 **Q: What happens if a pipeline fails mid-run?**
 The execution is marked `failed` with a step-level traceback. Downstream steps don't run. Today you re-run the whole pipeline; richer recovery is an area of ongoing work.

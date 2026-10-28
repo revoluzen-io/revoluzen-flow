@@ -113,7 +113,7 @@ These aren't code bugs, but the story contradicts itself in places. Pick one
 source of truth for each:
 
 1. **Lineage edition.** OSS code implements a base lineage store
-   (`lineage/__init__.py`, `api/lineage.py`), yet `docs/edition-matrix.md` and
+   (`lineage/__init__.py`, `api/lineage.py`), yet `edition-matrix.md` (at the repo root) and
    `docs/product_facts/25_anti_patterns.md` declare lineage **Plus-only**. The
    README says it "ships in the box." A reader can currently be told opposite
    things — decide whether base lineage is an OSS feature and align all three.

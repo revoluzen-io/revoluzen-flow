@@ -20,7 +20,7 @@ Most data tools force a tradeoff between AI assistance and data sovereignty. Rev
 
 ## Two editions in one binary
 
-The OSS Free edition is Apache 2.0 licensed and includes the full execution engine, 40 node types (including Microsoft Graph Source, Managed Table Source, and Managed Table Sink added 2026-05-22 / 23), and the AI Copilot. Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance — see [revoluzen.io/flow](https://revoluzen.io/flow).
+The OSS Free edition is Apache 2.0 licensed and includes the full execution engine, 44 node types (including Microsoft Graph Source, Managed Table Source, and Managed Table Sink added 2026-05-22 / 23), and the AI Copilot. Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance — see [revoluzen.io/flow](https://revoluzen.io/flow).
 
 The Plus features physically exist in the codebase but are gated by a license check. Operators upgrade by entering a license key; no separate install required.
 
