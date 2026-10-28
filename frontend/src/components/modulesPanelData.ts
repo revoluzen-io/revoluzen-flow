@@ -107,6 +107,146 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
   local_table_sink: 'Publish',  // 2026-06-10 — see local_table_source note above
 };
 
+// D11/12/13 — Progressive disclosure (2026-05-18).
+// `level` per item drives the palette's Basic / Standard / All filter.
+//   beginner     → always visible (Sources, Wrangler, SQL, Join, Aggregate, Output)
+//   intermediate → default-visible (most common transforms)
+//   advanced     → hidden in Basic + Standard; visible in All only
+//
+// 2026-10-28: moved here from ModulesPanel.tsx. Two reasons. It is data,
+// and this file is where data lives so Fast Refresh sees the panel as
+// component-only. And VALID_GHOST_TYPES below has to be derived from it —
+// it used to be a second hand-maintained list and had drifted in both
+// directions.
+export const MODULES: ModuleCategory[] = [
+  {
+    name: 'Data Movement',
+    items: [
+      // Generic Source & Destination — pick connector inside config.
+      // Microsoft Graph / Salesforce / SAP / Oracle / Postgres etc. are
+      // all surfaced via these two nodes; the connector type is selected
+      // in the node config and the saved connection (Connections page)
+      // carries auth + endpoint config.
+      { type: 'source', label: 'Source', level: 'beginner' },
+      { type: 'destination', label: 'Destination', level: 'beginner' },
+      { type: 'copy_data', label: 'Copy Data', level: 'intermediate' },
+      // Z11 (2026-05-23) — managed workspace Parquet tables (Storage
+      // page → Managed Tables). These are NOT generic connectors —
+      // they're the workspace's internal materialised storage, so they
+      // earn dedicated nodes. Before this fix they fell through to an
+      // orphan "Destination" bottom-of-palette category with no icon.
+      { type: 'local_table_source', label: 'Managed Table Source', level: 'intermediate', description: 'Read from a workspace-managed Parquet table by schema.name' },
+      { type: 'local_table_sink', label: 'Managed Table Sink', level: 'intermediate', description: 'Write to a workspace-managed Parquet table (replace / append / merge)' },
+    ],
+  },
+  {
+    name: 'Transform',
+    items: [
+      { type: 'data_wrangler', label: 'Data Wrangler', level: 'beginner', description: 'Ordered list of inline sub-steps (filter / rename / cast / derive / group) with per-step preview' },
+      { type: 'transform', label: 'SQL Transform', level: 'beginner' },
+      { type: 'filter', label: 'Filter', level: 'intermediate' },
+      { type: 'derived_column', label: 'Derived Column', level: 'intermediate' },
+      { type: 'sort', label: 'Sort', level: 'intermediate' },
+      { type: 'deduplicate', label: 'Deduplicate', level: 'intermediate' },
+      { type: 'sample', label: 'Sample', level: 'intermediate' },
+      { type: 'schema_mapper', label: 'Schema Mapper', level: 'advanced' },
+      { type: 'data_quality', label: 'Data Quality', level: 'advanced' },
+      { type: 'flatten_explode', label: 'Flatten', level: 'advanced' },
+      // 2026-06-15 (control-flow alignment): "Split Out" tile removed — it was a duplicate
+      // preset of Flatten (mode=explode); use Flatten in explode mode.
+      // "Keep Latest" (upsert) likewise removed — Deduplicate (keep last)
+      // covers it. Both backend types stay for back-compat (HIDDEN_TYPES).
+    ],
+  },
+  {
+    name: 'Combine',
+    items: [
+      { type: 'join', label: 'Join', level: 'beginner' },
+      { type: 'aggregate', label: 'Aggregate', level: 'beginner' },
+      { type: 'lookup', label: 'Lookup Join', level: 'intermediate' },
+      { type: 'union', label: 'Union', level: 'intermediate' },
+      { type: 'pivot', label: 'Pivot', level: 'advanced' },
+      { type: 'unpivot', label: 'Unpivot', level: 'advanced' },
+      { type: 'window', label: 'Window', level: 'advanced' },
+    ],
+  },
+  {
+    name: 'Control Flow',
+    // 2026-06-15 (control-flow alignment): standard control-flow names + structure.
+    //  • Switch = conditional_split (the real multi-output brancher).
+    //  • The old single-case "switch_case" filter is hidden (HIDDEN_TYPES).
+    //  • ForEach = foreach_pipeline (per-row sub-pipeline); the batch chunker
+    //    foreach_loop is relabeled "Batch Rows" and demoted to advanced.
+    //  • Lookup = lookup_activity (Lookup activity); the enrichment join
+    //    is "Lookup Join" under Combine.
+    items: [
+      { type: 'if_condition', label: 'If Condition', level: 'intermediate' },
+      { type: 'conditional_split', label: 'Switch', level: 'intermediate' },
+      { type: 'foreach_pipeline', label: 'ForEach', level: 'intermediate' },
+      { type: 'execute_pipeline', label: 'Execute Pipeline', level: 'intermediate' },
+      { type: 'lookup_activity', label: 'Lookup', level: 'intermediate' },
+      { type: 'set_variable', label: 'Set Variable', level: 'intermediate' },
+      { type: 'wait_delay', label: 'Wait', level: 'intermediate' },
+      { type: 'fail', label: 'Fail', level: 'intermediate' },
+      { type: 'retry_handler', label: 'Retry', level: 'advanced' },
+      { type: 'foreach_loop', label: 'Batch Rows', level: 'advanced' },
+    ],
+  },
+  {
+    name: 'Action',
+    items: [
+      { type: 'http_request', label: 'HTTP Request', level: 'intermediate' },
+      { type: 'send_email', label: 'Send Email', level: 'intermediate' },
+      { type: 'slack_notify', label: 'Slack / Teams', level: 'intermediate' },
+      // 2026-05-22: `webhook_trigger` removed from the palette. Per the
+      // 2026-05-22 node audit it has a StepType enum value but no backend
+      // registration, so every user who added one ended up with a node
+      // that couldn't execute. Inbound-webhook receiver infrastructure
+      // (URL routing, signature verification, replay protection) isn't
+      // ready for v1.0; promote `api_source` for pull-style integration.
+      // Legacy workflows that still carry this type are remapped at load
+      // time via revoluzen_flow/ir/migrations.py:migrate_legacy_node_types.
+      // 2026-06-15: Code / Script gated to Plus (runs user Python in-process,
+      // not a sandbox) — hidden from OSS via HIDDEN_TYPES.
+      { type: 'get_metadata', label: 'Get Metadata', level: 'advanced' },
+    ],
+  },
+  {
+    name: 'AI / Semantic',
+    items: [
+      { type: 'embedder', label: 'Embedder', level: 'intermediate' },
+      { type: 'llm_guardrail', label: 'LLM Guardrail', level: 'advanced' },
+      { type: 'semantic_router', label: 'Semantic Router', level: 'advanced' },
+    ],
+  },
+];
+
+/**
+ * Node types an AI ghost suggestion is allowed to propose — the curated
+ * palette, and nothing else.
+ *
+ * DERIVED, not hand-written. This was a second literal list in
+ * hiddenNodeTypes.ts carrying a "keep in sync" comment, and by 2026-10-28
+ * it had drifted in both directions: 11 entries the backend did not
+ * register at all (so the AI could suggest a node the user then could not
+ * add — the exact failure the whitelist exists to prevent) and 10 real
+ * palette nodes missing (so valid suggestions were silently dropped).
+ * Counting that list is also what produced the "40 node types" figure that
+ * had spread into eight documents.
+ *
+ * A type that is in MODULES but also in HIDDEN_TYPES is excluded, so
+ * hiding a node is enough to stop it being suggested.
+ *
+ * NOTE: this covers the curated palette only. The palette additionally
+ * renders backend types that HIDDEN_TYPES does not hide (see
+ * makeReconciledModulesHook); callers that want to match the rendered
+ * palette exactly should also accept those — Canvas does.
+ */
+export const VALID_GHOST_TYPES: ReadonlySet<string> = new Set(
+  MODULES.flatMap((c) => c.items.map((i) => i.type))
+    .filter((t) => !HIDDEN_TYPES.has(t)),
+);
+
 /** Re-groups a list of engine-categorized modules into user-intent groups. */
 export function regroupByIntent(modules: ModuleCategory[]): ModuleCategory[] {
   const order: UserIntent[] = ['Import', 'Prepare', 'Analyze', 'Automate', 'Publish'];
