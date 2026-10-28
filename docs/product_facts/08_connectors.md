@@ -16,7 +16,16 @@ Three previously backend-only types now visible in the picker: **DB2, SAP HANA, 
 
 ## Quantitative summary
 
-OSS Free ships **33 first-party connectors visible by default**, plus 10 Hidden manifests kept on disk for slug-reservation only:
+OSS Free ships **66 connection types visible by default** in the New Connection
+picker — Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps
+21 · Operations & AI 11. That is 80 declared types minus 14 marked roadmap
+(UI-only today, hidden so they don't set false expectations). Verified against
+`CONNECTION_TYPES` / `CONNECTOR_STATUS` in
+`frontend/src/components/pages/ConnectionsPage.tsx` on 2026-10-28.
+
+The figures below count a **different and narrower** population — execution
+dialects and SaaS REST manifests, not connection types — which is why they do
+not sum to 66. Keep the two apart when quoting either.
 - **4 database dialects** — PostgreSQL, MySQL, MS SQL Server, SQLite (used by Database Source/Sink).
 - **2 bulk-load dialects** — Postgres (`COPY FROM STDIN`) + Snowflake (`PUT` + `COPY INTO`). Other warehouse dialects (BigQuery, Redshift, Databricks, MSSQL bulk, Oracle, MongoDB, ClickHouse) are designed and on the post-1.0 roadmap.
 - **27 SaaS REST manifests visible by default** — 19 Beta tier + 8 Experimental tier. Read via the SaaS Connector node which picks any installed manifest at runtime. Tier per connector lives in `/api/connectors/cert-matrix`.

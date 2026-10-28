@@ -16,8 +16,8 @@ Revoluzen Flow Free is a single-binary, single-user data pipeline platform that 
 
 Everything below ships in this build, unrestricted.
 
-- **Visual canvas builder** with all 40 node types
-- **33 first-party connectors visible by default** — 4 database dialects (PostgreSQL / MySQL / MS SQL Server / SQLite), 2 bulk-load dialects (Postgres `COPY FROM STDIN`, Snowflake `PUT` + `COPY INTO`), 27 SaaS REST manifests (19 Beta + 8 Experimental tier). 10 additional manifests ship Hidden — present on disk but suppressed from pickers (consumer-marketing / SMB-CRM / ads — out of enterprise-data-engineering scope). Full breakdown per tier at `/api/connectors/cert-matrix` and [`docs/connectors.md`](connectors.md).
+- **Visual canvas builder** with all 44 node types
+- **66 connectors visible by default** — Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21 · Operations & AI 11. That is the New Connection picker count: 80 declared types minus 14 marked roadmap (UI-only today, hidden so they don't set false expectations). Say "66 connectors", not "66 open-source connectors" — nine carry a Plus tier label in the catalog, which is a pricing posture, not a runtime gate. Note that `/api/connectors/cert-matrix` grades a *different* population — the SaaS REST manifests only, not these 66 connection types. Full list in [`docs/connectors.md`](connectors.md).
 - **DuckDB execution engine** with full vertical scaling on a tuned host
 - **Local AI assistant** via Ollama — unrestricted, no per-call limits
 - **Cloud AI assistant** via bring-your-own-key — unrestricted, no proxying through us
@@ -49,7 +49,7 @@ Everything below ships in this build, unrestricted.
 - Persistence: SQLite database at `$REVOLUZEN_FLOW_DATA_DIR/revoluzen_flow.db`
 - Execution engine: in-process DuckDB
 - Worker model: priority-aware in-process worker pool with five priority lanes
-- Default concurrency: `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` (defaults to 4)
+- Default concurrency: `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` (4 in prod mode, 0/uncapped in dev)
 
 ## When this build is the right fit
 

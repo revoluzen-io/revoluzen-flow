@@ -34,7 +34,7 @@ A pipeline has four parts:
 | Part | Description |
 |---|---|
 | **Metadata** | `name`, `description`, `project_id`, owner, tags, deployed version |
-| **Steps** (nodes) | Individual operations — one per box on the canvas. Each step has a `type` (e.g. `csv_source`, `filter`, `db_sink`) and `params`. |
+| **Steps** (nodes) | Individual operations — one per box on the canvas. Each step has a `type` (e.g. `source`, `filter`, `destination`) and `params`. |
 | **Connections** (edges) | Directed edges between steps. Each edge carries the output of the source step to the input of the destination step. |
 | **Schema contract** (optional) | Declares the expected columns and types at the final sink. Enables drift detection. |
 
@@ -42,16 +42,21 @@ Under the hood, the pipeline is stored as a Pydantic `Workflow` object, serialis
 
 ### 1.1 Node categories
 
-Revoluzen Flow ships with **40 nodes across 6 categories**:
+Revoluzen Flow ships with **44 nodes across 6 categories**:
 
-| Category | Examples | Purpose |
+| Category | Nodes | Purpose |
 |---|---|---|
-| **Sources** (3) | `csv_source`, `db_source`, `api_source` | Read data in |
-| **Transforms** (17) | `filter`, `join`, `aggregate`, `sql_transform`, `deduplicate`, `pivot`, `window`, `validate` | Change the shape of data |
-| **Outputs** (2) | `output` (Parquet/CSV/JSON), `db_sink` | Write data out |
-| **Flow Control** | `foreach`, `if_else`, `wait`, `fail` | Conditional and looping logic |
-| **Activities** | `copy_data`, `delete`, `execute_sql`, `execute_pipeline`, `get_metadata` | Operational primitives |
-| **Cloud Storage** | `file_system_task`, S3/Azure/GCS helpers | Cloud file operations |
+| **Data Movement** (5) | `source`, `destination`, `copy_data`, `local_table_source`, `local_table_sink` | Read data in and write it out. One generic Source and one generic Destination — pick the connector inside the node, rather than a node per format. |
+| **Transform** (12) | `transform`, `filter`, `derived_column`, `sort`, `deduplicate`, `sample`, `schema_mapper`, `data_wrangler`, `data_quality`, `data_profile`, `flatten_explode`, `scd2` | Change the shape of one input |
+| **Combine** (7) | `join`, `union`, `aggregate`, `lookup`, `pivot`, `unpivot`, `window` | Bring rows or inputs together |
+| **Control Flow** (10) | `if_condition`, `conditional_split`, `foreach_loop`, `foreach_pipeline`, `execute_pipeline`, `lookup_activity`, `set_variable`, `wait_delay`, `retry_handler`, `fail` | Conditional and looping logic |
+| **Action** (7) | `http_request`, `send_email`, `slack_notify`, `get_metadata`, `delete_data`, `file_system`, `execute_sql_task` | Operational primitives and side effects |
+| **AI / Semantic** (3) | `embedder`, `llm_guardrail`, `semantic_router` | Embeddings and LLM-assisted routing |
+
+> Older docs listed per-format nodes such as `csv_source` or `db_sink`. Those
+> types are still registered so existing pipelines keep running, but they are
+> hidden from the palette — use the generic `source` / `destination` nodes and
+> choose the connector in the node's config panel.
 
 For each connector, see the [connector catalog](../connectors.md). For each node, open the **Nodes** tab in this Help page.
 
@@ -245,7 +250,14 @@ The execution's subprocess is sent SIGTERM, then SIGKILL after the grace period.
 
 ### 8.2 Logs
 
-Per-step logs are truncated to 1 MB by default (configurable via `REVOLUZEN_FLOW_STEP_LOG_MAX_MB`). Full raw logs live on disk under `exec_logs/`.
+Per-step logs are kept as `StepLog` records on the execution and shown in
+**Executions → a run → Logs**. Captured output samples are stored separately
+in the `step_outputs` store and pruned after 30 days.
+
+> An earlier version of this page described a 1 MB truncation limit, a
+> `REVOLUZEN_FLOW_STEP_LOG_MAX_MB` setting and raw logs on disk under
+> `exec_logs/`. None of the three exists in the codebase — there is no
+> size cap to tune and no such directory.
 
 ---
 

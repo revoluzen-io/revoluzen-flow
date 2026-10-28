@@ -22,7 +22,7 @@ Revoluzen Flow is a **code-first** pipeline orchestrator. AI assists; AI never d
 ### Proof artifacts
 | Artifact | Where |
 |---|---|
-| Tool tier registry showing which tools are read / safe-write / high-impact-write | `backend/revoluzen_flow/ai/tool_registry.py` |
+| Tool tier registry showing which tools are read / safe-write / high-impact-write | `backend/revoluzen_flow/ai/tools/registry.py` (tiers declared per tool in `backend/revoluzen_flow/ai/tools/__init__.py`) |
 | Confirmation card behavior in pre-publish review | `docs/user-guides/projects.md`, `docs/user-guides/pipelines.md` |
 | Test suite proving deterministic fallback works without an LLM | `backend/tests/ai/` |
 | Architecture invariant: no agent write without idempotency + confirmation | `backend/tests/architecture/test_invariants.py` |
@@ -70,7 +70,7 @@ Every AI suggestion and every tool call is logged with a trace ID. You can repla
 |---|---|
 | Trace schema definition | `docs/ai-boundary-contract.md` section 8 |
 | Trace store implementation | `backend/revoluzen_flow/ai/trace_store.py` |
-| Trace UI panel | `frontend/src/components/AgentTracePanel.tsx` |
+| Trace UI panel | `frontend/src/components/pages/ActivityPage.tsx` (Insights → Activity: audit + agent-trace + execution timeline) |
 | Cost indicator in agent response | inline in chat UI |
 | Architecture invariant: no tool call without an audit event | `backend/tests/architecture/test_invariants.py` |
 

@@ -236,9 +236,9 @@ The source file `samples/orders.csv` is seeded on first startup from `backend/re
 ## Build your own pipeline
 
 1. Open the **Editor** from the top nav.
-2. Drag a **CSV Source** node onto the canvas. Configure it to point at any local CSV (the seeded `samples/orders.csv` from the demo is a good starting point).
+2. Drag a **Source** node onto the canvas, then pick `CSV` as its connector type in the config panel and point it at any local CSV (the seeded `samples/orders.csv` from the demo is a good starting point). There is one generic Source node rather than a node per file format — the format is a setting, not a different node.
 3. Drag a **Filter** transform. Connect the source to it. Add a condition like `quantity > 5`.
-4. Drag an **Output** destination node. Connect the filter to it. Set the output path to `samples/output/filtered.csv` (paths are relative to `REVOLUZEN_FLOW_DATA_DIR`).
+4. Drag a **Destination** node. Connect the filter to it, choose `CSV`, and set the output path to `samples/output/filtered.csv` (paths are relative to `REVOLUZEN_FLOW_DATA_DIR`).
 5. Click **Run** in the toolbar.
 
 The execution log streams at the bottom; rows in/out and timing per node appear inline.
@@ -295,7 +295,7 @@ so re-scans never spam you. Full design rationale in
 
 ## Next steps
 
-- **Nodes** tab in this Help page — full reference for all 40 nodes
+- **Nodes** tab in this Help page — full reference for all 44 nodes
 - **18 sample pipelines** — see `samples/free-api-pipelines/` for ready-to-import demos covering REST APIs, joins, SCD2, pivot/unpivot, conditional routing, XML ingest, and more. Run `pwsh ./import.ps1` (or `.\import.ps1` on Windows PowerShell 5) to land them all as drafts.
 - [Connector catalog](connectors.md) — what works, what's beta
 - [Pipelines guide](user-guides/pipelines.md) — covers scheduling, dependencies, and backfills

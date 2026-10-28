@@ -1,6 +1,6 @@
 # Revoluzen Flow Edition Matrix
 
-**Status:** Active 2026-05-01 · canonical source of truth for *what's free* and *what requires Revoluzen Flow Enterprise*.
+**Status:** Active · canonical source of truth for *what's free* and *what requires Revoluzen Flow Enterprise*. Last verified against the code 2026-10-28.
 
 If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). Plus features never live in this repo — even as stubs (Boundary Rule 2).
 
@@ -23,7 +23,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Pipeline canvas (drag-drop) | ✅ | ✅ |
-| 40 node types across 6 categories | ✅ | ✅ |
+| 44 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 39 curated in `ModulesPanel.tsx` plus 5 reconciled in from the backend registry. The registry itself holds 105 `StepType` entries; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
 | 66 connectors visible by default (Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 80 declared types minus 14 marked roadmap. Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "66 connectors", not "66 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 66 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
 | Expression engine (`$json`, `$now`, `$('Node')`) | ✅ | ✅ |
 | SQL Transform (DuckDB-backed) | ✅ | ✅ |
@@ -83,9 +83,9 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 > execution-engine adapters: the interface is open, the maintained
 > integration is paid.
 >
-> Anti-pattern rule 25 in `docs/product_facts/25_anti_patterns.md` still
-> names CDC, Vector and JDBC as Plus-only node types and now needs updating
-> to CDC alone.
+> Anti-pattern rule 25 in `docs/product_facts/25_anti_patterns.md` was
+> updated to match: it now names CDC alone, and records Vector and JDBC as
+> having moved to OSS on 2026-10-23.
 
 ## Execution & operations
 
@@ -130,14 +130,14 @@ These are the inline AI helpers that augment specific UI moments (SQL helper, pr
 
 ## AI — agent & Copilot
 
-The agentic Copilot and its 26 tools all ship in OSS. Plus adds organizational guardrails.
+The agentic Copilot and its 30 tools all ship in OSS. Plus adds organizational guardrails.
 
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Copilot dock (resizable, page-aware, slash commands) | ✅ | ✅ |
-| 26 tools (21 READ + 4 SAFE_WRITE + 1 HIGH_IMPACT_WRITE) — full list in `docs/product_facts/10_ai_copilot.md` | ✅ | ✅ |
+| 30 tools (22 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), plus 2 opt-in web tools registered only when the operator enables web access — full list in `docs/product_facts/10_ai_copilot.md`; source of truth is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` | ✅ | ✅ |
 | Fast-lane router (rule-based; sub-1 s answers for the 14 most-common questions) | ✅ | ✅ |
-| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 26 tools (Layer 3) | ✅ | ✅ |
+| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 30 tools (Layer 3) | ✅ | ✅ |
 | Provider-aware wall-clock cap (300 s local, 120 s cloud) + Stop button | ✅ | ✅ |
 | Agent loop with bounded iterations + wall-clock cap | ✅ | ✅ |
 | Tool-tier RBAC for the agent (4 roles: viewer / developer / admin / super_admin) | ✅ | ✅ |
@@ -168,7 +168,7 @@ There are **two RBAC systems** in Revoluzen Flow — the agent-tool RBAC (always
 
 > **SSO is designated OSS and is not yet built (decided 2026-10-23).**
 >
-> The row above says `🟠 planned` rather than `✅` because OIDC/SAML is not
+> The row below says `🟠 planned` rather than `✅` because OIDC/SAML is not
 > implemented in this repository at all. The only matches for "oidc" and
 > "saml" in the codebase are prose in the AI knowledge base and
 > `connectors/openapi_security.py`, which is about *connector* auth schemes,
@@ -297,7 +297,25 @@ are Enterprise.
 
 This file is updated whenever a feature ships in either repo. Both maintainer teams keep it in sync via PR review. The version authoritative for a given Revoluzen Flow release is the file in that release's git tag.
 
-**Last reviewed:** 2026-05-04.
-**Next mandatory review:** before OSS launch (date flexible per launch posture lock).
-**May 3 updates:** corrected connector count (45, not 60+); split notification expansion; split pool page additions; added scaling tier (vertical OSS, horizontal Plus).
-**May 4 updates:** corrected tool count (19, not 16) — full list in `docs/product_facts/10_ai_copilot.md`; added the chat fast-lane + Layer 1/2 knowledge architecture rows; added Sprint 1 ETL depth references (SCD2, checkpoint store, bulk-load runner, Postgres + Snowflake dialects); fixed credentials encryption claim — was misrepresented as "always-on" in earlier text but the OSS gate had been Plus-only until the May 4 fix made encryption genuinely always-on (Fernet AES-128-CBC + HMAC-SHA256, master key at `~/.revoluzen-flow/secret.key`); **connector count corrected from 45→43** after audit (the "8 db dialects" was overcounted; honest count is 4 db + 2 bulk-load); **production-grade depth claim removed** — the cert matrix only certifies v2 manifests, and only Salesforce has migrated; the 18/12/7 split was aspirational, not current state. v1→v2 migration is the post-1.0 Tier-1 uplift roadmap.
+**Last reviewed:** 2026-10-28.
+
+### Counts, and where they actually come from
+
+Every count in this file has gone stale at least once by being retyped from
+another document rather than re-derived. Re-derive them:
+
+| Count | Source of truth |
+|---|---|
+| Node types (44 / 6 categories) | `MODULES` in `frontend/src/components/ModulesPanel.tsx`, plus backend types not in `HIDDEN_TYPES` (`frontend/src/components/hiddenNodeTypes.ts`) |
+| `StepType` registry (105) | `GET /api/node-types` |
+| Connectors (66) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
+| Agent tools (30) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
+| Templates (27) | `frontend/src/templates/catalog.ts` |
+
+**2026-10-28 review:** re-derived every count against the running build.
+Connectors (66, and all five group totals) and templates (27) were correct.
+Node types corrected 40 → 44 and tools corrected 26 (21/4/1) → 30 (22/7/1);
+both had drifted. Removed a stale note claiming anti-pattern rule 25 still
+needed updating — it had already been updated. Dropped the May 3 / May 4
+changelog entries below this line, which asserted 43 connectors and 19 tools
+and so contradicted the body of the file they were attached to.

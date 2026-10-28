@@ -123,7 +123,7 @@ stack.
 ## Reference
 
 - `backend/revoluzen_flow/nodes/db_source.py` — read implementation
-- `backend/revoluzen_flow/nodes/db_sink.py` — write implementation
+- `backend/revoluzen_flow/nodes/activities.py` — `DbSinkNode`, the write implementation
 - `backend/revoluzen_flow/connectors/jdbc_dialects.py` — dialect specifics
 - `backend/revoluzen_flow/connectors/pgoutput.py` — experimental CDC
 - `backend/revoluzen_flow/engine/bulk_load/dialects/postgres.py` — bulk-load path

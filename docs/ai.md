@@ -18,7 +18,7 @@ Specific UI moments where the agent augments a single action:
 
 ### Copilot dock
 
-The floating chat panel in the bottom-right corner. Opens to a full conversation with 26 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
+The floating chat panel in the bottom-right corner. Opens to a full conversation with 30 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
 
 | Read tools (21) | Draft / Write tools (4) |
 |---|---|
@@ -55,7 +55,7 @@ You can also pull from inside Revoluzen Flow: open **Insights → AI Provider** 
 
 ### 3. Verify
 
-The Copilot's status banner should show `ollama / qwen2.5:7b · 26 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
+The Copilot's status banner should show `ollama / qwen2.5:7b · 30 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
 
 If it times out, you're likely on a model heavier than 7B on a CPU-only host. Switch back to `qwen2.5:7b` or pick a cloud provider for faster responses.
 

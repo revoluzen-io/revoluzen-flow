@@ -150,12 +150,12 @@ pool + optional Postgres becomes the right answer.
 
 The hard limits are:
 - SQLite WAL: ~thousands of writes/second peak
-- DuckDB memory limit: 80% of host RAM by default
+- DuckDB memory limit: `4GB` by default (`REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT`) — an explicit ceiling, so DuckDB spills to disk rather than OOM-killing the process
 - Single-process concurrency: capped via `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS`
 
 ### How many concurrent pipeline runs?
 
-Default cap: detected CPU cores. Override via `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS=8`
+Default cap: `4` in prod mode, `0` (uncapped) in dev. Override via `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS=8`
 (or whatever fits your host). Settings → General → Execution Tuning
 shows the live value.
 

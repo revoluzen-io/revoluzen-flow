@@ -162,7 +162,7 @@ for 2 days" alerting without a separate monitoring stack.
 ## Reference
 
 - `backend/revoluzen_flow/nodes/db_source.py` — read implementation (shared with PostgreSQL / MySQL / DuckDB)
-- `backend/revoluzen_flow/nodes/db_sink.py` — write implementation
+- `backend/revoluzen_flow/nodes/activities.py` — `DbSinkNode`, the write implementation
 - `backend/revoluzen_flow/connectors/jdbc_dialects.py` — dialect-specific quoting / type mapping
 - `backend/revoluzen_flow/engine/bulk_load/dialects/` — bulk-load dialect entry point (SQL Server bulk path on roadmap)
 - `backend/scripts/sqlserver_smoke_test.py` — the script described above

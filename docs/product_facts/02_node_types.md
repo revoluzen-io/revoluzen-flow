@@ -1,6 +1,6 @@
 # Revoluzen Flow node types reference
 
-A pipeline is a directed graph of nodes. Each node reads from upstream nodes, transforms data, and emits a relation that downstream nodes can read. Revoluzen Flow ships 40 node types organised by category.
+A pipeline is a directed graph of nodes. Each node reads from upstream nodes, transforms data, and emits a relation that downstream nodes can read. Revoluzen Flow ships 44 node types organised by category.
 
 **Edition badges:** OSS = available in Revoluzen Flow Free. Plus = Revoluzen Flow Enterprise only. Most nodes are OSS.
 

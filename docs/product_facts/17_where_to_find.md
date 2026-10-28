@@ -198,7 +198,7 @@ To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/s
 - **Chat fast lane**: type `what tools does the agent have` → instant answer.
 - **API**: `GET /api/ai/agent/status` returns `tool_count`.
 - **Code**: `backend/revoluzen_flow/ai/tools/` — one file per tool.
-- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 26 tools by tier.
+- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 30 tools by tier.
 
 ## Where do I see what's running right now?
 

@@ -76,7 +76,7 @@ Revoluzen Flow uses one Python process with a small set of long-running threads:
 
 - **Main async loop** — FastAPI request handlers, WebSockets
 - **Scheduler thread** — checks schedules every 30 seconds
-- **Worker pool threads** — sized by `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` (default 4)
+- **Worker pool threads** — sized by `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` (default 4 in prod, 0/uncapped in dev)
 - **Worker pool watchdog** — checks deadlines and long-running thresholds every 5 seconds
 - **Backup scheduler** — daily snapshots
 

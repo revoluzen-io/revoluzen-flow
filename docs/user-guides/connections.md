@@ -143,7 +143,7 @@ Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance
 | Test fails "password authentication failed" | Credential is wrong | Edit connection, re-enter credential |
 | Connection saved but pipeline can't see it | Project-scoped connection in wrong project | Edit connection, change `project_id` or set to global |
 | "Connector not found" in picker | Connector is hidden (Coming soon, Revoluzen Flow Enterprise, or unsupported) | Use Generic Source/Destination + REST API, or upgrade to Revoluzen Flow Enterprise |
-| Master key file refuses startup | `~/.revoluzen-flow/secret.key` has wrong permissions (must be `0600` on POSIX) | `chmod 600 ~/.revoluzen-flow/secret.key` and restart, or set `REVOLUZEN_FLOW_ALLOW_INSECURE_KEY_PERMS=1` (dev only) |
+| Master key file refuses startup | `~/.revoluzen-flow/secret.key` has wrong permissions (must be `0600` on POSIX) | `chmod 600 ~/.revoluzen-flow/secret.key` and restart. There is deliberately **no override** — the POSIX check is fail-closed with no fallback, since the app owns the file it created and `chmod 600` essentially cannot fail. (On Windows the loader repairs the ACL in place instead of refusing, and logs if it cannot.) |
 
 ---
 

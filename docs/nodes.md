@@ -1,6 +1,6 @@
 # Node reference
 
-Revoluzen Flow ships **40 nodes** organized into 6 categories (per `frontend/src/components/hiddenNodeTypes.ts` `VALID_GHOST_TYPES`). Drag any node onto the canvas and click it to configure.
+Revoluzen Flow ships **44 nodes** organized into 6 categories (`MODULES` in `frontend/src/components/ModulesPanel.tsx`, plus the backend types that `HIDDEN_TYPES` does not hide — not `VALID_GHOST_TYPES`, which is the AI suggestion whitelist and has drifted from the palette). Drag any node onto the canvas and click it to configure.
 
 ## Sources (5)
 
@@ -74,7 +74,7 @@ Revoluzen Flow ships **40 nodes** organized into 6 categories (per `frontend/src
 
 ## Generic Source / Destination
 
-In addition to the named nodes above, Revoluzen Flow provides **Generic Source** and **Generic Destination** nodes. Pick a connector type inside the node config panel — they're the entry point for any of the 37 connectors (see [`connectors.md`](connectors.md)).
+In addition to the named nodes above, Revoluzen Flow provides **Generic Source** and **Generic Destination** nodes. Pick a connector type inside the node config panel — they're the entry point for any of the 66 connectors (see [`connectors.md`](connectors.md)).
 
 ## Coming next (Sprint 1)
 

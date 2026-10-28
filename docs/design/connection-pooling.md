@@ -184,6 +184,6 @@ The pool is dialect-agnostic — `factory` is a closure provided by the caller. 
 
 ---
 
-## Skeleton — see [`backend/revoluzen_flow/engine/connection_pool.py`](backend/revoluzen_flow/engine/connection_pool.py)
+## Skeleton — see [`backend/revoluzen_flow/engine/connection_pool.py`](../../backend/revoluzen_flow/engine/connection_pool.py)
 
 Phase 1 deliverable. Additive — does NOT modify any existing call site. The next phase wires it into `db_source._get_connection_config()`.

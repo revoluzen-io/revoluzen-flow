@@ -375,34 +375,55 @@ using a Database Source with an incremental query
 
 **Bad:** "The Copilot has 16 tools."
 
-**Why wrong:** The canonical count is **26 tools** (21 READ + 4
-SAFE_WRITE + 1 HIGH_IMPACT_WRITE) as of the 2026-05-28 SSOT pass.
-16 / 19 / 20 were stale numbers from earlier reconciliations.
+**Why wrong:** The canonical count is **30 tools** (22 READ + 7
+SAFE_WRITE + 1 HIGH_IMPACT_WRITE), verified against the registry
+2026-10-28, plus 2 opt-in web tools registered only when the operator
+enables web access. 16 / 19 / 20 / 25 / 26 were all stale numbers from
+earlier reconciliations — this rule has now been wrong twice itself.
 
-**Correct:** "The Copilot has 26 tools organized in three tiers. Full
+**Correct:** "The Copilot has 30 tools organized in three tiers. Full
 list in `docs/product_facts/10_ai_copilot.md`."
 
-**Source:** the registry at `backend/revoluzen_flow/ai/tools/__init__.py` is
-the source of truth; `edition-matrix.md` line 96 is mirrored from it.
+**Source:** `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`
+is the source of truth. On a running instance, `GET /api/ai/agent/status`
+returns `tool_count` — prefer that over any number written in a document,
+including this one.
 
 ### 25. Don't say "40 node types" without clarifying Plus-only
 
 **Bad:** "Revoluzen Flow has 40 node types, all in OSS."
 
-**Why wrong:** One node family is Plus-only — CDC Source. (Vector DB sinks
-and the JDBC dialect registry were Plus-only until 2026-10-23 and are now
-OSS; see `edition-matrix.md`. Only the *maintained enterprise dialects*
-shipped through the JDBC registry remain Enterprise.) The StepType enum has 108 entries but many
-are Plus-gated or internal. The SSOT for the user-visible palette is
-`frontend/src/components/hiddenNodeTypes.ts` (`VALID_GHOST_TYPES`),
-which contains exactly 40. Note: there is no Python-code node in either
-edition — do not list "Python Transform" as a Plus node type.
+**Why wrong:** Two things are wrong with that sentence. The count is **44**,
+not 40, as of 2026-10-28. And one node family is Plus-only — CDC Source.
+(Vector DB sinks and the JDBC dialect registry were Plus-only until
+2026-10-23 and are now OSS; see `edition-matrix.md`. Only the *maintained
+enterprise dialects* shipped through the JDBC registry remain Enterprise.)
+The `StepType` registry holds **105** entries, but most are legacy keys kept
+registered so existing pipelines keep running, and hidden from the palette.
+Note: there is no Python-code node in either edition — do not list
+"Python Transform" as a Plus node type.
 
-**Correct:** "Revoluzen Flow ships 40 node types across 6 categories in OSS.
+**Correct:** "Revoluzen Flow ships 44 node types across 6 categories in OSS.
 Plus adds the CDC Source node type and the maintained enterprise JDBC
 dialects. See `02_node_types.md` for the per-node breakdown."
 
-**Source:** `edition-matrix.md` lines 22-48.
+**Source:** the palette is `MODULES` in
+`frontend/src/components/ModulesPanel.tsx` (39 curated), plus any backend
+type not listed in `HIDDEN_TYPES` in
+`frontend/src/components/hiddenNodeTypes.ts`, which `makeReconciledModulesHook`
+appends (5 more: `data_profile`, `delete_data`, `execute_sql_task`,
+`file_system`, `scd2`).
+
+> ⚠ **Do not use `VALID_GHOST_TYPES` as the palette SSOT**, as this rule
+> previously instructed. It is the whitelist for AI *ghost suggestions*, and
+> as of 2026-10-28 it has drifted from the palette in both directions: it
+> lists 11 types the backend does not register at all (`ai_enrich`,
+> `cdc_merge`, `create_ticket`, `cross_join`, `foreach`, `guardrail`,
+> `merge`, `shell`, `sql_exec`, `sticky_note`, `wait`) and omits 10 that are
+> genuinely in the palette (`data_quality`, `data_wrangler`,
+> `flatten_explode`, `foreach_loop`, `get_metadata`, `llm_guardrail`,
+> `local_table_sink`, `local_table_source`, `semantic_router`, `window`).
+> Counting it is what produced the stale "40".
 
 ### 26. Don't claim 14 fast-lane intents if the count changes
 

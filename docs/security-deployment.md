@@ -101,7 +101,7 @@ here is read by Revoluzen Flow Enterprise and does not apply to OSS.
 | `REVOLUZEN_FLOW_CORS_ORIGINS` | Comma-separated allowed origins (`https://app.example.com,https://admin.example.com`) | dev: localhost regex; prod: must be set |
 | `REVOLUZEN_FLOW_CSP` | Full Content-Security-Policy string override; empty value disables CSP entirely | conservative baseline (see §6) |
 | `REVOLUZEN_FLOW_HSTS_MAX_AGE` | HSTS `max-age` in seconds — only emitted over TLS | `31536000` (1 year) |
-| `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` | Cap on simultaneously-executing pipelines | host-CPU heuristic |
+| `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` | Cap on simultaneously-executing pipelines | `4` in prod mode, `0` (uncapped) in dev |
 | `REVOLUZEN_FLOW_DISABLE_SECURITY_HEADERS=1` | Bypass the security-headers middleware — **debugging only, never in production** | unset |
 
 `REVOLUZEN_FLOW_CORS_ORIGINS` matters: with `allow_credentials=True`, browsers

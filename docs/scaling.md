@@ -23,7 +23,7 @@ All tunable via environment variables. Restart the backend to apply changes — 
 
 | Variable | Default (prod) | Effect |
 |---|---|---|
-| `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` | `4` | Number of pipelines that can execute simultaneously. Each gets its own DuckDB connection. `0` = unlimited. |
+| `REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS` | `4` in prod, `0` in dev | Number of pipelines that can execute simultaneously. Each gets its own DuckDB connection. `0` = unlimited, which is the dev-mode default. |
 | `REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT` | `4GB` | Per-worker memory ceiling. Forces spill-to-disk instead of OOM. |
 | `REVOLUZEN_FLOW_DUCKDB_THREADS` | half of CPUs | Caps DuckDB so it doesn't starve FastAPI/scheduler/WebSocket. |
 | `REVOLUZEN_FLOW_DUCKDB_TEMP_DIR` | `./data/duckdb_spill` | Spill target. **Must be SSD/NVMe** — wrong disk turns 30s into 30min. |
