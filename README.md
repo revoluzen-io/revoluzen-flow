@@ -28,8 +28,8 @@ python -m revoluzen_flow open
 The backend boots on loopback, your browser opens, and you're in.
 
 <div align="center">
-  <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a 15-node pipeline from CSV, Postgres and REST sources through validation, join, FX lookup, aggregation and a conditional branch to a managed table, a CSV export and a Slack alert" width="100%">
-  <em>Build pipelines on a canvas · 105 node types · run, schedule and alert from the same place</em>
+  <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a ten-node pipeline taking two sources through validation and dedupe, into a join, a derived column and an aggregation, then a conditional branch out to a Slack alert and a managed table" width="100%">
+  <em>Build pipelines on a canvas · 44 node types · 66 connectors · run, schedule and alert from the same place</em>
 </div>
 
 > [!NOTE]
@@ -60,6 +60,7 @@ a browser UI, not a desktop program.
 
 | You are | Path | Time |
 |---|---|---|
+| On Linux and want one command, nothing installed first | **[One-line install](#one-line-install)** — no Python, no Docker, no root | 1 min |
 | On any OS and want it to just work | **[Docker Compose](#docker-compose)** — one identical command everywhere | 2–5 min |
 | Comfortable with Python 3.11+ | **[PyPI](#pypi)** | 2 min |
 | On Linux and would rather not run Docker | **[Linux package](#linux-package)** — `.deb` / `.rpm` / `.AppImage` | 2 min |
@@ -69,6 +70,41 @@ a browser UI, not a desktop program.
 > Hitting an error? Everything we know about install failures is collected in
 > [Install troubleshooting](#install-troubleshooting) rather than scattered
 > through these steps.
+
+### One-line install
+
+Linux x86_64. Installs per-user, no root. The AppImage it fetches carries its
+own Python runtime, so nothing needs to be on the machine first.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/revoluzen-io/revoluzen-flow/main/installer/install.sh | sh
+```
+
+Then `revoluzen serve` and open <http://localhost:8001>.
+
+It resolves the latest release, verifies the download against the release's
+`SHA256SUMS` and **aborts if that check fails or the file is unlisted**, installs
+to `~/.local/share/revoluzen-flow`, and links `~/.local/bin/revoluzen`. It does
+not edit your shell profile — if `~/.local/bin` is not on `PATH` it prints the
+line to add. Pin a version with `REVOLUZEN_VERSION=v1.0.1`, relocate with
+`REVOLUZEN_PREFIX=/opt/rzf`.
+
+> [!NOTE]
+> **Piping a URL to `sh` runs whatever that URL serves at that moment.** If that
+> trade is not one you want to make — and for a tool that argues for
+> sovereignty, it is reasonable not to — download it, read it, then run it:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/revoluzen-io/revoluzen-flow/main/installer/install.sh -o install.sh
+> less install.sh && sh install.sh
+> ```
+
+**Windows and macOS are not covered by this yet**, and the script will tell you
+so rather than fail obscurely. Revoluzen Flow does not publish unsigned Windows
+or macOS builds: without an EV certificate SmartScreen shows a red block dialog,
+and without Developer ID notarization Gatekeeper refuses to open the package at
+all — which stops exactly the people a one-line installer is for. Use
+[Docker Compose](#docker-compose) or [PyPI](#pypi) there until signing is in
+place. `installer/install.ps1` is written and waiting on that.
 
 ### Docker Compose
 

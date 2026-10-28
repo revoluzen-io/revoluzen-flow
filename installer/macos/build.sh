@@ -22,7 +22,10 @@ set -euo pipefail
 # ── Locate paths + parse args ──
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
-VERSION="1.0.0"
+# 2026-10-28: was hardcoded "1.0.0", so every build produced a 1.0.0 package
+# no matter the tag. Read it from pyproject.toml, the way the Linux scripts do.
+VERSION="$(grep -m1 -E '^version = "' "$REPO_ROOT/pyproject.toml" | sed -E 's/^version = "([^"]+)"/\1/')"
+[[ -n "$VERSION" ]] || { echo "could not read version from pyproject.toml"; exit 1; }
 SIGN=""
 IDENTITY=""
 NOTARIZE=""
@@ -62,18 +65,33 @@ echo "  [2/4] Freezing backend with PyInstaller..."
 PYTHON="$REPO_ROOT/.venv/bin/python"
 [[ -x "$PYTHON" ]] || { echo "Python venv not found at $PYTHON"; exit 1; }
 
+# 2026-10-28 — this used to be an inline --collect-all of four packages,
+# including `--collect-all revoluzen-flow`. A hyphen is not importable, so
+# PyInstaller logged a WARNING and collected NOTHING for the app itself:
+# no connector manifests, no frontend_dist, no seed data. The build
+# succeeded and shipped a .pkg that served an empty UI.
+#
+# Use the shared spec instead. It is the same one Windows uses and it
+# collects the whole app (548 data files) plus pyarrow / pandas / numpy /
+# cryptography / tzdata and the dynamically-imported uvicorn protocol
+# modules, none of which the four-package command reached either.
 ( cd "$REPO_ROOT" && \
-  "$PYTHON" -m PyInstaller \
-    --onedir --noconfirm --clean \
-    --name revoluzen-flow \
-    --paths backend \
-    --hidden-import revoluzen_flow.main \
-    --collect-all revoluzen-flow \
-    --collect-all duckdb \
-    --collect-all fastapi \
-    --collect-all uvicorn \
+  "$PYTHON" scripts/stage_frontend.py && \
+  "$PYTHON" scripts/stage_docs.py && \
+  "$PYTHON" tools/package_preflight.py --strict && \
+  "$PYTHON" -m PyInstaller installer/windows/revoluzen-flow.spec \
+    --noconfirm --clean \
     --distpath "$APP_BUNDLE/Contents/Resources" \
-    backend/revoluzen_flow/__main__.py )
+    --workpath "$BUILD_DIR/pyi" )
+
+# The spec names the executable `revoluzen` inside a `revoluzen-flow`
+# directory (matching the console script in pyproject.toml). Prove it
+# landed before assembling a bundle around a path that does not exist —
+# the launcher below used to point at `revoluzen_flow`, which never
+# existed under any naming, and the .pkg only failed when a user ran it.
+FROZEN="$APP_BUNDLE/Contents/Resources/revoluzen-flow/revoluzen"
+[[ -x "$FROZEN" ]] || { echo "freeze did not produce $FROZEN"; exit 1; }
+"$FROZEN" selftest || { echo "frozen binary failed selftest"; exit 1; }
 
 # ── 3. Assemble .app bundle ──
 echo "  [3/4] Assembling .app bundle + Info.plist..."
@@ -82,7 +100,7 @@ echo "  [3/4] Assembling .app bundle + Info.plist..."
 cat > "$APP_BUNDLE/Contents/MacOS/RevoluzenFlow" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(cd "$(dirname "$0")" && pwd)"
-exec "$HERE/../Resources/revoluzen-flow/revoluzen_flow" serve
+exec "$HERE/../Resources/revoluzen-flow/revoluzen" serve
 EOF
 chmod +x "$APP_BUNDLE/Contents/MacOS/RevoluzenFlow"
 
