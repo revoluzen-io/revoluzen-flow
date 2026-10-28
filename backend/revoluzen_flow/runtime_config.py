@@ -188,6 +188,15 @@ VERSION_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_VERSION_RETENTION", 20)
 # Keep last N SQLite snapshots from the auto-backup on startup.
 BACKUP_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_BACKUP_RETENTION", 5)
 
+# Age out agent traces after N days. 0 = keep forever, which is the
+# default and the behaviour every existing install already has.
+#
+# Defaulting this to a finite window would delete operator data on
+# upgrade, silently and with no way back — so opting in is the operator's
+# call, not ours. Docs claimed a 90-day default for a long time while
+# nothing pruned at all; 90 is a reasonable value to SET, not to assume.
+TRACE_RETENTION_DAYS: int = _int("REVOLUZEN_FLOW_TRACE_RETENTION_DAYS", 0)
+
 
 # ── Introspection helper ────────────────────────────────────────────────
 def snapshot() -> dict:
@@ -213,6 +222,7 @@ def snapshot() -> dict:
         "dev_sample_rows": DEV_SAMPLE_ROWS,
         "version_retention_count": VERSION_RETENTION_COUNT,
         "backup_retention_count": BACKUP_RETENTION_COUNT,
+        "trace_retention_days": TRACE_RETENTION_DAYS,
     }
 
 

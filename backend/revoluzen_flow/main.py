@@ -734,6 +734,48 @@ async def _step_output_pruner_loop() -> None:
             await asyncio.sleep(3600)
 
 
+async def _trace_pruner_loop() -> None:
+    """Daily age-out for the agent trace store.
+
+    Opt-in: runs only when REVOLUZEN_FLOW_TRACE_RETENTION_DAYS is set to a
+    positive number of days. At 0 (the default) traces are kept forever,
+    which is what every install did before this loop existed — turning
+    deletion on by default would discard operator data on upgrade.
+
+    Runs at 03:45 UTC, after the step-output pruner at 03:30, so the two
+    daily sweeps do not contend for the same SQLite write lock.
+    """
+    from datetime import datetime, timezone, timedelta
+    from revoluzen_flow.runtime_config import TRACE_RETENTION_DAYS
+
+    if TRACE_RETENTION_DAYS < 1:
+        return
+
+    while True:
+        try:
+            now = datetime.now(timezone.utc)
+            target = now.replace(hour=3, minute=45, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            await asyncio.sleep((target - now).total_seconds())
+
+            store = app_state.get("trace_store")
+            if store is None:
+                continue
+
+            deleted = store.purge_older_than(TRACE_RETENTION_DAYS)
+            if deleted > 0:
+                logger.info(
+                    "Trace pruner: deleted %d traces older than %d days",
+                    deleted, TRACE_RETENTION_DAYS,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Trace pruner error (will retry): %s", exc)
+            await asyncio.sleep(3600)
+
+
 # ── Lifespan: replaces @app.on_event("startup"/"shutdown") ───────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -747,9 +789,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
       5. Start scheduler (best-effort)
       6. Load plugins (best-effort, only if REVOLUZEN_FLOW_ENABLE_PLUGINS=1)
       7. Start backup scheduler (best-effort)
-      8. Run audit retention (best-effort)
-      9. Schedule warmup task (sets warmup_status=pending, then ok|failed)
-     10. Print operator banner
+      8. Schedule warmup task (sets warmup_status=pending, then ok|failed)
+      9. Print operator banner
      → yield (server READY; warmup runs in background)
 
     Shutdown phase (REVERSED order — reviewer 2):
@@ -883,6 +924,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if os.environ.get("REVOLUZEN_FLOW_DISABLE_STEP_OUTPUT_PRUNE", "").strip().lower() not in ("1", "true", "yes"):
         app_state["step_output_pruner_task"] = asyncio.create_task(_step_output_pruner_loop())
         logger.info("Step-output pruner scheduled (daily 03:30 UTC, 30-day TTL on samples)")
+
+    # 6b-ter) Agent-trace age-out — daily 03:45 UTC, opt-in. Off unless the
+    # operator sets REVOLUZEN_FLOW_TRACE_RETENTION_DAYS; see runtime_config
+    # for why the default keeps traces forever.
+    from revoluzen_flow.runtime_config import TRACE_RETENTION_DAYS as _trace_days
+    if _trace_days >= 1:
+        app_state["trace_pruner_task"] = asyncio.create_task(_trace_pruner_loop())
+        logger.info(
+            "Trace pruner scheduled (daily 03:45 UTC, %d-day retention)",
+            _trace_days,
+        )
 
     # 6c) Product knowledge — Layer 2 of the chat knowledge architecture.
     # Indexes curated `docs/product_facts/*.md` so the AI Copilot can
