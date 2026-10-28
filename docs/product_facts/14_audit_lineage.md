@@ -65,11 +65,11 @@ Revoluzen Flow Enterprise can export pipelines as **signed migration bundles** v
 
 ### Compliance posture document
 
-OSS ships `docs/ai-ops-contract.md` and `docs/compliance.md` (the compliance one-pager). Plus adds **SOC 2 Type II attestation** and a Data Processing Agreement (DPA) suitable for procurement reviews.
+OSS ships `docs/ai-ops-contract.md` and `docs/compliance.md` (the compliance one-pager). Plus adds a Data Processing Agreement (DPA) suitable for procurement reviews. Revoluzen has not yet completed a SOC 2 audit; a Revoluzen SOC 2 Type II report for Enterprise customers is planned — ask sales for current status before relying on it.
 
 ## Anti-patterns
 
-- ❌ Telling an OSS user "Revoluzen Flow is SOC 2 certified" — the SOFTWARE isn't certified; the OPERATOR's deployment may bring Revoluzen Flow into scope of the operator's own SOC 2. Plus customers get the additional Revoluzen SOC 2 Type II attestation report on request.
+- ❌ Telling an OSS user "Revoluzen Flow is SOC 2 certified" — the SOFTWARE isn't certified; the OPERATOR's deployment may bring Revoluzen Flow into scope of the operator's own SOC 2. Equally, never promise a Revoluzen SOC 2 report: no audit has been completed yet.
 - ❌ "Use the Activity timeline as your forensic audit log" — it's the right starting point, but it's the SHARED audit + agent + execution feed combined. For forensics on the agent specifically, use the trace store API. For pipeline state changes, the audit_log table.
 - ❌ Promising lineage in OSS — it's Plus only. The OSS path for "where did this data come from" is `recall_history` against the RAG index plus `summarize_pipeline` on each upstream node.
 - ❌ Confusing audit log with execution log — they are different stores. Audit log = who did what (auth-scoped). Execution log = pipeline runs (system-scoped).
