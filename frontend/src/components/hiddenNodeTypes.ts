@@ -73,39 +73,11 @@ export function remapHiddenType(type: string): { type: string; label: string } |
   return null;
 }
 
-/**
- * Strict whitelist of node types that are allowed to appear as a ghost
- * suggestion. The AI suggester occasionally returns labels like "Load CSV"
- * even when the backing type is generic — those slipped through the
- * HIDDEN_TYPES filter and confused users (we removed CSV from the palette).
- *
- * Mirrors the visible MODULES palette in ModulesPanel.tsx. Keep in sync.
- */
-export const VALID_GHOST_TYPES: ReadonlySet<string> = new Set([
-  // Data Movement
-  'source', 'destination', 'copy_data',
-  // Transform
-  'transform', 'filter', 'derived_column', 'schema_mapper',
-  'aggregate', 'sort', 'deduplicate', 'sample', 'pivot', 'unpivot',
-  // Combine
-  'join', 'union', 'lookup',
-  'merge', 'cdc_merge', 'cross_join',
-  // Control Flow (2026-06-15 control-flow alignment: Switch = conditional_split;
-  // ForEach = foreach_pipeline; Lookup = lookup_activity)
-  'foreach', 'foreach_pipeline', 'if_condition', 'conditional_split',
-  'wait', 'wait_delay', 'set_variable', 'lookup_activity',
-  'execute_pipeline', 'fail', 'retry_handler',
-  // Action
-  // NB: `webhook_trigger` is intentionally absent — it was removed from the
-  // palette (ModulesPanel) and is deprecated on the backend (no registered
-  // impl; replaced_by `api_source`). Leaving it in the ghost whitelist let
-  // the AI suggest a node users can't actually add. 2026-06-08 node audit.
-  'http_request', 'shell', 'sql_exec',
-  'send_email', 'slack_notify', 'create_ticket',
-  'sticky_note',
-  // AI / Semantic
-  'ai_enrich', 'embedder', 'guardrail',
-]);
+// VALID_GHOST_TYPES used to live here as a second hand-maintained list
+// carrying a "mirrors MODULES, keep in sync" comment. It did not stay in
+// sync — see the note on its replacement. It is now DERIVED from MODULES
+// in ./modulesPanelData, which is also where MODULES itself now lives.
+// Import it from there.
 
 /**
  * Drop any AI ghost suggestion whose label hints at a removed connector

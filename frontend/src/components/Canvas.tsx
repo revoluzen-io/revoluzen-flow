@@ -31,7 +31,8 @@ import ValidationPanel from './ValidationPanel';
 import HeroPromptCard from './editor/HeroPromptCard';
 import PipelineOutline from './PipelineOutline';
 import CanvasDensityToggle from './CanvasDensityToggle';
-import { HIDDEN_TYPES, remapHiddenType, VALID_GHOST_TYPES, isLabelForRemovedConnector } from './hiddenNodeTypes';
+import { HIDDEN_TYPES, remapHiddenType, isLabelForRemovedConnector } from './hiddenNodeTypes';
+import { VALID_GHOST_TYPES } from './modulesPanelData';
 
 /* ── Stable objects (defined outside component to avoid re-creation) ──
    Canvas responsive tuning (Apr 18):
@@ -198,8 +199,28 @@ function remapLegacyGhost(s: AISuggestion): AISuggestion | null {
     if (!m) return null;
     out = { ...s, node_type: m.type, label: m.label };
   }
-  if (!VALID_GHOST_TYPES.has(out.node_type)) return null;
+  if (!isPaletteType(out.node_type)) return null;
   return out;
+}
+
+/**
+ * Is this a node the user could actually add from the palette?
+ *
+ * The palette is the curated MODULES list PLUS any backend-registered
+ * type that HIDDEN_TYPES does not hide, which `makeReconciledModulesHook`
+ * appends. Checking only the curated half would drop valid suggestions
+ * for the reconciled ones, so this mirrors both halves.
+ *
+ * The backend registry is cached on `window` by `useBackendNodeTypes`.
+ * Before it loads we fall back to the curated set alone — being briefly
+ * stricter is the safe direction, since the whole point of this gate is
+ * to never ghost a node the user cannot then add.
+ */
+function isPaletteType(type: string): boolean {
+  if (VALID_GHOST_TYPES.has(type)) return true;
+  if (HIDDEN_TYPES.has(type)) return false;
+  const registry = (window as any).__revoluzen_flow_node_types;
+  return Array.isArray(registry) && registry.some((t: any) => t?.type === type);
 }
 
 /* ── Ghost Node Component ── */
