@@ -209,7 +209,7 @@ There are **two RBAC systems** in Revoluzen Flow — the agent-tool RBAC (always
 | Lineage (Marquez-compatible) | — | ✅ |
 | Vault (AES-256, credential references, rotation) | — | ✅ |
 | Export to enterprise platforms (signed migration bundles) | — | ✅ |
-| Compliance posture document | ✅ (`docs/ai-ops-contract.md`) | ✅ + SOC 2 attestation, DPA |
+| Compliance posture document | ✅ (`docs/ai-ops-contract.md`) | ✅ + DPA (Revoluzen SOC 2 report planned, not yet available) |
 
 ## Insights (consolidated nav, May 1 2026 — renamed from "AI-Hub" May 17 2026 PR 4)
 
@@ -218,7 +218,7 @@ A single Sidebar entry "**Insights**" replaces three previously-scattered entrie
 | Subtab | OSS | Plus extension |
 |---|:-:|:-:|
 | **Activity** — audit + agent-trace + execution timeline (compact KPI strip + 5-col table) | ✅ | ✅ + cross-workspace view, retention controls |
-| **Trust** — security posture, "what we never do" pillars, kill-switch instructions | ✅ | ✅ + SOC 2 attestation embedded |
+| **Trust** — security posture, "what we never do" pillars, kill-switch instructions | ✅ | ✅ (Revoluzen SOC 2 report planned, not yet available) |
 | **Reports** — one-shot installation report (PDF/MD download) | ✅ | ✅ + **custom report builder + scheduler** (pick metrics + grouping + filters → save as template → schedule daily/weekly/monthly → email to distribution list) |
 | **AI Provider** — per-user provider config, model browser, OpenRouter free-tier filter | ✅ per-user | ✅ + workspace-wide admin-managed config + monthly_budget_usd + allow_user_override toggle |
 | **Governance** (Plus only) | — | ✅ workspace RBAC config, approval policies, dry-run thresholds |

@@ -16,7 +16,7 @@ This policy covers **Revoluzen Flow** — the open-source pipeline orchestrator 
 
 ## Data Revoluzen Flow stores locally
 
-All data is stored on your install's filesystem under `REVOLUZEN_FLOW_DATA_DIR` (default `./data`). Nothing in this list is transmitted to Revoluzen Technologies Pvt Ltd or any third party.
+All data is stored on your install's filesystem under `REVOLUZEN_FLOW_DATA_DIR` (default `./data`). Nothing in this list is transmitted to Revoluzen Private Limited or any third party.
 
 | Category | What's stored | Where |
 |---|---|---|
@@ -32,7 +32,7 @@ All data is stored on your install's filesystem under `REVOLUZEN_FLOW_DATA_DIR` 
 ## Data Revoluzen Flow does NOT collect or transmit
 
 - **No telemetry / analytics / usage tracking.** The OSS build has no analytics SDK, no PostHog, no Mixpanel, no Google Analytics, no homecall.
-- **No phone-home.** Revoluzen Flow does not contact Revoluzen Technologies Pvt Ltd or any third-party server during boot, upgrade, or normal operation.
+- **No phone-home.** Revoluzen Flow does not contact Revoluzen Private Limited or any third-party server during boot, upgrade, or normal operation.
 - **No crash reporting.** Errors stay in your local logs unless you wire up your own observability stack.
 - **No license check.** Revoluzen Flow does not validate a license against any remote endpoint.
 

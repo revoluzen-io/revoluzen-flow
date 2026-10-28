@@ -199,6 +199,49 @@ for p in npm_list:
     lines.append(f"| [{p['name']}]({p['url']}) | {p['version']} | {p['license']} |")
 lines.append("")
 
+# Weak-copyleft components (LGPL / MPL) are fine to redistribute unmodified,
+# but each one's license asks for a notice and source availability — list
+# them explicitly so that obligation is visible, not buried in the table.
+copyleft = [p for p in py_list + npm_list if re.search(r"LGPL|Lesser General|MPL|Mozilla", p["license"])]
+if copyleft:
+    lines += [
+        "## Weak-copyleft components",
+        "",
+        "These components are redistributed **unmodified**, as separate libraries "
+        "loaded at runtime. Their source is available from the linked upstream "
+        "projects; you may replace them with your own builds of the same library.",
+        "",
+        "| Package | Version | License |",
+        "|---|---|---|",
+    ]
+    for p in copyleft:
+        lines.append(f"| {p['name']} | {p['version']} | {p['license']} |")
+    lines.append("")
+
+# Assets vendored as files rather than installed by pip/npm — not visible to
+# the metadata scan above, so they are declared by hand here.
+lines += [
+    "## Vendored assets",
+    "",
+    "| Asset | Location | License |",
+    "|---|---|---|",
+    "| [Swagger UI](https://github.com/swagger-api/swagger-ui) — Copyright SmartBear Software Inc. "
+    "| `backend/revoluzen_flow/static/swagger-ui/swagger-ui-bundle.js`, `swagger-ui.css`, `favicon.png` "
+    "| Apache-2.0 |",
+    "| [ReDoc](https://github.com/Redocly/redoc) — Copyright Rebilly, Inc. "
+    "| `backend/revoluzen_flow/static/swagger-ui/redoc.standalone.js` | MIT |",
+    "| Connector logos | `frontend/public/connector-icons/` | See that folder's README.md |",
+    "",
+    "## Third-party trademarks",
+    "",
+    "Product names, logos and brands shown in the connector catalogue (for "
+    "example Oracle, SAP, Salesforce, Snowflake, Microsoft, Google, AWS) are "
+    "trademarks of their respective owners. They are used only to identify the "
+    "system a connector talks to. Their use does not imply any affiliation "
+    "with, or endorsement by, those owners.",
+    "",
+]
+
 with open(os.path.join(repo, "THIRD_PARTY_LICENSES.md"), "w", encoding="utf-8", newline="\n") as f:
     f.write("\n".join(lines))
 

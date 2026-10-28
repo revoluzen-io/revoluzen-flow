@@ -74,7 +74,7 @@ Yes — three audit surfaces:
 - **Approval snapshot SHA-256 hash** — captures pipeline state at the moment of approval. Answers "who approved this on which date?" (Revoluzen Flow Enterprise)
 - **Existing audit log** — append-only, covers all admin actions and pipeline lifecycle events.
 
-These are the evidence base for SOC2 Type II (audit roadmap'd Q3 2026) and DORA compliance.
+These are the evidence base your auditors use for SOC 2 Type II and DORA. Revoluzen itself has not yet completed a SOC 2 audit; ask sales for current status.
 
 ---
 
