@@ -1,7 +1,7 @@
 # Trademark Policy
 
 "Revoluzen Flow" and "Revoluzen" are trademarks of
-**Revoluzen Technologies Pvt Ltd** (registered in India, Class 9 + Class 42).
+**Revoluzen Private Limited** (India).
 
 The Apache 2.0 license under which this code is released grants you broad
 rights over the *code*. It does **not** grant you rights over the *marks*.
@@ -29,6 +29,13 @@ If you host Revoluzen Flow as a service for third parties, you must use a
 distinct service name. You may say "powered by Revoluzen Flow" only if your
 service name is clearly the primary brand and "Revoluzen Flow" is clearly
 secondary attribution.
+
+## Third-party marks
+
+Revoluzen Flow shows other companies' product names and logos (for example
+Oracle, SAP, Salesforce, Snowflake, Microsoft, Google, AWS) only to identify
+the systems its connectors work with. Those marks belong to their owners,
+and their use does not imply any affiliation with, or endorsement by, them.
 
 ## Questions / permissions
 

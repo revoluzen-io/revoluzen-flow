@@ -55,8 +55,9 @@ The operator's deployment can be brought into scope of the operator's
 own SOC 2 attestation.
 
 **Correct:** "Revoluzen Flow provides the controls (encryption at rest, audit
-log, RBAC in Plus) to support your SOC 2 compliance. Revoluzen Flow Enterprise customers
-get a Revoluzen SOC 2 Type II attestation report as supporting evidence."
+log, RBAC in Plus) to support your SOC 2 compliance."
+
+Also don't promise a Revoluzen SOC 2 Type II report: no audit has been completed yet. Say it is planned and point to sales for current status.
 
 **Source:** `edition-matrix.md` line 147, `18_analytical_questions.md`.
 

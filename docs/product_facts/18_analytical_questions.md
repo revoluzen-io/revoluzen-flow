@@ -400,5 +400,4 @@ at rest, audit log, RBAC in Plus, no outbound traffic by default).
 The compliance one-pager at `docs/COMPLIANCE.md` lists every claim
 with a verifiable artifact link.
 
-Revoluzen Flow Enterprise customers get a Revoluzen SOC 2 Type II attestation report on
-request as supporting evidence.
+Revoluzen has not yet completed a SOC 2 audit; a Revoluzen SOC 2 Type II report for Enterprise customers is planned — ask sales for current status before relying on it.
