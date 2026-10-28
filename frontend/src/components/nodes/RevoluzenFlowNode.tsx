@@ -78,12 +78,13 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
   // moment for ~70 known connector types; everything else falls
   // through to the gradient glyph branch below.
   if (connectorType && BRAND_ICON_TYPES.has(connectorType)) {
-    return <ConnectorIcon type={connectorType} size={44} />;
+    return <ConnectorIcon type={connectorType} size={58} />;
   }
   // 2026-06-02 — inner SVG bumped 16 → 18 to fill the larger 32px
   // icon container without going flush to the edge.
   // 2026-10-24 — 18 → 26 to match the 48px tile on the square node.
-  const s = 26;
+  // 2026-10-28 — 26 → 34, tracking the tile's 48 → 64. See the tile.
+  const s = 34;
   const icons: Record<string, React.ReactNode> = {
     // Generic Source — connector chosen inside config
     source: (
@@ -554,7 +555,12 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
       // 2026-10-24 — 32px -> 48px. On the square node the icon IS the
       // node: the name moved to a caption below, so the tile has to
       // carry recognition on its own at zoom-out.
-      className="w-12 h-12 rounded-xl flex items-center justify-center shadow-sm shrink-0"
+      // 2026-10-28 — 48px -> 64px, two thirds of the 96px card. The type
+      // label that used to sit under the icon inside the card has gone
+      // (it rendered at 4.4px once fitView zoomed a wide graph out, which
+      // is noise, not information), so the icon gets the space back. At
+      // low zoom a large glyph is the only thing that still reads.
+      className="w-16 h-16 rounded-xl flex items-center justify-center shadow-sm shrink-0"
       style={{ background: gradients[type] || color }}
     >
       {icons[type] || (
@@ -1056,24 +1062,25 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
         </div>
       )}
 
-      {/* Icon + the node's STANDARD name, both inside the square. The
-          standard name is what the node IS ("Destination", "Derived
-          Column") and never changes, so it belongs on the tile; the
-          user's own name for this instance goes in the caption below.
-          `break-words` + two lines covers the longest type labels
-          ("Managed Table Source") without widening the square. */}
-      <div className="flex flex-col items-center justify-center gap-1 px-1.5">
+      {/* The icon, and nothing else — which is what the file header has
+          always said this square is.
+
+          2026-10-28 — the type label that lived here has moved to the
+          caption below. It was set at 10px, and fitView on a wide graph
+          commonly lands around 0.44 zoom, which rendered it at ~4.4
+          actual pixels: unreadable, while still taking the space that
+          kept the icon small. Two illegible text layers on one tile read
+          as clutter. One large glyph plus one caption reads as a node.
+
+          The type name is not lost: the caption shows the user's name
+          when they have set one and the type name otherwise, so every
+          node carries exactly one label. Hover still gives the docs
+          tooltip, now on the square itself. */}
+      <div
+        className="flex items-center justify-center cursor-help"
+        title={formatNodeDocsTooltip(stepType)}
+      >
         <NodeIcon type={stepType} color={color} connectorType={params?.connector_type} />
-        <div
-          // 10px, not 9: `line-clamp-2` clips with `overflow: hidden`, so a
-          // line box tighter than ~1.3 cuts the descenders off words like
-          // "Aggregate" and "Derived Column". 10px also matches the size
-          // this label had as a subtitle, which was picked for legibility.
-          className="text-[10px] font-semibold text-slate-600 leading-[1.3] text-center line-clamp-2 break-words cursor-help"
-          title={formatNodeDocsTooltip(stepType)}
-        >
-          {typeLabel}
-        </div>
       </div>
 
       {/* Status badge — top-right corner of the square. Was a 16px dot in
@@ -1182,15 +1189,31 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
                2026-10-24 — this is now the USER'S OWN name only. The
                standard type name moved inside the square, so a node the
                user has not renamed shows nothing here rather than
-               repeating what the tile already says. */
-            hasCustomName && (
-              <div
-                className="text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words"
-                title={`${label}\n\nDouble-click to open · F2 to rename`}
-              >
-                {label}
-              </div>
-            )
+               repeating what the tile already says.
+               2026-10-28 — the in-card type label was removed (the icon
+               carries the type now), so this caption falls back to the
+               type name when the user has not renamed the node. Without
+               the fallback such a node drew no text anywhere. Exactly
+               one label per node either way, which is the rule n8n uses.
+
+               The fallback is rendered lighter and in normal weight: it
+               is the generic name, not something the user chose, and
+               that keeps a canvas of renamed nodes visually dominant
+               over the ones still carrying defaults. */
+            <div
+              className={
+                hasCustomName
+                  ? 'text-[13px] font-bold text-slate-800 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
+                  : 'text-[13px] font-medium text-slate-500 line-clamp-2 leading-tight cursor-default hover:text-blue-600 transition-colors break-words'
+              }
+              title={
+                hasCustomName
+                  ? `${label}\n\nDouble-click to open · F2 to rename`
+                  : `${typeLabel}\n\nNot renamed — F2 to give it a name`
+              }
+            >
+              {hasCustomName ? label : typeLabel}
+            </div>
           )}
           {/* Verbose-only — param preview line. Surfaces the most
               salient config (group-by columns / join key / filter

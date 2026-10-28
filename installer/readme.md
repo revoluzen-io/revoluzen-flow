@@ -4,16 +4,68 @@ This directory holds the per-OS recipes Revoluzen uses to ship
 **packaged installers** of Revoluzen Flow to end users who don't have
 Python or Node set up.
 
-Three audiences, three install paths:
+Four audiences, four install paths:
 
 | Audience | Install path | Where it lives |
 |---|---|---|
+| Anyone on Linux, nothing pre-installed | `curl … install.sh \| sh` | `install.sh` (this directory) |
 | Developer (any OS) | `pip install -e .` then `revoluzen serve` | repo root + `pyproject.toml` |
 | Power user (any OS) | `pip install revoluzen-flow` then `revoluzen install-service` | `backend/revoluzen_flow/cli/install_service.py` |
 | Non-technical end user | One-click installer — **`.exe` / `.pkg` / `.deb`** | **this directory** |
 
+`pip install` can never be a "no Python needed" path — `pip` *is* Python. The
+bootstrap scripts are what deliver that; they download a release asset that
+carries its own runtime.
+
 For ops folks: Docker Compose remains the supported deployment path
 (`docker-compose.yml` at repo root).
+
+---
+
+## ⚠ Three spellings, and they are not interchangeable
+
+Four separate build defects have come from confusing these, all introduced by
+one rebrand find/replace. Before editing anything here, know which is which:
+
+| Spelling | What it names | Appears in |
+|---|---|---|
+| `revoluzen_flow` | the **import package** | `--collect-all`, `--hidden-import`, `pathex`, entry script path |
+| `revoluzen-flow` | the **dist name** and **output folder** | PyPI name, `dist/revoluzen-flow/`, `.iss` source glob |
+| `revoluzen` | the **executable / console script** | `revoluzen.exe`, `[project.scripts]`, `MyAppExeName` |
+
+The failure mode is nastier than a crash. `collect_all("revoluzen-flow")` does
+**not** raise — PyInstaller logs `WARNING: … is not a package` and returns
+nothing. The build then succeeds and ships an executable with a working Python
+and **none of the application's 548 data files**: no connector manifests, no
+bundled UI, no seed data. It installs cleanly and fails at runtime in ways that
+look nothing like a packaging problem.
+
+`revoluzen-flow.spec` now asserts the entry script exists at parse time, and CI
+asserts the bundle contains `connectors/manifests`, `frontend_dist` and
+`seed_data` on both Windows and macOS. Keep both guards.
+
+---
+
+## What CI builds, and what it publishes
+
+These are different lists on purpose.
+
+| Platform | Built on every tag | Published to the release | Why |
+|---|---|---|---|
+| Linux `.deb` | ✅ | ✅ | apt warns about an unsigned package and the user decides — the normal path |
+| Linux `.rpm` | ✅ | ✅ | same |
+| Linux AppImage | ✅ | ✅ | same; also what `install.sh` downloads |
+| Windows freeze | ✅ | ❌ | unsigned, SmartScreen shows a red **block** dialog |
+| macOS `.pkg` | ✅ | ❌ | unsigned, Gatekeeper refuses to open it at all |
+
+Windows and macOS are built and smoke-tested on every tag even though nothing
+ships, because "we don't publish it" had silently become "nobody builds it",
+and both scripts were broken for an unknown length of time. A red check is
+cheaper than finding out on the day the certificates arrive.
+
+To start publishing them: obtain the certs (below), add the signing steps, then
+add the artifacts to the `files:` list in `github-release`. Nothing else needs
+to change.
 
 ---
 
@@ -36,6 +88,52 @@ Each installer bundles:
 
 ---
 
+## The one-line installers (`install.sh`, `install.ps1`)
+
+These are not built; they are served as-is and run on the user's machine.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/revoluzen-io/revoluzen-flow/main/installer/install.sh | sh
+```
+
+```powershell
+irm https://raw.githubusercontent.com/revoluzen-io/revoluzen-flow/main/installer/install.ps1 | iex
+```
+
+The raw URLs work the moment the repository is public — no DNS, no hosting.
+`get.revoluzen.io/install.{sh,ps1}` is the intended vanity alias; point it at
+these files and the commands shorten.
+
+What they do: resolve the latest release through the GitHub API, download the
+matching asset, **verify it against that release's `SHA256SUMS` and abort if the
+sum is missing, unlisted or wrong**, install per-user (no root/admin), and print
+how to put the binary on `PATH` — `install.sh` never edits a shell profile;
+`install.ps1` sets the *user* PATH and says so.
+
+Honest state today:
+
+| Platform | Works | Notes |
+|---|---|---|
+| Linux x86_64 | ✅ once a tag is pushed | downloads the AppImage — one file, no root |
+| Linux arm64 | ❌ | `build-appimage.sh` hardcodes `ARCH=x86_64`; the script says so and stops |
+| macOS | ❌ | no signed package exists; the script explains and points at pipx/Docker |
+| Windows | ❌ | same, waiting on an EV certificate |
+
+Each unsupported case exits with a specific reason and a working alternative,
+rather than a 404 against a URL that was never published.
+
+Both are linted on every CI run (`installer-scripts` job in `ci.yml`): `sh -n`,
+`shellcheck`, a PowerShell parse, and an assertion that the three checksum
+guard clauses are still present — so nobody can quietly soften "refuse" into
+"warn". Note that the shell script **cannot be syntax-checked on a Windows dev
+box**: starting Git-for-Windows `sh`, even as `sh -n`, reliably fork-bombs that
+machine. Let CI do it.
+
+**Prerequisite for either to work at all:** a tag has to be pushed so
+`release.yml` runs and produces assets. As of 2026-10-28 the repository has
+local tags `v1.0.0` / `v1.0.1` that were never pushed, no remote tags, and
+therefore no releases — the pipeline below has never executed.
+
 ## Build recipes per OS
 
 ### Windows — Inno Setup `.exe`
@@ -56,8 +154,20 @@ Pipeline:
 
 cd installer\windows
 .\build.ps1
-# Produces: output\RevoluzenFlow-Setup-1.0.0.exe (~50 MB signed if --sign passed)
+# Produces: output\RevoluzenFlow-Setup-1.0.0.exe
 ```
+
+> **Size.** Measured 2026-10-28 on a real `--onedir` freeze: the staged
+> bundle is **630 MB across 8,474 files**, which Inno's LZMA2 compresses to
+> roughly 150–200 MB of installer. An earlier revision of this page said
+> "~50 MB"; that was never measured and is out by more than an order of
+> magnitude.
+>
+> Nearly all of it is three wheels — pyarrow (~85 MB), pandas (~66 MB) and
+> numpy (~32 MB) — before their transitive native libraries. If the download
+> size matters, that is where to look first: DuckDB reads and writes Parquet
+> natively, so pyarrow may be reducible to an optional extra rather than a
+> bundled default. That is a measurement exercise, not a certainty.
 
 What `build.ps1` does:
 

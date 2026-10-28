@@ -25,7 +25,14 @@ BACKEND = os.path.join(REPO, "backend")
 import sys
 sys.path.insert(0, BACKEND)
 ONEFILE = os.environ.get("REVOLUZEN_FLOW_ONEFILE") == "1"
-ENTRY = os.path.join(BACKEND, "revoluzen-flow", "__main__.py")
+# The import package is revoluzen_flow (underscore). The hyphen spelling is
+# the PyPI/dist name and the install folder; it is not importable, and a
+# rebrand find/replace left it here, pointing the freeze at a path that does
+# not exist. Keep these two spellings straight: anything Python resolves by
+# name takes the underscore, anything on disk or in a URL takes the hyphen.
+ENTRY = os.path.join(BACKEND, "revoluzen_flow", "__main__.py")
+if not os.path.exists(ENTRY):      # fail at spec-parse, not 40s into Analysis
+    raise SystemExit(f"revoluzen-flow.spec: entry script not found: {ENTRY}")
 ICON = os.path.join(HERE, "icons", "revoluzen-flow.ico")
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -35,7 +42,7 @@ datas, binaries, hiddenimports = [], [], []
 # Collect WHOLESALE (code + data files + native libs + submodules) for the
 # packages that ship data/native payloads or that we import dynamically.
 _COLLECT = [
-    "revoluzen-flow",        # our app — brings connectors/*.json, static/, seed_data/, every submodule
+    "revoluzen_flow",  # our app — brings connectors/*.json, static/, seed_data/, every submodule
     "duckdb",        # native engine lib
     "pyarrow",       # native + data
     "pandas",
@@ -47,9 +54,18 @@ _COLLECT = [
     "openpyxl",
     "pydantic",
     "cryptography",
-    "webview",       # pywebview — native `revoluzen-flow app` window (its JS bridge files)
-    "clr_loader",    # pythonnet runtime loader used by the WebView2 backend
 ]
+
+# 2026-10-28 — macOS now builds from this same spec (installer/macos/build.sh),
+# so the Windows-only GUI stack is gated. pywebview's WebView2 backend and its
+# pythonnet loader exist only on Windows; asking for them elsewhere logs a wall
+# of "hidden import not found" and collects nothing useful.
+IS_WINDOWS = sys.platform == "win32"
+if IS_WINDOWS:
+    _COLLECT += [
+        "webview",     # pywebview — native `revoluzen app` window (its JS bridge files)
+        "clr_loader",  # pythonnet runtime loader used by the WebView2 backend
+    ]
 for pkg in _COLLECT:
     d, b, h = collect_all(pkg)
     datas += d
@@ -59,12 +75,13 @@ for pkg in _COLLECT:
 # pywebview's Windows backend loads via pythonnet (clr); these are imported
 # dynamically and must be forced in. If the freeze ever can't bundle them,
 # `revoluzen-flow app` still falls back to a Chromium --app window at runtime.
-hiddenimports += [
-    "clr", "webview.platforms.edgechromium", "webview.platforms.winforms",
-]
+if IS_WINDOWS:
+    hiddenimports += [
+        "clr", "webview.platforms.edgechromium", "webview.platforms.winforms",
+    ]
 
 # Submodules imported by name (PyInstaller's static analysis can miss these).
-for pkg in ("revoluzen-flow", "uvicorn", "fastapi", "starlette", "anyio"):
+for pkg in ("revoluzen_flow", "uvicorn", "fastapi", "starlette", "anyio"):
     hiddenimports += collect_submodules(pkg)
 
 # uvicorn[standard] picks its loop/http/ws implementations at runtime, plus a
@@ -109,7 +126,14 @@ exe = EXE(
     a.binaries if ONEFILE else [],
     a.datas if ONEFILE else [],
     exclude_binaries=not ONEFILE,
-    name="revoluzen-flow",
+    # revoluzen.exe, NOT revoluzen-flow.exe. The console script in
+    # pyproject.toml is `revoluzen`, revoluzen-flow.iss sets
+    # MyAppExeName "revoluzen.exe", build.ps1 runs
+    # dist\revoluzen-flow\revoluzen.exe selftest, and the portable
+    # workflow uploads dist/portable/revoluzen.exe. The COLLECT name
+    # below stays hyphenated — that one is the output FOLDER, which is
+    # what the .iss copies from.
+    name="revoluzen",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

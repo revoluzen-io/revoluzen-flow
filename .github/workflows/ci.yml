@@ -50,6 +50,55 @@ jobs:
         working-directory: backend
         run: python run_all_tests.py --all
 
+  installer-scripts:
+    name: Installer scripts (shell + PowerShell lint)
+    runs-on: ubuntu-latest
+    # The bootstrap installers are the first thing a new user runs, and on a
+    # Windows dev box there is no safe way to syntax-check the POSIX one:
+    # starting Git-for-Windows sh, even as `sh -n`, reliably fork-bombs that
+    # machine. So the check lives here, where a real sh and shellcheck exist.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: POSIX syntax (sh -n)
+        run: sh -n installer/install.sh
+
+      - name: shellcheck
+        # severity=warning, not the default: this gate exists to catch real
+        # defects (unquoted expansions, bad tests), and a Windows dev box
+        # cannot run shellcheck locally to iterate on style opinions — see
+        # the note above about sh fork-bombing there. Errors and warnings
+        # fail; info and style notes do not.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --shell=sh --severity=warning installer/install.sh
+          shellcheck --shell=bash --severity=warning installer/linux/build-*.sh
+          shellcheck --shell=bash --severity=warning installer/macos/build.sh
+
+      - name: Refuses to install without a verified checksum
+        # The value of these scripts is that they abort on a bad or missing
+        # SHA256SUMS. Assert the guard clauses are actually present rather
+        # than trusting that nobody softened them into warnings later.
+        run: |
+          for pat in 'refusing to install unverified' \
+                     'is not listed in SHA256SUMS' \
+                     'checksum mismatch'; do
+            grep -q "$pat" installer/install.sh \
+              || { echo "::error::install.sh lost its guard: $pat"; exit 1; }
+            grep -q "$pat" installer/install.ps1 \
+              || { echo "::error::install.ps1 lost its guard: $pat"; exit 1; }
+          done
+          echo "both installers still refuse unverified downloads"
+
+      - name: PowerShell syntax
+        shell: pwsh
+        run: |
+          $err = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/installer/install.ps1", [ref]$null, [ref]$err)
+          if ($err) { $err | ForEach-Object { Write-Host "::error::$($_.Message)" }; exit 1 }
+          Write-Host "install.ps1 parses clean"
+
   frontend-build:
     name: Frontend build
     runs-on: ubuntu-latest

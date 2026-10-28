@@ -257,6 +257,122 @@ jobs:
           path: installer/linux/output/*
           retention-days: 14
 
+  # ── Windows / macOS: BUILT AND PROVEN, NOT PUBLISHED ────────────────────
+  # These two jobs exist to stop the installers rotting. They are not in the
+  # release's `files:` list and deliberately so: unsigned, Windows SmartScreen
+  # shows a red block dialog and macOS Gatekeeper refuses to open the package
+  # at all, which stops exactly the non-technical user these installers are
+  # for. That rule is in installer/readme.md and it has not changed.
+  #
+  # What HAS changed is that "we don't publish it" had quietly become "nobody
+  # ever builds it", and both scripts broke without anyone noticing: a rebrand
+  # find/replace left `--collect-all revoluzen-flow` in them, which is not an
+  # importable name, so PyInstaller warned and bundled none of the app's data
+  # files. The macOS launcher also pointed at a binary name that never existed.
+  # Building on every tag means the next such break is a red check, not a
+  # discovery made the day signing certificates finally arrive.
+  windows-installer:
+    name: Windows freeze (build + smoke, not published)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller pywebview
+          python -m pip install -e .
+
+      - name: Build the portable executable
+        # build-portable.ps1 chains the whole pipeline: npm build, frontend and
+        # docs staging, package_preflight --strict, PyInstaller against the
+        # shared spec, then smoke_distribution.py against the built exe.
+        shell: pwsh
+        run: ./installer/windows/build-portable.ps1
+
+      - name: Prove the freeze carries the app, not just the runtime
+        # The failure this guards is specific: with a mis-spelled package name
+        # PyInstaller still produces a working Python that serves nothing.
+        shell: pwsh
+        run: |
+          python -m PyInstaller installer/windows/revoluzen-flow.spec `
+            --noconfirm --clean --distpath dist --workpath build/pyi
+          $root = "dist/revoluzen-flow/_internal/revoluzen_flow"
+          foreach ($p in @("connectors/manifests", "frontend_dist", "seed_data")) {
+            $n = (Get-ChildItem "$root/$p" -Recurse -File -ErrorAction SilentlyContinue).Count
+            if ($n -lt 1) { Write-Host "::error::bundle is missing $p"; exit 1 }
+            Write-Host "  ok $p ($n files)"
+          }
+          ./dist/revoluzen-flow/revoluzen.exe selftest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-freeze-unsigned
+          path: dist/portable/revoluzen.exe
+          if-no-files-found: error
+
+  macos-installer:
+    name: macOS .pkg (build + smoke, not published)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    if: ${{ github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Create the .venv build.sh expects
+        run: |
+          python -m venv .venv
+          ./.venv/bin/pip install --quiet --upgrade pip
+          ./.venv/bin/pip install --quiet pyinstaller
+          ./.venv/bin/pip install --quiet -e .
+
+      - name: Build the .pkg
+        # build.sh self-checks: it runs package_preflight --strict, asserts the
+        # frozen binary exists at the path the .app launcher uses, and runs its
+        # selftest before pkgbuild. An unsigned build is expected here.
+        run: ./installer/macos/build.sh
+
+      - name: Prove the .pkg is real and carries the app
+        run: |
+          pkg=$(ls installer/macos/output/*.pkg)
+          echo "built $pkg ($(du -h "$pkg" | cut -f1))"
+          pkgutil --check-signature "$pkg" || echo "unsigned, as expected"
+          # Expand rather than install: the runner's own Python must not be
+          # shadowed, and expansion still proves the payload's shape.
+          pkgutil --expand-full "$pkg" /tmp/pkg-expanded
+          app=$(find /tmp/pkg-expanded -name RevoluzenFlow.app -maxdepth 4 | head -n1)
+          [ -n "$app" ] || { echo "::error::no RevoluzenFlow.app in the payload"; exit 1; }
+          res="$app/Contents/Resources/revoluzen-flow/_internal/revoluzen_flow"
+          for p in connectors/manifests frontend_dist seed_data; do
+            n=$(find "$res/$p" -type f 2>/dev/null | wc -l | tr -d ' ')
+            [ "$n" -ge 1 ] || { echo "::error::bundle is missing $p"; exit 1; }
+            echo "  ok $p ($n files)"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-pkg-unsigned
+          path: installer/macos/output/*.pkg
+          if-no-files-found: error
+
   github-release:
     name: GitHub release
     runs-on: ubuntu-latest
