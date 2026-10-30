@@ -392,7 +392,7 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
               if (e.key === 'Escape') { setEditValue(workflowName); setEditing(false); }
             }}
             className={`text-base font-semibold rounded-md px-2 py-0.5 focus:outline-none focus:ring-2 min-w-[120px] max-w-[260px] ${
-              dark ? 'text-slate-200 bg-white/[0.06] border border-white/[0.1] focus:ring-blue-500/30' : 'text-slate-800 bg-pulse-50 border border-pulse-300 focus:ring-pipe-300'
+              dark ? 'text-slate-200 bg-white/[0.06] border border-white/[0.1] focus:ring-blue-500/30' : 'text-slate-800 bg-gold-50 border border-gold-300 focus:ring-pipe-300'
             }`}
           />
         ) : (
@@ -429,7 +429,7 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
             button is in a different bar. */}
         {!embedded && <SaveIndicator dark={dark} isDirty={isDirty} lastSavedAt={lastSavedAt} />}
         {!embedded && version > 0 && (
-          <span className="text-xs text-pulse-700 bg-pulse-100 px-2 py-1 rounded-md font-bold border border-pulse-200">
+          <span className="text-xs text-gold-700 bg-gold-100 px-2 py-1 rounded-md font-bold border border-gold-200">
             v{version}
           </span>
         )}

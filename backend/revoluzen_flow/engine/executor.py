@@ -263,6 +263,10 @@ class WorkflowExecutor:
         # Populated per-run by execute_workflow / execute_step / execute_step_resume
         self._cache: StepCache | None = None
         self._effective_hashes: dict[str, str] = {}
+        # What each side-effecting step did to its destination this run.
+        # Declared here so the single-step entry points, which never go
+        # through execute_workflow's reset, still have a list to append to.
+        self._blast_radius: list[Any] = []
         self._cached_step_ids: set[str] = set()
         # Workflow-level retry tracking — counts total retry attempts across
         # ALL steps in the current run. Reset at the start of each
@@ -335,6 +339,16 @@ class WorkflowExecutor:
         # an authorized initiation path — so a stolen token can't drive the
         # executor directly. Failure mirrors the capability/param gates below:
         # one synthetic step records the cause for the run-history UI.
+        # The pre-commit contract gate runs deep inside _run_node_once,
+        # where only the step is in scope. ExecutionContext has no
+        # workflow_id and widening its signature would touch every node,
+        # so the id is parked on the executor for the duration of the run.
+        self._workflow_id = workflow.id
+        # Reset per run, for the same reason: the gate appends to it from
+        # deep in the step loop, and a list carried over from the last
+        # run would attribute the previous run's damage to this receipt.
+        self._blast_radius = []
+
         try:
             from revoluzen_flow.security.execution_codes import enforce_execution_code
             enforce_execution_code(
@@ -820,8 +834,246 @@ class WorkflowExecutor:
             except Exception:  # noqa: BLE001 — never break run cleanup
                 logger.warning("steward ingestion failed for run=%s", run_id, exc_info=True)
 
+        self._maybe_verify_contract(workflow, run_result, run_id)
+
         conn.close()
         return run_result
+
+    def _alert_contract_failed(self, workflow, run_id, receipt) -> None:
+        """Tell someone. A verdict nobody sees is a diary entry.
+
+        ``on_failure`` cannot cover this: the run succeeded. That is the
+        whole situation an Execution Contract exists for, so it fires on
+        its own condition, ``on_contract_failed``.
+
+        Never raises — alerting is downstream of the data being correct.
+        """
+        try:
+            from revoluzen_flow.alerts.models import AlertCondition
+            from revoluzen_flow.alerts.notifier import NotificationService
+
+            store = self.app_state.get("alert_store") if self.app_state else None
+            if store is None:
+                return
+
+            # list_rules_by_workflow returns dicts, not AlertRule objects.
+            from revoluzen_flow.alerts.models import AlertRule
+
+            wanted = {AlertCondition.ON_CONTRACT_FAILED.value, AlertCondition.ON_ANY.value}
+            rules = []
+            for raw in (store.list_rules_by_workflow(workflow.id) or []):
+                conds = set(raw.get("conditions") or [])
+                if raw.get("condition"):
+                    conds.add(raw["condition"])
+                if raw.get("enabled", True) and (conds & wanted):
+                    try:
+                        rules.append(AlertRule(**raw))
+                    except Exception:  # noqa: BLE001 — skip a malformed rule
+                        continue
+            if not rules:
+                return
+
+            failed = [c for c in receipt.clauses if not c.passed]
+            detail = "; ".join(
+                f"{c.description or c.type}: {c.detail}" for c in failed)
+            notifier = NotificationService()
+            for rule in rules:
+                notifier.send(rule, {
+                    "workflow_name": workflow.name,
+                    "execution_id": run_id or "",
+                    # The run really did succeed. Saying otherwise here
+                    # would make the alert contradict the run history.
+                    "status": "success",
+                    "triggered_condition": "on_contract_failed",
+                    "error_message": (
+                        f"Execution Contract NOT verified — "
+                        f"{len(failed)} of {len(receipt.clauses)} guarantees failed. "
+                        f"{detail}"
+                    ),
+                })
+        except Exception:  # noqa: BLE001 — alerting never breaks a run
+            logger.warning("contract-failure alert dispatch failed", exc_info=True)
+
+    def _precommit_gate(self, step, ctx, input_map) -> None:
+        """Refuse a write that would break the contract, before it happens.
+
+        Also the only place the blast radius can be recorded. Both halves
+        of "replaced with 0 rows, was 3" exist together for exactly this
+        instant: once the sink runs, the old count is gone and the best
+        anyone can say afterwards is the half that is left.
+
+        Only runs for nodes that have an external side effect, and only
+        when the pipeline has a contract with at least one pre-commit
+        checkable guarantee — so a pipeline without a contract pays one
+        dict lookup.
+
+        ``ContractBlockedWrite`` is allowed to propagate: it is the whole
+        point. Every OTHER failure in here is swallowed, because a gate
+        that breaks runs through its own bugs is worse than no gate.
+        """
+        try:
+            from revoluzen_flow.contracts.precommit import (
+                PRECOMMIT_CHECKABLE, ContractBlockedWrite, check_precommit,
+            )
+        except Exception:  # noqa: BLE001
+            return
+
+        try:
+            store = self.app_state.get("contract_store") if self.app_state else None
+            if store is None:
+                return
+            wf_id = getattr(ctx, "workflow_id", None) or getattr(self, "_workflow_id", None)
+            if not wf_id:
+                return
+            contract = store.get_contract(wf_id)
+            if contract is None:
+                return
+
+            from revoluzen_flow.ir.node_metadata import side_effect_class_for
+            if not side_effect_class_for(step.type.value):
+                return  # pure transform: nothing to protect
+
+            inputs = [ctx._results[u] for u in input_map.get(step.id, [])
+                      if u in ctx._results]
+            if not inputs:
+                return
+            rel = inputs[0]
+            row_count = int(rel.count("*").fetchone()[0])
+            columns = list(getattr(rel, "columns", []) or [])
+            # Deliberately NOT behind the checkable-guarantee test below.
+            # A contract of only post-run guarantees blocks nothing, which
+            # is exactly the case where the write lands and the operator
+            # most needs to be told what it did.
+            gateable = any(g.type in PRECOMMIT_CHECKABLE
+                           for g in contract.guarantees)
+        except ContractBlockedWrite:
+            raise
+        except Exception:  # noqa: BLE001 — a gate bug must not fail a run
+            logger.warning("pre-commit contract gate skipped", exc_info=True)
+            return
+
+        violations = check_precommit(
+            contract, row_count=row_count, columns=columns,
+            step_id=step.id) if gateable else []
+        radius = self._record_blast_radius(
+            step, ctx, rows_written=row_count, blocked=bool(violations))
+
+        if violations:
+            logger.warning(
+                "Execution Contract BLOCKED write at %s: %s%s",
+                step.id, "; ".join(str(v) for v in violations),
+                f" [{radius.summary()}]" if radius else "",
+            )
+            raise ContractBlockedWrite(step.id, violations)
+
+    def _record_blast_radius(self, step, ctx, *, rows_written: int,
+                             blocked: bool):
+        """Note what this write did, or would have done, to its target.
+
+        Best effort by design. A destination whose current size cannot be
+        read records ``rows_before=None`` — explicitly "not known", never
+        0, because a zero here would read as "the table was already
+        empty" and quietly excuse the very loss this is meant to surface.
+        """
+        try:
+            from revoluzen_flow.contracts.schema import BlastRadius
+            from revoluzen_flow.datastore.paths import safe_schema_or_table_name
+
+            params = getattr(step, "params", None) or {}
+            destination, mode, rows_before = "", "", None
+
+            if step.type.value in ("local_table_sink", "local_table"):
+                schema = safe_schema_or_table_name(
+                    params.get("schema_name") or "default")
+                table = safe_schema_or_table_name(
+                    params.get("table_name") or "", fallback="")
+                mode = str(params.get("mode") or "replace").lower()
+                if table:
+                    destination = f"{schema}.{table}"
+                    rows_before = self._existing_row_count(ctx, schema, table)
+            else:
+                # Other sinks: we can still name the target and the mode,
+                # which is most of the value. The prior size lives in a
+                # system we do not own.
+                destination = str(
+                    params.get("table") or params.get("path")
+                    or params.get("url") or params.get("target") or "")
+                mode = str(params.get("mode") or params.get("write_mode") or "").lower()
+
+            radius = BlastRadius(
+                step_id=step.id, destination=destination, mode=mode,
+                rows_before=rows_before, rows_written=rows_written,
+                blocked=blocked,
+            )
+            self._blast_radius.append(radius)
+            return radius
+        except Exception:  # noqa: BLE001 — never fail a run to describe it
+            logger.debug("blast radius not recorded", exc_info=True)
+            return None
+
+    def _existing_row_count(self, ctx, schema: str, table: str) -> int | None:
+        """Rows currently in a managed table, or None if unreadable."""
+        try:
+            from revoluzen_flow.datastore.store import DataStore
+
+            db = self.app_state.get("db") if self.app_state else None
+            if db is None:
+                return None
+            ws = getattr(ctx, "workspace_id", None) or "default"
+            found = DataStore(db).find_table_by_name(ws, schema, table)
+            if found is None:
+                return None  # does not exist yet: nothing to destroy
+            count = getattr(found, "row_count", None)
+            return None if count is None else int(count)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _maybe_verify_contract(self, workflow, run_result, run_id: str | None) -> None:
+        """Check the run against its Execution Contract and store the receipt.
+
+        No contract for this pipeline means nothing to verify, and that is
+        the common case — this is opt-in per pipeline, not a tax on every
+        run.
+
+        Deliberately the LAST thing before the connection closes: the
+        verifier reads the finished WorkflowRunResult, so it has to see
+        the run's final state including step statuses and row counts.
+
+        Never raises. A verification problem must not turn a successful
+        run into a failed one — the receipt records the verdict, it does
+        not decide whether the data moved.
+        """
+        try:
+            store = self.app_state.get("contract_store") if self.app_state else None
+            if store is None:
+                return
+            contract = store.get_contract(workflow.id)
+            if contract is None:
+                return
+
+            from revoluzen_flow.contracts.service import verify_run
+
+            receipt = verify_run(
+                contract,
+                run_result,
+                run_id=run_id,
+                # Chain onto this pipeline's previous receipt so the
+                # sequence can later be walked for tampering.
+                prev_hash=store.last_receipt_hash(workflow.id),
+                trigger=getattr(run_result, "trigger", None) or "api",
+                # What this run did to its destinations, captured by the
+                # gate while the before-and-after both still existed.
+                blast_radius=list(getattr(self, "_blast_radius", []) or []),
+            )
+            store.record(workflow.id, receipt)
+            logger.info(
+                "Execution Contract %s for run %s: %s (%d clauses)",
+                contract.id, run_id, receipt.verdict, len(receipt.clauses),
+            )
+            if not receipt.verified:
+                self._alert_contract_failed(workflow, run_id, receipt)
+        except Exception:  # noqa: BLE001 — a receipt never fails a run
+            logger.warning("Execution Contract verification failed", exc_info=True)
 
     def _maybe_export_openlineage(self, run_id: str | None) -> None:
         """Export the run's runtime lineage to an OpenLineage HTTP
@@ -1488,6 +1740,15 @@ class WorkflowExecutor:
         send_email's per-recipient count) and that handling runs
         normally because the node-level execute() is never reached.
         """
+        # ── Execution Contract pre-commit gate ───────────────────────
+        # Before a node with an external side effect fires, check the
+        # guarantees that are answerable from the data about to be
+        # written. A `replace`-mode sink handed zero rows truncates the
+        # destination; verifying afterwards records that loss instead of
+        # preventing it. Raising here means the write never happens and
+        # the destination keeps what it had.
+        self._precommit_gate(step, ctx, input_map)
+
         if getattr(ctx, "preview_mode", False):
             try:
                 from revoluzen_flow.ir.node_metadata import side_effect_class_for

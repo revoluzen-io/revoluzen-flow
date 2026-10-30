@@ -274,7 +274,7 @@ async def cancel_job(job_id: str):
 
 
 @router.get("/config")
-async def pool_config():
+async def pool_config(workspace_id: str = Depends(_safe_workspace_id)):
     """Return current pool configuration — workers, memory, threads,
     governor tier, and spill-disk health."""
     from revoluzen_flow import runtime_config
@@ -338,7 +338,22 @@ async def pool_config():
             "available_gb": avail_ram_gb,
         },
         "max_memory_per_worker": runtime_config.DUCKDB_MEMORY_LIMIT,
-        "theoretical_max_ram": f"{pool.max_workers} workers x {runtime_config.DUCKDB_MEMORY_LIMIT} = {pool.max_workers * 4} GB worst case",
+        "theoretical_max_ram": _worst_case_phrase(
+            pool.max_workers, runtime_config.DUCKDB_MEMORY_LIMIT),
+        # The sentence above has always been computed and then ignored. If
+        # worst case exceeds physical RAM the box can be driven into swap
+        # or the OOM killer by concurrency alone, and the operator is the
+        # only one who can fix it — so say so, with the actual levers.
+        "capacity_risk": _assess_capacity(
+            max_workers=pool.max_workers,
+            per_worker=runtime_config.DUCKDB_MEMORY_LIMIT,
+            total_ram_gb=total_ram_gb,
+            available_ram_gb=avail_ram_gb,
+            # Cross-reference the theoretical worst case against what the
+            # heaviest pipeline has actually peaked at, so the advice is
+            # about this workload rather than about the config alone.
+            **_observed_peak(workspace_id),
+        ),
         "governor": governor_block,
         "spill": {
             "directory": spill_dir,
@@ -351,6 +366,327 @@ async def pool_config():
             ),
         },
     }
+
+
+@router.get("/footprint")
+async def pipeline_footprint(
+    limit: int = 50,
+    runs_window: int = 200,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Per-pipeline compute footprint — what each pipeline actually costs."""
+    return _compute_footprint(workspace_id, limit=limit, runs_window=runs_window)
+
+
+def _compute_footprint(workspace_id: str, *, limit: int = 50,
+                       runs_window: int = 200) -> dict:
+    """Roll recorded runs up per pipeline — what each one actually costs.
+
+    Per-RUN memory and runtime were already captured (the PEAK MEMORY and
+    CPU chips on an execution). Nothing rolled them up, so the one
+    question an operator needs to size a host — "what does this pipeline
+    cost, typically and at its worst?" — had no answer short of reading
+    executions one at a time.
+
+    p95 rather than max as the planning number: a single pathological run
+    should not dictate the size of a machine, but the average hides the
+    runs that actually hurt.
+    """
+    from revoluzen_flow import runtime_config
+    from revoluzen_flow.main import app_state
+
+    exe_store = app_state.get("execution_store")
+    if exe_store is None:
+        raise HTTPException(503, "Execution store not initialized")
+
+    # Deliberately the same read path as /pool/history rather than a
+    # SELECT over `executions`. The memory figure lives in TWO places
+    # (top-level column for subprocess runs, metadata for the in-process
+    # executor the UI actually hits — see _execution_to_history_row), and
+    # a direct query over the column alone reports NULL for every default
+    # run. Going through the projector means one dual-source rule, not a
+    # second one that drifts.
+    from revoluzen_flow.monitoring.store import ExecutionRecord
+
+    want = min(20000, max(1, runs_window) * max(1, limit))
+    raw = exe_store.list_all(limit=want, workspace_id=workspace_id)
+
+    buckets: dict[str, dict] = {}
+    for r in raw:
+        try:
+            row = _execution_to_history_row(ExecutionRecord(**r))
+        except Exception:  # noqa: BLE001 — one bad row must not 500 the page
+            continue
+        wid = row.get("workflow_id")
+        if not wid:
+            continue
+        b = buckets.setdefault(wid, {
+            "mem": [], "ms": [], "cpu": [], "rows": [],
+            "runs": 0, "errors": 0, "name": "",
+        })
+        # Cap on RUNS, not on collected samples: a pipeline whose runs
+        # mostly lack a memory figure would otherwise keep consuming the
+        # window and reach back further in history than every other one,
+        # making its percentiles incomparable with theirs.
+        if b["runs"] >= runs_window:
+            continue
+        b["runs"] += 1
+        b["name"] = b["name"] or (row.get("workflow_name") or "")
+        if row.get("status") in ("error", "failed"):
+            b["errors"] += 1
+        for key, field in (("mem", "peak_memory_mb"), ("ms", "duration_ms"),
+                           ("cpu", "cpu_seconds"), ("rows", "rows_processed")):
+            v = row.get(field)
+            if v:
+                b[key].append(float(v))
+
+    def pct(values: list[float], p: float) -> float:
+        """Interpolated percentile.
+
+        The nearest-rank form (``s[int(n * p)]``) returns the maximum for
+        any n <= 20 at p95, which made the p95 and max columns print the
+        same number and the percentile worth nothing at the sample sizes
+        a self-hosted install actually has. Interpolating between the two
+        neighbouring samples keeps the two columns distinct.
+        """
+        if not values:
+            return 0.0
+        s = sorted(values)
+        if len(s) == 1:
+            return round(s[0], 1)
+        pos = p * (len(s) - 1)
+        lo = int(pos)
+        hi = min(lo + 1, len(s) - 1)
+        return round(s[lo] + (s[hi] - s[lo]) * (pos - lo), 1)
+
+    def avg(values: list[float]) -> float:
+        return round(sum(values) / len(values), 1) if values else 0.0
+
+    per_worker_gb = _parse_mem_gb(runtime_config.DUCKDB_MEMORY_LIMIT)
+    total_ram_gb = 0.0
+    try:
+        import psutil
+        total_ram_gb = round(psutil.virtual_memory().total / 1073741824, 1)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Never plan into the last of the host's RAM: the OS, the backend
+    # itself and the page cache all live there, and a "safe" number that
+    # fills the machine to the brim is not safe.
+    OS_RESERVE_GB = 2.0
+    usable_mb = max(0.0, total_ram_gb - OS_RESERVE_GB) * 1024
+
+    out = []
+    for wid, b in buckets.items():
+        p95_mb = pct(b["mem"], 0.95)
+        # What the host can actually hold if this pipeline ran alongside
+        # copies of itself — the number that answers "can I schedule
+        # these together?" rather than a bare megabyte figure.
+        concurrent = (int(usable_mb // p95_mb)
+                      if p95_mb and usable_mb else None)
+        out.append({
+            "workflow_id": wid,
+            "name": b["name"] or wid,
+            "runs_sampled": b["runs"],
+            # Distinct from runs_sampled: a run with no psutil figure is
+            # still a run, and a footprint built on 2 of 50 runs should
+            # not be read with the same confidence as one built on 50.
+            "memory_samples": len(b["mem"]),
+            "error_rate_pct": round(100 * b["errors"] / b["runs"], 1) if b["runs"] else 0,
+            "memory_mb": {
+                "avg": avg(b["mem"]),
+                "p95": p95_mb,
+                "max": round(max(b["mem"]), 1) if b["mem"] else 0,
+            },
+            "runtime_ms": {
+                "avg": avg(b["ms"]),
+                "p95": pct(b["ms"], 0.95),
+                "max": round(max(b["ms"]), 1) if b["ms"] else 0,
+            },
+            "cpu_seconds": {"avg": avg(b["cpu"]), "p95": pct(b["cpu"], 0.95)},
+            "rows_processed": {"avg": avg(b["rows"]), "max":
+                               round(max(b["rows"]), 1) if b["rows"] else 0},
+            # Louder than a number: this pipeline's p95 is already past
+            # the ceiling a single worker is allowed, so it will spill to
+            # disk or be killed rather than simply running slowly.
+            "exceeds_worker_limit": bool(
+                per_worker_gb and p95_mb > per_worker_gb * 1024),
+            "safe_concurrent_copies": concurrent,
+        })
+
+    out.sort(key=lambda d: d["memory_mb"]["p95"], reverse=True)
+    return {
+        "host_ram_gb": total_ram_gb,
+        "os_reserve_gb": OS_RESERVE_GB,
+        "per_worker_limit": runtime_config.DUCKDB_MEMORY_LIMIT,
+        "runs_window": runs_window,
+        # The sum of every pipeline's p95 — what the host would need if
+        # all of them ran at once. Read against host_ram_gb it answers
+        # "can I schedule everything together, or must I stagger?"
+        "all_pipelines_p95_mb": round(
+            sum(p["memory_mb"]["p95"] for p in out), 1),
+        "pipelines": out[:limit],
+    }
+
+
+def _parse_mem_gb(limit: str) -> float:
+    """'4GB' / '512MB' / '2 GiB' -> gigabytes. 0.0 when unparseable.
+
+    The previous worst-case line hardcoded `max_workers * 4`, so an
+    operator who raised DUCKDB_MEMORY_LIMIT to 8GB was still told their
+    worst case was 4GB per worker — the number most worth trusting was
+    the one that ignored their setting.
+    """
+    import re
+
+    m = re.match(r"\s*([\d.]+)\s*([kmgt]?i?b?)\s*$", str(limit or ""), re.I)
+    if not m:
+        return 0.0
+    value = float(m.group(1))
+    unit = (m.group(2) or "gb").lower().rstrip("b").rstrip("i")
+    return value * {"k": 1 / 1048576, "m": 1 / 1024, "g": 1.0, "t": 1024.0}.get(unit, 1.0)
+
+
+def _worst_case_phrase(max_workers: int, per_worker: str) -> str:
+    gb = _parse_mem_gb(per_worker)
+    total = round(max_workers * gb, 1)
+    return f"{max_workers} workers x {per_worker} = {total} GB worst case"
+
+
+def _observed_peak(workspace_id: str) -> dict:
+    """The heaviest recorded pipeline footprint, for the capacity verdict.
+
+    Returns the kwargs `_assess_capacity` expects, and an empty dict when
+    nothing has been measured — an unmeasured host must fall back to the
+    worst-case advice rather than to a confident wrong number.
+    """
+    try:
+        fp = _compute_footprint(workspace_id, limit=200, runs_window=100)
+    except Exception:  # noqa: BLE001 — the config page must still render
+        return {}
+    pipelines = fp.get("pipelines") or []
+    measured = [p for p in pipelines if p.get("memory_samples")]
+    if not measured:
+        return {}
+    heaviest = max(measured, key=lambda p: p["memory_mb"]["p95"])
+    return {
+        "observed_peak_mb": heaviest["memory_mb"]["p95"],
+        # Runs behind the heaviest footprint, not runs in total: the
+        # confidence that matters is the confidence in THAT number.
+        "observed_runs": heaviest["memory_samples"],
+    }
+
+
+def _assess_capacity(*, max_workers: int, per_worker: str,
+                     total_ram_gb: float, available_ram_gb: float,
+                     observed_peak_mb: float = 0.0,
+                     observed_runs: int = 0) -> dict:
+    """Is this configuration safe on this machine, and if not, what to change?
+
+    Worst case is every worker simultaneously holding its full DuckDB
+    allowance. That is pessimistic — most pipelines never approach the
+    limit, and DuckDB spills to disk rather than allocating blindly — so
+    exceeding RAM is a risk to flag, not proof of breakage. What makes it
+    worth flagging is that the failure mode is the whole machine, and the
+    fix is three settings the operator already controls.
+
+    ``observed_peak_mb`` is what the heaviest pipeline has ACTUALLY peaked
+    at (p95 over the recorded runs). Without it the only honest advice is
+    to cap concurrency, and on this machine that advice was wrong in a
+    costly direction: 20 workers x 4GB reads as 80 GB against 15.7 GB of
+    RAM, so the warning said "drop to 3 workers" — while measurement said
+    the heaviest pipeline peaks at 205 MB and all of them together want
+    628 MB. Serialising a box that could run everything at once is a real
+    cost paid for a theoretical risk. With the measurement in hand the
+    diagnosis inverts: the per-worker CEILING is the oversized setting,
+    not the concurrency.
+    """
+    per_gb = _parse_mem_gb(per_worker)
+    worst_case_gb = round(max_workers * per_gb, 1)
+
+    if not total_ram_gb or not per_gb:
+        return {"status": "unknown",
+                "reason": "could not read host RAM or the per-worker limit"}
+
+    ratio = worst_case_gb / total_ram_gb
+    # Safe headroom for a workload that spills: the pessimistic total may
+    # exceed RAM somewhat without trouble. Past ~2x it is no longer a
+    # margin, it is a configuration that cannot be honoured.
+    if ratio <= 1.0:
+        status, severity = "ok", 0
+    elif ratio <= 2.0:
+        status, severity = "overcommitted", 1
+    else:
+        status, severity = "severely_overcommitted", 2
+
+    # How many workers this host can actually honour at the current limit.
+    safe_workers = max(1, int(total_ram_gb // per_gb)) if per_gb else max_workers
+
+    out = {
+        "status": status,
+        "severity": severity,
+        "worst_case_gb": worst_case_gb,
+        "total_ram_gb": total_ram_gb,
+        "available_ram_gb": available_ram_gb,
+        "overcommit_ratio": round(ratio, 1),
+        "safe_max_workers_at_current_limit": safe_workers,
+    }
+    if severity == 0:
+        out["message"] = (
+            f"Worst case {worst_case_gb} GB fits within {total_ram_gb} GB of RAM."
+        )
+        out["remediation"] = []
+        return out
+
+    out["message"] = (
+        f"{max_workers} workers x {per_worker} = {worst_case_gb} GB worst case, "
+        f"against {total_ram_gb} GB of RAM ({out['overcommit_ratio']}x). If enough "
+        f"pipelines run at once the host can be driven into swap or the OOM killer."
+    )
+    out["remediation"] = [
+        f"Cap concurrency: REVOLUZEN_FLOW_MAX_CONCURRENT_RUNS={safe_workers} "
+        f"(fits {per_worker} per worker in {total_ram_gb} GB)",
+        f"Or lower the per-worker ceiling: REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT="
+        f"{max(1, int(total_ram_gb // max(max_workers, 1)))}GB",
+        "Or add RAM to the host.",
+    ]
+
+    # Measurement beats the worst case when we have it. A ceiling many
+    # times larger than anything ever observed makes the worst case a
+    # number about the CONFIG, not about this workload — and the cheapest
+    # fix is the ceiling, so lead with that instead of with concurrency.
+    MIN_RUNS = 5  # below this the p95 is an anecdote, not a footprint
+    if observed_peak_mb > 0 and observed_runs >= MIN_RUNS:
+        headroom = (per_gb * 1024) / observed_peak_mb
+        out["observed_peak_mb"] = round(observed_peak_mb, 1)
+        out["observed_runs"] = observed_runs
+        out["ceiling_vs_observed"] = round(headroom, 1)
+        if headroom >= 4:
+            suggested = max(1, int((observed_peak_mb * 2) / 1024 + 0.999))
+            out["status"] = "overprovisioned_ceiling"
+            out["severity"] = 1
+            out["message"] = (
+                f"The {per_worker} per-worker ceiling is {headroom:.0f}x the "
+                f"heaviest footprint actually recorded ({observed_peak_mb:.0f} MB "
+                f"p95 over {observed_runs} runs). The {worst_case_gb} GB worst "
+                f"case describes the setting, not this workload — so the fix is "
+                f"the ceiling, not the concurrency."
+            )
+            out["remediation"] = [
+                f"Lower the ceiling to roughly double the real peak: "
+                f"REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT={suggested}GB "
+                f"— that keeps {max_workers} workers within "
+                f"{round(max_workers * suggested, 1)} GB.",
+                f"Leave concurrency where it is: observed demand does not "
+                f"justify dropping to {safe_workers} workers.",
+                "Re-check after a month of runs, or after a pipeline grows.",
+            ]
+
+    if available_ram_gb and available_ram_gb < 2:
+        out["remediation"].insert(
+            0, f"Only {available_ram_gb} GB is free right now — act before the "
+               f"next concurrent run, not after.")
+    return out
 
 
 def _governor_explanation(tier: str, mem_pct: float, cpu_pct: float) -> str:

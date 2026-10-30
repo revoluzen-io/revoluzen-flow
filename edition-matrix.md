@@ -92,6 +92,10 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Single-binary local execution | ✅ | ✅ |
+| Execution-engine protocol + registry (`engine/engines.py`) — the socket an alternative engine registers into, with per-step coverage reporting so a pipeline is refused up front rather than failing midway | ✅ | ✅ |
+| DuckDB in-process engine (the default, and the reference implementation of that protocol) | ✅ | ✅ |
+| Maintained **Apache Beam** engine — one translator reaches Dataflow, Flink and Spark | — | 🟠 designed |
+| Maintained **Spark** engine (native, for installs already running Spark) | — | 🟠 designed |
 | Containerized worker pool (Spark-style) | — | ✅ |
 | Worker pool monitoring page | ✅ governor banner, spill-disk health, hardware presets, queue depth, throughput | ✅ + per-worker memory sparklines, validate-config button, retention, P&L per pipeline |
 | Vertical scaling (workers + DuckDB tuning + spill + global governor) | ✅ | ✅ |

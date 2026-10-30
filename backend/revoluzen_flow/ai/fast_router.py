@@ -1921,7 +1921,9 @@ _INTENTS: tuple[FastIntent, ...] = (
     FastIntent(
         name="what_is_revoluzen_flow",
         triggers=(
-            "what is revoluzen-flow", "what is revoluzen_flow", "what is f pulse",
+            # The retired product name was dropped as a trigger
+            # 2026-10-30: the rename is a hard cut, with no aliases.
+            "what is revoluzen-flow", "what is revoluzen_flow",
             "what is this product", "what is the product", "what's this product",
             "what are you", "what does revoluzen_flow do", "what does revoluzen-flow do",
             "what is this tool", "what's this tool", "what is this app",
@@ -1957,7 +1959,7 @@ _INTENTS: tuple[FastIntent, ...] = (
         # Keep product questions out of the company answer: "tell me about
         # revoluzen-flow" contains the trigger "tell me about revoluzen".
         excludes=(
-            "revoluzen pulse", "revoluzen-flow", "revoluzen_flow", "revoluzen flow",
+            "revoluzen-flow", "revoluzen_flow", "revoluzen flow",
         ),
         static_answer=(
             "**Revoluzen** is the company that builds Revoluzen Flow — self-hosted, "

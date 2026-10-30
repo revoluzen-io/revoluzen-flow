@@ -132,6 +132,7 @@ export default function ExecutionPoolPage({
   const [status, setStatus] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
+  const [footprint, setFootprint] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   // 2026-06-01: read initial tab from URL hash + sync on Back/Forward
   // so deep-links like `#pool/history` work and browser Back steps
@@ -368,6 +369,9 @@ export default function ExecutionPoolPage({
   useEffect(() => {
     refresh();
     api.getPoolConfig().then(setConfig).catch(() => {});
+    // Footprint is a rollup over run history, not live state — it is
+    // fetched once with the config rather than joining the 2s poll.
+    api.getPoolFootprint().then(setFootprint).catch(() => {});
   }, [refresh]);
 
   // Auto-refresh every 2s — pauses when livePolling is off.
@@ -440,7 +444,7 @@ export default function ExecutionPoolPage({
   });
 
   // 2026-05-22 — H1 reflects the ACTIVE sub-tab (icon + label + subtitle).
-  // Each sub-tab carries its own icon: Overview = pulse, History = clock,
+  // Each sub-tab carries its own icon: Overview = waveform, History = clock,
   // Configuration = sliders, Alerts = bell.
   const POOL_TAB_META: Record<string, { label: string; subtitle: string; icon: React.ReactNode }> = {
     overview: {
@@ -1520,6 +1524,125 @@ export default function ExecutionPoolPage({
               <div className="mt-3 px-3 py-2 bg-violet-50 rounded-lg text-xs text-violet-700">
                 Theoretical max: {config.theoretical_max_ram}
               </div>
+
+              {/* The line above has always been computed and then left to
+                  the reader to interpret. "20 workers x 4GB = 80 GB" on a
+                  16 GB box is either the most important sentence on the
+                  page or a non-event, and only the backend can tell which
+                  — it knows the host's RAM and what the heaviest pipeline
+                  has actually peaked at. So it says which, and names the
+                  env var to change. */}
+              {config.capacity_risk?.message && (
+                <div
+                  className={`mt-2 px-3 py-2.5 rounded-lg border text-xs ${
+                    config.capacity_risk.status === 'ok'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : config.capacity_risk.severity >= 2
+                        ? 'bg-rose-50 border-rose-200 text-rose-800'
+                        : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}
+                >
+                  <div className="font-bold uppercase tracking-wide text-[10px] mb-1">
+                    {config.capacity_risk.status === 'ok'
+                      ? 'Capacity: within RAM'
+                      : config.capacity_risk.status === 'overprovisioned_ceiling'
+                        ? 'Capacity: ceiling oversized for this workload'
+                        : config.capacity_risk.status === 'severely_overcommitted'
+                          ? 'Capacity: severely overcommitted'
+                          : 'Capacity: overcommitted'}
+                  </div>
+                  <div className="leading-relaxed">{config.capacity_risk.message}</div>
+                  {(config.capacity_risk.remediation || []).length > 0 && (
+                    <ul className="mt-2 space-y-1 list-disc pl-4">
+                      {config.capacity_risk.remediation.map((r: string, i: number) => (
+                        <li key={i} className="font-mono text-[11px] leading-snug">{r}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Per-pipeline compute footprint.
+              Peak memory and CPU were already recorded per RUN and shown
+              on Run History. Nothing rolled them up, so "which pipeline
+              is the expensive one, and can I run them together?" meant
+              reading runs one at a time. This is that rollup. */}
+          {footprint?.pipelines?.length > 0 && (
+            <div className="rounded-lg border border-slate-200 shadow-sm bg-white p-5">
+              <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
+                <h2 className="text-sm font-bold text-slate-700">Per-pipeline compute footprint</h2>
+                <span className="text-xs text-slate-500">
+                  p95 over the last {footprint.runs_window} runs each
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                All {footprint.pipelines.length} pipelines at their p95 together need{' '}
+                <span className="font-bold text-slate-700">
+                  {(footprint.all_pipelines_p95_mb / 1024).toFixed(2)} GB
+                </span>{' '}
+                of the {footprint.host_ram_gb} GB on this host
+                {footprint.os_reserve_gb
+                  ? ` (${footprint.os_reserve_gb} GB held back for the OS)`
+                  : ''}
+                .
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-[10px] font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200">
+                      <th className="py-2 pr-3 font-bold">Pipeline</th>
+                      <th className="py-2 px-2 text-right font-bold">Runs</th>
+                      <th className="py-2 px-2 text-right font-bold">RAM p95</th>
+                      <th className="py-2 px-2 text-right font-bold">RAM max</th>
+                      <th className="py-2 px-2 text-right font-bold">Runtime p95</th>
+                      <th className="py-2 px-2 text-right font-bold">CPU p95</th>
+                      <th className="py-2 pl-2 text-right font-bold">Fits at once</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {footprint.pipelines.map((p: any) => (
+                      <tr key={p.workflow_id} className="border-b border-slate-100 last:border-0">
+                        <td className="py-2 pr-3">
+                          <div className="font-semibold text-slate-800">{p.name}</div>
+                          {p.exceeds_worker_limit && (
+                            <div className="text-[10px] font-bold text-rose-600 mt-0.5">
+                              p95 exceeds the {footprint.per_worker_limit} per-worker ceiling — will spill to disk
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-2 text-right text-slate-600 tabular-nums">{p.runs_sampled}</td>
+                        {/* A pipeline with runs but no psutil samples gets
+                            an em dash, never a 0 — "we did not measure it"
+                            and "it used nothing" are different claims. */}
+                        <td className="py-2 px-2 text-right tabular-nums font-bold text-violet-700">
+                          {p.memory_samples ? `${p.memory_mb.p95} MB` : '—'}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums text-slate-600">
+                          {p.memory_samples ? `${p.memory_mb.max} MB` : '—'}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums text-slate-600">
+                          {p.runtime_ms.p95 >= 1000
+                            ? `${(p.runtime_ms.p95 / 1000).toFixed(1)} s`
+                            : `${Math.round(p.runtime_ms.p95)} ms`}
+                        </td>
+                        <td className="py-2 px-2 text-right tabular-nums text-slate-600">
+                          {p.cpu_seconds.p95 ? `${p.cpu_seconds.p95} s` : '—'}
+                        </td>
+                        <td className="py-2 pl-2 text-right tabular-nums font-bold text-slate-700">
+                          {p.safe_concurrent_copies ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3 leading-relaxed">
+                "Fits at once" is how many concurrent copies of that pipeline this host's RAM
+                can hold at its p95, after the OS reserve. A pipeline whose runs carry no
+                memory reading shows "—" rather than zero.
+              </p>
             </div>
           )}
 

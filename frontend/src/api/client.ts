@@ -1251,6 +1251,28 @@ export const api = {
       body: JSON.stringify({ require_business_purpose: requireBusinessPurpose }),
     }),
 
+  // Execution Contracts — the declarative run promise and its receipts.
+  // NOT the Schema Contracts below: those are expected-columns + drift.
+  // Returns null (not an error) when a run has no receipt, which is the
+  // common case — a contract is opt-in per pipeline.
+  getRunReceipt: (runId: string) =>
+    request<{
+      contract_id: string;
+      run_id: string;
+      verdict: 'verified' | 'failed';
+      verified_at: string;
+      receipt_hash: string;
+      prev_hash: string | null;
+      clauses: Array<{
+        type: string;
+        passed: boolean;
+        description: string | null;
+        detail: string;
+        expected: any;
+        observed: any;
+      }>;
+    } | null>(`/execution-contracts/run/${runId}/receipt`).catch(() => null),
+
   // Schema Contracts
   listContracts: (workflowId: string) =>
     request<any[]>(`/contracts/${workflowId}`),
@@ -1573,6 +1595,32 @@ export const api = {
   getPoolHistory: (limit = 100) => request<any[]>(`/pool/history?limit=${limit}`),
   cancelPoolJob: (jobId: string) => request<any>(`/pool/cancel/${jobId}`, { method: 'POST' }),
   getPoolConfig: () => request<any>('/pool/config'),
+  // ── Execution Contracts (the declared promise, and its receipts) ──
+  // Distinct from `/contracts/*`, which is SCHEMA contracts (expected
+  // columns + drift). Confusingly similar names, different jobs.
+  getExecutionContract: (workflowId: string) =>
+    request<any>(`/execution-contracts/${workflowId}`),
+  // {workflow_id: guarantee_count} for the whole workspace — one request
+  // for the Pipelines table's contract column, not one per row.
+  getExecutionContractCounts: () =>
+    request<{ counts: Record<string, number> }>('/execution-contracts'),
+  putExecutionContract: (workflowId: string, contract: any) =>
+    request<any>(`/execution-contracts/${workflowId}`, {
+      method: 'PUT',
+      body: JSON.stringify(contract),
+    }),
+  deleteExecutionContract: (workflowId: string) =>
+    request<any>(`/execution-contracts/${workflowId}`, { method: 'DELETE' }),
+  listExecutionContractReceipts: (workflowId: string, limit = 50) =>
+    request<any>(`/execution-contracts/${workflowId}/receipts?limit=${limit}`),
+  verifyExecutionContractChain: (workflowId: string) =>
+    request<any>(`/execution-contracts/${workflowId}/chain`),
+
+  // Per-pipeline compute rollup — what each pipeline actually costs in
+  // RAM, wall-clock and CPU across its recorded runs, so concurrency and
+  // the per-worker ceiling can be sized against measurement rather than
+  // against the worst case.
+  getPoolFootprint: () => request<any>('/pool/footprint'),
   getConnectionPoolStats: () => request<{
     installed: boolean;
     total_entries: number;
