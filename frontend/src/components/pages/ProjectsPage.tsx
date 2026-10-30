@@ -76,7 +76,7 @@ const PROJECT_ICONS: { id: string; label: string; icon: React.ReactNode }[] = [
   { id: 'briefcase', label: 'Business',    icon: _icon(<><rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" /></>) },
   { id: 'shield',    label: 'Security',    icon: _icon(<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />) },
   { id: 'box',       label: 'Inventory',   icon: _icon(<><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></>) },
-  { id: 'pulse',     label: 'Activity',    icon: _icon(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />) },
+  { id: 'activity',  label: 'Activity',    icon: _icon(<polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />) },
 ];
 
 // 2026-05-22: RETENTION_DAYS constant retired. OSS server-side archive

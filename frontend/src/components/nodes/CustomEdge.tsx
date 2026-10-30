@@ -193,7 +193,7 @@ export default function CustomEdge({
           stroke: isFailure ? '#ef4444' : (isRunning ? '#F5A623' : effectiveStyle.color),
           strokeWidth: selected ? 6 : (isRunning ? 7 : Math.max(4, flowWidth + 2)),
           opacity: isBlocked || isSkipped ? 0.04 : (isRunning ? 0.35 : 0.12),
-          // Pulse the halo while running — pairs with the marching
+          // Breathe the halo while running — pairs with the marching
           // dashes on the main path for unmistakable "live" signal.
           animation: isRunning ? 'revoluzen-flow-edge-halo 1.2s ease-in-out infinite' : 'none',
         }}

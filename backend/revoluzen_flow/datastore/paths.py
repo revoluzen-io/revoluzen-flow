@@ -37,18 +37,33 @@ def safe_filename(name: str) -> str:
     return base or "upload.bin"
 
 
-def safe_schema_or_table_name(name: str) -> str:
+def safe_schema_or_table_name(name: str, *, fallback: str = "default") -> str:
     """SQL-flavoured identifier sanitiser for managed-table schemas/names.
 
     Allows letters, digits, underscore. Trims edges. Lowercase to keep
     case-insensitive uniqueness easy (Parquet filesystems aren't
     consistent across OSes; we don't want ``Sales`` and ``sales`` to
     both exist).
+
+    ``fallback`` is what an empty or fully-stripped name becomes.
+    "default" is right for a SCHEMA — that is the literal name of the
+    default schema. It is wrong for a TABLE, and silently so:
+
+        table_name = safe_schema_or_table_name(params.get("table_name") or "")
+        if not table_name:
+            raise ValueError("table_name is required")   # never fired
+
+    The guard above could not fire, because the sanitiser handed back
+    "default" instead of "". A sink with a mistyped parameter therefore
+    wrote its rows to a managed table literally called ``default``
+    rather than refusing — the data went somewhere plausible-looking
+    and the run reported success. Callers that need a name to be
+    *present* pass ``fallback=""`` and keep their own error message.
     """
     base = (name or "").strip().lower()
     base = re.sub(r"[^a-z0-9_]+", "_", base)
     base = re.sub(r"_+", "_", base).strip("_")
-    return base or "default"
+    return base or fallback
 
 
 def safe_join_under(root: str, *parts: str) -> str:

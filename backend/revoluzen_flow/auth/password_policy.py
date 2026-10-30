@@ -82,7 +82,7 @@ _COMMON_PASSWORDS = frozenset({
     "letmein", "welcome", "welcome1", "qwerty", "qwerty123",
     "abc123", "123456", "12345678", "123456789", "1234567890",
     "iloveyou", "monkey", "dragon", "master", "shadow",
-    "revoluzen_flow", "revoluzenflow123", "revoluzen-flow", "revoluzen", "pulse123",
+    "revoluzen_flow", "revoluzenflow123", "revoluzen-flow", "revoluzen",
     "changeme", "changeme123", "default", "default123",
     "test", "test123", "testing", "user", "user123",
     "super", "superman", "batman", "trustno1", "starwars",

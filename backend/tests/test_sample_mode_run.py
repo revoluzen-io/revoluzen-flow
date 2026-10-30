@@ -133,8 +133,17 @@ def seeded(tmp_path):
                 {"id": "s2", "type": "filter", "label": "Paid",
                  "params": {"mode": "expression", "condition": "status = 'paid'"},
                  "position": {"x": 300, "y": 0}},
+                # 2026-10-30: was {"schema": ..., "table": ...}. The node
+                # reads schema_name/table_name, so both were ignored and the
+                # rows went to a managed table literally called "default" —
+                # and this test still asserted success, because the sink's
+                # "table_name is required" guard could not fire while
+                # safe_schema_or_table_name() returned "default" for an empty
+                # name. With that fixed the wrong keys now raise, which is
+                # what should always have happened.
                 {"id": "s3", "type": "local_table_sink", "label": "out",
-                 "params": {"schema": "default", "table": "orders_paid", "mode": "replace"},
+                 "params": {"schema_name": "default", "table_name": "orders_paid",
+                            "mode": "replace"},
                  "position": {"x": 600, "y": 0}},
             ],
             "connections": [{"from_step": "s1", "to_step": "s2"},

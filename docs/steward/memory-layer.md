@@ -244,7 +244,7 @@ The Memory Layer unlocks several follow-on sub-agents:
 - **Foreseer (1.3)** — proposes `schema_drift` and `volume_anomaly`
   lessons from statistical signals; operator approves to make them
   durable.
-- **Curator (1.4)** — distills `EPULSE_RUNBOOK.md` from the lesson
+- **Curator (1.4)** — distills `REVOLUZEN_RUNBOOK.md` from the lesson
   set, grouped by source and lesson_type, so onboarding a new
   engineer is "read the runbook" instead of "shadow the senior."
 - **Optimizer (2.0)** — consumes `cost_anomaly` lessons to propose

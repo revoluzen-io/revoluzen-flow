@@ -13,10 +13,10 @@
  *   - SkeletonTableRow    : one row of a table; pass column count
  *   - SkeletonCard        : a generic card placeholder (matches card-grid layouts)
  *
- * All variants use a CSS-only pulse animation (no JS).
+ * All variants use a CSS-only shimmer animation (no JS).
  */
 
-const PULSE = 'animate-pulse bg-slate-200/70 rounded';
+const SHIMMER = 'animate-pulse bg-slate-200/70 rounded';
 
 export function SkeletonText({ lines = 3, lastWidth = '60%' }: { lines?: number; lastWidth?: string }) {
   return (
@@ -24,7 +24,7 @@ export function SkeletonText({ lines = 3, lastWidth = '60%' }: { lines?: number;
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className={`h-3.5 ${PULSE}`}
+          className={`h-3.5 ${SHIMMER}`}
           style={{ width: i === lines - 1 ? lastWidth : '100%' }}
         />
       ))}
@@ -35,9 +35,9 @@ export function SkeletonText({ lines = 3, lastWidth = '60%' }: { lines?: number;
 export function SkeletonKPI() {
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 ring-1 ring-slate-100">
-      <div className={`h-3 w-16 mb-2 ${PULSE}`} />
-      <div className={`h-7 w-24 mb-2 ${PULSE}`} />
-      <div className={`h-3 w-12 ${PULSE}`} />
+      <div className={`h-3 w-16 mb-2 ${SHIMMER}`} />
+      <div className={`h-7 w-24 mb-2 ${SHIMMER}`} />
+      <div className={`h-3 w-12 ${SHIMMER}`} />
     </div>
   );
 }
@@ -55,7 +55,7 @@ export function SkeletonTableRow({ columns = 6 }: { columns?: number }) {
     <tr>
       {Array.from({ length: columns }).map((_, i) => (
         <td key={i} className="px-3 py-3">
-          <div className={`h-3.5 w-full max-w-[140px] ${PULSE}`} />
+          <div className={`h-3.5 w-full max-w-[140px] ${SHIMMER}`} />
         </td>
       ))}
     </tr>
@@ -68,10 +68,10 @@ export function SkeletonCard({ height = 120 }: { height?: number }) {
       className="rounded-xl border border-slate-200 bg-white p-4"
       style={{ height }}
     >
-      <div className={`h-4 w-1/2 mb-3 ${PULSE}`} />
-      <div className={`h-3 w-full mb-2 ${PULSE}`} />
-      <div className={`h-3 w-3/4 mb-2 ${PULSE}`} />
-      <div className={`h-3 w-2/3 ${PULSE}`} />
+      <div className={`h-4 w-1/2 mb-3 ${SHIMMER}`} />
+      <div className={`h-3 w-full mb-2 ${SHIMMER}`} />
+      <div className={`h-3 w-3/4 mb-2 ${SHIMMER}`} />
+      <div className={`h-3 w-2/3 ${SHIMMER}`} />
     </div>
   );
 }

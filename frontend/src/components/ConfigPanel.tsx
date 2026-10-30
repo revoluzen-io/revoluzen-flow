@@ -4058,7 +4058,7 @@ function CsvSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
-          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-pulse-400 hover:text-pipe-600 hover:bg-pulse-50 transition-colors disabled:opacity-50"
+          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-gold-400 hover:text-pipe-600 hover:bg-gold-50 transition-colors disabled:opacity-50"
         >
           {uploading ? 'Uploading...' : '+ Upload New File'}
         </button>
@@ -5085,7 +5085,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
       <div>
         <button
           onClick={() => setShowSnippets(!showSnippets)}
-          className="text-[10px] font-semibold text-pulse-600 uppercase tracking-wider flex items-center gap-1 hover:text-pulse-700 transition-colors"
+          className="text-[10px] font-semibold text-gold-600 uppercase tracking-wider flex items-center gap-1 hover:text-gold-700 transition-colors"
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -5104,7 +5104,7 @@ function TransformConfig({ params, nodeId, onChange, columns = [], upstreamNodes
               <button
                 key={s.label}
                 onClick={() => insertAtCursor(s.sql)}
-                className="text-[10px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 hover:border-pulse-300 transition-colors cursor-pointer active:scale-95 font-medium"
+                className="text-[10px] px-1.5 py-0.5 bg-gold-50 text-gold-700 rounded border border-gold-200 hover:bg-gold-100 hover:border-gold-300 transition-colors cursor-pointer active:scale-95 font-medium"
                 title={s.sql}
               >
                 {s.label}
@@ -6890,7 +6890,7 @@ function JsonSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         </select>
         <input ref={fileRef} type="file" accept=".json,.jsonl" onChange={handleUpload} className="hidden" />
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-pulse-400 hover:text-pipe-600 hover:bg-pulse-50 transition-colors disabled:opacity-50">
+          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-gold-400 hover:text-pipe-600 hover:bg-gold-50 transition-colors disabled:opacity-50">
           {uploading ? 'Uploading...' : '+ Upload JSON File'}
         </button>
         {params.file_path && <VolumeTierBadge filePath={params.file_path} />}
@@ -6953,7 +6953,7 @@ function ParquetSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         </select>
         <input ref={fileRef} type="file" accept=".parquet,.pq" onChange={handleUpload} className="hidden" />
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-pulse-400 hover:text-pipe-600 hover:bg-pulse-50 transition-colors disabled:opacity-50">
+          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-gold-400 hover:text-pipe-600 hover:bg-gold-50 transition-colors disabled:opacity-50">
           {uploading ? 'Uploading...' : '+ Upload Parquet File'}
         </button>
         {params.file_path && <VolumeTierBadge filePath={params.file_path} />}
@@ -7013,7 +7013,7 @@ function ExcelSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         </select>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleUpload} className="hidden" />
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-pulse-400 hover:text-pipe-600 hover:bg-pulse-50 transition-colors disabled:opacity-50">
+          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-gold-400 hover:text-pipe-600 hover:bg-gold-50 transition-colors disabled:opacity-50">
           {uploading ? 'Uploading...' : '+ Upload Excel File'}
         </button>
         {params.file_path && <VolumeTierBadge filePath={params.file_path} />}
@@ -7079,7 +7079,7 @@ function XmlSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         </select>
         <input ref={fileRef} type="file" accept=".xml" onChange={handleUpload} className="hidden" />
         <button onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-pulse-400 hover:text-pipe-600 hover:bg-pulse-50 transition-colors disabled:opacity-50">
+          className="w-full px-2.5 py-1.5 text-xs border border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-gold-400 hover:text-pipe-600 hover:bg-gold-50 transition-colors disabled:opacity-50">
           {uploading ? 'Uploading...' : '+ Upload XML File'}
         </button>
         {params.file_path && <VolumeTierBadge filePath={params.file_path} />}
