@@ -95,26 +95,34 @@ Must be `true`. The gate exists so an unconfigured PyPI leaves a release green
 rather than failing every tag push. Set it only after B2 is done, or the first
 tag will fail at the upload step.
 
-### B4. Decide what happens to incoming pull requests
+### B4. What happens to incoming pull requests — settled for launch
 
 `CONTRIBUTING.md` states that external pull requests are not being merged,
-because `CLA.md` is a draft that has not had legal review. That is an honest
-position and it was fine while the repository was private, because nobody could
-send one. From the moment it is public, people can and will.
+because `CLA.md` is a draft that has not had legal review. That was fine while
+the repository was private, because nobody could send one. From the moment it
+is public, people can and will.
 
-Decide **before** launch, because the answer changes what you publish:
+**Resolved for 2026-11-01: the pause stands, and it now reads as a temporary
+state with a way out.** Finishing a CLA requires legal review and is not a
+launch-week task, so the only honest option was to make the pause navigable:
 
-- **Keep the pause.** Then add a holding response to the SOP in
-  `maintainer-operations.md`, and make sure `CONTRIBUTING.md` reads as a
-  temporary state with something to point at — a tracking issue people can
-  subscribe to. "Not yet, and here is where you will hear about it" retains
-  contributors; an unexplained closed PR does not.
-- **Finish the CLA.** Legal review, then stand up the sign-off check, then
-  delete the pause section. This is not a launch-day task.
+- `CONTRIBUTING.md` no longer ties the pause to a shipped version, says plainly
+  that it is a paperwork problem rather than a judgement on anyone's code, and
+  tells a reader how they will hear when it lifts (the section is deleted, the
+  CHANGELOG carries it, Watch → Custom → Releases notifies them). It promises
+  no date, because we do not have one.
+- `maintainer-operations.md` §3 carries the reply template, so the duty
+  maintainer is not improvising a refusal at the moment it matters.
 
-Either is defensible. Silence is not: a contributor who spends a weekend on a
-pull request and then reads that you were never going to merge it is a
-contributor you do not get back.
+**Still open as a business item, not a launch blocker:** legal review of
+`CLA.md`, standing up the sign-off flow, and deciding whether a corporate
+variant is needed. Until those land, every external pull request is work
+someone did that we cannot take — which is a cost, and the argument for
+prioritising the review.
+
+Silence is the one option that was never available: a contributor who spends a
+weekend on a pull request and then discovers you were never going to merge it
+is a contributor you do not get back.
 
 ---
 

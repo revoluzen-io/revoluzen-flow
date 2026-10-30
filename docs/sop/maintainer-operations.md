@@ -63,9 +63,34 @@ licence agreement is in draft. If that is still true, the procedure is:
 1. Thank them concretely, naming what they actually did. They spent their time.
 2. Explain the reason in one sentence — the CLA is not finalised, and merging
    without one leaves the provenance of their code unclear.
-3. Point at the tracking issue so they can subscribe rather than guess.
+3. Tell them how they will hear when it changes: the section is deleted and the
+   CHANGELOG says so, and **Watch → Custom → Releases** notifies them without
+   checking back. Do not invent a date.
 4. Leave the pull request **open** if the work will be wanted later. Closing it
    reads as a rejection of the work rather than a statement about paperwork.
+
+Reply template — adapt the first line, never skip it:
+
+> Thanks for this — *[name the actual change: "the Oracle connector retry
+> handling", not "your contribution"]*.
+>
+> I can't merge it yet, and the reason is paperwork rather than the code:
+> accepting external changes needs a Contributor License Agreement, and ours
+> is still in legal review. Merging without one would leave the provenance of
+> your work unclear, and asking you to sign an unreviewed agreement would be
+> unfair to you.
+>
+> I'm leaving this open rather than closing it, so it's here when that lands.
+> CONTRIBUTING.md is where the notice will disappear from, and the CHANGELOG
+> will carry it — Watch → Custom → Releases will tell you without checking back.
+> CLA.md lists what's still outstanding if you want to judge the timeline
+> yourself.
+
+If their change is a **bug fix for something currently broken**, that is a
+different conversation: fix it independently, land it under your own
+authorship, and say in the pull request that you have done so and why. Do not
+quietly reimplement someone's work without telling them — they will see the
+commit.
 
 When the pause lifts, delete this section's caveat and the one in
 `CONTRIBUTING.md` in the same change, so the two can never disagree.
