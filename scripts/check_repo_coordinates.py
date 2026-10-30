@@ -141,12 +141,77 @@ def check_remote_matches(want: str) -> list[str]:
     ]
 
 
+def dist_name() -> str | None:
+    """The distribution name the wheel declares, from pyproject.toml."""
+    try:
+        import tomllib
+
+        with open(ROOT / "pyproject.toml", "rb") as fh:
+            return tomllib.load(fh).get("project", {}).get("name")
+    except Exception:  # noqa: BLE001 — an unreadable pyproject is not this check's business
+        return None
+
+
+# The three literal strings a PyPI Trusted Publisher is matched on, and where
+# each one's truth lives. The label is how the field is written in RELEASING.md.
+_PUBLISHER_FIELDS = (
+    ("PyPI Project Name", "dist"),
+    ("Owner", "owner"),
+    ("Repository name", "repo"),
+)
+
+
+def check_publisher_fields(owner: str, name: str) -> list[str]:
+    """Do the documented Trusted Publisher values match reality?
+
+    Added 2026-10-30. The slug check above reads ``github.com/owner/repo``
+    URLs, and a publisher form is not a URL — it is three bare strings in a
+    table. So every one of them sat wrong in RELEASING.md through an org
+    rename and a product rename while this script reported OK: it was looking
+    for the one shape the mistake does not take.
+
+    That is worth a dedicated check because the failure is both silent and
+    expensive. PyPI matches these literally, rejects the upload with
+    ``invalid-publisher`` without saying which field is wrong, and the person
+    debugging it is mid-release.
+    """
+    doc = ROOT / "RELEASING.md"
+    if not doc.is_file():
+        return []
+    expected = {"dist": dist_name(), "owner": owner, "repo": name}
+    if not expected["dist"]:
+        return []
+
+    try:
+        lines = doc.read_text(encoding="utf-8").splitlines()
+    except (UnicodeDecodeError, OSError):
+        return []
+
+    out: list[str] = []
+    for label, key in _PUBLISHER_FIELDS:
+        want = expected[key]
+        # The row that declares this field, wherever it sits in the table.
+        row = next((ln for ln in lines if label in ln and "`" in ln), None)
+        if row is None:
+            out.append(f"  RELEASING.md: no row declares {label!r}")
+            continue
+        values = re.findall(r"`([^`]+)`", row)
+        if want not in values:
+            out.append(
+                f"  RELEASING.md: {label} is documented as "
+                f"{', '.join(repr(v) for v in values) or '(nothing)'}, "
+                f"but should be {want!r}"
+            )
+    return out
+
+
 def main() -> int:
     owner, name = canonical()
     want = f"{owner}/{name}"
     bad: list[str] = []
 
     drift = check_remote_matches(want)
+    publisher = check_publisher_fields(owner, name)
 
     for path in files():
         try:
@@ -170,6 +235,16 @@ def main() -> int:
         print("\n".join(drift))
         print()
 
+    if publisher:
+        print("PyPI Trusted Publisher fields in RELEASING.md are wrong:")
+        print("\n".join(publisher))
+        print(
+            "\nPyPI matches these literally and rejects the upload with "
+            "`invalid-publisher`\nwithout naming the bad field. Fix RELEASING.md, "
+            "or update pyproject.toml /\napp_meta.py if the project genuinely "
+            "renamed."
+        )
+
     if bad:
         print(f"Self-referential GitHub slugs disagreeing with app_meta.py ({want}):")
         print("\n".join(bad))
@@ -177,10 +252,13 @@ def main() -> int:
             f"\n{len(bad)} bad reference(s). Either fix the link, or if the repo "
             f"genuinely moved, update REPO_OWNER/REPO_NAME in app_meta.py first."
         )
+
+    if bad or publisher:
         return 1
 
     suffix = " (see the drift warning above)" if drift else ""
     print(f"OK: every self-referential GitHub slug matches {want}{suffix}")
+    print(f"OK: Trusted Publisher fields match {dist_name()} / {want}")
     return 0
 
 
