@@ -18,7 +18,7 @@ from typing import Any
 
 from revoluzen_flow.ir.schema import WorkflowRunResult
 
-from .schema import ContractVerification, ExecutionContract
+from .schema import BlastRadius, ContractVerification, ExecutionContract
 from .verify import verify_contract
 
 
@@ -37,6 +37,7 @@ def verify_run(
     pipeline_hash: str | None = None,
     engine_version: str | None = None,
     trigger: str | None = None,
+    blast_radius: list[BlastRadius] | None = None,
 ) -> ContractVerification:
     """Verify ``contract`` against a finished ``run`` and return the receipt.
 
@@ -69,4 +70,5 @@ def verify_run(
         run_id=run_id, facts=facts, now=now,
         prev_hash=prev_hash, resumed_from=resumed_from,
         pipeline_hash=pipeline_hash, engine_version=engine_version, trigger=trigger,
+        blast_radius=blast_radius,
     )

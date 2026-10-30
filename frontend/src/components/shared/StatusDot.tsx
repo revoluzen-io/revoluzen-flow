@@ -8,7 +8,7 @@
  * Variants:
  *   success    — emerald (last run succeeded / connection healthy)
  *   failed     — red    (last run failed / connection unreachable)
- *   running    — indigo + pulse (in flight)
+ *   running    — indigo + breathing (in flight)
  *   draft      — slate  (unpublished / not yet run)
  *   scheduled  — amber  (pending future trigger)
  *   warning    — amber  (degraded / stale)
@@ -46,8 +46,8 @@ export interface StatusDotProps {
   size?: StatusSize;
   /** When true, show a subtle outer ring around the dot. */
   ringed?: boolean;
-  /** When true and status === 'running', adds a pulse animation. */
-  pulse?: boolean;
+  /** When true and status === 'running', adds a breathing animation. */
+  animated?: boolean;
   /** Show the status label next to the dot. */
   withLabel?: boolean;
   /** Override for the label text (defaults to canonical label). */
@@ -57,12 +57,12 @@ export interface StatusDotProps {
 }
 
 export function StatusDot({
-  status, size = 'sm', ringed = false, pulse = true,
+  status, size = 'sm', ringed = false, animated = true,
   withLabel = false, labelOverride, hint,
 }: StatusDotProps) {
   const s = STATUS_STYLES[status] ?? STATUS_STYLES.unknown;
   const sz = SIZE_PX[size];
-  const animateClass = pulse && status === 'running' ? 'animate-pulse' : '';
+  const animateClass = animated && status === 'running' ? 'animate-pulse' : '';
 
   const dot = (
     <span

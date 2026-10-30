@@ -861,7 +861,7 @@ const HOW_TO_GUIDES = [
         steps: [
           '**Autopsy (1.2)**: failure root-cause analysis with memory of past incidents. When a pipeline fails, Autopsy checks whether it has failed the same way before and proposes the fix that worked last time.',
           '**Foreseer (1.3)**: volume + schema-drift anomaly detection. Flags when a daily pipeline that normally moves ~10k rows suddenly moves 200, or when a source\'s column shape changes silently.',
-          '**Curator (1.4)**: distills recurring guidance from your memory journal into an `EPULSE_RUNBOOK.md` — your personal "things I keep getting reminded of" reference.',
+          '**Curator (1.4)**: distills recurring guidance from your memory journal into an `REVOLUZEN_RUNBOOK.md` — your personal "things I keep getting reminded of" reference.',
           '**Optimizer (2.0)**: cost + performance recommendations from cross-execution analysis.',
           'Each new sub-agent obeys the same hard rules: read-only, out-of-band, deterministic core + LLM-narration shell, explicit provenance, OSS-first. See `docs/steward/overview.md` for the full architecture.',
         ],

@@ -5,7 +5,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        pulse: {
+        // Renamed 2026-10-30 — the ramp was named after a retired
+        // product line, not after what it is. `gold` and not `amber`:
+        // Tailwind ships an `amber`, and shadowing it would quietly
+        // repaint every default-amber class in the app.
+        gold: {
           50: '#FFFDF2',
           100: '#FFF8E1',
           200: '#FFECB3',

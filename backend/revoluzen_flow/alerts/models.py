@@ -21,6 +21,12 @@ class AlertChannel(str, Enum):
 class AlertCondition(str, Enum):
     ON_FAILURE = "on_failure"
     ON_SUCCESS = "on_success"
+    # A run can be on_failure=False and still have delivered the wrong
+    # data — every step succeeds, the output is empty, the destination is
+    # replaced with nothing. on_failure never fires for that, which is
+    # exactly the case an Execution Contract exists to catch, so it needs
+    # its own condition rather than being folded into failure.
+    ON_CONTRACT_FAILED = "on_contract_failed"
     ON_SLA_BREACH = "on_sla_breach"
     ON_LONG_RUNNING = "on_long_running"
     ON_RESOURCE_THRESHOLD = "on_resource_threshold"

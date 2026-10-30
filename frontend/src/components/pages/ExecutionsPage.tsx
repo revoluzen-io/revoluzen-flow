@@ -275,7 +275,7 @@ const STEP_STATUS_ICON: Record<string, { icon: string; color: string }> = {
   skipped: { icon: '\u2192', color: 'text-slate-500 bg-slate-50 border-slate-200' },
 };
 
-type DetailTab = 'lineage' | 'steps' | 'logs';
+type DetailTab = 'lineage' | 'steps' | 'logs' | 'contract';
 type LogLevel = 'all' | 'info' | 'warn' | 'error' | 'debug';
 
 // Step-type icon map + component moved to shared/StepTypeIcon.tsx so the
@@ -408,6 +408,22 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
   // keeps no view state across reloads.
   const [showDashboard, setShowDashboard] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>('lineage');
+  // Execution Contract receipt for the selected run. null = this run has
+  // no contract, which is the normal case and is not an error state.
+  const [receipt, setReceipt] = useState<any | null>(null);
+  const [receiptLoaded, setReceiptLoaded] = useState(false);
+  useEffect(() => {
+    const id = selectedExec?.id;
+    if (!id) { setReceipt(null); setReceiptLoaded(false); return; }
+    let cancelled = false;
+    setReceiptLoaded(false);
+    api.getRunReceipt(id).then((r) => {
+      if (cancelled) return;
+      setReceipt(r);
+      setReceiptLoaded(true);
+    });
+    return () => { cancelled = true; };
+  }, [selectedExec?.id]);
   // Per-step expand state in the Steps tab — clicking a row reveals
   // the step's input configuration, what it received from upstream
   // steps, and a sample of its output rows. Lets a user debug a
@@ -1992,6 +2008,13 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 { key: 'lineage' as const, label: 'Lineage', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg> },
                 { key: 'steps' as const, label: `Steps${selectedExec.step_logs?.length ? ` (${selectedExec.step_logs.length})` : ''}`, icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg> },
                 { key: 'logs' as const, label: 'Logs', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /></svg> },
+                // Only when the run has a receipt — a tab that is empty for
+                // most pipelines teaches people to ignore it.
+                ...(receipt ? [{
+                  key: 'contract' as const,
+                  label: receipt.verdict === 'verified' ? 'Contract ✓' : 'Contract ✗',
+                  icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4" /><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c1.66 0 3.22.45 4.56 1.24" /></svg>,
+                }] : []),
               ]).map(tab => {
                 const active = detailTab === tab.key;
                 return (
@@ -2077,8 +2100,36 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
 
             const rootCause = failedSteps[0];
 
+            // Three places on this page were describing the same event in
+            // three disagreeing voices: this banner called the SINK the
+            // "Root Cause", the rule-based diagnosis guessed "check your
+            // filter conditions", and the Contract panel further down knew
+            // the actual answer ("8 -> 0 at ro_filter"). Two of them named
+            // different steps while both labelled the claim a cause.
+            //
+            // The failed step is not the cause — it is where the failure
+            // surfaced. Say that, and defer the word "cause" to the one
+            // thing on the page that worked it out from the row counts.
+            const cause = (receipt?.attribution || [])[0];
+            const causeIsElsewhere = cause && cause.step_id !== rootCause.step_id;
+
+            // A write the contract refused is a SAVE, not a crash. The run
+            // is red because it stopped, and the instinct that reads is
+            // "something broke, data is in an unknown state" — the exact
+            // opposite of what happened. The destination is untouched, and
+            // that has to be the first thing said, not a detail three
+            // sections down.
+            const blocked = (receipt?.blast_radius || []).filter((b: any) => b.blocked);
+            const wasBlocked = blocked.length > 0;
+            const protectedRows = blocked.reduce(
+              (n: number, b: any) => n + (b.rows_before ?? 0), 0);
+
             return (
-              <div className={`border-b shrink-0 ${dark ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50/80 border-red-200'}`}>
+              <div className={`border-b shrink-0 ${
+                wasBlocked
+                  ? (dark ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50/80 border-amber-200')
+                  : (dark ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50/80 border-red-200')
+              }`}>
                 <div className="w-full px-6 py-3">
                   {/* Collapsible header */}
                   <button
@@ -2086,21 +2137,49 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     className="w-full flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-2.5">
-                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${dark ? 'bg-red-500/15 border border-red-500/20' : 'bg-red-100 border border-red-300'}`}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                          <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
-                        </svg>
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+                        wasBlocked
+                          ? (dark ? 'bg-amber-500/15 border border-amber-500/20' : 'bg-amber-100 border border-amber-300')
+                          : (dark ? 'bg-red-500/15 border border-red-500/20' : 'bg-red-100 border border-red-300')
+                      }`}>
+                        {wasBlocked ? (
+                          /* A shield, not a warning triangle: the run
+                             stopped because something worked. */
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                          </svg>
+                        ) : (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                            <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+                          </svg>
+                        )}
                       </div>
                       <div className="text-left">
-                        <span className={`text-sm font-bold ${dark ? 'text-red-400' : 'text-red-800'}`}>Failure Summary</span>
-                        <span className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${dark ? 'text-red-400 bg-red-500/15' : 'text-red-500 bg-red-100'}`}>
-                          {failedSteps.length} failed step{failedSteps.length !== 1 ? 's' : ''}
+                        <span className={`text-sm font-bold ${
+                          wasBlocked
+                            ? (dark ? 'text-amber-300' : 'text-amber-900')
+                            : (dark ? 'text-red-400' : 'text-red-800')
+                        }`}>
+                          {wasBlocked ? 'Stopped by Execution Contract' : 'Failure Summary'}
+                        </span>
+                        <span className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          wasBlocked
+                            ? (dark ? 'text-emerald-300 bg-emerald-500/15' : 'text-emerald-700 bg-emerald-100')
+                            : (dark ? 'text-red-400 bg-red-500/15' : 'text-red-500 bg-red-100')
+                        }`}>
+                          {wasBlocked
+                            ? (protectedRows > 0
+                                ? `no data lost — ${protectedRows} row${protectedRows === 1 ? '' : 's'} intact`
+                                : 'no data lost')
+                            : `${failedSteps.length} failed step${failedSteps.length !== 1 ? 's' : ''}`}
                         </span>
                       </div>
                     </div>
                     <svg
-                      width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      width="16" height="16" viewBox="0 0 24 24" fill="none"
+                      stroke={wasBlocked ? '#d97706' : '#dc2626'}
+                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                       className={`transition-transform ${failureSummaryOpen ? 'rotate-180' : ''}`}
                     >
                       <polyline points="6 9 12 15 18 9" />
@@ -2109,11 +2188,30 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
 
                   {failureSummaryOpen && (
                     <div className="mt-3 space-y-3">
-                      {/* Root Cause hint */}
-                      <div className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${dark ? 'bg-red-500/10 border-red-500/15' : 'bg-red-100/60 border-red-200/60'}`}>
-                        <span className={`text-xs font-bold shrink-0 mt-px ${dark ? 'text-red-400' : 'text-red-700'}`}>Root Cause:</span>
+                      {/* Where it surfaced, and — separately — what caused
+                          it. These were one line labelled "Root Cause"
+                          pointing at the failed step, which on a blocked
+                          write is the sink: the guard that fired, never the
+                          reason. Naming both, with the right word on each,
+                          is what stops the page contradicting itself. */}
+                      <div className={`flex items-start gap-2 px-3 py-2 rounded-lg border ${
+                        wasBlocked
+                          ? (dark ? 'bg-amber-500/10 border-amber-500/15' : 'bg-amber-100/60 border-amber-200/60')
+                          : (dark ? 'bg-red-500/10 border-red-500/15' : 'bg-red-100/60 border-red-200/60')
+                      }`}>
+                        <span className={`text-xs font-bold shrink-0 mt-px ${
+                          wasBlocked
+                            ? (dark ? 'text-amber-300' : 'text-amber-800')
+                            : (dark ? 'text-red-400' : 'text-red-700')
+                        }`}>
+                          {wasBlocked ? 'Stopped at:' : causeIsElsewhere ? 'Failed at:' : 'Root Cause:'}
+                        </span>
                         <div className="min-w-0 flex-1">
-                          <span className={`text-xs font-semibold inline-flex items-center gap-1.5 ${dark ? 'text-red-300' : 'text-red-800'}`}>
+                          <span className={`text-xs font-semibold inline-flex items-center gap-1.5 ${
+                            wasBlocked
+                              ? (dark ? 'text-amber-200' : 'text-amber-900')
+                              : (dark ? 'text-red-300' : 'text-red-800')
+                          }`}>
                             <StepTypeIcon type={rootCause.step_type} size={12} />
                             {rootCause.step_name || rootCause.step_id}
                           </span>
@@ -2121,6 +2219,19 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                               step card below already renders the error in a
                               styled box. Showing it here too duplicated the
                               string for the user. */}
+                          {causeIsElsewhere && (
+                            <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                Likely cause
+                              </span>
+                              <code className={`text-xs font-mono ${dark ? 'text-amber-200' : 'text-amber-900'}`}>
+                                {cause.detail}
+                              </code>
+                              <span className={`text-[11px] ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+                                — not this step; start there
+                              </span>
+                            </div>
+                          )}
                         </div>
                         <div className="shrink-0 flex items-center gap-1.5">
                           <button
@@ -2226,6 +2337,22 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                             <span className="font-semibold">Suggestion: </span>
                             {aiDiagnosis.suggestion}
                           </div>
+                          {/* This panel guesses from the error string alone.
+                              When the contract has already located the step
+                              from the actual row counts, a generic "check
+                              your filter conditions" sitting beside it is a
+                              second, weaker answer presented with equal
+                              confidence — so point back at the real one. */}
+                          {causeIsElsewhere && (
+                            <div className={`mt-2 pt-2 border-t text-xs ${
+                              dark ? 'border-indigo-500/20 text-slate-400' : 'border-indigo-200 text-slate-600'
+                            }`}>
+                              Already narrowed down: the Execution Contract traced this
+                              to <code className="font-mono font-semibold">{cause.detail}</code>.
+                              This panel is a guess from the error text; that one is
+                              measured from the run.
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -2253,10 +2380,24 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                       <span className={`text-xs font-bold truncate ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
                                         {step.step_name || step.step_id}
                                       </span>
+                                      {/* The badge said "Root Cause" on the
+                                          first failed step unconditionally.
+                                          On a blocked write that step is the
+                                          sink — the guard that fired — and
+                                          the page's own attribution names a
+                                          different step, so the two labels
+                                          sent the reader to opposite ends of
+                                          the pipeline. */}
                                       {idx === 0 && (
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${dark ? 'text-red-400 bg-red-500/15' : 'text-red-600 bg-red-100'}`}>
-                                          Root Cause
-                                        </span>
+                                        wasBlocked ? (
+                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${dark ? 'text-amber-300 bg-amber-500/15' : 'text-amber-700 bg-amber-100'}`}>
+                                            Blocked here
+                                          </span>
+                                        ) : (
+                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase shrink-0 ${dark ? 'text-red-400 bg-red-500/15' : 'text-red-600 bg-red-100'}`}>
+                                            {causeIsElsewhere ? 'Failed here' : 'Root Cause'}
+                                          </span>
+                                        )
                                       )}
                                     </div>
                                     <span className="text-xs font-mono text-slate-500">{step.step_type}</span>
@@ -3078,6 +3219,240 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   </>
                   );
                 })()}
+              </div>
+            )}
+
+            {/* ===== EXECUTION CONTRACT VIEW =====
+                The verdict a run earned against the promise its author
+                declared beforehand. A run can be `success` and FAILED
+                here at the same time, and that pairing is the point:
+                the steps completed, the data was not what was promised. */}
+            {detailTab === 'contract' && receipt && (
+              <div className="p-6 overflow-auto">
+                <div
+                  className={`rounded-xl border p-5 mb-5 ${
+                    receipt.verdict === 'verified'
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : 'border-red-200 bg-red-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={`text-2xl leading-none ${
+                        receipt.verdict === 'verified' ? 'text-emerald-600' : 'text-red-600'
+                      }`}
+                    >
+                      {receipt.verdict === 'verified' ? '✓' : '✗'}
+                    </span>
+                    <div>
+                      <div
+                        className={`text-lg font-bold ${
+                          receipt.verdict === 'verified' ? 'text-emerald-800' : 'text-red-800'
+                        }`}
+                      >
+                        {receipt.verdict === 'verified'
+                          ? 'The data operation was verified'
+                          : (receipt.blast_radius || []).some((b: any) => b.blocked)
+                            ? 'The data operation was stopped, not performed'
+                            : 'The data operation was NOT verified'}
+                      </div>
+                      {/* "NOT verified" alone, in red, directly under a
+                          banner saying no data was lost, reads as the page
+                          contradicting itself. Both are true: it did not
+                          pass, AND it never ran. Saying the second half is
+                          what turns the red into something sensible. */}
+                      {(receipt.blast_radius || []).some((b: any) => b.blocked) && (
+                        <div className="text-xs text-slate-700 mt-1">
+                          The guarantees below did not hold, so the write was refused
+                          before it happened — nothing downstream changed.
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-600 mt-0.5">
+                        {receipt.clauses.filter((c: any) => c.passed).length} of{' '}
+                        {receipt.clauses.length} guarantees held · contract{' '}
+                        <code className="font-mono">{receipt.contract_id}</code>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Blast radius — immediately under the verdict, because
+                    it is the part that decides whether you stop what you
+                    are doing. "Contract failed" and "the table your
+                    dashboards read was replaced with 0 rows, it had 3"
+                    are the same event at two very different levels of
+                    urgency, and only the second one is actionable. */}
+                {receipt.blast_radius?.length > 0 && (
+                  <>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                      Effect on destinations
+                    </div>
+                    <div className="rounded-lg border border-slate-200 overflow-hidden mb-5">
+                      {receipt.blast_radius.map((b: any, i: number) => {
+                        const destroyed =
+                          !b.blocked && b.mode === 'replace' &&
+                          b.rows_before != null && b.rows_written != null &&
+                          b.rows_written < b.rows_before;
+                        // The mode is the bare verb the node config uses
+                        // ("replace"), which reads wrong in a sentence
+                        // about something that already happened.
+                        const past = ({ replace: 'replaced', append: 'appended',
+                          merge: 'merged' } as Record<string, string>)[b.mode]
+                          || b.mode || 'written';
+                        return (
+                          <div
+                            key={i}
+                            className={`px-4 py-3 text-sm ${i > 0 ? 'border-t border-slate-100' : ''} ${
+                              destroyed ? 'bg-red-50' : b.blocked ? 'bg-amber-50' : ''
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`font-bold ${
+                                  destroyed ? 'text-red-600'
+                                    : b.blocked ? 'text-amber-600' : 'text-slate-400'
+                                }`}
+                              >
+                                {destroyed ? '!' : b.blocked ? '⛔' : '→'}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-semibold text-slate-800">
+                                  {b.destination || b.step_id}
+                                </div>
+                                <div className="text-xs text-slate-600 mt-0.5">
+                                  {b.blocked ? (
+                                    <>
+                                      Refused: would have {past} this with{' '}
+                                      <span className="font-bold">{b.rows_written}</span> row
+                                      {b.rows_written === 1 ? '' : 's'}
+                                      {/* The reassurance is the point of a
+                                          gate — say what survived, not only
+                                          what was stopped. */}
+                                      {b.rows_before != null && (
+                                        <>
+                                          {' '}· it still has{' '}
+                                          <span className="font-bold text-emerald-700">
+                                            {b.rows_before}
+                                          </span>
+                                        </>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <>
+                                      {past} with{' '}
+                                      <span className={destroyed ? 'font-bold text-red-700' : 'font-bold'}>
+                                        {b.rows_written}
+                                      </span>{' '}
+                                      row{b.rows_written === 1 ? '' : 's'}
+                                      {/* null is "we could not read it",
+                                          not zero — never print a count we
+                                          do not have. */}
+                                      {b.rows_before != null
+                                        ? <>, was <span className="font-bold">{b.rows_before}</span></>
+                                        : ''}
+                                    </>
+                                  )}
+                                </div>
+                                {destroyed && (
+                                  <div className="text-xs font-bold text-red-700 mt-1">
+                                    {b.rows_before - b.rows_written} row
+                                    {b.rows_before - b.rows_written === 1 ? '' : 's'} lost
+                                  </div>
+                                )}
+                                <div className="text-[11px] text-slate-400 mt-1 font-mono">
+                                  at step {b.step_id}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Guarantees
+                </div>
+                <div className="rounded-lg border border-slate-200 overflow-hidden mb-5">
+                  {receipt.clauses.map((c: any, i: number) => (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-3 px-4 py-3 text-sm ${
+                        i > 0 ? 'border-t border-slate-100' : ''
+                      }`}
+                    >
+                      <span
+                        className={`font-bold ${c.passed ? 'text-emerald-600' : 'text-red-600'}`}
+                      >
+                        {c.passed ? '✓' : '✗'}
+                      </span>
+                      <div className="min-w-0">
+                        {/* The author's own words first — "we sell in at
+                            least 3 regions" is what a reader needs, not
+                            row_count_min. */}
+                        <div className="font-semibold text-slate-800">
+                          {c.description || c.type}
+                        </div>
+                        <div className="text-xs text-slate-600 mt-0.5">
+                          <code className="font-mono text-[11px] text-slate-500">{c.type}</code>
+                          {c.detail ? ` — ${c.detail}` : ''}
+                        </div>
+                        {/* The clause names the symptom at the sink; the
+                            cause is upstream. Without this the next step
+                            is reading every node's row count by hand. */}
+                        {!c.passed && (() => {
+                          const cause = (receipt.attribution || []).find(
+                            (a: any) => a.guarantee === c.type);
+                          if (!cause) return null;
+                          return (
+                            <div className="mt-2 inline-flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1.5">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                                Likely cause
+                              </span>
+                              <code className="font-mono text-xs text-amber-900">
+                                {cause.detail}
+                              </code>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Said once, not per clause: the attribution is derived
+                    from where the row count collapsed, which is a strong
+                    lead and not a proof — a step may legitimately filter
+                    everything out. */}
+                {receipt.attribution?.length > 0 && (
+                  <p className="text-[11px] text-slate-400 -mt-3 mb-5 leading-relaxed">
+                    "Likely cause" is the step where the row count dropped furthest.
+                    A step may legitimately filter everything out — treat it as where
+                    to look first, not as a verdict.
+                  </p>
+                )}
+
+                {/* The receipt itself. Hash + prev_hash are what make the
+                    sequence checkable; showing them is the difference
+                    between a verdict and evidence. */}
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Receipt
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-xs font-mono text-slate-700 space-y-1">
+                  <div>verified_at &nbsp;{receipt.verified_at}</div>
+                  <div className="break-all">hash &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{receipt.receipt_hash}</div>
+                  <div className="break-all">
+                    prev &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{receipt.prev_hash || '— (first receipt for this pipeline)'}
+                  </div>
+                </div>
+                <a
+                  href={`/api/execution-contracts/run/${selectedExec.id}/receipt.md`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block mt-4 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  Download receipt (.md) →
+                </a>
               </div>
             )}
 

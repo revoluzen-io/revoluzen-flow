@@ -14,6 +14,7 @@ from .variables import router as variables_router
 from .credentials import router as credentials_router
 from .intelligence import router as intelligence_router
 from .contracts import router as contracts_router
+from .execution_contracts import router as execution_contracts_router
 from .schema_history import router as schema_history_router
 from .connections import router as connections_router
 from .backup import router as backup_router
@@ -84,6 +85,7 @@ __all__ = [
     "credentials_router",
     "intelligence_router",
     "contracts_router",
+    "execution_contracts_router",
     "schema_history_router",
     "connections_router",
     "backup_router",

@@ -20,6 +20,7 @@ from typing import Any
 from revoluzen_flow.ir.schema import StepRunResult, WorkflowRunResult
 
 from .schema import (
+    BlastRadius,
     ClauseResult,
     ContractVerification,
     ExecutionContract,
@@ -27,6 +28,7 @@ from .schema import (
     GuaranteeType,
     NodeRun,
     Provenance,
+    StepAttribution,
 )
 
 
@@ -154,10 +156,12 @@ def _receipt_payload(
     prev_hash: str | None,
     resumed_from: str | int | None,
     provenance: Provenance | None = None,
+    blast_radius: list[BlastRadius] | None = None,
+    attribution: list[StepAttribution] | None = None,
 ) -> dict[str, Any]:
     """The canonical object a receipt hashes over. Shared by ``verify_contract``
     (to produce a hash) and ``chain.verify_chain`` (to recompute one)."""
-    return {
+    payload = {
         "contract": contract.model_dump(mode="json"),
         "run_id": run_id,
         "verdict": verdict,
@@ -167,6 +171,81 @@ def _receipt_payload(
         "resumed_from": resumed_from,
         "provenance": provenance.model_dump(mode="json") if provenance is not None else None,
     }
+    # Added after receipts were already in the field. Including these keys
+    # unconditionally would change the canonical form of every historical
+    # receipt, so a chain recompute would report tampering across the
+    # whole record the day the feature shipped — the exact alarm the
+    # chain exists to make meaningful. Present only when they carry
+    # something, so old receipts hash byte-identically and new ones are
+    # still covered.
+    if blast_radius:
+        payload["blast_radius"] = [b.model_dump(mode="json") for b in blast_radius]
+    if attribution:
+        payload["attribution"] = [a.model_dump(mode="json") for a in attribution]
+    return payload
+
+
+def _attribute_failures(
+    run: WorkflowRunResult, clauses: list[ClauseResult]
+) -> list[StepAttribution]:
+    """Point each failed row-count clause at the step that dropped the rows.
+
+    The sink reports the symptom ("output is empty"); the cause is
+    upstream. Walking the steps in execution order and finding the
+    largest collapse in row count locates it in one pass, which is what
+    an engineer does by hand when reading the run.
+
+    A lead, not a proof — a step may legitimately filter everything out.
+    Reported only for the row-count guarantees, where "rows went missing"
+    is the actual question; a schema failure has nothing to do with
+    where rows were lost.
+    """
+    row_shaped = {
+        GuaranteeType.NO_EMPTY_OUTPUT,
+        GuaranteeType.ROW_COUNT_MIN,
+        GuaranteeType.ROW_COUNT_VARIANCE,
+    }
+    failed = [c for c in clauses if not c.passed and c.type in row_shaped]
+    if not failed:
+        return []
+
+    steps = list(run.step_results.values())
+    biggest_drop = 0
+    culprit: tuple[Any, Any] | None = None
+    for prev, cur in zip(steps, steps[1:]):
+        drop = (prev.row_count or 0) - (cur.row_count or 0)
+        if drop > biggest_drop:
+            biggest_drop, culprit = drop, (prev, cur)
+
+    if culprit is None:
+        # No collapse anywhere: the pipeline started with nothing. Saying
+        # "no rows were lost, the source returned none" is more useful
+        # than silence, and it is a different fix.
+        if steps and not (steps[0].row_count or 0):
+            first = steps[0]
+            return [
+                StepAttribution(
+                    guarantee=c.type, step_id=first.step_id,
+                    detail=f"no rows entered the pipeline — "
+                           f"'{first.step_id}' produced 0",
+                    rows_out=0,
+                )
+                for c in failed
+            ]
+        return []
+
+    prev, cur = culprit
+    return [
+        StepAttribution(
+            guarantee=c.type,
+            step_id=cur.step_id,
+            upstream_step=prev.step_id,
+            rows_in=prev.row_count,
+            rows_out=cur.row_count,
+            detail=f"{prev.row_count} -> {cur.row_count} at '{cur.step_id}'",
+        )
+        for c in failed
+    ]
 
 
 def _provenance_from(
@@ -199,6 +278,7 @@ def verify_contract(
     pipeline_hash: str | None = None,
     engine_version: str | None = None,
     trigger: str | None = None,
+    blast_radius: list[BlastRadius] | None = None,
 ) -> ContractVerification:
     """Verify ``contract`` against ``run`` and return a hash-receipt verdict.
 
@@ -218,9 +298,15 @@ def verify_contract(
     ts = (now or datetime.now(timezone.utc)).isoformat()
     rid = run_id or run.workflow_id
     provenance = _provenance_from(run, pipeline_hash, engine_version, trigger)
+    # Only worth working out when something failed — a verified run has
+    # no cause to attribute, and the blast radius of a write that did
+    # what it promised is not news.
+    radius = list(blast_radius or [])
+    attribution = _attribute_failures(run, clauses) if verdict == "failed" else []
 
     receipt = _receipt_hash(
-        _receipt_payload(contract, rid, verdict, clauses, ts, prev_hash, resumed_from, provenance)
+        _receipt_payload(contract, rid, verdict, clauses, ts, prev_hash,
+                         resumed_from, provenance, radius, attribution)
     )
 
     return ContractVerification(
@@ -233,4 +319,6 @@ def verify_contract(
         prev_hash=prev_hash,
         resumed_from=resumed_from,
         provenance=provenance,
+        blast_radius=radius,
+        attribution=attribution,
     )

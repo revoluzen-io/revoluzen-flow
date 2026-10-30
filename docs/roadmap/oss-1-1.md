@@ -46,7 +46,7 @@ time a user opens the app.
 
 - Autopsy sub-agent (failure RCA with memory of past incidents — 1.2)
 - Foreseer sub-agent (volume + schema-drift anomaly detection — 1.3)
-- Curator (`EPULSE_RUNBOOK.md` distillation of recurring guidance — 1.4)
+- Curator (`REVOLUZEN_RUNBOOK.md` distillation of recurring guidance — 1.4)
 - Optimizer (cost + performance recommendations — 2.0)
 
 **Hard architectural rules** (pinned in

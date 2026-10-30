@@ -287,7 +287,7 @@ function ExecutionOverlay({
 
   return (
     <>
-      {/* CSS for pulse animation is injected via style tag */}
+      {/* CSS for the breathing animation is injected via style tag */}
       <style>{`
         @keyframes revoluzen-flow-glow {
           0%, 100% { box-shadow: 0 0 4px 2px rgba(34,197,94,0.3); }

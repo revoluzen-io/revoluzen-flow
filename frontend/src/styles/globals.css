@@ -203,9 +203,9 @@ html, body, #root {
 .revoluzen-flow-node.running {
   /* Rolling gold gradient outline (see ::before) — the node's own border
      goes transparent so the animated ring IS the visible outer line. The
-     node-pulse box-shadow keeps the soft amber breathing glow underneath. */
+     node-breathe box-shadow keeps the soft amber breathing glow underneath. */
   border-color: transparent;
-  animation: node-pulse 2s ease-in-out infinite;
+  animation: node-breathe 2s ease-in-out infinite;
 }
 
 /* The rolling ring itself: a conic gold gradient masked down to a 2px band
@@ -250,7 +250,7 @@ html, body, #root {
   box-shadow:
     0 0 0 2.5px rgba(239,68,68,0.18),
     0 2px 12px rgba(239,68,68,0.12) !important;
-  animation: validation-pulse 2s ease-in-out 3;
+  animation: validation-flash 2s ease-in-out 3;
 }
 
 /* ── Deactivated node — user explicitly disabled this step.
@@ -264,7 +264,7 @@ html, body, #root {
       next DOM sibling paints an opaque background OVER any shadow
       that extends below the Sidebar's border box. So we can't rely
       on a big outer glow alone — instead we stack:
-        1. breathing-pulse animation on brightness (lifts the whole
+        1. breathing animation on brightness (lifts the whole
            button subtly every ~2.5s — "alive" feeling)
         2. shimmer sweep via ::before (diagonal highlight passes
            across the button every ~3s)
@@ -345,7 +345,7 @@ html, body, #root {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Freeze the running-node ring + pulse — the static gold gradient outline
+  /* Freeze the running-node ring + breathe — the static gold gradient outline
      still marks the node as running, without motion. */
   .revoluzen-flow-node.running,
   .revoluzen-flow-node.running::before {
@@ -399,7 +399,7 @@ html, body, #root {
   border-color: #475569;
   opacity: 0.55;
 }
-@keyframes validation-pulse {
+@keyframes validation-flash {
   0%, 100% { box-shadow: 0 0 0 2.5px rgba(239,68,68,0.18), 0 2px 12px rgba(239,68,68,0.12); }
   50% { box-shadow: 0 0 0 4px rgba(239,68,68,0.25), 0 2px 16px rgba(239,68,68,0.18); }
 }
@@ -409,10 +409,10 @@ html, body, #root {
   to { stroke-dashoffset: -24; }
 }
 
-/* 2026-06-02 Phase 2 — halo pulse for the shadow path of LIVE edges
+/* 2026-06-02 Phase 2 — halo breathe for the shadow path of LIVE edges
    (source node currently running). Pairs with the faster
    revoluzen-flow-edge-flow speed on the main path to produce an unmistakable
-   "this edge is in flight right now" signal. Pure opacity pulse so
+   "this edge is in flight right now" signal. Pure opacity breathe so
    it does not interfere with the marching-dash effect of the main
    path on top. */
 @keyframes revoluzen-flow-edge-halo {
@@ -420,7 +420,7 @@ html, body, #root {
   50%      { opacity: 0.50; stroke-width: 9; }
 }
 
-@keyframes node-pulse {
+@keyframes node-breathe {
   0%, 100% {
     box-shadow: 0 0 0 3px rgba(245,166,35,0.1), 0 2px 8px rgba(0,0,0,0.06);
   }
@@ -444,7 +444,7 @@ html, body, #root {
   to { --fp-angle: 360deg; }
 }
 
-/* Execution animation — green glow pulse on running nodes */
+/* Execution animation — green glow on running nodes */
 @keyframes revoluzen-flow-exec-glow {
   0%, 100% { box-shadow: 0 0 4px 2px rgba(34,197,94,0.2), 0 2px 8px rgba(0,0,0,0.06); }
   50% { box-shadow: 0 0 16px 6px rgba(34,197,94,0.5), 0 4px 16px rgba(34,197,94,0.15); }

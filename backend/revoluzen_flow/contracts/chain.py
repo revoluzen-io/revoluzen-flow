@@ -62,9 +62,14 @@ def verify_chain(
                     ok=False, count=n, checked_hashes=True, broken_at=i,
                     reason=f"no contract supplied for id {r.contract_id!r} at index {i}",
                 )
+            # blast_radius / attribution are part of the canonical form
+            # when present. Omitting them here would recompute a
+            # different hash for every receipt that carries them and
+            # report the whole record as tampered.
             recomputed = _receipt_hash(
                 _receipt_payload(contract, r.run_id, r.verdict, r.clauses,
-                                 r.verified_at, r.prev_hash, r.resumed_from, r.provenance)
+                                 r.verified_at, r.prev_hash, r.resumed_from,
+                                 r.provenance, r.blast_radius, r.attribution)
             )
             if recomputed != r.receipt_hash:
                 return ChainResult(
