@@ -440,10 +440,15 @@ jobs:
     # PyPI side configured before it can run. This matters more than it looks:
     # README's headline install is `pip install revoluzen-flow`, and the package is NOT
     # on PyPI, so that command fails for every reader until this publishes. The
-    # name `revoluzen` is unclaimed, so nobody else can take it out from under us.
+    # name `revoluzen-flow` was still unclaimed as of 2026-10-30.
     #
     # To enable (no code change):
-    #   1. On pypi.org create the `revoluzen` project and add a Trusted Publisher:
+    #   1. On pypi.org register a pending publisher for the project name the
+    #      wheel declares — `revoluzen-flow` from [project] name in
+    #      pyproject.toml, NOT the brand `revoluzen`. This comment said
+    #      `revoluzen` until 2026-10-30; registering the brand is rejected
+    #      with `invalid-publisher` before any bytes are uploaded, and the
+    #      error does not say which field is wrong. Full form in RELEASING.md.
     #      owner=revoluzen-io, repo=revoluzen-flow, workflow=release.yml, environment=(none).
     #      Trusted publishing uses the OIDC `id-token: write` below — there is
     #      no API token to store or rotate. Do NOT add a token secret instead.

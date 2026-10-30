@@ -71,17 +71,34 @@ is done.
 1. **Add a PENDING publisher on pypi.org**
    ([docs](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/)).
 
-   `revoluzen` does not exist on PyPI yet, and **you cannot create an empty
-   project** — there is no "new project" button. Instead you pre-register
+   `revoluzen-flow` does not exist on PyPI yet, and **you cannot create an
+   empty project** — there is no "new project" button. Instead you pre-register
    who is allowed to create it, and the project springs into existence on
    the first successful upload. Go to **Your account → Publishing → Add a
    new pending publisher** (NOT the per-project "Publishing" tab — that
    only exists once the project does).
 
-   - PyPI Project Name: `revoluzen`
-   - Owner: `revoluzen`
-   - Repository name: `revoluzen`  ← the repo name, exactly. `revoluzen-flow` or
-     `revoluzen-flow` will fail.
+   Every field below is a literal string, and all three of the identity
+   fields were wrong in this document until 2026-10-30 — they still carried
+   the pre-rename coordinates. Take them from the source rather than from
+   memory:
+
+   | Field | Value | Where it comes from |
+   | --- | --- | --- |
+   | PyPI Project Name | `revoluzen-flow` | `[project] name` in `pyproject.toml` — the **distribution** name, not the brand |
+   | Owner | `revoluzen-io` | `REPO_OWNER` in `backend/revoluzen_flow/app_meta.py` |
+   | Repository name | `revoluzen-flow` | `REPO_NAME` in the same file — the repo, exactly as it appears in the URL |
+
+   ```bash
+   python -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['name'])"
+   python -c "import sys;sys.path.insert(0,'backend');from revoluzen_flow import app_meta as m;print(m.REPO_OWNER, m.REPO_NAME)"
+   ```
+
+   ★ The project name is the one people get wrong. It must be the name the
+   wheel declares (`revoluzen-flow`), **not** the company or brand
+   (`revoluzen`), and not the retired name. Registering the brand produces
+   `invalid-publisher` on upload, which says nothing about which field is at
+   fault.
    - Workflow name: `release.yml`  ← the filename of the workflow doing the
      upload. Each workflow needs its own publisher: `publish-testpypi.yml`
      on TestPyPI is a **separate** registration from `release.yml` here.
