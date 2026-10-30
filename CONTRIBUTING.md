@@ -3,7 +3,7 @@
 Thanks for your interest. This guide covers how to get set up and our
 conventions — and, up front, what we can and can't accept right now.
 
-## Code contributions are paused for v1.0.0
+## Code contributions are paused
 
 **We are not merging external pull requests yet.** Not because we don't want
 them — because accepting one requires a Contributor License Agreement, and
@@ -12,8 +12,14 @@ sign an unreviewed agreement would be unfair to you, and merging without one
 would leave the provenance of your code unclear. Neither is acceptable, so we
 wait.
 
-We'll remove this notice as soon as the CLA is final, and we'll say so in the
-CHANGELOG.
+This is a paperwork problem, not a judgement about your code, and it is the
+whole of the reason.
+
+**How you'll know when it changes.** We'll delete this section and say so in
+the [CHANGELOG](CHANGELOG.md) under the release that carries it. To be told
+without checking back, use **Watch → Custom → Releases** on the repository.
+We won't announce a date we aren't certain of; [CLA.md](CLA.md) lists exactly
+what is still outstanding, so you can judge for yourself how close it is.
 
 **Everything else is open, and genuinely useful:**
 
@@ -41,7 +47,7 @@ Open an issue on GitHub with:
 - Minimal reproduction steps
 - Actual vs expected behavior
 
-Security vulnerabilities go through [security.md](SECURITY.md), not public issues.
+Security vulnerabilities go through [SECURITY.md](SECURITY.md), not public issues.
 
 ## Proposing features
 
