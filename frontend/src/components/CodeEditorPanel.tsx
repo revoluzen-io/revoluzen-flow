@@ -215,7 +215,7 @@ export default function CodeEditorPanel() {
                   <button
                     key={kw}
                     onClick={() => insertAtCursor(kw + ' ')}
-                    className="text-[10px] px-1.5 py-0.5 bg-pulse-50 text-pulse-700 rounded border border-pulse-200 hover:bg-pulse-100 transition-colors font-mono font-medium"
+                    className="text-[10px] px-1.5 py-0.5 bg-gold-50 text-gold-700 rounded border border-gold-200 hover:bg-gold-100 transition-colors font-mono font-medium"
                   >
                     {kw}
                   </button>
@@ -317,7 +317,7 @@ function MiniTable({ result }: { result: StepResult }) {
   return (
     <div className="overflow-auto h-full">
       <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-pulse-50 z-10">
+        <thead className="sticky top-0 bg-gold-50 z-10">
           <tr>
             {result.columns.map((col) => (
               <th key={col} className="px-2.5 py-1.5 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-amber-200/30 whitespace-nowrap">

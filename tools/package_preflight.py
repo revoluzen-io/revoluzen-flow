@@ -35,6 +35,40 @@ _REQUIRED_GLOBS = [
 ]
 
 
+def _stale_against_source() -> str | None:
+    """Is the staged UI older than the build it was staged from?
+
+    Returns the warning text, or None when it is current (or when the
+    comparison cannot be made, which must not be reported as stale —
+    a release checkout legitimately has no `frontend/dist` after the
+    stage step has run and cleaned up).
+    """
+    src = REPO / "frontend" / "dist"
+    staged = PKG / "frontend_dist"
+    if not (src / "index.html").is_file():
+        return None  # nothing to compare against; silence is correct
+
+    def newest(root: Path) -> float:
+        return max((p.stat().st_mtime for p in root.rglob("*") if p.is_file()),
+                   default=0.0)
+
+    src_t, staged_t = newest(src), newest(staged)
+    # A whole minute of slack: staging copies files, so the two trees
+    # are never written at exactly the same instant, and a sub-second
+    # difference is not staleness.
+    if src_t - staged_t <= 60:
+        return None
+
+    import datetime as _dt
+
+    def when(ts: float) -> str:
+        return _dt.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+    return (f"frontend_dist is STALE — staged {when(staged_t)}, but "
+            f"frontend/dist was built {when(src_t)}. The wheel would ship "
+            f"the older UI. Run `python scripts/stage_frontend.py`.")
+
+
 def collect_checks(strict: bool = False) -> dict[str, list[str]]:
     """Return {'ok': [...], 'warn': [...], 'fail': [...]}."""
     ok: list[str] = []
@@ -51,7 +85,7 @@ def collect_checks(strict: bool = False) -> dict[str, list[str]]:
 
     # 1) console entry point — something must launch the CLI.
     # Matched by TARGET, not by name: the binary has been renamed before
-    # (fpulse -> revoluzen, plus the `rz` alias) and a name-keyed lookup
+    # (the retired name -> revoluzen, plus the `rz` alias) and a name-keyed lookup
     # silently stopped finding it, so this gate reported "no entry point"
     # on a tree that had two.
     scripts = project.get("scripts", {})
@@ -100,7 +134,18 @@ def collect_checks(strict: bool = False) -> dict[str, list[str]]:
 
     # 5) build artifacts — WARN (staged at release time, not committed)
     if (PKG / "frontend_dist" / "index.html").is_file():
-        ok.append("frontend_dist staged (UI will ship)")
+        stale = _stale_against_source()
+        if stale:
+            # Presence was the only thing checked here, and presence is
+            # not freshness: on 2026-10-30 this printed "ok ... UI will
+            # ship" over a staged bundle two days older than the source,
+            # so a local build would have shipped a UI missing that
+            # day's features while reporting itself safe to build. CI
+            # rebuilds first and was never exposed; anyone building by
+            # hand, including the installer scripts, was.
+            warn.append(stale)
+        else:
+            ok.append("frontend_dist staged and current (UI will ship)")
     else:
         warn.append("frontend_dist NOT staged — run `python scripts/stage_frontend.py` "
                     "before build, or the wheel serves a blank UI")

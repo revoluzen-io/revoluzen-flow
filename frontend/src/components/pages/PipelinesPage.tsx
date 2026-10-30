@@ -34,6 +34,7 @@ import { PlanModal } from '../PlanModal';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
 import { DelayedSkeleton, SkeletonTableRow } from '../shared/Skeleton';
+import ContractDialog from './ContractDialog';
 import MoveToProjectButton from '../shared/MoveToProjectButton';
 import { DensityToggle, useDensity } from '../shared/DensityToggle';
 import TimeAgo from '../shared/TimeAgo';
@@ -1437,6 +1438,10 @@ const PIPELINE_COLUMNS: TColumn[] = [
   { key: 'priority',  label: 'Priority',  default: true,  group: 'operational' },
   { key: 'schedule',  label: 'Schedule',  default: true,  group: 'operational' },
   { key: 'alerts',    label: 'Alerts',    default: true,  group: 'operational' },
+  // 2026-10-30 — Execution Contract. Sits beside Schedule and Alerts
+  // because it is the same kind of per-pipeline commitment, and because
+  // a contract nobody can see is a contract nobody writes.
+  { key: 'contract',  label: 'Contract',  default: true,  group: 'operational' },
   // 2026-05-25 — Storage usage badge. Counts files + tables this
   // pipeline references via /api/storage/usage (inverted client-side).
   { key: 'storage',   label: 'Storage',   default: true,  group: 'operational' },
@@ -1548,7 +1553,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // migration.
   const [sortBy, setSortBy] = useState<'name' | 'updated_at' | 'status'>('updated_at');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
+  // `viewMode` removed 2026-10-30 along with the grid branch it chose
+  // between — the setter was never called, so it only ever held 'list'.
   // Density (per design decision D-003 — defaults to Comfortable; persisted
   // per page in localStorage so the user's preference sticks).
   const { density, setDensity, rowPaddingClass } = useDensity('pipelines');
@@ -1621,6 +1627,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const [pipelineStepResults, setPipelineStepResults] = useState<Record<string, Record<string, any>>>({});
   const [quickSchedule, setQuickSchedule] = useState<{ id: string; name: string } | null>(null);
   const [quickAlert, setQuickAlert] = useState<{ id: string; name: string } | null>(null);
+  // Execution Contract authoring. Same per-pipeline dialog pattern as
+  // Schedule and Alert; until now the only way to declare one was a PUT
+  // by hand, so the feature was unreachable from the app.
+  const [contractFor, setContractFor] = useState<{ id: string; name: string } | null>(null);
+  const [contractMap, setContractMap] = useState<Record<string, number>>({});
   const [prodTab, setProdTab] = useState<'pending' | 'deployed' | 'failed' | 'all'>('pending');
   const [deployingIds, setDeployingIds] = useState<Set<string>>(new Set());
   const [preDeployDialog, setPreDeployDialog] = useState<{ id: string; name: string; version?: number } | null>(null);
@@ -1878,6 +1889,24 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       } catch { /* ignore — column gracefully shows 0 when the endpoint fails */ }
     })();
   }, [pipelines, quickAlert]);
+
+  // Which pipelines are held to a contract, for the chip in the row.
+  // One request for the whole table — the first cut asked per pipeline,
+  // which is an N+1 that grows with the list. Re-runs when the dialog
+  // closes so the chip updates without a page reload. Failures stay
+  // silent: an unfetched count renders as "no contract", which is the
+  // honest default for an unknown.
+  useEffect(() => {
+    if (pipelines.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.getExecutionContractCounts();
+        if (!cancelled) setContractMap(res?.counts || {});
+      } catch { /* ignore — the column reads as "no contract" */ }
+    })();
+    return () => { cancelled = true; };
+  }, [pipelines, contractFor]);
 
   const handleOpen = async (id: string) => {
     try {
@@ -4509,8 +4538,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               </button>
             )}
           </div>
-        ) : viewMode === 'list' ? (
-          /* ── LIST VIEW ── */
+        ) : (
+          /* ── LIST VIEW ── (the only view; see the note below) */
           /* 2026-05-28 — switched outer overflow from `overflow-hidden`
               (which CLIPPED any column that pushed past the right edge
               — long names made the Action column invisible) to
@@ -4757,6 +4786,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   {pipeColState.isVisible('alerts') && (
                     <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">
                       Alerts
+                    </th>
+                  )}
+                  {pipeColState.isVisible('contract') && (
+                    <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">
+                      Contract
                     </th>
                   )}
                   {pipeColState.isVisible('storage') && (
@@ -5144,6 +5178,33 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           )}
                         </td>
                       )}
+                      {/* Execution Contract cell. The chip reports how
+                          many of the guarantees can REFUSE a bad write
+                          rather than only report one afterwards — that
+                          distinction is the whole value of a contract and
+                          is invisible from a bare count. */}
+                      {pipeColState.isVisible('contract') && (
+                        <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {contractMap[p.id] ? (
+                            <button
+                              onClick={() => setContractFor({ id: p.id, name: p.name })}
+                              title={`Click to edit this pipeline's Execution Contract (${contractMap[p.id]} guarantee${contractMap[p.id] === 1 ? '' : 's'})`}
+                              className="inline-flex items-center gap-1.5 text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2 py-1 rounded-full transition-colors whitespace-nowrap"
+                            >
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>
+                              <span>{contractMap[p.id]} guarantee{contractMap[p.id] === 1 ? '' : 's'}</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setContractFor({ id: p.id, name: p.name })}
+                              title="Declare what must be true about this pipeline's output — a broken promise can refuse the write instead of reporting it afterwards"
+                              className="text-xs text-slate-500 hover:text-violet-600 hover:bg-violet-50 px-2 py-1 rounded-lg transition-colors whitespace-nowrap"
+                            >
+                              + Contract
+                            </button>
+                          )}
+                        </td>
+                      )}
                       {/* Storage cell — emerald chip showing how many
                           workspace storage items (files + managed tables)
                           this pipeline references. Click jumps to the
@@ -5431,295 +5492,21 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               </span>
             </div>
           </div>
-        ) : (
-          /* ── GRID VIEW ── */
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((p) => (
-              <div
-                key={p.id}
-                onClick={() => handleShowDetail(p)}
-                className="rounded-lg border border-slate-200 shadow-sm bg-white hover:border-pipe-300 hover:shadow-md transition-all group p-4 cursor-pointer"
-              >
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center shadow-sm shrink-0"
-                      style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                      </svg>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-slate-700 truncate group-hover:text-pipe-700">
-                        {p.name}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {p.steps?.length || p.steps_count || 0} steps · {formatRelativeTime(p.updated_at)}{p.owner_name ? ` · ${p.owner_name}` : ''}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                {/* Tags row */}
-                <div className="flex items-center gap-1 mb-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
-                  {getTagsForPipeline(p.id).map((tag) => {
-                    const c = getColorForTag(tag);
-                    return (
-                      <span key={tag} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${c.bg} ${c.text}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-                        {tag}
-                      </span>
-                    );
-                  })}
-                  <div className="relative">
-                    <button
-                      onClick={() => { setShowTagMenu(showTagMenu === p.id ? null : p.id); setNewTagInput(''); }}
-                      className="w-5 h-5 rounded flex items-center justify-center text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Add tag"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    </button>
-                    {showTagMenu === p.id && (
-                      <div ref={tagMenuRef} className="absolute left-0 top-full mt-1 w-56 rounded-lg border border-slate-200 shadow-sm bg-white shadow-lg z-30 p-3">
-                        <input
-                          type="text"
-                          value={newTagInput}
-                          onChange={(e) => setNewTagInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') addNewTag(p.id); }}
-                          placeholder="New tag name..."
-                          className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-pipe-300 mb-2 placeholder:text-slate-500"
-                          autoFocus
-                        />
-                        {allTags.length > 0 && (
-                          <div className="max-h-32 overflow-auto mb-2 space-y-0.5">
-                            {allTags.map((tag) => {
-                              const checked = getTagsForPipeline(p.id).includes(tag);
-                              const c = getColorForTag(tag);
-                              return (
-                                <label key={tag} className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-slate-50 cursor-pointer text-xs">
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleTag(p.id, tag)}
-                                    className="w-3 h-3 rounded border-slate-300 text-pipe-600 focus:ring-pipe-300"
-                                  />
-                                  <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-                                  <span className="text-slate-700">{tag}</span>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        )}
-                        {newTagInput.trim() && (
-                          <div className="border-t border-slate-100 pt-2 mt-1">
-                            <div className="text-xs text-slate-500 mb-1.5">Color for "{newTagInput.trim()}"</div>
-                            <div className="flex items-center gap-1.5">
-                              {TAG_COLORS.map((c) => (
-                                <button
-                                  key={c.name}
-                                  onClick={() => { setTagColor(newTagInput.trim().toLowerCase(), c.name); addNewTag(p.id); }}
-                                  className={`w-5 h-5 rounded-full ${c.dot} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all`}
-                                  title={c.name}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {!newTagInput.trim() && getTagsForPipeline(p.id).length > 0 && (
-                          <div className="border-t border-slate-100 pt-2 mt-1">
-                            <div className="text-xs text-slate-500 mb-1.5">Change tag color</div>
-                            {getTagsForPipeline(p.id).map((tag) => (
-                              <div key={tag} className="flex items-center gap-1.5 mb-1.5">
-                                <span className="text-xs text-slate-600 w-14 truncate">{tag}</span>
-                                <div className="flex items-center gap-1">
-                                  {TAG_COLORS.map((c) => (
-                                    <button
-                                      key={c.name}
-                                      onClick={() => setTagColor(tag, c.name)}
-                                      className={`w-4 h-4 rounded-full ${c.dot} transition-all ${tagColors[tag] === c.name ? 'ring-2 ring-offset-1 ring-slate-400' : 'hover:ring-2 hover:ring-offset-1 hover:ring-slate-200'}`}
-                                      title={c.name}
-                                    />
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  {statusBadge(p.status)}
-                  {(() => {
-                    const ns = normalizeStatus(p.status);
-                    const isRunning = !!runningPipelines[p.id];
-                    return (
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                        {/* Run */}
-                        <button
-                          onClick={() => handleRunPipeline(p.id, p.name)}
-                          disabled={isRunning}
-                          className="w-6 h-6 rounded flex items-center justify-center text-blue-500 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-40"
-                          title={isRunning ? 'Running...' : 'Run'}
-                        >
-                          {isRunning ? (
-                            <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                          )}
-                        </button>
-                        {/* Schedule — published-only. Existing schedules
-                            stay manageable even after a Revoke (the pipeline
-                            still owns the schedule and the user needs a way
-                            to delete/disable it). */}
-                        {(() => {
-                          const canSchedule = ns === 'published';
-                          const hasExisting = !!scheduleMap[p.id];
-                          if (!canSchedule && !hasExisting) {
-                            return (
-                              <button
-                                disabled
-                                className="w-6 h-6 rounded flex items-center justify-center text-slate-300 cursor-not-allowed"
-                                title="Publish this pipeline first — only validated, published pipelines can be scheduled."
-                              >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                              </button>
-                            );
-                          }
-                          return (
-                            <button
-                              onClick={() => setQuickSchedule({ id: p.id, name: p.name })}
-                              className="w-6 h-6 rounded flex items-center justify-center text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50"
-                              title={hasExisting ? 'Manage schedule' : 'Schedule'}
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                            </button>
-                          );
-                        })()}
-                        {/* Alert */}
-                        <button
-                          onClick={() => setQuickAlert({ id: p.id, name: p.name })}
-                          className="tap-24 w-6 h-6 rounded flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50"
-                          title="Alert"
-                        >
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>
-                        </button>
-                        {/* Publish */}
-                        {canEdit && (ns === 'draft' || ns === 'failed') && (
-                          <button
-                            onClick={() => handleLifecycleAction(p.id, 'publish')}
-                            disabled={!!lifecycleLoading[p.id]}
-                            className="w-6 h-6 rounded flex items-center justify-center text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-40"
-                            title="Publish"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12" /></svg>
-                          </button>
-                        )}
-                        {/* Submit for Deploy — Plus only (see comment above). */}
-                        {tier === 'plus' && canSubmitForReview && ns === 'published' && (
-                          <button
-                            onClick={() => handleSubmitForReview(p.id, p.name)}
-                            className="w-6 h-6 rounded flex items-center justify-center text-amber-500 hover:text-amber-700 hover:bg-amber-50"
-                            title="Submit for Deploy"
-                          >
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>
-                          </button>
-                        )}
-                        {/* Priority picker — small P{n} chip that opens
-                            a P1–P5 popover. Updates metadata.priority on
-                            the workflow; the execution API reads this
-                            field at submit time to order the worker-pool
-                            queue. Default rendering is P3 when not yet
-                            set. */}
-                        {(() => {
-                          const currentPriority = (p.metadata?.priority as number | undefined) ?? 3;
-                          const open = priorityMenuFor === p.id;
-                          const tone =
-                            currentPriority === 1 ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
-                            : currentPriority === 2 ? 'bg-orange-50 text-orange-700 ring-1 ring-orange-200'
-                            : currentPriority === 3 ? 'bg-slate-100 text-slate-600 ring-1 ring-slate-200'
-                            : currentPriority === 4 ? 'bg-sky-50 text-sky-700 ring-1 ring-sky-200'
-                            : 'bg-violet-50 text-violet-700 ring-1 ring-violet-200';
-                          return (
-                            <div className="relative">
-                              <button
-                                data-priority-trigger="true"
-                                onClick={() => setPriorityMenuFor(open ? null : p.id)}
-                                disabled={priorityBusy === p.id}
-                                className={`h-6 px-1.5 rounded text-[11px] font-bold flex items-center justify-center transition-colors hover:brightness-95 disabled:opacity-50 ${tone}`}
-                                title="Run priority — affects worker-pool queue order when multiple pipelines run at once"
-                              >
-                                P{currentPriority}
-                              </button>
-                              {open && (
-                                <div
-                                  data-priority-menu="true"
-                                  className="absolute right-0 top-full mt-1 z-20 rounded-md border border-slate-200 bg-white shadow-lg min-w-[200px]"
-                                >
-                                  <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100 bg-slate-50">
-                                    Run priority
-                                  </div>
-                                  <div className="py-1">
-                                    {[1, 2, 3, 4, 5].map((n) => {
-                                      const label = n === 1 ? 'Critical' : n === 2 ? 'High' : n === 3 ? 'Normal' : n === 4 ? 'Low' : 'Background';
-                                      const isCurrent = n === currentPriority;
-                                      return (
-                                        <button
-                                          key={n}
-                                          onClick={() => handleSetPriority(p, n)}
-                                          className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 hover:bg-slate-50 ${isCurrent ? 'font-bold text-slate-800' : 'text-slate-600'}`}
-                                        >
-                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                            n === 1 ? 'bg-red-50 text-red-700'
-                                            : n === 2 ? 'bg-orange-50 text-orange-700'
-                                            : n === 3 ? 'bg-slate-100 text-slate-600'
-                                            : n === 4 ? 'bg-sky-50 text-sky-700'
-                                            : 'bg-violet-50 text-violet-700'
-                                          }`}>
-                                            P{n}
-                                          </span>
-                                          <span className="flex-1">{label}</span>
-                                          {isCurrent && (
-                                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-600">
-                                              <polyline points="20 6 9 17 4 12" />
-                                            </svg>
-                                          )}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="px-3 py-1.5 text-[10px] text-slate-500 border-t border-slate-100 bg-slate-50/50">
-                                    Higher priority (P1) runs jump the pool queue first.
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        <button onClick={() => handleDuplicate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-slate-600 hover:bg-slate-100" title="Copy Pipeline">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
-                        </button>
-                        <button onClick={() => handleSaveAsTemplate(p)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-violet-600 hover:bg-violet-50" title="Save as template">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3" width="7" height="7" rx="1" />
-                            <rect x="14" y="3" width="7" height="7" rx="1" />
-                            <rect x="3" y="14" width="7" height="7" rx="1" />
-                            <path d="M14 17h7" />
-                            <path d="M17.5 14v7" />
-                          </svg>
-                        </button>
-                        {canDelete && (ns === 'draft' || ns === 'failed' || ns === 'archived') && (
-                          <button onClick={() => handleDelete(p.id, p.name)} className="w-6 h-6 rounded flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-red-50" title="Delete">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14H7L5 6" /><path d="M9 6V4h6v2" /></svg>
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              </div>
-            ))}
-          </div>
+        /* ───── DEAD GRID/CARD BRANCH (~313 lines) REMOVED 2026-10-30.
+           The `viewMode === 'list' ? (table) : (cards)` ternary always
+           took the table branch: `setViewMode` was never called from
+           anywhere, so no user could reach the cards. Deleted rather
+           than given a toggle, for the same reason ProjectsPage dropped
+           its flat table (P2 #1): the surviving view is the richer one.
+           The cards carried no column visibility, no actions popover and
+           no alert or storage counts, so a toggle would have offered a
+           strictly worse view of the same rows.
+
+           It was also actively harmful. Every per-row feature had to be
+           written twice, and the second copy was never rendered, so it
+           was never wrong in a way anyone could see — the Contract
+           column added on 2026-10-30 picked up exactly that bug within
+           the hour. ───── */
         )}
       </div>
     </div>
@@ -6090,6 +5877,15 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             openPreDeployCheck(preDeployDialog, preDeployDialog.version);
           }
         }}
+      />
+    )}
+
+    {/* Execution Contract Dialog */}
+    {contractFor && (
+      <ContractDialog
+        pipelineId={contractFor.id}
+        pipelineName={contractFor.name}
+        onClose={() => setContractFor(null)}
       />
     )}
 

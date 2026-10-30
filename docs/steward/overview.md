@@ -279,7 +279,7 @@ reason ("DR replication — intentional", "data-vault gold layer",
 memory journal. The 1.4 Curator sub-agent will mine these reasons to
 distill patterns (e.g. "the user dismisses anything matching
 `audit_log` — generalise the suppression rule") into the
-`EPULSE_RUNBOOK.md` file.
+`REVOLUZEN_RUNBOOK.md` file.
 
 ### Where to find the proof
 
@@ -502,7 +502,7 @@ store) — none of them invent parallel infrastructure.
 | 1.3     | Cost Steward          | Cost-drift detection (today vs 30-day baseline) + warehouse-warm waste                      |
 | 1.3     | Architecture Steward  | Cross-warehouse storage duplication ("same source extracted twice into separate lakehouses")|
 | 1.4     | Knowledge Steward     | Learn SUCCESSFUL patterns and recommend them ("incremental watermark + partition pushdown") |
-| 1.4     | Curator               | Distill `EPULSE_RUNBOOK.md` from approved lessons + recommendation patterns                 |
+| 1.4     | Curator               | Distill `REVOLUZEN_RUNBOOK.md` from approved lessons + recommendation patterns                 |
 | 1.4     | Governor              | PII detection + credential sprawl + cross-project service-account use                       |
 | 2.0     | Optimizer             | Cost + performance recommendations (consumes Cost + Knowledge memory)                       |
 | 2.0     | Policy Adapter        | Workspace- or tier-specific severity / retention / suppression rules                        |

@@ -72,6 +72,7 @@ from revoluzen_flow.ai_config.store import AIConfigStore
 from revoluzen_flow.intelligence.schema_contract import SchemaContractStore
 from revoluzen_flow.intelligence.schema_history import SchemaHistoryStore
 from revoluzen_flow.engine.execution_log import ExecutionLogger
+from revoluzen_flow.contracts.store import ContractStore
 from revoluzen_flow.engine.step_output_store import StepOutputStore
 # 2026-05-26 — typed event bus + built-in Prometheus consumer.
 # Wired here at the lifespan boundary so every store/router shares
@@ -107,6 +108,7 @@ from revoluzen_flow.api import (
     credentials_router,
     intelligence_router,
     contracts_router,
+    execution_contracts_router,
     schema_history_router,
     connections_router,
     extraction_router,
@@ -384,6 +386,10 @@ def _populate_state(data_dir: str) -> None:
         "schema_history_store": SchemaHistoryStore(db=db),
         "execution_log_store": ExecutionLogger(db=db),
         "step_output_store": StepOutputStore(db=db),
+        # Execution Contracts — the per-pipeline promise and its append-only
+        # receipts. The executor checks for one at the end of every run; a
+        # pipeline without a contract costs a dict lookup and nothing else.
+        "contract_store": ContractStore(db=db),
         "scheduler": PipelineScheduler(check_interval_seconds=30),
         "notifier": NotificationService(),
         "notification_store": NotificationStore(db=db),
@@ -1424,6 +1430,9 @@ app.include_router(variables_router)
 app.include_router(credentials_router)
 app.include_router(intelligence_router)
 app.include_router(contracts_router)
+# Execution Contracts — distinct from the Schema Contracts router above:
+# the declarative run promise and its append-only receipts.
+app.include_router(execution_contracts_router)
 app.include_router(schema_history_router)
 app.include_router(connections_router)
 app.include_router(extraction_router)

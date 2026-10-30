@@ -96,7 +96,7 @@ dismiss-suppression.
   feeder for the lesson store, without ever polluting it with exception
   text (dismiss reasons still flow to suppression only, not to lessons).
 - **Roadmap (Curator, 1.4):** automatic distillation across approved
-  lessons into a single `EPULSE_RUNBOOK.md` per workspace.
+  lessons into a single `REVOLUZEN_RUNBOOK.md` per workspace.
 
 ### Pillar 4 — Optimize — **roadmap (Optimizer, 2.0)**
 

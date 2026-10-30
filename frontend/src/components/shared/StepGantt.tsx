@@ -4,7 +4,7 @@
  * Horizontal Gantt visualization of a pipeline run's step timings.
  * One row per step, ordered top-to-bottom by start time. Bar width is
  * proportional to step duration over the full run window. Bars are
- * color-coded by step status; small "running" bars pulse.
+ * color-coded by step status; small "running" bars breathe.
  *
  * Data-pure — caller passes step_logs. Slot it into the run detail
  * view (ExecutionsPage step tab) to surface slow steps at a glance,

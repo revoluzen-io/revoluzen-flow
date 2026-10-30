@@ -192,7 +192,7 @@ governance, and health):
 | **Cost Steward**       | Cost-drift detection ("Today's load was 1766% above the 30-day average") + warehouse-warm waste | Planned 1.3 |
 | **Architecture Steward** | Cross-warehouse storage duplication ("Same Oracle source extracted twice into separate lakehouses, est. 1.4 TB waste") | Planned 1.3 |
 | **Knowledge Steward**  | Learn SUCCESSFUL patterns (incremental watermark + partition pushdown + batch_size=5000) and recommend them | Planned 1.4 |
-| **Curator**            | Distill EPULSE_RUNBOOK.md from approved lessons + recommendation patterns | Planned 1.4 |
+| **Curator**            | Distill REVOLUZEN_RUNBOOK.md from approved lessons + recommendation patterns | Planned 1.4 |
 | **Governor**           | PII detection + credential sprawl + cross-project service-account use     | Planned 1.4 |
 | **Optimizer**          | Cost + performance recommendations (consumes Cost + Knowledge memory)     | Planned 2.0 |
 | **Policy Adapter**     | Workspace- or tier-specific severity / retention / suppression rules      | Planned 2.0 |

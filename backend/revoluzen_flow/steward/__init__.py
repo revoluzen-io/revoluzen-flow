@@ -10,7 +10,7 @@ Sub-agents (each a separate module — building out as v1.1 → v2.0):
   * archeologist.py — duplicate-source / duplicate-pipeline detection (v1.1)
   * autopsy.py      — failure root-cause analysis with memory (v1.2, planned)
   * foreseer.py     — volumetric + structural anomaly detection (v1.3, planned)
-  * curator.py      — memory distillation into EPULSE_RUNBOOK.md (v1.4, planned)
+  * curator.py      — memory distillation into REVOLUZEN_RUNBOOK.md (v1.4, planned)
   * optimizer.py    — cost + performance recommendations (v2.0, planned)
 
 # Hard rules (architectural invariants — do NOT relax)
