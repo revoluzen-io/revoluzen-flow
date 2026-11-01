@@ -43,6 +43,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: this job commits and has to rebase onto whatever
+          # the branch became while it was probing. A depth-1 clone cannot
+          # rebase, so the retry below would fail for a second reason.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -100,10 +105,26 @@ jobs:
                       fh.write(f"| {s['severity']} | `{s['connector_id']}` | "
                                f"{s['kind']} | {detail} |\n")
 
+          # A fingerprint of WHAT is being reported, so the issue step can
+          # tell "the same thing is still true" from "something changed".
+          # Without it every scheduled run appends another comment saying
+          # exactly what the last one said, and the issue that is supposed
+          # to be a durable record becomes a feed nobody reads.
+          import hashlib
+          digest = hashlib.sha256(
+              "\n".join(
+                  f"{s['severity']}|{s['connector_id']}|{s['kind']}|{s['summary']}"
+                  for s in sorted(
+                      interesting,
+                      key=lambda s: (s["connector_id"], s["kind"]))
+              ).encode("utf-8")
+          ).hexdigest()[:16]
+
           out = os.environ["GITHUB_OUTPUT"]
           with open(out, "a", encoding="utf-8") as fh:
               fh.write(f"worst={status['worst_severity']}\n")
               fh.write(f"findings={len(interesting)}\n")
+              fh.write(f"digest={digest}\n")
           PY
 
       - name: Commit the refreshed status
@@ -118,16 +139,63 @@ jobs:
           git config user.email "hello@revoluzen.io"
           git add $paths
           git commit -m "chore(connectors): refresh source-watch baseline [skip ci]"
-          git push
+
+          # The branch moves between checkout and push. A merge landing while
+          # this job probes a dozen vendor endpoints is ordinary, and a bare
+          # `git push` loses the race: the job failed on
+          # `! [rejected] main -> main (fetch first)` rather than on anything
+          # to do with connectors. Rebase onto whatever the branch is now and
+          # retry, so a refreshed baseline is not thrown away over timing.
+          branch="${GITHUB_REF_NAME:-main}"
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "$branch" \
+               && git push origin "HEAD:$branch"; then
+              echo "Baseline pushed on attempt $attempt."
+              exit 0
+            fi
+            echo "Push attempt $attempt lost the race; retrying."
+            sleep $((attempt * 5))
+          done
+          echo "::error::Could not push the refreshed baseline after 3 attempts."
+          exit 1
 
       # The durable record. A failed job scrolls out of view; an issue stays
       # until someone decides what to do about the vendor's change.
-      - name: Open or update the drift issue
-        if: steps.watch.outputs.findings != '0'
+      - name: Open, update or close the drift issue
+        # Runs unconditionally: with no findings it has an issue to CLOSE.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FINDINGS: ${{ steps.watch.outputs.findings }}
+          DIGEST: ${{ steps.watch.outputs.digest }}
         run: |
           title="Connector upstream drift detected"
+          existing=$(gh issue list --state open --search "$title in:title" \
+                       --json number --jq '.[0].number // empty')
+
+          # Nothing worth reporting. An issue left open on a healthy repo is
+          # indistinguishable from one nobody got round to, so close it.
+          if [ "$FINDINGS" = "0" ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --comment \
+                "Upstream drift has cleared — every watched connector matches \
+          what its vendor publishes. Reopened automatically if that changes."
+            fi
+            exit 0
+          fi
+
+          marker="<!-- source-watch-digest: $DIGEST -->"
+
+          # Same findings as last time? Then there is nothing new to say, and
+          # saying it anyway is how a durable record becomes noise. The issue
+          # stays open; it just does not grow.
+          if [ -n "$existing" ] && \
+             gh issue view "$existing" --json body,comments \
+               --jq '[.body] + [.comments[].body] | join("\n")' \
+               | grep -qF "$marker"; then
+            echo "Findings unchanged ($DIGEST) — issue #$existing left as is."
+            exit 0
+          fi
+
           body="$(cat source-watch-findings.md)
 
           Produced by \`.github/workflows/source-watch.yml\` on $(date -u +%Y-%m-%d).
@@ -136,10 +204,11 @@ jobs:
           A \`critical\` row means a connector is pinned to an API version the
           vendor has moved past, or reads an endpoint their published spec no
           longer lists. A \`warn\` row means something upstream moved and is
-          worth a look."
+          worth a look — a newer API version existing is not by itself a problem
+          if ours is still supported.
 
-          existing=$(gh issue list --state open --search "$title in:title" \
-                       --json number --jq '.[0].number // empty')
+          $marker"
+
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else
