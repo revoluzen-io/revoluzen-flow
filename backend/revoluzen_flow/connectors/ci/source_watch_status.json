@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-11-01T11:37:48.190648+00:00",
+  "generated_at": "2026-11-02T13:00:53.368473+00:00",
   "signals": [
     {
       "connector_id": "asana",
       "fingerprint": "e4867e9cd131efa48ae91297e14b0ddd045c1ac767a90a9d84a3ce99ca07f73a",
       "kind": "spec",
       "observed": "e4867e9cd131",
-      "pinned": "8ef8253f3110",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "github",
@@ -24,9 +24,9 @@
       "fingerprint": "72e362731e73c6adc9b12a4d18eb7dd8e095400ae55d47daab06c54714331b6d",
       "kind": "spec",
       "observed": "72e362731e73",
-      "pinned": "3177ad6a86ca",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "intercom",
@@ -42,9 +42,9 @@
       "fingerprint": "899ffbce7efffa65632f9f7bbc2c9e64b0cc1796019cc6ca944dc6ab6180e34e",
       "kind": "spec",
       "observed": "899ffbce7eff",
-      "pinned": "b12e80ae524c",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
