@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-11-03T12:35:06.259754+00:00",
+  "generated_at": "2026-11-04T12:44:20.923720+00:00",
   "signals": [
     {
       "connector_id": "asana",
-      "fingerprint": "400b783d37c5cafa5bbec3fd447aadaa60aada841275389307e7ef6e0b52d1fe",
+      "fingerprint": "a28f54a1bc30e1e809eab9d8edba64dfadce485a9043fc7fe784aeed17c0d72c",
       "kind": "spec",
-      "observed": "400b783d37c5",
-      "pinned": "e4867e9cd131",
+      "observed": "a28f54a1bc30",
+      "pinned": "400b783d37c5",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "12d2d764fafe2333ffacf967d7191dd933b13ae1ed0f493b3e370e05620fc9b5",
+      "fingerprint": "25c06a5ada7843db70fc54f8888df8f616e8689206c5da4bc60badf9bc577594",
       "kind": "spec",
-      "observed": "12d2d764fafe",
-      "pinned": "72e362731e73",
+      "observed": "25c06a5ada78",
+      "pinned": "12d2d764fafe",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -42,9 +42,9 @@
       "fingerprint": "d010fc6956a9dd9eade39b0c21a2738aa3c322e02e6055a3f9ab0520502ad38e",
       "kind": "spec",
       "observed": "d010fc6956a9",
-      "pinned": "899ffbce7eff",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
