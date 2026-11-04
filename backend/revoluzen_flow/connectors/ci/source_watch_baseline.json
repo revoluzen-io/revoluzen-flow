@@ -1,11 +1,11 @@
 {
   "connectors": {
     "asana": {
-      "spec_sha256": "400b783d37c5cafa5bbec3fd447aadaa60aada841275389307e7ef6e0b52d1fe"
+      "spec_sha256": "a28f54a1bc30e1e809eab9d8edba64dfadce485a9043fc7fe784aeed17c0d72c"
     },
     "github": {
       "api_version": "2026-03-10",
-      "spec_sha256": "12d2d764fafe2333ffacf967d7191dd933b13ae1ed0f493b3e370e05620fc9b5"
+      "spec_sha256": "25c06a5ada7843db70fc54f8888df8f616e8689206c5da4bc60badf9bc577594"
     },
     "intercom": {
       "spec_sha256": "0624d034b3fd096e99efba8e968243c9a2820d0c05c709a0b5cc5fe3227dc92f"
@@ -26,5 +26,5 @@
       "spec_sha256": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87"
     }
   },
-  "updated_at": "2026-11-03T12:35:06.259754+00:00"
+  "updated_at": "2026-11-04T12:44:20.923720+00:00"
 }
