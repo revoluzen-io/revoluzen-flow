@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-11-04T12:44:20.923720+00:00",
+  "generated_at": "2026-11-05T12:54:28.668719+00:00",
   "signals": [
     {
       "connector_id": "asana",
       "fingerprint": "a28f54a1bc30e1e809eab9d8edba64dfadce485a9043fc7fe784aeed17c0d72c",
       "kind": "spec",
       "observed": "a28f54a1bc30",
-      "pinned": "400b783d37c5",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "github",
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "25c06a5ada7843db70fc54f8888df8f616e8689206c5da4bc60badf9bc577594",
+      "fingerprint": "f70a03cccf022f8aa2b2eb3619727a7e043ff3cece0b4413e839d2435a8a1f51",
       "kind": "spec",
-      "observed": "25c06a5ada78",
-      "pinned": "12d2d764fafe",
+      "observed": "f70a03cccf02",
+      "pinned": "25c06a5ada78",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -39,12 +39,12 @@
     },
     {
       "connector_id": "mailchimp",
-      "fingerprint": "d010fc6956a9dd9eade39b0c21a2738aa3c322e02e6055a3f9ab0520502ad38e",
+      "fingerprint": "16aa86dccbeee5b027434a7bb4405667d23c4956f8902ba54e375a5bed8757fd",
       "kind": "spec",
-      "observed": "d010fc6956a9",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "16aa86dccbee",
+      "pinned": "d010fc6956a9",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "pagerduty",
@@ -75,12 +75,12 @@
     },
     {
       "connector_id": "twilio",
-      "fingerprint": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87",
+      "fingerprint": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6",
       "kind": "spec",
-      "observed": "bfdf249a1298",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "f5efc0ed7078",
+      "pinned": "bfdf249a1298",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     }
   ],
   "unwatched": [

@@ -5,13 +5,13 @@
     },
     "github": {
       "api_version": "2026-03-10",
-      "spec_sha256": "25c06a5ada7843db70fc54f8888df8f616e8689206c5da4bc60badf9bc577594"
+      "spec_sha256": "f70a03cccf022f8aa2b2eb3619727a7e043ff3cece0b4413e839d2435a8a1f51"
     },
     "intercom": {
       "spec_sha256": "0624d034b3fd096e99efba8e968243c9a2820d0c05c709a0b5cc5fe3227dc92f"
     },
     "mailchimp": {
-      "spec_sha256": "d010fc6956a9dd9eade39b0c21a2738aa3c322e02e6055a3f9ab0520502ad38e"
+      "spec_sha256": "16aa86dccbeee5b027434a7bb4405667d23c4956f8902ba54e375a5bed8757fd"
     },
     "pagerduty": {
       "spec_sha256": "8910d83d22054d59aceaede9f7ff8ae02c27108af2050c03f01f33721b5df940"
@@ -23,8 +23,8 @@
       "spec_sha256": "7cff4cc46d0654101a36a3302f7544640f5f73e4f3cad6f264f0e23c19fa1776"
     },
     "twilio": {
-      "spec_sha256": "bfdf249a129819af274d6bdc7672156ea3416ad48670a6f0544def6ef386ba87"
+      "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-04T12:44:20.923720+00:00"
+  "updated_at": "2026-11-05T12:54:28.668719+00:00"
 }
