@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-05T12:54:28.668719+00:00",
+  "generated_at": "2026-11-06T12:40:44.216221+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "f70a03cccf022f8aa2b2eb3619727a7e043ff3cece0b4413e839d2435a8a1f51",
+      "fingerprint": "02e621ca680e6b45acfb0088d9b7e1648b7c332c6778d18dee8762bb5ccbeb9f",
       "kind": "spec",
-      "observed": "f70a03cccf02",
-      "pinned": "25c06a5ada78",
+      "observed": "02e621ca680e",
+      "pinned": "f70a03cccf02",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -42,9 +42,9 @@
       "fingerprint": "16aa86dccbeee5b027434a7bb4405667d23c4956f8902ba54e375a5bed8757fd",
       "kind": "spec",
       "observed": "16aa86dccbee",
-      "pinned": "d010fc6956a9",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
@@ -78,9 +78,9 @@
       "fingerprint": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6",
       "kind": "spec",
       "observed": "f5efc0ed7078",
-      "pinned": "bfdf249a1298",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     }
   ],
   "unwatched": [
