@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-07T11:28:05.014200+00:00",
+  "generated_at": "2026-11-08T11:39:27.390392+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -24,9 +24,9 @@
       "fingerprint": "b8973e498305c0e45891c45a109901f9caf6ecbf8ad0e53404a7947c503e120f",
       "kind": "spec",
       "observed": "b8973e498305",
-      "pinned": "02e621ca680e",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "intercom",
@@ -51,9 +51,9 @@
       "fingerprint": "6471be3950a0023c3e3e4153b2a44c6462c2d622ba94b881260f1d8e905c22c8",
       "kind": "spec",
       "observed": "6471be3950a0",
-      "pinned": "8910d83d2205",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "slack_api",
