@@ -159,8 +159,11 @@ def test_start_connects_and_provisions_stream(mocked_nats):
         cfg = mocked_nats["js"].add_stream.await_args.args[0]
         assert cfg.name == "revoluzen_flow-evt"
         assert cfg.subjects == ["revoluzen_flow.>"]
-        # max_age expressed in nanoseconds.
-        assert cfg.max_age == 7 * 24 * 3600 * 1_000_000_000
+        # max_age is passed in SECONDS; nats-py's StreamConfig.as_dict()
+        # converts to nanoseconds for the wire. The bus used to multiply by
+        # 1e9 itself, which overflowed int64 on a real server.
+        assert cfg.max_age == 7 * 24 * 3600
+        assert cfg.as_dict()["max_age"] == 7 * 24 * 3600 * 1_000_000_000
     finally:
         b.close()
 

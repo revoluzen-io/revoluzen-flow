@@ -177,8 +177,13 @@ class NatsEventBus(EventBus):
             await self._js.add_stream(StreamConfig(
                 name=self._stream_name,
                 subjects=[self._durable_subject_filter],
-                # nats-py expresses max_age in nanoseconds.
-                max_age=self._max_age_seconds * 1_000_000_000,
+                # StreamConfig.max_age is in SECONDS: nats-py converts it to
+                # the nanoseconds the server wants inside as_dict(). This
+                # used to multiply by 1e9 here as well, so the server got
+                # 6e23, past int64, and answered "invalid JSON" (err 10025)
+                # on every real connection. Found when the end-to-end test
+                # first ran against a server in CI, 2026-11-09.
+                max_age=self._max_age_seconds,
                 retention=RetentionPolicy.LIMITS,
             ))
 
