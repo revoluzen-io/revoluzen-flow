@@ -264,7 +264,8 @@ async def preview_drift(
             try:
                 if executor is None:
                     from revoluzen_flow.engine.executor import WorkflowExecutor
-                    executor = WorkflowExecutor(data_dir=_get_data_dir())
+                    from revoluzen_flow.main import app_state as _app_state
+                    executor = WorkflowExecutor(data_dir=_get_data_dir(), app_state=_app_state)
                 result = executor.execute_step(wf, upstream_ids[0], preview_limit=1)
                 if result.status == "success":
                     for col_info in result.schema_info or []:

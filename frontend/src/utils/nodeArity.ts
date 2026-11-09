@@ -211,7 +211,7 @@ export function contractFor(stepType: string): InputContract {
 //   'transforming' — produces a new relation that REFLECTS the side effect
 //                    (http_request merges response cols; copy_data emits
 //                    what was written; get_metadata emits per-column stats;
-//                    delete_data files-mode emits per-file results;
+//                    delete_data emits the rows that were not removed;
 //                    execute_sql_task with return_mode=full emits the
 //                    result set; file_system emits per-op results).
 //   'terminal'     — produces a small descriptive relation but downstream
@@ -235,7 +235,7 @@ const SIDE_EFFECT_CLASS: Record<string, SideEffectClass> = {
   // ── transforming (output reflects the side effect's result) ──
   http_request: 'transforming',
   copy_data: 'transforming',
-  delete_data: 'transforming',           // emits removed-row count (rows) or per-file results (files)
+  delete_data: 'transforming',           // emits the rows that were not removed
   get_metadata: 'transforming',
   execute_sql_task: 'transforming',
   file_system: 'transforming',
@@ -332,7 +332,7 @@ const SIDE_EFFECT_LABEL: Record<string, string> = {
   // transforming
   http_request: 'Calls an external API',
   copy_data: 'Copies data to a database',
-  delete_data: 'Deletes rows or files',
+  delete_data: 'Drops matching rows',
   get_metadata: 'Inspects schema and row stats',
   execute_sql_task: 'Runs SQL on a database',
   file_system: 'Modifies the filesystem',
@@ -422,7 +422,8 @@ export const RESERVED_METADATA_COLUMNS: ReadonlySet<string> = new Set([
   '_batch_index', '_batch_total',
   // conditional_split
   '_split_output',
-  // data_quality (tag/split modes)
+  // data_quality: __dq_passed in tag mode, __dq_score with Add Quality
+  // Score Column (any mode); reject mode adds _split_output (above)
   '__dq_passed', '__dq_score',
   // llm_guardrail (tag mode)
   '__guardrail_flags',

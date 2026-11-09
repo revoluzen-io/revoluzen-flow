@@ -231,6 +231,11 @@ class TestCommonQuestionsRoute:
         ("how do i add a connection", "howto.add_connection"),
         ("how do i set up notifications", "howto.set_up_notifications"),
         ("how do i schedule a pipeline", "howto.schedule_pipeline"),
+        ("how do i deactivate a pipeline", "howto.deactivate_pipeline"),
+        ("how do i get warned before a credential expires", "howto.credential_expiry"),
+        ("how do i use the saas connector", "howto.saas_connector"),
+        ("how do i upload a file over ftp", "howto.file_transfer"),
+        ("triggers page", "page.triggers"),
 
         # Editions
         ("what is the oss version", "edition.oss"),

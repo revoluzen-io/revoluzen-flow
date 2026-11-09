@@ -18,6 +18,8 @@ import { validateWorkflow, type ValidationIssue } from '../utils/validateWorkflo
 import { branchPortsFor, resolveSourceHandle } from '../utils/branchPorts';
 import { navigateTo } from '../router';
 import { buildConversationPayload } from '../util/conversationSummary';
+import { allowSafeWrites } from '../ai/safeWritesSetting';
+import type { ClarificationPayload, ClarifyChoices } from '../components/agent/ClarifyCard';
 
 // 2026-05-19 (OSS-8 of PAGE_BY_PAGE_AUDIT.md): name-prompt loop folded
 // into the store so the standalone `utils/requireNamedWorkflow.ts` shim
@@ -179,6 +181,17 @@ function pruneSchemas<T>(
   return out;
 }
 
+/** The schema entries invalidated by editing `nodeId`'s params. */
+function schemaEditScope(
+  nodeId: string,
+  schemas: Record<string, { is_source?: boolean }>,
+  edges: Edge[],
+): Set<string> {
+  const scope = invalidationScope([nodeId], edges);
+  if (!schemas[nodeId]?.is_source) scope.delete(nodeId);
+  return scope;
+}
+
 export interface StepResult {
   step_id: string;
   status: string;
@@ -220,6 +233,9 @@ export interface WranglerPreviewEntry {
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  // A pipeline the chat drafted. Nothing is saved or put on the canvas until
+  // the user applies it from the card under this message.
+  draft?: { workflow: any; status: 'pending' | 'applied' | 'discarded' };
   // Optional trace of which tools the agent invoked to produce this
   // reply. Rendered as a small footer beneath the assistant message
   // ("Inspecting pipeline · Validating · 2 steps") so the user can
@@ -231,18 +247,7 @@ export interface ChatMessage {
   // <ClarifyCard /> instead of the markdown body so the user can
   // pick chips one-click. Submitted answers post back as a normal
   // chat message and the backend bridges via clarify_to_template.
-  clarification?: {
-    source_type: string | null;
-    sink_type: string | null;
-    detected_intent: string;
-    question_count: number;
-    questions: Array<{
-      field: string;
-      question: string;
-      chips: string[];
-      required: boolean;
-    }>;
-  };
+  clarification?: ClarificationPayload;
 }
 
 /**
@@ -371,6 +376,8 @@ interface WorkflowState {
   // Consumed by the Close button in Toolbar to decide whether to
   // prompt Save/Discard before navigating away.
   isDirty: boolean;
+  /** Run whose snapshot is on the canvas after Open in Editor; null otherwise. */
+  pastRunId: string | null;
   setDirty: (dirty: boolean) => void;
   // Reset the per-pipeline state so re-entering the editor (after Close
   // or after navigating away) starts from a blank canvas instead of
@@ -405,7 +412,9 @@ interface WorkflowState {
   runWorkflow: (fullRun?: boolean, parameterValues?: Record<string, unknown>) => Promise<void>;
   runStep: (stepId: string, opts?: { ephemeral?: boolean }) => Promise<void>;
   resumeFromStep: (stepId: string) => Promise<void>;
-  sendChat: (message: string, opts?: { deep?: boolean }) => Promise<void>;
+  sendChat: (message: string, opts?: { deep?: boolean; choices?: ClarifyChoices }) => Promise<void>;
+  applyChatDraft: (messageIndex: number) => Promise<void>;
+  discardChatDraft: (messageIndex: number) => void;
   useTemplate: (key: string) => Promise<void>;
   createFromIntent: (intent: string) => Promise<void>;
   updateNodeParams: (nodeId: string, params: Record<string, any>) => void;
@@ -718,6 +727,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   codeEditorOpen: false,
 
   isDirty: false,
+  pastRunId: null,
   setDirty: (dirty) => set({ isDirty: dirty }),
   resetWorkflow: () =>
     set({
@@ -736,6 +746,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       stepSchemas: {},
       wranglerPreview: {},
       isDirty: false,
+      pastRunId: null,
     }),
 
   // Flat disabled check — reads the same flag the executor uses
@@ -797,6 +808,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       redoStack: [...s.redoStack, { nodes: cloneSnap(nodes), edges: cloneSnap(edges) }],
       nodes: prev.nodes,
       edges: prev.edges,
+      // The whole graph may have changed, so no schema entry can be trusted.
+      stepSchemas: {},
+      schemaVersion: s.schemaVersion + 1,
     }));
   },
   redo: () => {
@@ -808,6 +822,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       undoStack: [...s.undoStack, { nodes: cloneSnap(nodes), edges: cloneSnap(edges) }],
       nodes: next.nodes,
       edges: next.edges,
+      stepSchemas: {},
+      schemaVersion: s.schemaVersion + 1,
     }));
   },
   canUndo: () => get().undoStack.length > 0,
@@ -899,6 +915,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const sourceNode = get().nodes.find((n) => n.id === connection.source);
     const isFlowNode = sourceNode && ['if_condition', 'switch_case', 'conditional_split', 'foreach_loop', 'until_loop'].includes(String((sourceNode.data as any)?.stepType ?? ''));
     set((s) => ({
+      // A new edge changes what flows into its target and everything after it.
+      // addEdge bypasses onEdgesChange, so its invalidation has to happen here.
+      stepSchemas: connection.target
+        ? pruneSchemas(s.stepSchemas, invalidationScope([connection.target], s.edges))
+        : s.stepSchemas,
+      schemaVersion: s.schemaVersion + 1,
       edges: addEdge(
         {
           ...connection,
@@ -923,7 +945,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const clean = (alias || '').trim();
     set((s) => ({
       isDirty: true,
-      // Bump so useUpstreamSchema refetches — the registered table name changed.
+      // useUpstreamSchema refetches what this removes — the registered table name changed.
+      stepSchemas: pruneSchemas(s.stepSchemas, invalidationScope([toStepId], s.edges)),
       schemaVersion: s.schemaVersion + 1,
       edges: s.edges.map((e) =>
         e.source === fromStepId && e.target === toStepId
@@ -964,11 +987,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // didn't have any (older versions). Defaults are coerced server-side.
       parameters: Array.isArray(wf.parameters) ? wf.parameters : [],
       stepResults: {},
+      stepSchemas: {},
+      schemaVersion: get().schemaVersion + 1,
       wranglerPreview: {},
       // A freshly loaded workflow matches the server — nothing to save.
       // Also reset undo/redo history so the user doesn't accidentally
       // undo INTO the previous pipeline's state.
       isDirty: false,
+      pastRunId: null,
       undoStack: [],
       redoStack: [],
     });
@@ -1016,11 +1042,20 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       nodes: paintedNodes,
       edges,
       workflowId: snapshot.id || execution.workflow_id,
-      workflowName:
-        (snapshot.name || execution.workflow_name || 'Pipeline')
-        + ` — replay of ${execution.id}`,
-      version: 0,
+      // The pipeline's real name: this field is what Save writes back.
+      // EditorContextBar shows that a past run is open.
+      workflowName: snapshot.name || execution.workflow_name || 'Pipeline',
+      pastRunId: execution.id,
+      parameters: Array.isArray(snapshot.parameters) ? snapshot.parameters : [],
+      version: execution.workflow_version ?? 0,
       stepResults,
+      stepSchemas: {},
+      schemaVersion: get().schemaVersion + 1,
+      // The canvas may differ from the saved pipeline, so Run must send this
+      // canvas, not the saved version.
+      isDirty: true,
+      undoStack: [],
+      redoStack: [],
     });
     toast.success(
       'Loaded past run',
@@ -1232,7 +1267,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // the Pipelines list but never reloaded the editor), the
       // persisted path returns 404 "Workflow not found". Clear the id
       // and silently retry via the ephemeral path so Test still works.
-      const useEphemeral = opts?.ephemeral || !workflowId;
+      // A past run open on the canvas tests without saving over the pipeline.
+      // So does a published pipeline: schedules run what's saved, so testing
+      // an edit must not put it live. It waits for an explicit Save.
+      const useEphemeral = opts?.ephemeral || !workflowId || !!get().pastRunId || get().status === 'published';
       const wf = nodesToWorkflow(
         nodes,
         edges,
@@ -1284,12 +1322,22 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   resumeFromStep: async (stepId) => {
-    const { workflowId, nodes, edges, workflowName } = get();
+    const { workflowId, nodes, edges, workflowName, status, isDirty } = get();
     if (!workflowId) return;
 
+    // A rerun reads the saved pipeline, and a published one only saves when
+    // someone says so. Unsaved edits are tested as they are instead.
+    const published = status === 'published';
+    if (published && isDirty) {
+      await get().runStep(stepId);
+      return;
+    }
+
     try {
-      const wf = nodesToWorkflow(nodes, edges, workflowName, workflowId, get().parameters);
-      await api.updateWorkflow(workflowId, wf, 'Pre-resume save');
+      if (!published) {
+        const wf = nodesToWorkflow(nodes, edges, workflowName, workflowId, get().parameters);
+        await api.updateWorkflow(workflowId, wf, 'Pre-resume save');
+      }
 
       const result = await api.resumeFromStep(workflowId, stepId);
       set((s) => ({
@@ -1316,12 +1364,52 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
+  applyChatDraft: async (messageIndex) => {
+    const draft = get().chatMessages[messageIndex]?.draft;
+    if (!draft || draft.status !== 'pending') return;
+    try {
+      const { workflow } = await api.applyDraft(draft.workflow);
+      get().loadWorkflow({ workflow, version: 1 });
+      set((s) => ({
+        chatMessages: [
+          ...s.chatMessages.map((m, i) =>
+            i === messageIndex ? { ...m, draft: { ...draft, status: 'applied' as const } } : m,
+          ),
+          {
+            role: 'assistant' as const,
+            content: `Applied. I've created a pipeline on your canvas: **${workflow.name}**. Click any node to configure it, or click **Run All** to execute.`,
+          },
+        ],
+      }));
+      toast.success('Draft applied');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not apply the draft');
+    }
+  },
+
+  discardChatDraft: (messageIndex) => {
+    set((s) => ({
+      chatMessages: s.chatMessages.map((m, i) =>
+        i === messageIndex && m.draft ? { ...m, draft: { ...m.draft, status: 'discarded' as const } } : m,
+      ),
+    }));
+  },
+
   sendChat: async (message, opts) => {
+    const previous = get().chatMessages[get().chatMessages.length - 1];
     const msgs = [...get().chatMessages, { role: 'user' as const, content: message }];
     set({ chatMessages: msgs });
 
     const intent = classifyIntent(message);
     const deepRequested = !!opts?.deep;
+
+    // An answer to a clarify card belongs to the planner whatever it reads like:
+    // sent through intent routing, "Read from Sales DB" counts as a question and
+    // goes to the agent, which never sees the card or the answers. A real
+    // question typed while a card is showing still goes the normal way.
+    const answersCard = !!opts?.choices || (
+      !!previous?.clarification && !/^(what|how|why|when|where|who)\b|\?$/i.test(message.trim())
+    );
 
     // CREATE / MODIFY intents go to the deterministic rule-planner FIRST.
     // User-reported 2026-05-17: "Build a pipeline that reads sales.csv,
@@ -1336,9 +1424,13 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Falls through to the agent loop on backend failure or unrecognised
     // input — so "explain this step" / "why did X fail" still reach the
     // tool-using agent.
-    if (intent === 'create' || intent === 'modify') {
+    if (answersCard || intent === 'create' || intent === 'modify') {
       try {
-        const response = await api.chat(msgs.map((m) => ({ role: m.role, content: m.content })));
+        const payload: Array<{ role: string; content: string; choices?: ClarifyChoices }> = msgs.map(
+          (m) => ({ role: m.role, content: m.content }),
+        );
+        if (opts?.choices) payload[payload.length - 1].choices = opts.choices;
+        const response = await api.chat(payload, { preview: true });
         // Capture the structured clarification payload when present so
         // <ClarifyCard /> can render chips instead of the markdown fallback.
         const clarification = (response as any).clarification;
@@ -1351,13 +1443,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
               ...(clarification && Array.isArray(clarification.questions)
                 ? { clarification }
                 : {}),
+              ...(response.workflow
+                ? { draft: { workflow: response.workflow, status: 'pending' as const } }
+                : {}),
             },
           ],
         }));
-        if (response.workflow) {
-          get().loadWorkflow({ workflow: response.workflow, version: 1 });
-          toast.success('Pipeline draft created');
-        }
         return;
       } catch {
         // Rule planner unavailable / errored — fall through to agent loop.
@@ -1412,11 +1503,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           name: wfName,
           step_count: allNodes.length,
           edge_count: allEdges.length,
+          // Sent as objects, never stringified, so the backend's sanitizer can
+          // still strip credential keys before the LLM sees them.
           steps: allNodes.slice(0, 30).map((n: any) => ({
+            // The agent needs the id to edit a step other than the selected one.
             id: n.id,
             label: (n.data as any)?.label,
             type: (n.data as any)?.stepType,
+            params: Object.fromEntries(
+              Object.entries((n.data as any)?.params || {})
+                .filter(([k, v]) => !k.startsWith('_') && v !== '' && v !== null && v !== undefined)
+                .map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 200) : v]),
+            ),
           })),
+          connections: allEdges.slice(0, 60).map((e: any) => {
+            const labelOf = (id: string) => (allNodes.find((n: any) => n.id === id)?.data as any)?.label || id;
+            return `${labelOf(e.source)} -> ${labelOf(e.target)}`;
+          }),
         } : null,
         ...(selectedNode ? {
           selected_node: {
@@ -1467,7 +1570,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         },
         conversation: { recent_turns, summary },
         mode: deepRequested ? 'deep' : 'standard',
-        allow_safe_writes: false,
+        // The editor chat is the surface with the full canvas context, so
+        // it is the one that should be able to draft a fix rather than
+        // only describe one. Same switch the global panel shows, read from
+        // the shared setting; off until the person turns it on, and a
+        // safe write is still only a draft someone has to apply.
+        allow_safe_writes: allowSafeWrites(),
         max_tokens: 4000,
         dialogue_state: {},
       });
@@ -1830,6 +1938,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           name: preservedName,
           steps: fromCatalog.steps,
           connections: fromCatalog.connections,
+          // A webhook template declares the parameters its endpoint passes in.
+          parameters: fromCatalog.parameters,
         } as any);
         set((s) => ({
           chatMessages: [
@@ -1875,7 +1985,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         steps: [
           { id: 't1', type: 'source', label: 'Source', params: { connector_type: 'csv', file_path: 'orders.csv' }, position: { x: 0, y: 100 } },
           { id: 't2', type: 'filter', label: 'Filter Valid Rows', params: { condition: 'amount IS NOT NULL AND amount > 0' }, position: { x: 350, y: 100 } },
-          { id: 't3', type: 'aggregate', label: 'Aggregate', params: { group_by: ['category'], aggregations: [{ column: 'amount', function: 'SUM', alias: 'total_amount' }, { column: '*', function: 'COUNT', alias: 'count' }] }, position: { x: 700, y: 100 } },
+          { id: 't3', type: 'aggregate', label: 'Aggregate', params: { group_by: ['category'], functions: [{ column: 'amount', function: 'SUM', alias: 'total_amount' }, { column: '*', function: 'COUNT', alias: 'count' }] }, position: { x: 700, y: 100 } },
           { id: 't4', type: 'destination', label: 'Destination', params: { connector_type: 'csv', file_path: 'output/aggregation_report.csv' }, position: { x: 1050, y: 100 } },
         ],
         connections: [
@@ -1960,9 +2070,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         validationErrors: remainingErrors,
         isDirty: true,
         // PR 1: param changes alter what a node outputs (Rename renames
-        // columns, Typecast changes types, Derived adds columns). Every
-        // downstream step's schema cache is invalid until refetched.
-        stepSchemas: {},
+        // columns, Typecast changes types, Derived adds columns), so the
+        // schema entry of every step downstream is invalid until refetched.
+        //
+        // The node's own entry stays. It describes what flows INTO the node,
+        // which its own params can't change, and wiping it emptied the open
+        // config panel on every keystroke: Data In said "Not connected" and
+        // the column pickers fell back to text boxes until the refetch
+        // returned. A source is the exception, because its entry is its own
+        // output.
+        stepSchemas: pruneSchemas(s.stepSchemas, schemaEditScope(nodeId, s.stepSchemas, s.edges)),
         schemaVersion: s.schemaVersion + 1,
       };
     });
@@ -2126,15 +2243,25 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // gate, but they no longer have to.
   ensureWorkflow: async (opts) => {
     const { workflowId, nodes, edges, workflowName } = get();
+    // A past run on the canvas replaces the current pipeline if saved, so only
+    // an explicit Save may do that, never autosave or a pre-run save.
+    if (workflowId && get().pastRunId && !opts?.allowCreate) {
+      return null;
+    }
     if (workflowId) {
+      // Schedules run the latest saved version, so on a published pipeline
+      // only an explicit Save (allowCreate) writes. Anything else leaves the
+      // edits unsaved, as the editor's banner tells the user.
+      const published = get().status === 'published';
+      if (published && !opts?.allowCreate) return workflowId;
       // Update existing — always safe, never creates.
       const wf = nodesToWorkflow(nodes, edges, workflowName, workflowId, get().parameters);
       await api.updateWorkflow(workflowId, wf, 'Auto-save');
       // Server now matches local state → clear dirty flag so the Close
-      // button stops prompting for unsaved-changes. Any edit returns
-      // the pipeline to draft locally — the user must re-publish before
-      // schedules (Free) or Deploy/PROD promotion (Plus) is allowed.
-      set({ isDirty: false, status: 'draft' });
+      // button stops prompting for unsaved-changes. Saving doesn't change a
+      // published pipeline's status on the server, so it stays published
+      // here too. Going back to draft turned auto-save on for a live pipeline.
+      set({ isDirty: false, status: published ? 'published' : 'draft', pastRunId: null });
       return workflowId;
     }
     // No workflowId — and caller didn't opt in to create. Silently no-op

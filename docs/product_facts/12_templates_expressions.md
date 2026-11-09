@@ -11,7 +11,7 @@ OSS Free ships **27 pipeline templates** covering the common starter shapes:
 - **Database replication** — Database Source → Bulk Loader (Postgres or Snowflake)
 - **Daily aggregation** — schedule + Source + Aggregate + Database Sink
 - **Dedup + upsert** — Source + Deduplicate + Upsert
-- **Data quality + DLQ** — Source + Data Quality (DLQ split mode) + two Sinks
+- **Data quality + DLQ** — Source + Data Quality (reject mode: Pass and Reject outputs) + two Sinks
 - **Profile a source** — Source + Data Profile + JSON Sink (one row per column)
 - **SCD Type 2 dimension** — Source + SCD Type 2 + Bulk Loader (merge mode)
 - **API ingest with pagination** — REST connector configured with pagination + Schema Mapper + Sink

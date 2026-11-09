@@ -49,7 +49,7 @@ interface Connection {
 // a fresh connection. Frontend pre-uncheck for "Source" on these so the
 // admin doesn't have to remember the convention. Mirrors backend's
 // WRITE_ONLY_TYPES set in connections/models.py.
-const WRITE_ONLY_TYPES = new Set([
+export const WRITE_ONLY_TYPES = new Set([
   'slack', 'teams', 'smtp', 'sendgrid', 'twilio', 'pagerduty',
 ]);
 
@@ -109,7 +109,7 @@ const credentialMatchesEnvironment = (credential: CredentialOption, env: 'dev' |
 // canonical SVG by connector type. The emoji field is retained only
 // because removing it from 66 entries would create churn; it is never
 // consumed. New entries do not need an `icon` value.
-const CONNECTION_TYPES = [
+export const CONNECTION_TYPES = [
   // ── 1. Databases (OLTP) ──
   { type: 'postgresql', label: 'PostgreSQL', icon: '🐘', color: '#336791', category: 'Databases' },
   { type: 'mysql', label: 'MySQL', icon: '🐬', color: '#00758F', category: 'Databases' },
@@ -317,7 +317,7 @@ const CONNECTOR_STATUS: Record<string, ConnectorStatus> = {
   oracle_api: 'beta',
 };
 
-function connectorStatus(type: string): ConnectorStatus {
+export function connectorStatus(type: string): ConnectorStatus {
   return CONNECTOR_STATUS[type] || 'certified';
 }
 
@@ -375,7 +375,7 @@ function connectorProvenance(_type: string): ConnectorProvenance | null {
 }
 
 /** Field definition for connection config forms */
-interface ConnField {
+export interface ConnField {
   key: string;
   label: string;
   type: 'text' | 'password' | 'number' | 'select' | 'checkbox' | 'textarea';
@@ -386,7 +386,7 @@ interface ConnField {
   defaultValue?: string;
 }
 
-const CONNECTION_FIELDS: Record<string, ConnField[]> = {
+export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
   // ── Relational Databases ──
   postgresql: [
     { key: 'host', label: 'Host', type: 'text', placeholder: 'localhost', required: true },
@@ -430,7 +430,7 @@ const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     { key: 'password', label: 'Password', type: 'password', placeholder: '', required: true },
   ],
   sqlite: [
-    { key: 'file_path', label: 'Database File Path', type: 'text', placeholder: '/data/mydb.sqlite', required: true, hint: 'Absolute or relative path to .sqlite / .db file' },
+    { key: 'file_path', label: 'Database File Path', type: 'text', placeholder: '/data/mydb.sqlite', required: true, hint: 'Full path to a .sqlite or .db file, or a path inside the data folder' },
   ],
   cockroachdb: [
     { key: 'host', label: 'Host', type: 'text', placeholder: 'free-tier.gcp-us-central1.cockroachlabs.cloud', required: true },
@@ -1063,7 +1063,7 @@ const CONNECTION_FIELDS: Record<string, ConnField[]> = {
   ],
 };
 
-function configWithFieldDefaults(type: string, config: Record<string, string>): Record<string, string> {
+export function configWithFieldDefaults(type: string, config: Record<string, string>): Record<string, string> {
   const next = { ...config };
   for (const field of CONNECTION_FIELDS[type] || []) {
     if (
@@ -1076,7 +1076,7 @@ function configWithFieldDefaults(type: string, config: Record<string, string>): 
   return next;
 }
 
-function buildConnectionConfig(
+export function buildConnectionConfig(
   type: string,
   config: Record<string, string>,
   credentialId: string,
@@ -1154,6 +1154,30 @@ function updateFieldWithCredentialChoice(
   if (sourceKey) next[fieldKey] = sourceKey;
   else delete next[fieldKey];
   return next;
+}
+
+// Other names a credential may hold the same secret under.
+const CREDENTIAL_KEY_ALIASES: Record<string, string[]> = {
+  username: ['user', 'user_name', 'login'],
+  password: ['pass', 'passwd', 'pwd'],
+  token: ['api_key', 'access_token'],
+  api_key: ['token', 'key', 'apikey'],
+  access_token: ['token', 'api_key'],
+};
+
+/**
+ * The connection fields a saved credential can fill, as field -> credential key.
+ * The Credentials form stores `username`, `password`, `api_key` and so on, the
+ * same names these fields use, so nobody should have to map them one at a time.
+ */
+export function credentialAutoMap(fields: ConnField[], credentialKeys: string[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const field of fields) {
+    if (field.type === 'select' || field.type === 'textarea' || !canMapCredentialField(field)) continue;
+    const source = [field.key, ...(CREDENTIAL_KEY_ALIASES[field.key] || [])].find(key => credentialKeys.includes(key));
+    if (source) map[field.key] = source;
+  }
+  return map;
 }
 
 /* ═══ TableToolbar column config ═══ */
@@ -1540,7 +1564,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
     }
     try {
       const config = buildConnectionConfig(formType, formConfig, formCredentialId, formCredentialFieldMap);
-      await api.createConnection({
+      const created = await api.createConnection({
         name: formName, type: formType, description: formDesc,
         config,
         credential_id: formCredentialId || null,
@@ -1549,6 +1573,12 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
         environment: effectiveFormEnvironment,
         capabilities: capabilitiesFromForm(formCanRead, formCanWrite),
       });
+      // A test that passed on this draft shouldn't leave the row saying
+      // "Untested". The draft test has no record to write to, so test the saved
+      // connection once. Best-effort: the save itself has already succeeded.
+      if (inlineTestResult?.ok && created?.id) {
+        await api.testConnection(created.id).catch(() => {});
+      }
       setView('list');
       resetCreateForm();
       loadConnections();
@@ -1695,6 +1725,19 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
       });
     }
     setInlineTestRunning(false);
+  };
+  // Picking a saved credential fills the fields it holds, so they stop counting
+  // as missing and the form shows where they come from. What an earlier choice
+  // filled comes out first: its source key must never stay behind as a value.
+  const chooseCredential = (credentialId: string) => {
+    const fields = formType ? (CONNECTION_FIELDS[formType] || CONNECTION_FIELDS['rest_api'] || []) : [];
+    const credential = credentials.find(c => c.id === credentialId);
+    const map = credentialAutoMap(fields, credential?.config ? Object.keys(credential.config) : []);
+    const next = { ...formConfig };
+    Object.keys(formCredentialFieldMap).forEach(key => { delete next[key]; });
+    setFormConfig({ ...next, ...map });
+    setFormCredentialFieldMap(map);
+    setFormCredentialId(credentialId);
   };
   // Clear stale test result when the user changes type or edits config
   // — the previous "✓ connected" green is misleading after the URL changes.
@@ -3152,10 +3195,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     <label className="text-sm font-semibold text-slate-700 block mb-1.5">Saved credential</label>
                     <select
                       value={formCredentialId}
-                      onChange={e => {
-                        setFormCredentialId(e.target.value);
-                        setFormCredentialFieldMap({});
-                      }}
+                      onChange={e => chooseCredential(e.target.value)}
                       className="w-full text-sm px-3 py-2 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
                     >
                       <option value="">Use inline fields below</option>
@@ -3166,7 +3206,11 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       ))}
                     </select>
                     <p className="text-xs text-blue-700 mt-1.5 leading-relaxed">
-                      Select a saved credential to reuse secrets from Credentials. Inline fields below can still hold non-secret endpoint details such as database, host, schema, or collection.
+                      {selectedCredential
+                        ? `The fields ${selectedCredential.name} holds fill in below, and their values stay hidden. Add the rest yourself, such as the host or database.`
+                        : availableCredentials.length > 0
+                          ? 'Select a saved credential to reuse secrets from Credentials. Inline fields below can still hold non-secret endpoint details such as database, host, schema, or collection.'
+                          : 'You have no saved credentials yet. Add one on the Credentials tab, then pick it here to reuse it across connections.'}
                     </p>
                   </div>
 
@@ -3219,7 +3263,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                           <input
                             type={f.type === 'number' || mappedCredentialKey ? 'text' : f.type}
                             inputMode={f.type === 'number' ? 'numeric' : undefined}
-                            value={fieldValue}
+                            value={mappedCredentialKey ? `From ${selectedCredential?.name ?? 'saved credential'} · ${mappedCredentialKey}` : fieldValue}
+                            readOnly={!!mappedCredentialKey}
                             onChange={e => {
                               const nextMap = { ...formCredentialFieldMap };
                               delete nextMap[f.key];
@@ -3885,10 +3930,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     <label className="text-sm font-semibold text-slate-700 block mb-1.5">Saved credential</label>
                     <select
                       value={formCredentialId}
-                      onChange={e => {
-                        setFormCredentialId(e.target.value);
-                        setFormCredentialFieldMap({});
-                      }}
+                      onChange={e => chooseCredential(e.target.value)}
                       className="w-full text-sm px-4 py-2.5 border border-blue-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
                     >
                       <option value="">Use inline fields below</option>
@@ -3953,7 +3995,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                           <input
                             type={f.type === 'number' || mappedCredentialKey ? 'text' : f.type}
                             inputMode={f.type === 'number' ? 'numeric' : undefined}
-                            value={fieldValue}
+                            value={mappedCredentialKey ? `From ${selectedCredential?.name ?? 'saved credential'} · ${mappedCredentialKey}` : fieldValue}
+                            readOnly={!!mappedCredentialKey}
                             onChange={e => {
                               const nextMap = { ...formCredentialFieldMap };
                               delete nextMap[f.key];

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import smtplib
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -578,92 +579,37 @@ class ExecutePipelineNode(BaseNode):
     description = "Run another saved pipeline from inside this one. Pass values to it as parameters."
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
-        source = _get_single_input(ctx, self.params)
-        pipeline_id = self.params.get("pipeline_id", "")
-        wait = self.params.get("wait_for_completion", True)
-
-        if not pipeline_id:
-            logger.warning("ExecutePipeline: no pipeline_id — passing data through")
-            return source
-
-        # Access the workflow store and executor from app_state
-        store = ctx.app_state.get("store")
-        if not store:
-            logger.warning("ExecutePipeline: no workflow store in context — passing data through")
-            return source
-
-        # Load the sub-pipeline definition
-        sub_workflow = store.get(pipeline_id)
-        if not sub_workflow:
-            raise ValueError(f"ExecutePipeline: pipeline '{pipeline_id}' not found")
-
-        logger.info("ExecutePipeline: running sub-pipeline '%s' (%s)", pipeline_id, sub_workflow.get("name", ""))
-
-        # Build Workflow IR from stored definition
-        from revoluzen_flow.ir.schema import Workflow
-        try:
-            wf = Workflow.from_dict(sub_workflow)
-        except Exception as exc:
-            raise ValueError(f"ExecutePipeline: failed to parse pipeline '{pipeline_id}': {exc}") from exc
-
-        # ── Param injection (PR13 follow-up) ──
-        # The child workflow's variable resolver (set_variable / expression
-        # editor / templated SQL) reads from `wf.metadata['parameters']`.
-        # Caller passes a dict via params.parameters; we merge over any
-        # existing metadata.parameters so downstream nodes see them as
-        # workflow variables.
-        injected = self.params.get("parameters") or {}
-        if injected:
-            if not isinstance(injected, dict):
-                logger.warning(
-                    "ExecutePipeline: 'parameters' param must be a dict; got %s — ignoring",
-                    type(injected).__name__,
-                )
-            else:
-                merged = dict(wf.metadata.get("parameters") or {})
-                merged.update(injected)
-                wf.metadata["parameters"] = merged
-                logger.info(
-                    "ExecutePipeline: injected %d parameter(s) into sub-pipeline '%s': %s",
-                    len(injected), pipeline_id, sorted(injected.keys()),
-                )
-
-        # Execute via a new WorkflowExecutor (isolated DuckDB connection)
-        from revoluzen_flow.engine.executor import WorkflowExecutor
-        sub_executor = WorkflowExecutor(data_dir=ctx.data_dir, app_state=ctx.app_state)
-        from revoluzen_flow.security.execution_codes import mint_for_run
-        result = sub_executor.execute_workflow(
-            wf, preview_limit=0, full_run=ctx.full_run,
-            execution_code=mint_for_run(wf),
+        # A step that only starts another pipeline needn't have anything coming in.
+        inputs = ctx.get_routed_inputs(
+            self.params.get("_input_step_ids", []),
+            self.params.get("_input_step_ports"),
         )
+        source = inputs[0] if inputs else None
+        pipeline_id = self.params.get("pipeline_id", "")
+        if not pipeline_id:
+            raise ValueError("Execute Pipeline: choose the pipeline to run.")
 
+        injected = self.params.get("parameters") or {}
+        if not isinstance(injected, dict):
+            logger.warning(
+                "ExecutePipeline: 'parameters' param must be a dict; got %s — ignoring",
+                type(injected).__name__,
+            )
+            injected = {}
+
+        result = _run_subpipeline(ctx, pipeline_id, injected, who="Execute Pipeline")
         if result.status == "error":
             on_failure = self.params.get("on_failure", "fail")
             if on_failure == "fail":
-                raise ValueError(f"ExecutePipeline: sub-pipeline '{pipeline_id}' failed: {result.error}")
+                reasons = [s.error for s in result.step_results.values() if s.error]
+                reason = reasons[0] if reasons else "it did not finish"
+                raise ValueError(f"Execute Pipeline: pipeline '{pipeline_id}' failed: {reason}")
             logger.warning("ExecutePipeline: sub-pipeline '%s' failed (on_failure=%s), continuing", pipeline_id, on_failure)
-            return source
 
-        # Return last step's result if available, otherwise pass through
-        if result.step_results:
-            last_step = list(result.step_results.values())[-1]
-            if last_step.preview_data:
-                # Reconstruct from preview data
-                cols = last_step.preview_columns or [f"col_{i}" for i in range(len(last_step.preview_data[0]))]
-                rows = last_step.preview_data
-                if rows:
-                    val_strs = ", ".join(
-                        "(" + ", ".join(
-                            "NULL" if v is None else f"'{str(v).replace(chr(39), chr(39)+chr(39))}'"
-                            for v in row
-                        ) + ")"
-                        for row in rows
-                    )
-                    col_defs = ", ".join(f'"{c}"' for c in cols)
-                    return ctx.conn.sql(f"SELECT * FROM (VALUES {val_strs}) AS t({col_defs})")
-
-        logger.info("ExecutePipeline: sub-pipeline '%s' completed successfully", pipeline_id)
-        return source
+        # What came in carries on: a parent chains several of these one after another.
+        return source if source is not None else ctx.conn.sql(
+            f"SELECT '{pipeline_id}' AS pipeline_id, '{result.status}' AS status"
+        )
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -692,38 +638,110 @@ class ExecutePipelineNode(BaseNode):
         ]
 
 
-def _run_subpipeline(ctx: ExecutionContext, pipeline_id: str, overrides: dict):
+# The pipelines this thread is inside, so one that ends up starting itself stops
+# with a clear message instead of running until the stack runs out.
+_inside_pipelines = threading.local()
+
+
+def _record_child_run(ctx: ExecutionContext, wf: Any, version: int, parent: Any, result: Any, started: float) -> None:
+    """Put a child's run in the run history, so it isn't invisible.
+
+    Only the routes that start a run write its record, and a child has no route.
+    A record that can't be written must never fail the run itself.
+    """
+    store = ctx.app_state.get("execution_store") if ctx.app_state else None
+    if store is None:
+        return
+    try:
+        from revoluzen_flow.monitoring.store import ExecutionRecord, StepLog
+
+        logs = []
+        for step in wf.steps:
+            ran = result.step_results.get(step.id)
+            if ran is not None:
+                logs.append(StepLog(
+                    step_id=step.id,
+                    step_name=step.label or step.id,
+                    step_type=getattr(step.type, "value", str(step.type)),
+                    status=ran.status or "unknown",
+                    rows_processed=int(ran.row_count or 0),
+                    duration_ms=float(ran.duration_ms or 0),
+                    error_message=ran.error or "",
+                ))
+        record = ExecutionRecord(
+            workflow_id=wf.id,
+            workflow_name=wf.name,
+            project_id=getattr(wf, "project_id", None) or "default",
+            workspace_id=getattr(wf, "workspace_id", None) or "default",
+            steps_total=len(wf.steps),
+            triggered_by="pipeline",
+            workflow_snapshot=wf.model_dump(mode="json"),
+            workflow_version=version,
+            metadata={
+                "started_by_pipeline": getattr(parent, "name", ""),
+                "started_by_pipeline_id": getattr(parent, "id", ""),
+            },
+        )
+        record.status = result.status
+        record.completed_at = datetime.now(timezone.utc)
+        record.duration_ms = round((time.time() - started) * 1000, 1)
+        record.steps_completed = len([s for s in logs if s.status == "success"])
+        record.steps_failed = len([s for s in logs if s.status == "error"])
+        record.step_logs = logs
+        failed = [s.error_message for s in logs if s.error_message]
+        if result.status == "error":
+            refused = [s.error for s in result.step_results.values() if s.error]
+            record.error_message = (failed or refused or ["Unknown error"])[0]
+        store.record(record)
+    except Exception:  # noqa: BLE001
+        logger.warning("could not record the run of sub-pipeline %s", getattr(wf, "id", "?"), exc_info=True)
+
+
+def _run_subpipeline(ctx: ExecutionContext, pipeline_id: str, overrides: dict, who: str = "For Each (Run Pipeline)"):
     """Run a saved sub-pipeline once with `overrides` as parameter values.
 
-    Mirrors ExecutePipelineNode's invocation but uses the VALIDATED
-    parameter path (`execute_workflow(parameter_values=...)`) and filters
-    overrides down to the child's DECLARED parameters — so passing a whole
-    input row never trips "unknown parameter" on columns the child doesn't
+    Uses the VALIDATED parameter path (`execute_workflow(parameter_values=...)`)
+    and filters overrides down to the child's DECLARED parameters — so passing a
+    whole input row never trips "unknown parameter" on columns the child doesn't
     declare. Returns the WorkflowRunResult. Raises if the store/pipeline is
     unavailable. Factored out so ForEachPipelineNode is unit-testable via
     monkeypatch.
     """
     store = ctx.app_state.get("store") if ctx.app_state else None
     if not store:
-        raise ValueError(
-            "For Each (Run Pipeline): no workflow store available to run the sub-pipeline."
-        )
-    sub = store.get(pipeline_id)
+        raise ValueError(f"{who}: no workflow store available to run the sub-pipeline.")
+    parent = getattr(ctx, "_workflow_ref", None)
+    workspace = getattr(parent, "workspace_id", None) or "default"
+    # A pipeline can only start another in its own workspace.
+    sub = store.get(pipeline_id, workspace_id=workspace)
     if not sub:
-        raise ValueError(f"For Each (Run Pipeline): sub-pipeline '{pipeline_id}' not found.")
+        raise ValueError(f"{who}: pipeline '{pipeline_id}' not found.")
 
     from revoluzen_flow.ir.schema import Workflow
-    wf = Workflow.from_dict(sub) if isinstance(sub, dict) else sub
+    # The store hands back a version of the pipeline, not the pipeline.
+    wf = Workflow.model_validate(sub) if isinstance(sub, dict) else getattr(sub, "workflow", sub)
     declared = {p.name for p in (getattr(wf, "parameters", None) or [])}
     filtered = {k: v for k, v in (overrides or {}).items() if k in declared}
+
+    inside = getattr(_inside_pipelines, "ids", ())
+    parent_id = getattr(parent, "id", None)
+    if pipeline_id in inside or pipeline_id == parent_id:
+        raise ValueError(f"{who}: '{wf.name}' would end up starting itself.")
 
     from revoluzen_flow.engine.executor import WorkflowExecutor
     sub_exec = WorkflowExecutor(data_dir=ctx.data_dir, app_state=ctx.app_state)
     from revoluzen_flow.security.execution_codes import mint_for_run
-    return sub_exec.execute_workflow(
-        wf, preview_limit=0, full_run=ctx.full_run, parameter_values=filtered,
-        execution_code=mint_for_run(wf),
-    )
+    started = time.time()
+    _inside_pipelines.ids = (*inside, *([parent_id] if parent_id else []), pipeline_id)
+    try:
+        result = sub_exec.execute_workflow(
+            wf, preview_limit=0, full_run=ctx.full_run, parameter_values=filtered,
+            execution_code=mint_for_run(wf),
+        )
+    finally:
+        _inside_pipelines.ids = inside
+    _record_child_run(ctx, wf, getattr(sub, "version", 1), parent, result, started)
+    return result
 
 
 @register(StepType.FOREACH_PIPELINE)
@@ -1952,7 +1970,9 @@ class CopyDataNode(BaseNode):
     def _run_script(conn_type: str, config: dict, sql: str):
         if conn_type == "sqlite":
             import sqlite3
-            db_path = config.get("database") or config.get("file")
+
+            from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+            db_path = sqlite_db_path(config)
             conn = sqlite3.connect(db_path)
             try:
                 conn.executescript(sql)
@@ -2078,6 +2098,9 @@ class DeleteDataNode(BaseNode):
     Delete Data — remove rows matching a condition (inverse of Filter).
 
     Rows where the condition is TRUE are removed; all other rows pass through.
+    It changes the data passing through the pipeline only: it deletes nothing
+    in a database or in storage. To delete files use File System; to run a
+    DELETE statement in a database use Execute SQL.
     """
     display_name = "Delete Data"
     category = "action"
@@ -2086,18 +2109,23 @@ class DeleteDataNode(BaseNode):
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
         source = _get_single_input(ctx, self.params)
 
-        # 2026-06-11 (node-audit): the param schema has always advertised
-        # a 'files' target (target_path / wildcard / recursive) that this
+        # 2026-06-11 (node-audit): the param schema used to advertise a
+        # 'files' target (target_path / wildcard / recursive) that this
         # execute NEVER implemented — a retention pipeline configured to
         # delete files silently deleted nothing and reported success.
         # For a delete node, claiming-but-not-deleting is as dangerous as
-        # over-deleting. Fail loudly until files mode actually exists.
+        # over-deleting.
+        # The schema no longer offers 'files' (file cleanup is the File
+        # System node's job), but pipelines saved while it was offered can
+        # still carry target_kind="files". Those keep failing loudly here
+        # rather than running as a silent no-op.
         target_kind = self.params.get("target_kind", "rows")
         if target_kind == "files":
             raise ValueError(
-                "Delete Data: 'files' mode is not implemented in this edition — "
-                "NO files would be deleted. Use a File System node for file "
-                "cleanup, or switch Delete Target to 'rows'."
+                "Delete Data: this step is set to delete files, which Delete "
+                "Data does not do — NO files would be deleted. Use a File "
+                "System node for file cleanup, and set this step back to "
+                "deleting rows."
             )
 
         condition = self.params.get("condition", "")
@@ -2114,11 +2142,7 @@ class DeleteDataNode(BaseNode):
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "target_kind": "rows",
             "condition": "id IS NULL",
-            "target_path": "",
-            "recursive": False,
-            "wildcard": "",
             "max_concurrent": 1,
             "log_path": "",
             "enable_logging": False,
@@ -2127,25 +2151,15 @@ class DeleteDataNode(BaseNode):
     @staticmethod
     def param_schema() -> list[dict]:
         return [
-            # Source tab — what to delete
-            {"name": "target_kind", "type": "select", "label": "Delete Target",
-             "options": ["rows", "files"], "required": True, "tab": "Source",
-             "description": "rows: filter upstream relation. files: remove files from disk."},
+            # Source tab — which rows to drop. There is no "files" target:
+            # file cleanup belongs to the File System node.
             {"name": "condition", "type": "expression", "label": "Delete Condition",
              "tab": "Source",
              "placeholder": "status = 'deleted' OR expired = true",
-             "description": "Rows matching this condition are REMOVED. (rows mode)"},
-            {"name": "target_path", "type": "text", "label": "File / Folder Path",
-             "tab": "Source",
-             "placeholder": "/data/incoming/",
-             "description": "Path to delete. (files mode)"},
-            {"name": "wildcard", "type": "text", "label": "Wildcard Filter",
-             "tab": "Source",
-             "placeholder": "*.csv",
-             "description": "Optional glob pattern to limit deleted files."},
-            {"name": "recursive", "type": "boolean", "label": "Recursive",
-             "tab": "Source",
-             "description": "Recurse into subfolders. (files mode)"},
+             "description": (
+                 "Rows matching this condition are removed from the data passing "
+                 "through. Nothing is deleted in a database or in storage."
+             )},
             # Settings tab
             {"name": "max_concurrent", "type": "number", "label": "Max Concurrent Connections",
              "default": 1, "tab": "Settings"},

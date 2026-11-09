@@ -52,6 +52,8 @@ from revoluzen_flow.ai.tools.registry import (
 from revoluzen_flow.ai.tools.summarize_pipeline import DEFINITION as SUMMARIZE_PIPELINE
 from revoluzen_flow.ai.tools.validate_pipeline import DEFINITION as VALIDATE_PIPELINE
 from revoluzen_flow.ai.tools.explain_step import DEFINITION as EXPLAIN_STEP
+from revoluzen_flow.ai.tools.inspect_step_columns import DEFINITION as INSPECT_STEP_COLUMNS
+from revoluzen_flow.ai.tools.test_pipeline_draft import DEFINITION as TEST_PIPELINE_DRAFT
 from revoluzen_flow.ai.tools.workspace_overview import DEFINITION as GET_WORKSPACE_OVERVIEW
 from revoluzen_flow.ai.tools.web_fetch import DEFINITION as WEB_FETCH
 from revoluzen_flow.ai.tools.web_search import DEFINITION as WEB_SEARCH
@@ -82,6 +84,14 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
     SUMMARIZE_PIPELINE,
     VALIDATE_PIPELINE,
     EXPLAIN_STEP,
+    # Column names and types a step receives. Added 2026-11-03: the repair
+    # evaluation showed the agent could only guess at a renamed column.
+    INSPECT_STEP_COLUMNS,
+    # Run a draft and report what happened. Added 2026-11-03 for the other
+    # half of the same finding: models stopped after one fix because the
+    # engine error names only the first broken step and the agent had no
+    # way to run its own draft to find the next one.
+    TEST_PIPELINE_DRAFT,
     QUERY_METRICS,
     # RAG retrieval — workspace history + docs
     RECALL_HISTORY,
@@ -122,7 +132,7 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
 # Opt-in web tools — READ-tier, registered ONLY when the operator sets
 # REVOLUZEN_FLOW_AI_WEB_ACCESS=1 (see revoluzen_flow.ai.web). Kept OUT of INITIAL_TOOLS so the
 # air-gap default holds: with the flag off the LLM never sees these tools at all.
-# (The offline count is whatever INITIAL_TOOLS holds — 30 as of 2026-10-26;
+# (The offline count is whatever INITIAL_TOOLS holds — 32 as of 2026-11-03;
 # the old hard-coded "29" here went stale the first time a tool was added.)
 OPTIONAL_WEB_TOOLS: tuple[ToolDefinition, ...] = (
     WEB_SEARCH,
@@ -191,6 +201,8 @@ __all__ = [
     "LIST_TEMPLATES",
     # Drill-down
     "SUMMARIZE_PIPELINE",
+    "INSPECT_STEP_COLUMNS",
+    "TEST_PIPELINE_DRAFT",
     "QUERY_METRICS",
     "RECALL_HISTORY",
     "LOOKUP_HELP_TOPIC",

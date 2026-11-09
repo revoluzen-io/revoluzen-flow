@@ -11,7 +11,7 @@ Per `edition-matrix.md` line 73, backup capabilities split as follows.
 **Where to find it:** Settings → Backup → "Create backup now". Pick destination (local filesystem, S3, Azure, GCS). Authentication via the regular Credentials page (S3 needs an `s3` credential type, etc.).
 
 **What gets backed up:**
-- The SQLite database (`revoluzen_flow.db`) — pipelines, projects, schedules, alerts, connections, credentials (encrypted ciphertext), executions, audit log, RAG index
+- The SQLite database (`revoluzen_flow.db`) — pipelines, projects, schedules, alerts, connections, credentials (encrypted ciphertext), endpoints and API keys from the Triggers page (a key is stored only as a hash), executions, audit log, RAG index
 - The `data/` directory — Parquet checkpoints, eval results, staging files
 
 **What does NOT get backed up automatically:**

@@ -196,6 +196,9 @@ class HybridResult:
     # behind a "why did this fail?" prompt that hit list_executions).
     escalate: bool = False
     escalate_reason: str = ""
+    # Set when the model call failed and the handler's text was returned
+    # instead, so the caller can record the failed AI call.
+    llm_error: str = ""
 
 
 async def run_hybrid(
@@ -293,6 +296,7 @@ async def run_hybrid(
             tokens_in=0,
             tokens_out=0,
             handler_text=handler_text,
+            llm_error=(f"{type(exc).__name__}: {exc}".strip())[:300],
         )
     llm_ms = int((time.perf_counter() - t0_llm) * 1000)
 

@@ -112,6 +112,8 @@ def render_pdf(report: InventoryReport) -> bytes:
     if not is_free:
         story.append(PageBreak())
         _add_approval_gates_section(story, report, styles)
+    story.append(PageBreak())
+    _add_triggers_section(story, report, styles)
     if is_free:
         story.append(PageBreak())
         _add_upgrade_cta(story, report, styles)
@@ -329,6 +331,7 @@ def _add_toc_stub(story: list, report: InventoryReport, s: dict) -> None:
     ])
     if not is_free:
         rows.append(("8.", "Approval Gates"))
+    rows.append(("9.", "Triggers"))
     rows.append(("A.", "Appendix — Report Metadata"))
     for num, title in rows:
         story.append(Paragraph(f"{num}  {title}", s["Body"]))
@@ -377,6 +380,12 @@ def _add_executive_summary(story: list, report: InventoryReport, s: dict) -> Non
     ])
     if not is_free:
         data.append(["Approval gates", str(totals.get("approval_gates", 0))])
+    data.extend([
+        ["Endpoints (on / total)",
+         f"{totals.get('endpoints_enabled', 0)} / {totals.get('endpoints', 0)}"],
+        ["API keys (active / total)",
+         f"{totals.get('api_keys_active', 0)} / {totals.get('api_keys', 0)}"],
+    ])
     tbl = Table(data, colWidths=[11 * cm, 5 * cm], hAlign="LEFT")
     tbl.setStyle(_grid_style(header_bg=BRAND_VIOLET, header_fg=colors.white))
     story.append(tbl)
@@ -1155,6 +1164,48 @@ def _add_alerts_section(story: list, report: InventoryReport, s: dict) -> None:
                 hAlign="LEFT", repeatRows=1)
     tbl.setStyle(_grid_style(header_bg=BRAND_VIOLET, header_fg=colors.white))
     story.append(tbl)
+
+
+def _add_triggers_section(story: list, report: InventoryReport, s: dict) -> None:
+    story.append(Paragraph("9. Triggers", s["H1"]))
+    if not report.trigger_endpoints and not report.api_keys:
+        story.append(Paragraph("No endpoints or API keys configured.", s["Muted"]))
+        return
+    story.append(Paragraph(
+        f"{len(report.trigger_endpoints)} endpoint(s) let another application "
+        f"start a pipeline, and {len(report.api_keys)} API key(s) open them. "
+        "Keys appear masked: the server keeps only a hash of each one.",
+        s["Body"],
+    ))
+    if report.trigger_endpoints:
+        data = [["Pipeline", "URL path", "Key required", "On", "Calls", "Last called"]]
+        for e in report.trigger_endpoints:
+            data.append([
+                Paragraph(_esc(e.workflow_name or e.workflow_id), s["Cell"]),
+                Paragraph(_esc(f"/api/published/{e.path}"), s["Cell"]),
+                Paragraph("Yes" if e.require_api_key else "<b>No</b>", s["Cell"]),
+                Paragraph("✓" if e.enabled else "✗", s["Cell"]),
+                Paragraph(str(e.call_count), s["Cell"]),
+                Paragraph(_fmt_iso(e.last_called_at) if e.last_called_at else "—", s["Cell"]),
+            ])
+        tbl = Table(data, colWidths=[4 * cm, 4.5 * cm, 1.5 * cm, 1 * cm, 1.5 * cm, 3.5 * cm],
+                    hAlign="LEFT", repeatRows=1)
+        tbl.setStyle(_grid_style(header_bg=BRAND_VIOLET, header_fg=colors.white))
+        story.append(tbl)
+        story.append(Spacer(1, 0.4 * cm))
+    if report.api_keys:
+        data = [["API key", "Key", "Active", "Last used"]]
+        for k in report.api_keys:
+            data.append([
+                Paragraph(_esc(k.name), s["Cell"]),
+                Paragraph(_esc(k.key_masked), s["Cell"]),
+                Paragraph("✓" if k.active else "✗", s["Cell"]),
+                Paragraph(_fmt_iso(k.last_used_at) if k.last_used_at else "—", s["Cell"]),
+            ])
+        tbl = Table(data, colWidths=[5.5 * cm, 4.5 * cm, 1.5 * cm, 4.5 * cm],
+                    hAlign="LEFT", repeatRows=1)
+        tbl.setStyle(_grid_style(header_bg=BRAND_VIOLET, header_fg=colors.white))
+        story.append(tbl)
 
 
 def _add_approval_gates_section(story: list, report: InventoryReport, s: dict) -> None:

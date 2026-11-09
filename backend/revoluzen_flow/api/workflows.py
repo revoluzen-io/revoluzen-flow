@@ -31,6 +31,9 @@ _AUTH = Depends(require_auth)
 # overly restrictive: developer-tier collaborators couldn't write
 # their own pipelines.
 _AUTHOR = Depends(require_min_rank("developer"))
+# Emptying the whole Bin removes other people's pipelines for good, so it
+# takes an admin (admin / workspace_admin / super_admin).
+_ADMIN = Depends(require_min_rank("admin"))
 
 router = APIRouter(
     prefix="/api/workflows",
@@ -243,6 +246,192 @@ async def list_workflows(
     return [w for w in all_wfs if _can_see_row(w.get("project_id", "default"))]
 
 
+def _owner_fields(request: Request) -> dict[str, str]:
+    """Who is creating this pipeline, for the Pipelines page's Author column.
+
+    Empty with no signed-in user (anonymous local mode): the column then shows
+    a dash rather than a made-up name.
+    """
+    from revoluzen_flow.auth.deps import current_user_optional
+    user = current_user_optional(request)
+    if user is None:
+        return {}
+    return {"owner_id": user.id, "owner_name": user.name or user.email}
+
+
+# ── The Bin: deleted pipelines that can still be restored ───────────────
+#
+# Delete moves a pipeline here instead of removing it (see
+# revoluzen_flow/ir/workflow_bin.py). These routes sit before the
+# `/{workflow_id}` ones on purpose: "bin" must not be read as a pipeline id.
+
+def _schedule_store():
+    from revoluzen_flow.main import app_state
+    return app_state.get("schedule_store")
+
+
+def _actor(request: Request) -> tuple[str, str]:
+    """(id, display name) of the signed-in user; empty with no auth context."""
+    from revoluzen_flow.auth.deps import current_user_optional
+    user = current_user_optional(request)
+    if user is None:
+        return "", ""
+    return user.id, (user.name or user.email or "")
+
+
+def _bin_project_filter(request: Request):
+    """The pipeline list's per-row project ACL, as a predicate on a project id.
+
+    Differs in one place on purpose: a project that no longer exists does not
+    hide the entry. A binned pipeline whose project was deleted meanwhile
+    must stay visible, because restoring it moves it to Default.
+    """
+    from revoluzen_flow.projects.acl import can_see_project
+    from revoluzen_flow.auth.deps import current_user_optional
+
+    user = current_user_optional(request)
+    if user is None:
+        return lambda project_id: True
+    try:
+        from revoluzen_flow.main import app_state
+        project_store = app_state.get("project_store")
+    except Exception:  # noqa: BLE001
+        project_store = None
+    if project_store is None:
+        return lambda project_id: True
+
+    cache: dict[str, dict | None] = {}
+
+    def can_see(project_id: str | None) -> bool:
+        if not project_id or project_id == "default":
+            return True
+        if project_id not in cache:
+            proj = project_store.get(project_id)
+            cache[project_id] = proj.model_dump(mode="json") if proj else None
+        project = cache[project_id]
+        return True if project is None else can_see_project(user, project)
+
+    return can_see
+
+
+def _binned_or_404(workflow_id: str, request: Request, workspace_id: str) -> dict:
+    """The Bin entry for ``workflow_id``, or 404 when it is not in this
+    workspace's Bin or the caller may not see its project (same answer for
+    both, so existence does not leak)."""
+    entry = get_store().get_trash_entry(workflow_id, workspace_id)
+    if entry is None or not _bin_project_filter(request)(entry.get("project_id")):
+        raise HTTPException(404, "That pipeline is not in the Bin")
+    return entry
+
+
+@router.get("/bin")
+async def list_bin(
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """The Bin: pipelines deleted from this workspace that can still be
+    restored, newest deletion first.
+
+    ``purge_at`` is when each one is removed for good, or null when
+    ``retention_days`` is 0 (REVOLUZEN_FLOW_BIN_RETENTION_DAYS=0: nothing is
+    removed until someone deletes it from the Bin or empties the Bin).
+    Filtered by project ACL like the pipeline list.
+    """
+    from revoluzen_flow.ir.workflow_bin import public_entry
+    from revoluzen_flow.runtime_config import BIN_RETENTION_DAYS
+
+    retention = max(BIN_RETENTION_DAYS, 0)
+    can_see = _bin_project_filter(request)
+    items = [
+        public_entry(entry, retention)
+        for entry in get_store().list_trash(workspace_id)
+        if can_see(entry.get("project_id"))
+    ]
+    return {"retention_days": retention, "count": len(items), "items": items}
+
+
+@router.post("/bin/{workflow_id}/restore", dependencies=[_AUTHOR])
+async def restore_from_bin(
+    workflow_id: str,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Restore a pipeline from the Bin as a **draft**, schedules paused.
+
+    ``notes`` says what was corrected on the way back: a name that is taken
+    again gets a ``(2)`` suffix, a project or folder that no longer exists is
+    replaced by Default / the project root. 409 if a live pipeline already
+    has this id.
+    """
+    from revoluzen_flow.ir import workflow_bin
+
+    _binned_or_404(workflow_id, request, workspace_id)
+    actor_id, actor_name = _actor(request)
+
+    def _project(project_id: str):
+        from revoluzen_flow.main import app_state
+        store = app_state.get("project_store")
+        return store.get(project_id) if store is not None else None
+
+    def _folder(folder_id: str):
+        from revoluzen_flow.main import app_state
+        store = app_state.get("folder_store")
+        # FolderStore.get takes only the id; the service checks workspace and project.
+        return store.get(folder_id) if store is not None else None
+
+    try:
+        result = workflow_bin.restore_pipeline(
+            workflow_id,
+            workspace_id,
+            store=get_store(),
+            schedule_store=_schedule_store(),
+            project_lookup=_project,
+            folder_lookup=_folder,
+            actor_id=actor_id,
+            actor_name=actor_name,
+        )
+    except workflow_bin.NotInBin:
+        raise HTTPException(404, "That pipeline is not in the Bin")
+    except workflow_bin.IdInUse:
+        raise HTTPException(
+            409, "A pipeline with this id already exists, so this one cannot be restored."
+        )
+    return {"restored": True, **result}
+
+
+@router.delete("/bin/{workflow_id}", dependencies=[_AUTHOR])
+async def delete_from_bin(
+    workflow_id: str,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Remove one pipeline from the Bin for good. Cannot be undone."""
+    from revoluzen_flow.ir import workflow_bin
+
+    _binned_or_404(workflow_id, request, workspace_id)
+    _actor_id, actor_name = _actor(request)
+    entry = workflow_bin.purge_pipeline(
+        workflow_id, workspace_id, store=get_store(), actor=actor_name or _actor_id,
+    )
+    if entry is None:
+        raise HTTPException(404, "That pipeline is not in the Bin")
+    return {"purged": True, "id": workflow_id, "name": entry["name"]}
+
+
+@router.delete("/bin", dependencies=[_ADMIN])
+async def empty_bin(
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Empty this workspace's Bin: every binned pipeline is removed for good.
+    Admins only. Cannot be undone."""
+    from revoluzen_flow.ir import workflow_bin
+
+    actor_id, actor_name = _actor(request)
+    count = workflow_bin.empty_bin(workspace_id, store=get_store(), actor=actor_name or actor_id)
+    return {"purged": count}
+
+
 @router.post("", dependencies=[_AUTHOR], include_in_schema=False)
 @router.post("/", dependencies=[_AUTHOR])
 async def create_workflow(
@@ -313,26 +502,28 @@ async def create_workflow(
             # store init order bug doesn't block every workflow create.
             pass
     if target_folder_id:
-        try:
-            from revoluzen_flow.main import app_state
-            folder_store = app_state.get("folder_store")
-            if folder_store is not None:
-                folder = folder_store.get(target_folder_id, workspace_id=workspace_id)
-                if folder is None:
-                    raise HTTPException(404, f"Folder '{target_folder_id}' not found in this workspace")
-                # Folder's project must match — can't park a folder
-                # under project A but assign workflow into project B.
-                folder_proj = getattr(folder, "project_id", None) or "default"
-                if folder_proj != target_project_id:
-                    raise HTTPException(
-                        400,
-                        f"Folder '{target_folder_id}' belongs to project "
-                        f"'{folder_proj}', not '{target_project_id}'.",
-                    )
-        except HTTPException:
-            raise
-        except Exception:
-            pass
+        # No try/except around this: it used to call
+        # ``folder_store.get(id, workspace_id=...)``, an argument FolderStore.get
+        # does not take, and a bare ``except Exception: pass`` swallowed the
+        # TypeError, so no folder was ever checked. A lookup that fails now
+        # surfaces as a 500 instead of letting a dangling folder id through.
+        from revoluzen_flow.main import app_state
+        folder_store = app_state.get("folder_store")
+        if folder_store is not None:
+            folder = folder_store.get(target_folder_id)
+            # A folder in another workspace gets the same answer as one that
+            # does not exist, so its existence does not leak.
+            if folder is None or (getattr(folder, "workspace_id", None) or "default") != workspace_id:
+                raise HTTPException(404, f"Folder '{target_folder_id}' not found in this workspace")
+            # Folder's project must match — can't park a folder
+            # under project A but assign workflow into project B.
+            folder_proj = getattr(folder, "project_id", None) or "default"
+            if folder_proj != target_project_id:
+                raise HTTPException(
+                    400,
+                    f"Folder '{target_folder_id}' belongs to project "
+                    f"'{folder_proj}', not '{target_project_id}'.",
+                )
 
     # Pydantic-validate any supplied parameter blob through the real
     # WorkflowParameter model so we never persist a malformed list.
@@ -374,6 +565,7 @@ async def create_workflow(
         parameters=parameters,
         steps=steps_in,
         connections=connections_in,
+        **_owner_fields(request),
     )
     # store.save() handles dedupe (auto-suffix) and is the single
     # chokepoint that re-validates the no-placeholder rule.
@@ -429,6 +621,14 @@ async def update_workflow(
     body.workflow.id = workflow_id
     body.workflow.workspace_id = existing.workflow.workspace_id or workspace_id
 
+    # The canvas sends only what it edits: name, steps, connections and
+    # parameters. Anything a body leaves out keeps its saved value. It used to
+    # fall back to the model default, so every save moved the pipeline to the
+    # Default project and wiped its folder, business purpose, README and tags.
+    for field in type(body.workflow).model_fields:
+        if field not in body.workflow.model_fields_set and field != "updated_at":
+            setattr(body.workflow, field, getattr(existing.workflow, field))
+
     # ── Lifecycle field protection (2026-05-22) ─────────────────────────
     # Generic update is the path the canvas Save / Toolbar Save / Save
     # Dialog all use. Until now it accepted the entire Workflow blob,
@@ -457,8 +657,11 @@ async def update_workflow(
         "approved_by", "approved_at",
         "approval_status", "approval_stage",
         "test_results",
-        "owner_id",
+        "owner_id", "owner_name",
         "created_at",
+        # /toggle-active owns these. Restoring an old version sends that
+        # version's whole blob, which must not switch the pipeline on or off.
+        "is_active_dev", "is_active_prod",
     )
     for field in _SERVER_OWNED_FIELDS:
         if hasattr(existing.workflow, field):
@@ -484,12 +687,29 @@ async def update_workflow(
     warnings = [e.dict() for e in errors if e.severity == "warning"]
     hard_errors = [e.dict() for e in errors if e.severity == "error"]
 
+    # A save that changes nothing adds no version. Autosave, the editor's
+    # saves before a run and a second click on Save all send the pipeline as
+    # it already is, and each one used to become a version of its own, so the
+    # versions the store keeps (20 by default) could all be copies of one
+    # definition while the ones worth going back to were pruned. The hash
+    # ignores status and timestamps, the same rule rollback uses.
+    from revoluzen_flow.ir.versioning import compute_workflow_hash
+    if compute_workflow_hash(body.workflow) == compute_workflow_hash(existing.workflow):
+        return {
+            "version": existing.version,
+            "workflow": existing.workflow.model_dump(mode="json"),
+            "warnings": warnings,
+            "errors": hard_errors,
+            "unchanged": True,
+        }
+
     version = get_store().save(body.workflow, change_summary=body.change_summary)
     return {
         "version": version.version,
         "workflow": version.workflow.model_dump(mode="json"),
         "warnings": warnings,
         "errors": hard_errors,
+        "unchanged": False,
     }
 
 
@@ -534,51 +754,45 @@ async def move_workflow(
 @router.delete("/{workflow_id}", dependencies=[_AUTHOR])
 async def delete_workflow(
     workflow_id: str,
+    request: Request,
+    permanent: bool = False,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Delete a workflow. Scoped to the caller's workspace — a
-    workflow in a different workspace returns 404 (not 403) to
-    avoid leaking its existence.
+    """Delete a workflow: it moves to the Bin, and can be restored from
+    there until the retention window ends (REVOLUZEN_FLOW_BIN_RETENTION_DAYS,
+    default 30 days). ``?permanent=true`` skips the Bin and removes it at
+    once, for good; scripts that must not leave a copy behind use that.
+
+    Either way its schedules are removed, its step cache cleared and its CDC
+    replication slots dropped (the Bin keeps a snapshot of the schedules so a
+    restore can put them back, paused). Scoped to the caller's workspace — a
+    workflow in a different workspace returns 404 (not 403) to avoid leaking
+    its existence.
     """
-    existing = get_store().get(workflow_id, workspace_id=workspace_id)
-    if not existing:
+    from revoluzen_flow.ir import workflow_bin
+    from revoluzen_flow.runtime_config import BIN_RETENTION_DAYS
+
+    if not get_store().get(workflow_id, workspace_id=workspace_id):
         raise HTTPException(404, "Workflow not found")
-    if not get_store().delete(workflow_id):
+    actor_id, actor_name = _actor(request)
+    result = workflow_bin.delete_pipeline(
+        workflow_id,
+        workspace_id,
+        store=get_store(),
+        schedule_store=_schedule_store(),
+        data_dir=get_data_dir(),
+        permanent=permanent,
+        actor_id=actor_id,
+        actor_name=actor_name,
+    )
+    if result is None:
         raise HTTPException(404, "Workflow not found")
-    # Purge the on-disk step cache so stale parquet files don't linger
-    # in the data dir after the workflow is gone.
-    try:
-        from revoluzen_flow.engine.step_cache import StepCache
-        StepCache(get_data_dir(), workflow_id).clear()
-    except Exception:
-        pass
-
-    # Drop any Postgres logical replication slots the workflow's CDC
-    # sources created — an orphaned slot pins WAL on the source server
-    # until its disk fills.
-    try:
-        from revoluzen_flow.connectors.cdc import cleanup_workflow_cdc_slots
-        cleanup_workflow_cdc_slots(existing.workflow)
-    except Exception:
-        pass
-
-    # P0 Day 5 (2026-05-23) — audit destructive workflow action.
-    try:
-        from revoluzen_flow.audit import audit_action
-        audit_action(
-            action="workflow.delete",
-            resource_type="workflow",
-            resource_id=workflow_id,
-            workspace_id=workspace_id,
-            details={
-                "name": getattr(existing.workflow, "name", None) or "(unnamed)",
-                "status": getattr(existing.workflow, "status", None),
-            },
-        )
-    except Exception:
-        pass
-
-    return {"deleted": True}
+    response: dict[str, Any] = {"deleted": True, "binned": result["binned"]}
+    if result["binned"]:
+        retention = max(BIN_RETENTION_DAYS, 0)
+        response["retention_days"] = retention
+        response["purge_at"] = workflow_bin.purge_at(result["entry"]["deleted_at"], retention)
+    return response
 
 
 @router.get("/{workflow_id}/versions")
@@ -1127,6 +1341,9 @@ def _enrich_connection_refs(refs: dict, workspace_id: str) -> dict:
 # Lifecycle endpoints
 # ---------------------------------------------------------------------------
 
+_PUBLISH_TEST_SAMPLE_ROWS = 1000
+
+
 @router.post("/{workflow_id}/test")
 async def test_workflow(
     workflow_id: str,
@@ -1185,14 +1402,22 @@ async def test_workflow(
         steps_total=len(wf.steps),
         triggered_by="test",
         workflow_snapshot=wf.model_dump(mode="json"),
+        workflow_version=v.version,
     )
 
     start = time.time()
-    executor = WorkflowExecutor(data_dir=get_data_dir())
+    from revoluzen_flow.api.execution import _sample_kwargs
+    from revoluzen_flow.main import app_state as _app_state
+    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
 
     try:
         from revoluzen_flow.security.execution_codes import mint_for_run
-        result = executor.execute_workflow(wf, preview_limit=preview_limit, execution_code=mint_for_run(wf))
+        # A test proves the pipeline runs. It reads a sample, so it must not
+        # write: its rows would replace the real data in the destination.
+        result = executor.execute_workflow(
+            wf, preview_limit=preview_limit, execution_code=mint_for_run(wf),
+            **_sample_kwargs("sample", workflow_id, _PUBLISH_TEST_SAMPLE_ROWS),
+        )
 
         step_logs = []
         for step in wf.steps:
@@ -1259,7 +1484,12 @@ async def test_workflow(
         return {
             "test_results": test_summary,
             "status": result.status,
-            "execution": result.model_dump(mode="json"),
+            "execution": {
+                **result.model_dump(mode="json"),
+                # What the Publish dialog lists, step by step.
+                "step_logs": [s.model_dump(mode="json") for s in step_logs],
+                "error_message": exe.error_message,
+            },
         }
     except Exception as e:
         duration = (time.time() - start) * 1000
@@ -1385,11 +1615,15 @@ def _run_wrangler_preview(
     ]
 
     # Execute the sliced workflow to populate the predecessor's sample.
-    executor = WorkflowExecutor(data_dir=get_data_dir())
+    from revoluzen_flow.main import app_state as _app_state
+    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
     sample_rows_clamped = max(1, min(int(sample_rows or 100), 1000))
     try:
         from revoluzen_flow.security.execution_codes import mint_for_run
-        result = executor.execute_workflow(sliced, preview_limit=sample_rows_clamped, execution_code=mint_for_run(sliced))
+        result = executor.execute_workflow(
+            sliced, preview_limit=sample_rows_clamped, execution_code=mint_for_run(sliced),
+            preview_mode=True,
+        )
     except Exception as exc:
         import logging
         logging.getLogger(__name__).exception("Upstream execution failed")
@@ -2796,6 +3030,75 @@ async def restore_workflow(
     )
 
     return {"id": workflow_id, "status": "draft"}
+
+
+class ToggleActiveRequest(BaseModel):
+    active: bool
+    # What the Pipelines page says it is showing. Echoed back, not acted on: see
+    # the note in toggle_active.
+    env: str = Field("dev", pattern="^(dev|prod)$")
+
+
+@router.post("/{workflow_id}/toggle-active", dependencies=[_AUTHOR])
+async def toggle_active(
+    workflow_id: str,
+    body: ToggleActiveRequest,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Switch a pipeline on or off.
+
+    While it is off, schedules skip it and its published endpoints answer 423.
+    Running it by hand still works, so a fix can be tried before it goes live.
+
+    This edition has one environment, so the switch sets both flags. The page
+    reads `is_active_dev` and the scheduler used to read only `is_active_prod`,
+    which is how a pipeline could show as Paused and keep running on schedule.
+
+    The change is saved as a new version: the flags are part of the content hash
+    of a version, so writing them over the latest one in place would make it
+    look tampered with.
+    """
+    from revoluzen_flow.audit import actor_for, audit_action
+    from revoluzen_flow.auth.deps import current_user_optional
+
+    store = get_store()
+    v = store.get(workflow_id, workspace_id=workspace_id)
+    if not v:
+        raise HTTPException(404, "Workflow not found")
+
+    wf = v.workflow
+    result = {
+        "id": workflow_id,
+        "env": body.env,
+        "is_active": body.active,
+        "is_active_dev": body.active,
+        "is_active_prod": body.active,
+    }
+    holders = [wf] if wf.governance is None else [wf, wf.governance]
+    if all(h.is_active_dev is body.active and h.is_active_prod is body.active for h in holders):
+        return result
+
+    user = current_user_optional(request)
+    for holder in holders:
+        holder.is_active_dev = body.active
+        holder.is_active_prod = body.active
+
+    event = "activated" if body.active else "deactivated"
+    actor = actor_for(user)
+    store.save(
+        wf,
+        change_summary=f"{event.capitalize()} by {getattr(user, 'email', None) or actor}",
+        created_by=getattr(user, "email", None) or "user",
+    )
+    get_lifecycle_store().add_event(
+        workflow_id, event, f"{event.capitalize()} by {actor}", workspace_id=workspace_id,
+    )
+    audit_action(
+        action=f"workflow.{event}", resource_type="workflow", resource_id=workflow_id,
+        actor=actor, workspace_id=workspace_id,
+    )
+    return result
 
 
 @router.get("/{workflow_id}/lifecycle")

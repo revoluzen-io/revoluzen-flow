@@ -875,8 +875,8 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                   />
                   <p className="text-xs text-slate-500 mt-1">
                     {formExpiry
-                      ? `You'll be notified 7 days before expiry (${formatDate(formExpiry)})`
-                      : 'When does this credential expire? You\'ll be alerted before it does.'}
+                      ? `Administrators are warned a week before ${formatDate(formExpiry)}, a day before, and when it expires.`
+                      : 'When does this credential expire? Administrators are warned before it does.'}
                   </p>
                 </div>
 

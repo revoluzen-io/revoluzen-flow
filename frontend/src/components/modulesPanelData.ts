@@ -73,7 +73,7 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
   // intent regrouper dropped them into the default 'Automate' bucket —
   // a table READER filed under Automate while every other reader sits
   // under Import.
-  local_table_source: 'Import',
+  local_table_source: 'Import', saas_connector: 'Import',
   // ── Prepare (single-relation transforms + quality) ──
   data_wrangler: 'Prepare', filter: 'Prepare', derived_column: 'Prepare',
   schema_mapper: 'Prepare', sort: 'Prepare', deduplicate: 'Prepare',
@@ -118,6 +118,11 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
 // component-only. And VALID_GHOST_TYPES below has to be derived from it —
 // it used to be a second hand-maintained list and had drifted in both
 // directions.
+/** A node type's name as the palette shows it, e.g. local_table_sink is "Managed Table Sink". */
+export const nodeTypeLabel = (type: string): string =>
+  MODULES.flatMap((category) => category.items).find((item) => item.type === type)?.label
+    ?? type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
 export const MODULES: ModuleCategory[] = [
   {
     name: 'Data Movement',
@@ -137,6 +142,7 @@ export const MODULES: ModuleCategory[] = [
       // orphan "Destination" bottom-of-palette category with no icon.
       { type: 'local_table_source', label: 'Managed Table Source', level: 'intermediate', description: 'Read from a workspace-managed Parquet table by schema.name' },
       { type: 'local_table_sink', label: 'Managed Table Sink', level: 'intermediate', description: 'Write to a workspace-managed Parquet table (replace / append / merge)' },
+      { type: 'saas_connector', label: 'SaaS Connector', level: 'intermediate', description: 'Read from a SaaS application, using a built-in connector or one you generated in the API Explorer' },
     ],
   },
   {

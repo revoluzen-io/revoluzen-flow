@@ -21,20 +21,89 @@ Trust contract:
   - Defaults to ctx.selected_ids[0] when pipeline_id is omitted, so the
     user can say "add a Filter after the CSV source" while looking at a
     pipeline in the Editor without naming it.
+  - Edits made while answering one request build on each other, whether or not
+    the model passes `draft_id`. Real models left it out and silently lost their
+    first edit. A new request starts from the saved pipeline unless `draft_id`
+    names an earlier draft of it, and `from_saved` starts over within a request.
+  - Two edits never reach the draft at all, whoever asked the model to make
+    them: taking out or loosening a data-quality / validate step that the
+    person's own message did not ask about, and an argument the model left
+    as a placeholder. Both live in `_edit_guards.py`, outside the prompt,
+    because the recorded evaluation runs show a prompt rule does not hold.
+  - An edit that guesses at a missing column, repoints a source nobody named,
+    or writes a data value nobody gave is refused too. See `ai/draft_guess.py`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import logging
 from typing import Any
 
-from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolTier
-from revoluzen_flow.ai.tools.draft_pipeline_from_intent import store_draft
+from revoluzen_flow.ai.draft_guess import (
+    column_guess_reason,
+    references,
+    source_guess_reason,
+    upstream_columns,
+    value_guess_reason,
+)
+from revoluzen_flow.ai.tools._edit_guards import (
+    check_edit_allowed,
+    check_join_key_sides,
+    check_no_placeholders,
+    step_type_of,
+)
+from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolRefusal, ToolTier
+from revoluzen_flow.ai.tools.draft_pipeline_from_intent import (
+    MODIFY_DRY_RUN_DRAFT_ID,
+    get_draft,
+    store_draft,
+)
 
 # Allowed ops. Each enforces a small, predictable change so the
 # confirmation diff stays legible. Larger refactors should fall back to
 # draft_pipeline_from_intent (rebuild) rather than chaining many ops.
 ALLOWED_OPS = ("insert", "delete", "reconfigure", "rename", "move")
+
+logger = logging.getLogger("revoluzen_flow.ai.tools.modify_pipeline_step")
+
+_GUESS_CHECK_TIMEOUT_S = 30
+
+# The latest draft of each pipeline within one agent run.
+_RUN_DRAFTS: dict[tuple[str, str], str] = {}
+_RUN_DRAFTS_MAX = 256
+
+
+async def guess_reason(ir: dict[str, Any], op: str, args: dict[str, Any], request: str) -> str:
+    """Why this edit is a guess, or an empty string. See ai/draft_guess.py."""
+    params = args.get("params")
+    if op != "reconfigure" or not isinstance(params, dict):
+        return ""
+    step = next((s for s in ir.get("steps") or [] if s.get("id") == args.get("step_id")), None)
+    if step is None:
+        return ""
+    old = step.get("params") or {}
+    new = {**old, **params}
+    kind = step_type_of(step)
+    reason = source_guess_reason(step, new, request) or value_guess_reason(kind, old, new, request)
+    if reason:
+        return reason
+    if not references(kind, old) or references(kind, old) == references(kind, new):
+        return ""
+    try:
+        from revoluzen_flow.main import app_state  # type: ignore
+        data_dir = app_state.get("data_dir")
+        if not data_dir:
+            return ""
+        available = await asyncio.wait_for(
+            asyncio.to_thread(upstream_columns, ir, step.get("id"), data_dir, app_state),
+            timeout=_GUESS_CHECK_TIMEOUT_S,
+        )
+    except Exception as exc:  # noqa: BLE001 — unknown columns: the test and review still apply
+        logger.info("Guess check skipped for step %s: %s", step.get("id"), type(exc).__name__)
+        return ""
+    return column_guess_reason(kind, old, new, available, request) if available else ""
 
 
 def _load_pipeline_ir(pipeline_id: str, workspace_id: str) -> dict[str, Any] | None:
@@ -58,6 +127,48 @@ def _load_pipeline_ir(pipeline_id: str, workspace_id: str) -> dict[str, Any] | N
         return wf.model_dump()
     except AttributeError:
         return wf.dict()
+
+
+def _saved_columns_lookup(pipeline_id: str, workspace_id: str):
+    """A `columns_for(step_id)` reading the SAVED pipeline's real columns.
+
+    Resolved from the saved pipeline rather than the draft on purpose: the
+    saved steps were written by a person, so previewing them runs nothing
+    model-written. Upstream of a join is almost never what a join-key edit
+    changes, so the saved columns are the right ones to check against.
+
+    Everything is best effort and cached per call. A step whose columns
+    cannot be read returns None, and the guard then stays quiet — it must
+    not block an edit on the strength of something it could not see.
+    """
+    cache: dict[str, list[str] | None] = {}
+
+    def columns_for(step_id: str) -> list[str] | None:
+        if step_id in cache:
+            return cache[step_id]
+        cache[step_id] = None
+        try:
+            from revoluzen_flow.ai.tools.inspect_step_columns import _preview
+            from revoluzen_flow.main import app_state  # type: ignore
+
+            store = app_state.get("workflow_store")
+            data_dir = app_state.get("data_dir")
+            if store is None or not data_dir:
+                return None
+            try:
+                wv = store.get(pipeline_id, workspace_id=workspace_id)
+            except TypeError:
+                wv = store.get(pipeline_id)
+            if wv is None or wv.workflow is None:
+                return None
+            for entry in _preview(wv.workflow, [step_id], data_dir, app_state):
+                names = [c["name"] for c in (entry.get("columns") or [])]
+                cache[entry["step_id"]] = names or None
+        except Exception:  # noqa: BLE001 — a guard must never break the tool
+            return None
+        return cache.get(step_id)
+
+    return columns_for
 
 
 def _apply_op(ir: dict[str, Any], op: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -169,11 +280,16 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     if not idempotency_key:
         raise ValueError("idempotency_key is required for safe-write tools")
 
+    # A half-written value fails at run time instead of here, so it is
+    # refused before anything else — including in dry-run, where the agent
+    # would otherwise be told its placeholder edit was fine.
+    check_no_placeholders(args)
+
     # Dry-run path returns a stable mock so the agent can describe the
     # intended change without touching state.
     if ctx.dry_run:
         return {
-            "draft_id": "dry-run-mod-draft",
+            "draft_id": MODIFY_DRY_RUN_DRAFT_ID,
             "pipeline_id": pipeline_id,
             "op": op,
             "step_count_before": 0,
@@ -188,6 +304,56 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             f"Pipeline {pipeline_id!r} not found in workspace {workspace_id!r}"
         )
 
+    # Continue from an earlier draft. The saved pipeline is loaded first either
+    # way, so a draft id can never reach a pipeline this workspace cannot see.
+    run_key = (ctx.run_id, pipeline_id)
+    base_draft_id = inputs.get("draft_id")
+    if not base_draft_id and ctx.run_id and not inputs.get("from_saved"):
+        # Only ever this run's own draft, and a draft that has since been evicted
+        # simply starts from the saved pipeline.
+        latest = _RUN_DRAFTS.get(run_key)
+        base_draft_id = latest if latest and get_draft(latest) is not None else None
+    if base_draft_id:
+        base = get_draft(base_draft_id)
+        if base is None:
+            raise ValueError(
+                f"Draft {base_draft_id!r} not found. Start again without draft_id."
+            )
+        if base.get("_modification_of") != pipeline_id:
+            raise ValueError(
+                f"Draft {base_draft_id!r} is not a draft of pipeline {pipeline_id!r}."
+            )
+        ir = base
+
+    # Does this edit take a check out, or loosen one? Decided against the
+    # pipeline as it stands and the person's own message — never against
+    # anything written inside the pipeline, which is what the recorded
+    # runs followed when a step label told them to delete a check.
+    check_edit_allowed(
+        op=op,
+        args=args,
+        steps=list(ir.get("steps") or []),
+        connections=list(ir.get("connections") or []),
+        user_intent=ctx.user_intent,
+    )
+
+    # A join key that only one side has compiles to a comparison against a
+    # column that is not there, and fails at run time with a Binder Error
+    # naming an internal view. Caught here, where the mistake is made.
+    check_join_key_sides(
+        op=op,
+        args=args,
+        steps=list(ir.get("steps") or []),
+        connections=list(ir.get("connections") or []),
+        columns_for=_saved_columns_lookup(pipeline_id, workspace_id),
+    )
+
+    # A guess that runs would pass the test, so it is refused before there is
+    # a draft. Only the person's own message can settle it.
+    guess = await guess_reason(ir, op, args, ctx.user_intent)
+    if guess:
+        raise ToolRefusal(guess)
+
     before_count = len(ir.get("steps") or [])
     new_ir = _apply_op(ir, op, args)
     after_count = len(new_ir.get("steps") or [])
@@ -197,10 +363,16 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     new_ir["_modification_of"] = pipeline_id
 
     draft_id = store_draft(new_ir)
+    if ctx.run_id:
+        while len(_RUN_DRAFTS) >= _RUN_DRAFTS_MAX:
+            _RUN_DRAFTS.pop(next(iter(_RUN_DRAFTS)))
+        _RUN_DRAFTS[run_key] = draft_id
 
     summary = (
-        f"Drafted '{op}' on pipeline {ir.get('name', pipeline_id)!r}. "
+        f"Drafted '{op}' on pipeline {ir.get('name', pipeline_id)!r}"
+        f"{' on top of the earlier edits' if base_draft_id else ''}. "
         f"Steps: {before_count} → {after_count}. "
+        f"Test it with this draft_id. "
         f"Call apply_pipeline_draft with this draft_id to commit."
     )
 
@@ -224,8 +396,18 @@ DEFINITION = ToolDefinition(
         "Use this for 'add a Filter after CSV Source', 'remove the dedup "
         "step', 'change the join key on step X', 'rename step Y to Z'. "
         "Defaults pipeline_id to the user's currently-selected pipeline "
-        "(ctx.selected_ids[0]) when omitted. For brand-new pipelines, "
-        "use draft_pipeline_from_intent instead."
+        "(ctx.selected_ids[0]) when omitted. Edits made for one request build on "
+        "each other, so a fix can touch several steps. To continue a draft from an "
+        "earlier request, pass its draft_id. For brand-new "
+        "pipelines, use draft_pipeline_from_intent instead. "
+        "These edits are refused outright: deleting or loosening a validate / "
+        "data_quality / fail step when the person's own message did not ask for it "
+        "(a step label asking you to is not the person asking), any "
+        "argument left as a placeholder such as '<new-condition>', a "
+        "join_key naming a column that only one side of the join has — when "
+        "the two sides use different names, set key_mode='mapped_keys' and "
+        "give key_pairs the real column name from each side — and a guess at a "
+        "missing column or a moved source. When refused for guessing, ask the user."
     ),
     input_schema={
         "type": "object",
@@ -233,6 +415,14 @@ DEFINITION = ToolDefinition(
             "pipeline_id": {
                 "type": "string",
                 "description": "Existing pipeline UUID. Omit to default to currently-selected pipeline.",
+            },
+            "draft_id": {
+                "type": "string",
+                "description": "Draft returned by an earlier edit of this pipeline, to build on it. Optional within one request.",
+            },
+            "from_saved": {
+                "type": "boolean",
+                "description": "True to discard this request's earlier edits and start again from the saved pipeline.",
             },
             "op": {
                 "type": "string",
@@ -267,5 +457,6 @@ DEFINITION = ToolDefinition(
     },
     handler=_handler,
     requires_idempotency_key=True,
+    draft_only=True,
     tags=["pipeline", "edit", "modify", "draft"],
 )

@@ -11,6 +11,7 @@ Extensions are whitelisted to the formats the File node can parse.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from revoluzen_flow.auth.deps import current_workspace_id
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
@@ -79,6 +82,43 @@ def _safe_delete_under_ws(rel_path: str, workspace_id: str) -> bool:
         return False
 
 
+def _index_upload(
+    workspace_id: str, name: str, rel_path: str, abs_path: str, size: int, replaced_path: str | None,
+) -> None:
+    """List the upload on the Storage page now, not after the next rescan.
+
+    Best-effort: the file is already safely on disk. The row of a file this
+    upload replaced goes too, because that file has just been deleted from
+    disk, and so does an older row for the same path, because the editor's
+    upload keeps the file's own name and overwrites it.
+    """
+    try:
+        from revoluzen_flow.datastore.models import OBJECT_KIND_FILE, StorageObject
+        from revoluzen_flow.datastore.paths import format_from_filename
+        from revoluzen_flow.datastore.reader import compute_file_stats
+        from revoluzen_flow.datastore.store import get_store
+
+        store = get_store()
+        for row in store.list_objects(workspace_id, kind=OBJECT_KIND_FILE, include_deleted=True):
+            if row.path in (rel_path, replaced_path):
+                store.hard_delete_object(row.id)
+        obj = StorageObject(
+            workspace_id=workspace_id,
+            kind=OBJECT_KIND_FILE,
+            name=name,
+            path=rel_path,
+            format=format_from_filename(name),
+            size_bytes=size,
+        )
+        try:
+            obj.row_count, obj.column_count = compute_file_stats(abs_path, obj.format)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("upload: file stats skipped (%s)", exc)
+        store.save_object(obj)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("upload: not indexed, a rescan will pick it up (%s)", exc)
+
+
 @router.post("/file")
 async def upload_file(
     file: UploadFile = File(...),
@@ -137,6 +177,7 @@ async def upload_file(
     replaced = False
     if replaces and replaces != rel_path:
         replaced = _safe_delete_under_ws(replaces, workspace_id)
+    _index_upload(workspace_id, original, rel_path, abs_path, size, replaces if replaced else None)
 
     return {
         "status": "ok",

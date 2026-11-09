@@ -40,10 +40,19 @@ Hit **Save**. Revoluzen Flow:
    credentials by ID — the encrypted value is never embedded in the
    pipeline IR.
 
-To use the credential from a pipeline, drop a Database Source / Sink
-or REST Connector node, and pick the credential by name from the
-dropdown. Connection strings are reconstituted at runtime by the
-backend; the frontend never sees plaintext.
+To use the credential, pick it under **Saved credential** on a
+connection: the fields it holds fill themselves, for example the
+username and password. A **SaaS Connector** step has the same picker,
+and the pipeline stores only which credential to use. Connection
+strings are reconstituted at runtime by the backend; the frontend
+never sees plaintext.
+
+Set an **expiry date** if the secret has one. Administrators are warned
+on the notification bell and by email a week ahead, a day ahead and when
+it expires, once each. The check runs hourly, email needs SMTP, and
+**Settings → Notifications → Credential expiry warnings** turns it off.
+The date is the one you entered: Revoluzen Flow does not ask the
+provider, and a credential with no date gets no warning.
 
 The AI Copilot's `inspect_connections` tool returns credential
 metadata (name, type, ID) but **never the secret value**. This is
@@ -145,6 +154,11 @@ the stored key — only whether one is configured.
 A: Credentials page → click the credential → Edit → enter the new
 secret → Save. Revoluzen Flow re-encrypts. Pipelines pick up the new value
 on the next run.
+
+**Q: Will I be told before a credential expires?**
+A: Yes, if you set its expiry date. Administrators get a warning on the
+bell and by email a week ahead, a day ahead and when it expires.
+Renewing it with a new date starts the warnings again.
 
 **Q: How do I share credentials with my team?**
 A: OSS Free is single-user. Revoluzen Flow Enterprise adds workspace-scoped credentials

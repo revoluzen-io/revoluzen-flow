@@ -89,6 +89,25 @@ class TestExecutionStats:
         stats = execution_store.get_stats()
         assert stats["avg_duration_ms"] == 200.0
 
+    def test_stats_avg_duration_counts_successful_runs_only(self, execution_store):
+        """The Dashboard card reads "per successful run": a failed, cancelled or
+        still-running run must not move the figure."""
+        execution_store.record(ExecutionRecord(id="e1", workflow_id="wf", status="success", duration_ms=100))
+        execution_store.record(ExecutionRecord(id="e2", workflow_id="wf", status="success", duration_ms=300))
+        execution_store.record(ExecutionRecord(id="e3", workflow_id="wf", status="error", duration_ms=60000))
+        execution_store.record(ExecutionRecord(id="e4", workflow_id="wf", status="cancelled", duration_ms=9000))
+        execution_store.record(ExecutionRecord(id="e5", workflow_id="wf", status="running"))
+        stats = execution_store.get_stats()
+        assert stats["avg_duration_ms"] == 200.0
+        # The counts still cover every run in the window.
+        assert stats["total"] == 5
+        assert stats["failed"] == 1
+
+    def test_stats_avg_duration_is_zero_without_a_successful_run(self, execution_store):
+        execution_store.record(ExecutionRecord(id="e1", workflow_id="wf", status="error", duration_ms=500))
+        execution_store.record(ExecutionRecord(id="e2", workflow_id="wf", status="cancelled", duration_ms=700))
+        assert execution_store.get_stats()["avg_duration_ms"] == 0
+
     def test_stats_period_filtering(self, execution_store):
         """Old executions should not be counted in recent stats."""
         old = ExecutionRecord(id="old", workflow_id="wf", status="success")

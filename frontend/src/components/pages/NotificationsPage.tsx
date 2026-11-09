@@ -150,6 +150,16 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string; icon
       </svg>
     ),
   },
+  credential_expiry: {
+    label: 'Credential Expiry',
+    color: 'text-amber-700',
+    bg: 'bg-amber-100',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+      </svg>
+    ),
+  },
   // 2026-06-05 — Steward (Archeologist) notifications. Two types:
   //   `steward_finding` — new finding at the user's notify_min_severity.
   //   `steward_finding_escalated` — a previously-known finding bumped
@@ -190,7 +200,7 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string; icon
   },
 };
 
-type FilterType = 'all' | 'runs' | 'approval_request' | 'approved' | 'rejected' | 'deployed' | 'alerts' | 'watchdog';
+type FilterType = 'all' | 'runs' | 'approval_request' | 'approved' | 'rejected' | 'deployed' | 'alerts' | 'watchdog' | 'credential_expiry';
 
 export default function NotificationsPage({ environment = 'dev', tier = 'free' }: { environment?: 'dev' | 'prod'; tier?: string }) {
   // 2026-05-19 (P2 #8 of PAGE_BY_PAGE_AUDIT.md): PROD chrome must be
@@ -452,6 +462,7 @@ export default function NotificationsPage({ environment = 'dev', tier = 'free' }
           // fires (long-running + schedule-miss) so users can isolate them
           // from explicit threshold-based alert rules.
           { id: 'watchdog' as FilterType, label: 'Watchdog', count: (typeCounts['long_running'] || 0) + (typeCounts['schedule_miss'] || 0) },
+          { id: 'credential_expiry' as FilterType, label: 'Credentials', count: typeCounts['credential_expiry'] || 0 },
         ]).map((f) => (
           <button
             key={f.id}

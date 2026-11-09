@@ -154,6 +154,7 @@ def test_posix_still_refuses_rather_than_repairing(tmp_path):
     assert key.stat().st_mode & stat.S_IROTH
 
 
+@pytest.mark.windows
 @pytest.mark.skipif(os.name != "nt", reason="NTFS DACL")
 def test_end_to_end_real_file_is_hardened_on_load(tmp_path):
     """No fakes: a real file, the real ACL, read back after the real load."""

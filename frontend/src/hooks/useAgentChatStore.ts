@@ -45,6 +45,8 @@ interface AgentChatState {
    *  when it mounts / re-renders, then cleared. Lets ConfigPanel and
    *  other surfaces deep-link "Ask Copilot about this code" prompts. */
   pendingInput: string | null;
+  /** Send pendingInput straight away instead of leaving it to be edited. */
+  pendingSend: boolean;
   /** Layer 2 dialogue state — sent on every request, replaced by the
    *  backend's response on every turn. */
   caseFile: CaseFile;
@@ -81,6 +83,7 @@ let _state: AgentChatState = {
   turns: [],
   open: false,
   pendingInput: null,
+  pendingSend: false,
   caseFile: _loadCaseFile(),
 };
 const _listeners = new Set<(s: AgentChatState) => void>();
@@ -124,15 +127,16 @@ export function getCaseFile(): CaseFile {
 }
 
 export function setPendingInput(text: string | null): void {
-  _publish({ ..._state, pendingInput: text });
+  _publish({ ..._state, pendingInput: text, pendingSend: false });
 }
 
 /**
  * Convenience: open the dock + pre-fill the chat input.
  * Used by deep-link buttons like "Ask Copilot about this SQL".
+ * With `send`, the prompt is submitted rather than left for editing.
  */
-export function askCopilot(prompt: string): void {
-  _publish({ ..._state, open: true, pendingInput: prompt });
+export function askCopilot(prompt: string, opts?: { send?: boolean }): void {
+  _publish({ ..._state, open: true, pendingInput: prompt, pendingSend: !!opts?.send });
 }
 
 export function getSnapshot(): AgentChatState {
@@ -169,6 +173,7 @@ export function useAgentChatStore() {
     turns: state.turns,
     open: state.open,
     pendingInput: state.pendingInput,
+    pendingSend: state.pendingSend,
     caseFile: state.caseFile,
     setOpen: setOpenStable,
     setTurns: setTurnsStable,

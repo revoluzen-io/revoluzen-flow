@@ -115,12 +115,14 @@ def _walk(value: Any, resolved: dict[str, Any], run_id: str) -> Any:
 def resolve_parameter_values(
     parameters: list[WorkflowParameter],
     overrides: dict[str, Any] | None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the final {name: value} dict from declared params + overrides.
 
     Args:
       parameters: declared WorkflowParameter list (from Workflow.parameters)
       overrides: caller-supplied values (from API body / scheduler / Run dialog)
+      run_id: what ${run_id} in a default becomes; a fresh one if not given
 
     Returns:
       dict of resolved values, type-coerced.
@@ -147,6 +149,11 @@ def resolve_parameter_values(
             raw = overrides[p.name]
         elif p.default is not None:
             raw = p.default
+            # `_walk` resolves system placeholders before it substitutes a
+            # parameter's value, so one inside a default has to be resolved
+            # here or it reaches the step as literal text.
+            if isinstance(raw, str):
+                raw = _resolve_system_placeholders(raw, run_id or uuid.uuid4().hex)
         elif p.required:
             missing.append(p.name)
             continue
@@ -215,8 +222,8 @@ def resolve_workflow_parameters(
     Step params are walked recursively; placeholders ${param.<name>} and
     ${utcnow[:fmt]} / ${run_id} are substituted. Original is never mutated.
     """
-    resolved = resolve_parameter_values(workflow.parameters or [], overrides)
     run_id = uuid.uuid4().hex
+    resolved = resolve_parameter_values(workflow.parameters or [], overrides, run_id=run_id)
 
     out = deepcopy(workflow)
     for step in out.steps:

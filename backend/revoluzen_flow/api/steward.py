@@ -375,6 +375,12 @@ def _workflows_for_scan(workspace_id: str) -> list[dict[str, Any]]:
             or d.get("steps")
             or []
         )
+        # list_all returns summaries without steps, so every scan used to see
+        # empty pipelines and the duplicate detectors could never fire.
+        if not nodes and d.get("step_count") and d.get("id"):
+            version = store.get(d["id"], workspace_id=workspace_id)
+            if version:
+                nodes = [s.model_dump(mode="json") for s in version.workflow.steps]
         out.append({
             "id": d.get("id") or "",
             "name": d.get("name") or "",

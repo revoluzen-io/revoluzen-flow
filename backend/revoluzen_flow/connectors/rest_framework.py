@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import urllib.error
@@ -67,6 +68,23 @@ from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
 from revoluzen_flow.security.ssrf import API_SOURCE_ALLOW_PRIVATE_ENV, check_url
+
+logger = logging.getLogger(__name__)
+
+
+class PaginationLimitReached(RuntimeError):
+    """A stream hit its ``max_pages`` cap while the API still had more pages.
+
+    Raised instead of returning the partial result so a pipeline never
+    reports success on silently truncated data. A stream that wants a
+    sample can opt in with ``pagination.on_max_pages = "stop"``.
+    """
+
+
+# What to do when a stream reaches ``max_pages`` and the API says there is more:
+#   error — raise PaginationLimitReached (default; no silent data loss)
+#   stop  — keep the pages read so far, log a warning (sampling, previews)
+VALID_ON_MAX_PAGES = ("error", "stop")
 
 
 def _origin(url: str) -> tuple[str, str | None, int | None]:
@@ -626,10 +644,43 @@ def _build_url(base: str, path: str, query: dict[str, Any]) -> str:
     return full
 
 
+def _probe_has_more(
+    next_url: str,
+    base: str,
+    headers: dict[str, str],
+    method: str,
+    body: Any,
+    body_text: str | None,
+    data_path: str,
+) -> bool:
+    """Fetch the page after the cap and report whether it holds any rows.
+
+    Conservative: if the probe cannot be made or fails, assume there is
+    more data, so a truncated read is never reported as complete.
+    """
+    try:
+        if _origin(next_url) != _origin(base):
+            return True
+        payload, _ = _http_request(next_url, headers, method=method, body=body, body_text=body_text)
+    except Exception:  # noqa: BLE001 — any failure means "cannot prove complete"
+        return True
+    chunk = _dot_get(payload, data_path) if data_path else payload
+    return bool(chunk)
+
+
 def _execute_stream(
-    manifest: RestConnectorManifest, stream: dict[str, Any], params: dict[str, Any]
+    manifest: RestConnectorManifest,
+    stream: dict[str, Any],
+    params: dict[str, Any],
+    *,
+    on_max_pages: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Run a stream and return all collected rows across pages."""
+    """Run a stream and return all collected rows across pages.
+
+    ``on_max_pages`` overrides the stream's ``pagination.on_max_pages``
+    (see ``VALID_ON_MAX_PAGES``). Callers pass ``"stop"`` for previews,
+    where a partial result is expected.
+    """
     base = _interpolate(manifest.base_url, params)
     # Header layering (later overrides earlier):
     #   1. Accept: application/json default
@@ -678,6 +729,17 @@ def _execute_stream(
     pagination = _normalize_pagination(stream.get("pagination"))
     ptype = (pagination.get("type") or "none").lower()
     max_pages = int(pagination.get("max_pages", 50))
+    # Read from the raw block: the alias normaliser rebuilds the dict and
+    # would drop this key for page_token / offset / page streams.
+    limit_mode = (
+        on_max_pages
+        or (stream.get("pagination") or {}).get("on_max_pages")
+        or "error"
+    ).lower()
+    if limit_mode not in VALID_ON_MAX_PAGES:
+        raise ValueError(
+            f"pagination.on_max_pages must be one of {list(VALID_ON_MAX_PAGES)}, got {limit_mode!r}"
+        )
 
     # Resolve method + body for this stream. Bodies are deep-template-
     # interpolated against the same params dict used for path/query so
@@ -692,10 +754,27 @@ def _execute_stream(
     if isinstance(body_text, str):
         body_text = _interpolate(body_text, params)
 
+    page_size = int(pagination.get("page_size", 100))
+
+    # Send the page size on the FIRST request too. Without it the API
+    # answers page 1 with its own default size (often 10–50). For
+    # offset_limit that short page looked like the last one, so the
+    # stream stopped after page 1. A size the stream already sets in
+    # its query wins and becomes the page size used from here on.
+    size_param = None
+    if ptype == "offset_limit":
+        size_param = pagination.get("limit_param", "limit")
+    elif ptype == "page_number":
+        size_param = pagination.get("page_size_param", "per_page")
+    if size_param:
+        explicit = query.get(size_param)
+        if explicit is not None and str(explicit).strip().isdigit():
+            page_size = int(str(explicit).strip())
+        query[size_param] = page_size
+
     rows: list[dict[str, Any]] = []
     next_url: str | None = _build_url(base, path, query)
     page = 1
-    page_size = int(pagination.get("page_size", 100))
 
     while next_url and page <= max_pages:
         if _origin(next_url) != _origin(base):
@@ -792,6 +871,22 @@ def _execute_stream(
         else:
             next_url = None
 
+    # The loop only exits with a next_url still set when the page cap cut
+    # it short. That does not prove there is more data: page_number only
+    # learns it is done from an empty page, and offset_limit from a short
+    # one, so a stream that ends exactly on the cap still has a next_url.
+    # One probe request settles it, so we never fail a complete read.
+    if next_url and _probe_has_more(next_url, base, headers, method, body, body_text, data_path):
+        msg = (
+            f"Stream '{stream.get('name', '?')}' stopped at max_pages={max_pages} "
+            f"after {len(rows)} rows, but the API reports more pages. "
+            "Raise pagination.max_pages to read everything, or set "
+            "pagination.on_max_pages='stop' to accept a partial result."
+        )
+        if limit_mode == "error":
+            raise PaginationLimitReached(msg)
+        logger.warning("%s (on_max_pages='stop'; returning partial result)", msg)
+
     return rows
 
 
@@ -814,6 +909,47 @@ def _rows_to_relation(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]
 
 # ─────────────────────────── Node ───────────────────────────
 
+# What a connector's secret field may be called in a saved credential, by how the
+# field's name ends. Generated connectors name them auth_<scheme>_key and so on.
+_CREDENTIAL_KEYS_BY_SUFFIX: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("password", ("password", "pass", "passwd", "pwd")),
+    ("username", ("username", "user", "user_name", "login")),
+    ("secret", ("client_secret", "secret")),
+    ("token", ("token", "access_token", "api_key")),
+    ("key", ("api_key", "key", "apikey", "token")),
+)
+
+
+def _apply_saved_credential(manifest: RestConnectorManifest, env: dict[str, Any], ctx: ExecutionContext) -> None:
+    """Fill a connector's empty secret fields from the credential the node points at.
+
+    The pipeline stores only which credential to use. A key typed into the node
+    would live in the pipeline definition, and every copy of it, in plain sight.
+    """
+    credential_id = env.pop("credential_id", None)
+    if not credential_id:
+        return
+    store = (ctx.app_state or {}).get("credential_store")
+    credential = store.get_raw(credential_id) if store else None
+    workflow = getattr(ctx, "_workflow_ref", None)
+    workspace = getattr(workflow, "workspace_id", None) or "default"
+    if credential is None or (getattr(credential, "workspace_id", None) or "default") != workspace:
+        raise ValueError("The saved credential this connector uses no longer exists. Choose another in the step's settings.")
+    config = credential.config or {}
+    for param in manifest.params or []:
+        name = param.get("name")
+        if not name or not param.get("secret") or env.get(name):
+            continue
+        aliases = next((keys for suffix, keys in _CREDENTIAL_KEYS_BY_SUFFIX if name.lower().endswith(suffix)), ())
+        source = next((key for key in (name, *aliases) if config.get(key)), None)
+        if source:
+            env[name] = config[source]
+    try:
+        store.mark_used(credential_id, workspace_id=workspace)
+    except Exception:  # noqa: BLE001 — "last used" must never break a run
+        pass
+
+
 @register(StepType.SAAS_CONNECTOR)
 class SaaSConnectorNode(BaseNode):
     """Universal SaaS node — single palette entry that drives any loaded manifest.
@@ -826,7 +962,7 @@ class SaaSConnectorNode(BaseNode):
 
     display_name = "SaaS Connector"
     category = "source"
-    description = "Pick from any of the loaded SaaS manifests (Salesforce, HubSpot, Stripe, ...)"
+    description = "Read from a SaaS application, using a built-in connector or one you generated in the API Explorer"
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
         # Just delegate — params shape is identical.
@@ -869,7 +1005,12 @@ class RestApiSourceNode(BaseNode):
 
         # Merge connector-level params (excluding internals).
         env = {k: v for k, v in self.params.items() if not k.startswith("_")}
-        rows = _execute_stream(manifest, stream, env)
+        _apply_saved_credential(manifest, env, ctx)
+        # A preview is a sample by design; a real run must not truncate silently.
+        rows = _execute_stream(
+            manifest, stream, env,
+            on_max_pages="stop" if getattr(ctx, "preview_mode", False) else None,
+        )
         return _rows_to_relation(ctx.conn, rows)
 
     @staticmethod

@@ -392,7 +392,10 @@ def _synapse(config): return _mssql_catalog(config)
 @register("sqlite", ProviderMeta(category="relational", auth="none", tier="tier1"))
 def _sqlite_catalog(config: dict[str, Any]) -> Catalog:
     import sqlite3
-    path = config.get("database") or config.get("file") or config.get("path")
+
+    from .sqlite_path import sqlite_db_path
+
+    path = sqlite_db_path(config)
     if not path:
         return _unsupported("No database file path configured")
     conn = sqlite3.connect(path, timeout=DEFAULT_TIMEOUT)

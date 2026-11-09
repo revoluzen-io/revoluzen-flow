@@ -638,6 +638,9 @@ class StepRunResult(BaseModel):
     # leave the operator unable to tell whether the sink wrote. This is
     # what the UI renders as "skipped (sample)".
     skipped_reason: str | None = None
+    # A step can build and then fail when its rows are read, so `success` here
+    # only means it built. Set by the preview; the step's status does not change.
+    read_error: str | None = None
 
 
 class WorkflowRunResult(BaseModel):

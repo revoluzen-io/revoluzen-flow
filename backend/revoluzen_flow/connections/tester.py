@@ -373,11 +373,13 @@ class ConnectionTester:
     def _test_sqlite(self, config: dict) -> dict:
         import sqlite3
 
-        db_path = config.get("database") or config.get("file") or config.get("path")
+        from .sqlite_path import sqlite_db_path
+
+        db_path = sqlite_db_path(config)
         if not db_path:
             return _fail(
                 "No database file path configured",
-                "Provide a 'database' or 'file' path in the connection config",
+                "Fill in the path to the .sqlite or .db file",
                 "sqlite",
             )
 
@@ -420,7 +422,7 @@ class ConnectionTester:
                         db_size = f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
 
                 return _ok(
-                    f"SQLite database opened: {db_path}",
+                    f"SQLite database opened: {os.path.basename(db_path)}",
                     latency,
                     server_version=f"SQLite {server_version}",
                     tables_count=tables_count,

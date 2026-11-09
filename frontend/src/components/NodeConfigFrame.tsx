@@ -65,7 +65,10 @@ export function DataInBand({ d, compact }: { d: DataInDescriptor; compact?: bool
               {p.connected ? (
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-700">{p.label || '(upstream)'}</span>
-                  <span className="text-slate-500"> · {p.columns.length} col{p.columns.length === 1 ? '' : 's'}</span>
+                  {/* No columns means not known yet, not an empty input. */}
+                  {p.columns.length > 0 && (
+                    <span className="text-slate-500"> · {p.columns.length} col{p.columns.length === 1 ? '' : 's'}</span>
+                  )}
                   {!compact && <ColumnChips columns={p.columns} />}
                 </div>
               ) : (

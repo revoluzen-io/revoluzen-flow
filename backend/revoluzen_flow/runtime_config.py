@@ -165,12 +165,14 @@ DUCKDB_PRESERVE_ORDER: bool = os.environ.get(
 # pre-execution check so the user knows they're pushing limits.
 MAX_UPLOAD_MB: int = _int("REVOLUZEN_FLOW_MAX_UPLOAD_MB", 500)
 
-# Max rows a single source node may emit. Prevents runaway SELECT *.
-MAX_SOURCE_ROWS: int = _int("REVOLUZEN_FLOW_MAX_SOURCE_ROWS", 10_000_000)
+# Max rows a single source node may emit. Off by default: it truncates with no
+# error, so a larger source would write partial data to its destination. Set it
+# only to deliberately bound what an install will read.
+MAX_SOURCE_ROWS: int = _int("REVOLUZEN_FLOW_MAX_SOURCE_ROWS", 0)
 
-# Sample mode: when > 0, source nodes in DEV preview limit to this many
-# rows for fast iteration. The full dataset is only processed on explicit
-# "Run Full" execution. 0 = disabled (load everything).
+# Sample mode: when > 0, source nodes in a DEV run that writes nothing limit to
+# this many rows for fast iteration. A run that writes always reads everything.
+# 0 = disabled (load everything).
 DEV_SAMPLE_ROWS: int = _int("REVOLUZEN_FLOW_DEV_SAMPLE_ROWS", 1_000_000)
 
 # Volume tier thresholds (bytes) — used for UX warnings and scale-up hints.
@@ -196,6 +198,16 @@ BACKUP_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_BACKUP_RETENTION", 5)
 # call, not ours. Docs claimed a 90-day default for a long time while
 # nothing pruned at all; 90 is a reasonable value to SET, not to assume.
 TRACE_RETENTION_DAYS: int = _int("REVOLUZEN_FLOW_TRACE_RETENTION_DAYS", 0)
+
+# How long a deleted pipeline stays in the Bin (Pipelines → Bin) before a daily
+# job removes it for good. 0 = never remove automatically: it stays until
+# someone deletes it from the Bin or empties the Bin.
+#
+# Unlike the trace window above, a finite default is safe here: the Bin only
+# ever holds pipelines deleted after it existed, so switching it on discards
+# nothing that exists today. 30 days is what the Pipelines page used to
+# promise before the Bin was real.
+BIN_RETENTION_DAYS: int = _int("REVOLUZEN_FLOW_BIN_RETENTION_DAYS", 30)
 
 
 # ── Introspection helper ────────────────────────────────────────────────
@@ -223,6 +235,7 @@ def snapshot() -> dict:
         "version_retention_count": VERSION_RETENTION_COUNT,
         "backup_retention_count": BACKUP_RETENTION_COUNT,
         "trace_retention_days": TRACE_RETENTION_DAYS,
+        "bin_retention_days": BIN_RETENTION_DAYS,
     }
 
 

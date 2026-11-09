@@ -31,6 +31,16 @@ from __future__ import annotations
 
 import os
 
+# Repository root for a source checkout: this file lives at
+# <root>/backend/revoluzen_flow/nodes/_path_utils.py. `start.ps1` launches
+# uvicorn with the working directory set to <root>/backend, so a CWD-only
+# fallback misses the sample pack; resolving against the checkout root
+# makes `samples/free-api-pipelines/data/*.csv` work however the backend
+# was started. For a packaged install the package sits under
+# site-packages and this directory has no `samples/` folder, so the
+# candidate simply never matches.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
 
 def resolve_input_path(file_path: str, data_dir: str) -> str:
     """Resolve a user-provided file path for READS, with smart fallback.
@@ -39,7 +49,9 @@ def resolve_input_path(file_path: str, data_dir: str) -> str:
       1. Absolute path  → returned as-is.
       2. `<data_dir>/<file_path>` → returned if the file exists there.
       3. `<cwd>/<file_path>` → returned if the file exists there.
-      4. Otherwise → returns the data_dir-joined path (which is what
+      4. `<repo_root>/<file_path>` → returned if the file exists there
+         (source checkouts only; see `_REPO_ROOT`).
+      5. Otherwise → returns the data_dir-joined path (which is what
          the caller will most often want to mention in the not-found
          error).
     """
@@ -57,5 +69,9 @@ def resolve_input_path(file_path: str, data_dir: str) -> str:
     fallback = os.path.abspath(file_path)
     if os.path.isfile(fallback):
         return fallback
+
+    repo_relative = os.path.join(_REPO_ROOT, file_path)
+    if os.path.isfile(repo_relative):
+        return repo_relative
 
     return primary

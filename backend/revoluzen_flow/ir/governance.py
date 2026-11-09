@@ -87,6 +87,20 @@ class WorkflowGovernance(BaseModel):
     is_active_prod: bool = True
 
 
+def is_deactivated(workflow) -> bool:
+    """True when the pipeline has been switched off in either environment.
+
+    Schedules and published endpoints have no environment of their own, so a
+    pause in either one stops them. The flags live on the workflow and, once
+    approvals have touched it, on its governance block as well.
+    """
+    flags = [getattr(workflow, "is_active_dev", True), getattr(workflow, "is_active_prod", True)]
+    governance = getattr(workflow, "governance", None)
+    if governance is not None:
+        flags += [governance.is_active_dev, governance.is_active_prod]
+    return any(flag is False for flag in flags)
+
+
 def empty_governance() -> WorkflowGovernance:
     """Helper for tests and Plus migration code — returns a fresh
     all-default governance sub-model so callers don't have to remember

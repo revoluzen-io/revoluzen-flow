@@ -7,7 +7,7 @@ Revoluzen Flow ships in two editions packaged as one binary. The OSS Free editio
 The OSS edition is the full deterministic execution engine plus AI assistance. Includes:
 
 - **Pipelines, projects, schedules, alerts, connections** — full CRUD, versioned IR, content-hash signing
-- **44 node types** — sources, transforms (incl. SCD Type 2, Data Profile, Data Quality), sinks (incl. Bulk Loader for Postgres + Snowflake). NOTE: a small set of nodes are **Plus-only** — see `02_node_types.md` for the breakdown.
+- **45 node types** — sources, transforms (incl. SCD Type 2, Data Profile, Data Quality), sinks (incl. Bulk Loader for Postgres + Snowflake). NOTE: a small set of nodes are **Plus-only** — see `02_node_types.md` for the breakdown.
 - **37 OSS connectors** — 4 database dialects (postgresql/mysql/mssql/sqlite via Database Source/Sink) + 2 bulk-load dialects (Postgres COPY, Snowflake PUT+COPY) + ~31 SaaS manifests. Cert matrix at `/api/connectors/cert-matrix` shows current depth scores: 8 v2 beta in validation, 27 v1 functional, 2 v1 basic. The Salesforce manifest in OSS is the starter version; the production-hardened enterprise Salesforce connector is Plus-only.
 - **DEV environment** — pipelines run in DEV with sample-row limits on sources for fast iteration. **PROD environment + DEV→PROD promotion is Revoluzen Flow Enterprise only** — OSS Free has no PROD execution path through the legal contract (see edition-matrix.md).
 - **Workflow versioning** with SHA-256 content hash for tamper detection

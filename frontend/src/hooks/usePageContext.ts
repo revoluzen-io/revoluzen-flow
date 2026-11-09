@@ -108,10 +108,17 @@ export function usePageContext(input: {
   visible_items?: VisibleItem[];
   /** Optional code-editor state (active expression / SQL / language). */
   code?: CodeContext;
+  /**
+   * Publish nothing while false. For a hub page whose active tab publishes
+   * its own, more specific context: without it the hub's effect, which runs
+   * after its child's, would overwrite the tab's. Defaults to true.
+   */
+  enabled?: boolean;
 }): void {
   const env: 'dev' | 'prod' =
     input.environment ??
     ((localStorage.getItem('revoluzen_flow_environment') as 'dev' | 'prod' | null) || 'dev');
+  const enabled = input.enabled !== false;
 
   // Stable string keys for dependency tracking — avoids referential-equality
   // re-publishes when callers pass freshly-constructed arrays each render.
@@ -122,6 +129,7 @@ export function usePageContext(input: {
   const codeKey = JSON.stringify(input.code ?? null);
 
   useEffect(() => {
+    if (!enabled) return undefined;
     const cappedItems = input.visible_items
       ? input.visible_items.slice(0, 50)
       : undefined;
@@ -142,7 +150,7 @@ export function usePageContext(input: {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [input.page, visibleKey, selectedKey, filtersKey, itemsKey, codeKey, env]);
+  }, [enabled, input.page, visibleKey, selectedKey, filtersKey, itemsKey, codeKey, env]);
 }
 
 /**

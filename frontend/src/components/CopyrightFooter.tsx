@@ -24,6 +24,9 @@ import { useDarkMode } from '../hooks/useDarkMode';
 // amber-50 is the lightest one in the app. Clearing 4.5:1 there clears it
 // everywhere. If the brand wants the original lighter inks back, the
 // alternative is to set them on a dark plate rather than on the page.
+//
+// It floats over tables too, so it sits on a light plate of its own: without
+// one, a row scrolling beneath it reads as garbled text.
 const BRAND_COLORS = [
   '#976C20',   // gold  — the logo "F"          (4.50:1 on amber-50, 4.67 on white)
   '#0D8550',   // green — top refresh arrow     (4.51:1 on amber-50, 4.67 on white)
@@ -46,8 +49,8 @@ export default function CopyrightFooter({ environment = 'dev' }: { environment?:
         href="https://revoluzen.io"
         target="_blank"
         rel="noopener noreferrer"
-        className={`pointer-events-auto inline-flex items-baseline gap-1.5 transition-colors ${
-          isProd || dark ? 'text-slate-300' : 'text-slate-500'
+        className={`pointer-events-auto inline-flex items-baseline gap-1.5 rounded-md px-1.5 backdrop-blur-sm transition-colors ${
+          isProd || dark ? 'text-slate-300 bg-slate-900/70' : 'text-slate-500 bg-white/80'
         }`}
         title="Built by Revoluzen"
       >

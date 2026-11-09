@@ -609,7 +609,10 @@ class S3SinkNode(BaseNode):
         access_key = self.params.get("access_key", "")
         secret_key = self.params.get("secret_key", "")
         region = self.params.get("region", "us-east-1")
-        file_format = self.params.get("format", "parquet")
+        # The step's settings save `file_format`, and a connection saves `endpoint_url`.
+        # Reading only the older names wrote Parquet whatever was chosen, and sent data
+        # for MinIO or any other S3-compatible store to Amazon instead.
+        file_format = self.params.get("file_format") or self.params.get("format", "parquet")
         connection_id = self.params.get("connection_id", "")
 
         # Load connection config
@@ -618,7 +621,7 @@ class S3SinkNode(BaseNode):
             result = _get_connection_config(connection_id)
             if result:
                 config, _ = result
-                endpoint = config.get("endpoint", endpoint)
+                endpoint = config.get("endpoint_url") or config.get("endpoint", endpoint)
                 access_key = config.get("access_key", access_key)
                 secret_key = config.get("secret_key", secret_key)
                 region = config.get("region", region)
@@ -628,7 +631,7 @@ class S3SinkNode(BaseNode):
             raise ValueError("S3 Sink: bucket and key are required")
 
         # Write to temp file first
-        suffix_map = {"parquet": ".parquet", "csv": ".csv", "json": ".json"}
+        suffix_map = {"parquet": ".parquet", "csv": ".csv", "json": ".json", "jsonl": ".jsonl"}
         suffix = suffix_map.get(file_format, ".parquet")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -640,6 +643,8 @@ class S3SinkNode(BaseNode):
                 ctx.conn.sql(f"COPY __s3_sink_data TO '{tmp_path}' (FORMAT CSV, HEADER)")
             elif file_format == "json":
                 ctx.conn.sql(f"COPY __s3_sink_data TO '{tmp_path}' (FORMAT JSON, ARRAY true)")
+            elif file_format == "jsonl":
+                ctx.conn.sql(f"COPY __s3_sink_data TO '{tmp_path}' (FORMAT JSON)")
             else:
                 ctx.conn.sql(f"COPY __s3_sink_data TO '{tmp_path}' (FORMAT PARQUET)")
 
@@ -1798,7 +1803,9 @@ class WarehouseSinkNode(BaseNode):
 
         if conn_type == "sqlite":
             import sqlite3
-            return sqlite3.connect(config.get("database") or config.get("file", ""))
+
+            from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+            return sqlite3.connect(sqlite_db_path(config) or "")
         elif conn_type == "postgresql":
             import psycopg2  # type: ignore
             return psycopg2.connect(

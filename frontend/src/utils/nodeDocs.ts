@@ -64,6 +64,12 @@ const DOCS: Record<string, NodeDocs> = {
     outputs: 'Rows in the table\'s declared schema.',
     failsWhen: 'The schema.name does not exist, or the Parquet files are corrupt.',
   },
+  saas_connector: {
+    does: 'Read rows from a stream of a SaaS application, using a built-in connector or one made in the API Explorer.',
+    inputs: 'None — pick the connector and stream; a saved credential supplies the key.',
+    outputs: 'Rows from the chosen stream, one column per field.',
+    failsWhen: 'No connector is chosen or it is unknown, the stream does not exist, the credential is missing or rejected, or the API is unreachable.',
+  },
 
   // ── Transforms ─────────────────────────────────────────────────────────
   filter: {
@@ -115,9 +121,9 @@ const DOCS: Record<string, NodeDocs> = {
     failsWhen: 'A source column is missing, or a coercion (e.g. text → number) fails.',
   },
   data_quality: {
-    does: 'Check rows against rules (not null / unique / range / accepted values / regex).',
+    does: 'Check rows against rules (not empty / equals / greater or less than / between / in a list / pattern / length).',
     inputs: 'Any row shape with the columns the rules target.',
-    outputs: 'On fail: drop the bad rows, fail the run, tag them, or split them out a "reject" branch.',
+    outputs: 'On fail: drop the bad rows, fail the run, tag them, or split them off to a "reject" branch.',
     failsWhen: 'A rule fires and the failure mode is "fail" (vs drop / tag / reject / split).',
   },
   upsert: {
@@ -197,6 +203,12 @@ const DOCS: Record<string, NodeDocs> = {
     inputs: 'Incoming rows keyed by the business key, plus the tracked columns to watch for changes.',
     outputs: 'Versioned rows: existing versions closed off and new versions opened when tracked columns change.',
     failsWhen: 'The business key or a tracked column is missing.',
+  },
+  data_profile: {
+    does: 'Summarise every column: empty share, distinct count, min and max, most common value.',
+    inputs: 'Any row shape.',
+    outputs: 'One row per input column with its type, counts and statistics; optionally the original rows on a second Data output.',
+    failsWhen: 'No input is wired.',
   },
 
   // ── Combine ─────────────────────────────────────────────────────────────
@@ -331,6 +343,24 @@ const DOCS: Record<string, NodeDocs> = {
     inputs: 'Any row shape.',
     outputs: 'A small result describing the input (used for gates / logging).',
     failsWhen: 'No input is wired.',
+  },
+  delete_data: {
+    does: 'Drop the rows that match a condition from the data passing through; nothing is deleted in a database or in storage.',
+    inputs: 'Any row shape with the columns the condition references.',
+    outputs: 'The input rows minus the matching ones (same schema, fewer rows); with no condition, every row passes through.',
+    failsWhen: 'The condition references a missing column or has a SQL syntax error.',
+  },
+  file_system: {
+    does: 'Copy, move, rename or delete files and folders on the machine running Revoluzen Flow.',
+    inputs: 'None needed — the paths are set in the node; a relative path means inside the data folder.',
+    outputs: 'One row per operation with its source, destination, status and any error.',
+    failsWhen: 'The source is missing, the destination already exists with Overwrite off, or a path cannot be written (unless Continue on Error is on).',
+  },
+  execute_sql_task: {
+    does: 'Run a SQL statement on a database connection, or on the pipeline\'s own engine when none is chosen.',
+    inputs: 'Optional — {column} placeholders in the SQL are filled from the first input row.',
+    outputs: 'The number of rows affected, or the full result, as chosen under Return Mode.',
+    failsWhen: 'The SQL is empty or fails, the connection is unreachable, or the statement runs past its timeout.',
   },
 
   // ── AI / Semantic ───────────────────────────────────────────────────────

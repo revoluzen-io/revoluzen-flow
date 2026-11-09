@@ -49,7 +49,7 @@ export default function HubTabs<P extends string>({
   if (visibleTabs.length <= 1) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-0.5" aria-label="Section navigation">
+    <div className="hub-tabs flex flex-wrap items-center gap-0.5" aria-label="Section navigation">
       {visibleTabs.map((t) => {
         const isActive = t.page === active;
         return (
@@ -111,6 +111,11 @@ const ICON_TEMPLATES = (
     <path d="M17.5 14v7" />
   </svg>
 );
+const ICON_TRIGGERS = (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
+  </svg>
+);
 const ICON_CONNECTIONS = (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M4 11a9 9 0 0 1 9 9" />
@@ -125,11 +130,12 @@ const ICON_CREDENTIALS = (
   </svg>
 );
 
-/** Workflows family — Pipelines / Editor / Executions / Templates. */
-export const WORKFLOWS_TABS: HubTab<'pipelines' | 'editor' | 'executions' | 'templates'>[] = [
+/** Workflows family — Pipelines / Editor / Executions / Triggers / Templates. */
+export const WORKFLOWS_TABS: HubTab<'pipelines' | 'editor' | 'executions' | 'triggers' | 'templates'>[] = [
   { page: 'pipelines',  label: 'Pipelines',  icon: ICON_PIPELINES },
   { page: 'editor',     label: 'Editor', devOnly: true, icon: ICON_EDITOR },
   { page: 'executions', label: 'Executions', icon: ICON_EXECUTIONS },
+  { page: 'triggers',   label: 'Triggers',   icon: ICON_TRIGGERS },
   { page: 'templates',  label: 'Templates',  devOnly: true, icon: ICON_TEMPLATES },
 ];
 

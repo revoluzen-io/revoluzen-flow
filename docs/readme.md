@@ -25,8 +25,9 @@ See the [full Quickstart guide](quickstart.md) for end-to-end install + first pi
 | [Projects](user-guides/projects.md) | All users | Create, manage, share, archive, and delete projects. |
 | [Pipelines](user-guides/pipelines.md) | All users | Build, test, validate, run, schedule, monitor, archive, clone, export. |
 | [Connections](user-guides/connections.md) | All users | Create, test, scope by project. Connector status badges (Certified / Beta). |
+| [Triggers](user-guides/external-triggers.md) | Integrators | Let another application start a pipeline and pass it values. |
 | [Connectors catalog](connectors.md) | All users | Every connector family — Oracle / SAP / Microsoft Graph / SaaS — with auth + scope notes. |
-| [Node reference](nodes.md) | Pipeline authors | Every node type with parameters: sources, transforms, outputs (incl. Managed Table Source/Sink for managed tables). |
+| [Node reference](nodes.md) | Pipeline authors | The 45 nodes in the editor's node panel, by group, with what each one does (incl. Managed Table Source/Sink for managed tables). Parameters per node: [NODE_REFERENCE.md](NODE_REFERENCE.md). |
 
 ## Reference
 

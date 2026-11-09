@@ -68,6 +68,20 @@ _FLOOR_TOOLS: tuple[str, ...] = (
 # crowd the page pack out entirely.
 _KEYWORD_RESERVE = 3
 
+# Tools a page cannot do its job without. They go in right after the floor, ahead
+# of keyword boosts. Without this, a request mentioning a failure from the editor
+# filled the tight cap with failure tools, and a local model had no way to edit
+# the pipeline it was asked to fix.
+_PAGE_ANCHORS: dict[str, tuple[str, ...]] = {
+    # `test_pipeline_draft` is an anchor for the same reason as the other
+    # two: without it the editor's repair loop cannot close. The agent can
+    # edit and it can see columns, but it cannot find out whether its edit
+    # worked, so it stops at the first fault. Registering the tool was not
+    # enough — the first live run after it shipped called it zero times,
+    # because the selector never offered it on this page.
+    "editor": ("modify_pipeline_step", "inspect_step_columns", "test_pipeline_draft"),
+}
+
 
 # Page-specific tool packs. The page identifier comes from
 # ``PageContext.page`` — see ``frontend/src/hooks/usePageContext.ts`` for
@@ -77,10 +91,17 @@ _PAGE_TOOLS: dict[str, tuple[str, ...]] = {
     "editor": (
         "validate_pipeline",
         "summarize_pipeline",
+        # Before reconfiguring a step, the agent needs to know which
+        # parameters that step actually has — a renamed join column needs
+        # `key_mode: mapped_keys`, not a new `join_key`.
         "explain_step",
         "modify_pipeline_step",
         "draft_pipeline_from_intent",
-        "list_templates",
+        # `list_templates` was here and is not: with test_pipeline_draft
+        # now anchored, the pack is one over the cloud cap, and starting
+        # from a template is a "build something new" affordance while
+        # everything else on this page serves repairing what is open. It
+        # is still reachable from a prompt that mentions templates.
     ),
     "executions": (
         "list_executions",
@@ -106,6 +127,10 @@ _PAGE_TOOLS: dict[str, tuple[str, ...]] = {
         "list_schedules",
         "get_next_scheduled",
         "list_pipelines",
+    ),
+    "triggers": (
+        "list_pipelines",
+        "list_executions",
     ),
     "alerts": (
         "list_alerts",
@@ -290,6 +315,12 @@ def select_tools(
     for name in ("web_search", "web_fetch"):
         _add(name)
 
+    # 1c. What this page cannot work without. Only tools the role may use are in
+    # by_name, so a read-only user is never offered the edit tool here.
+    bucket = _page_bucket(page)
+    for name in _PAGE_ANCHORS.get(bucket or "", ()):
+        _add(name)
+
     # 2. Keyword boosts, up to the reserve. The prompt beats the page: a
     # user asking about security from the editor means the security
     # question, not the editor. Bounded by _KEYWORD_RESERVE so the page
@@ -308,7 +339,6 @@ def select_tools(
         _add(name)
 
     # 3. Page bucket
-    bucket = _page_bucket(page)
     if bucket and bucket in _PAGE_TOOLS:
         for name in _PAGE_TOOLS[bucket]:
             _add(name)

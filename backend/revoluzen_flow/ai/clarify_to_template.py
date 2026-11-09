@@ -207,7 +207,7 @@ def parse_answers_freeform(
                     break
 
         # Write-mode fields.
-        elif field in ("sql_server_write_mode", "db_write_mode"):
+        elif field in ("sql_server_write_mode", "db_write_mode", "write_mode"):
             for key, canon in _WRITE_MODE_SYNONYMS.items():
                 if re.search(rf"\b{re.escape(key)}\b", t_lower):
                     values[field] = canon
@@ -322,13 +322,18 @@ _PLACEHOLDER_MAPPING: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
-def populate_template(template_key: str, answers: dict[str, str]):
+def populate_template(template_key: str, answers: dict[str, str], choices=None):
     """Build a workflow from the named template, then substitute
     placeholder strings with values from the parsed answers.
 
     Placeholders without a matching answer stay as ``<your-...>`` so
     the user is forced to fill them in (safety contract). Returns the
     resulting Workflow, or None when the template key is unknown.
+
+    ``choices`` (``draft_choices.DraftChoices``) are the connections, files and
+    tables picked on the clarify card. A template only names a connection in
+    text, so without this a filled-in template kept the name and lost the
+    connection itself.
     """
     from revoluzen_flow.planner.templates import create_from_template
 
@@ -336,11 +341,20 @@ def populate_template(template_key: str, answers: dict[str, str]):
     if wf is None:
         return None
 
-    mapping = _PLACEHOLDER_MAPPING.get(template_key, {})
+    _substitute_placeholders(wf, _PLACEHOLDER_MAPPING.get(template_key, {}), answers)
+
+    if choices is not None:
+        from revoluzen_flow.ai.draft_choices import bind_template_choices
+        bind_template_choices(wf, choices)
+
+    return wf
+
+
+def _substitute_placeholders(wf, mapping: dict[str, tuple[str, ...]], answers: dict[str, str]) -> None:
     if not mapping or not answers:
-        # Nothing to substitute — return the template as-is. Caller can
+        # Nothing to substitute — the template stays as-is. Caller can
         # still surface unfilled placeholders to the user.
-        return wf
+        return
 
     # Build a flat placeholder → value map for fast string replacement.
     replacements: dict[str, str] = {}
@@ -352,7 +366,7 @@ def populate_template(template_key: str, answers: dict[str, str]):
             replacements[ph] = value
 
     if not replacements:
-        return wf
+        return
 
     # Walk every step's params, substituting in any string / list-of-strings
     # values. We mutate in place; the workflow object is freshly created.
@@ -380,5 +394,3 @@ def populate_template(template_key: str, answers: dict[str, str]):
                         new_list.append(item)
                 if changed:
                     params[key] = new_list
-
-    return wf

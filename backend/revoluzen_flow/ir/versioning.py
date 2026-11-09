@@ -588,10 +588,265 @@ class WorkflowStore:
         return latest
 
     def delete(self, workflow_id: str) -> bool:
-        """Delete a workflow and all its versions."""
+        """Delete a workflow and all its versions, permanently.
+
+        Nothing keeps a copy. The API's normal delete does not call this: it
+        moves the pipeline to the Bin with :meth:`trash`, and this is what
+        ``DELETE /api/workflows/{id}?permanent=true`` and internal callers use.
+        """
         cursor = self._db.execute(
             "DELETE FROM workflow_versions WHERE workflow_id = ?",
             (workflow_id,),
         )
         self._db.commit()
         return cursor.rowcount > 0
+
+    # ── The Bin: deleted pipelines that can still be restored ───────────
+    #
+    # A deleted pipeline's version rows move from workflow_versions into
+    # workflow_trash (same columns, same primary key), with one
+    # workflow_trash_meta row beside them for the Bin list. Nothing that
+    # reads workflow_versions has to know the Bin exists: a binned pipeline
+    # is simply absent, exactly as it was when delete() dropped the rows.
+    # Schedules, the step cache, CDC slots and the audit trail are handled
+    # one layer up, in revoluzen_flow/ir/workflow_bin.py.
+
+    _VERSION_COLUMNS = (
+        "workflow_id, version, data, created_by, change_summary, "
+        "created_at, workspace_id, content_hash"
+    )
+    # "leave the folder as it was" for restore_from_trash(folder_id=...),
+    # because None already means "no folder".
+    KEEP = object()
+
+    def _invalidate_usage(self, ws_id: str | None) -> None:
+        """Drop the Storage / Connections usage caches after pipelines appear
+        or disappear. Best-effort, like the same call in save()."""
+        try:
+            from revoluzen_flow.datastore.usage import (
+                invalidate as _invalidate_usage,
+                invalidate_connection_usage as _invalidate_conn_usage,
+            )
+            _invalidate_usage(ws_id)
+            _invalidate_conn_usage(ws_id)
+        except Exception:  # noqa: BLE001
+            pass
+
+    @staticmethod
+    def _trash_entry(row: dict, include_schedules: bool = False) -> dict:
+        entry = {
+            "id": row["workflow_id"],
+            "name": row["name"],
+            "workspace_id": row["workspace_id"],
+            "project_id": row["project_id"],
+            "folder_id": row["folder_id"],
+            "status_before": row["status_before"],
+            "deleted_at": row["deleted_at"],
+            "deleted_by_id": row["deleted_by_id"],
+            "deleted_by_name": row["deleted_by_name"],
+            "version_count": row["version_count"],
+        }
+        if include_schedules:
+            try:
+                schedules = json.loads(row["schedules"] or "[]")
+            except (TypeError, ValueError):
+                schedules = []
+            entry["schedules"] = schedules if isinstance(schedules, list) else []
+        return entry
+
+    def trash(
+        self,
+        workflow_id: str,
+        workspace_id: str | None = None,
+        deleted_by_id: str = "",
+        deleted_by_name: str = "",
+        schedules: list[dict] | None = None,
+    ) -> dict | None:
+        """Move a pipeline and all its versions into the Bin.
+
+        ``schedules`` is a snapshot of the schedules the caller is about to
+        remove with the pipeline, kept so a restore can put them back.
+        Returns the new Bin entry, or None when there is no such pipeline
+        (in that workspace).
+        """
+        latest = self.get(workflow_id, workspace_id=workspace_id)
+        if latest is None:
+            return None
+        wf = latest.workflow
+        ws_id = getattr(wf, "workspace_id", None) or "default"
+        status = getattr(wf, "status", None)
+        status_before = getattr(status, "value", status) or "draft"
+        cols = self._VERSION_COLUMNS
+        with self._db.transaction() as tx:
+            # One pipeline, one place: never leave a stale Bin copy of the same id.
+            tx.execute("DELETE FROM workflow_trash WHERE workflow_id = ?", (workflow_id,))
+            tx.execute("DELETE FROM workflow_trash_meta WHERE workflow_id = ?", (workflow_id,))
+            moved = tx.execute(
+                f"INSERT INTO workflow_trash ({cols}) "
+                f"SELECT {cols} FROM workflow_versions WHERE workflow_id = ?",
+                (workflow_id,),
+            ).rowcount
+            tx.execute(
+                "INSERT INTO workflow_trash_meta (workflow_id, workspace_id, name, "
+                "project_id, folder_id, status_before, deleted_at, deleted_by_id, "
+                "deleted_by_name, version_count, schedules) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    workflow_id, ws_id, wf.name or "", wf.project_id or "default",
+                    wf.folder_id, str(status_before),
+                    datetime.now(timezone.utc).isoformat(),
+                    deleted_by_id or "", deleted_by_name or "", moved,
+                    json.dumps(schedules or [], default=str),
+                ),
+            )
+            tx.execute("DELETE FROM workflow_versions WHERE workflow_id = ?", (workflow_id,))
+        self._invalidate_usage(ws_id)
+        return self.get_trash_entry(workflow_id)
+
+    def get_trash_entry(
+        self,
+        workflow_id: str,
+        workspace_id: str | None = None,
+        include_schedules: bool = False,
+    ) -> dict | None:
+        """One Bin entry, or None. Scoped to ``workspace_id`` when given, so
+        another workspace's pipeline looks like it does not exist."""
+        sql = "SELECT * FROM workflow_trash_meta WHERE workflow_id = ?"
+        params: list = [workflow_id]
+        if workspace_id is not None:
+            sql += " AND workspace_id = ?"
+            params.append(workspace_id)
+        row = self._db.fetchone(sql, tuple(params))
+        return self._trash_entry(row, include_schedules) if row else None
+
+    def list_trash(self, workspace_id: str | None = None) -> list[dict]:
+        """The Bin, newest deletion first. Scoped to a workspace when given."""
+        sql = "SELECT * FROM workflow_trash_meta"
+        params: tuple = ()
+        if workspace_id is not None:
+            sql += " WHERE workspace_id = ?"
+            params = (workspace_id,)
+        sql += " ORDER BY deleted_at DESC"
+        return [self._trash_entry(r) for r in self._db.fetchall(sql, params)]
+
+    def restore_from_trash(
+        self,
+        workflow_id: str,
+        workspace_id: str | None = None,
+        *,
+        name: str | None = None,
+        project_id: str | None = None,
+        folder_id=KEEP,
+        restored_by: str = "user",
+    ) -> dict | None:
+        """Move a binned pipeline back, as a **draft**.
+
+        ``name`` / ``project_id`` / ``folder_id`` let the caller correct what
+        no longer fits (a name that is taken, a project that was deleted);
+        left out, the pipeline keeps what it had. Returns the Bin entry it
+        came from (with its schedule snapshot), or None when it is not in
+        the Bin. Raises :class:`WorkflowIdInUse` if a live pipeline already
+        has this id.
+
+        The status change is made on the binned copy *before* it moves, so
+        even if the version note below failed the pipeline would come back
+        as a draft, never as published.
+        """
+        entry = self.get_trash_entry(workflow_id, workspace_id, include_schedules=True)
+        if entry is None:
+            return None
+        if self._db.fetchone(
+            "SELECT 1 AS present FROM workflow_versions WHERE workflow_id = ? LIMIT 1",
+            (workflow_id,),
+        ):
+            raise WorkflowIdInUse(workflow_id)
+        latest_row = self._db.fetchone(
+            "SELECT version, data FROM workflow_trash WHERE workflow_id = ? "
+            "ORDER BY version DESC LIMIT 1",
+            (workflow_id,),
+        )
+        if latest_row is None:
+            # A Bin entry with no versions behind it can never be restored.
+            self._delete_trash_ids([workflow_id])
+            return None
+        data = json.loads(latest_row["data"])
+        blob = data.get("workflow")
+        if not isinstance(blob, dict):
+            blob = {}
+        blob["status"] = PipelineStatus.DRAFT.value
+        if name is not None:
+            blob["name"] = name
+        if project_id is not None:
+            blob["project_id"] = project_id
+        if folder_id is not WorkflowStore.KEEP:
+            blob["folder_id"] = folder_id
+        data["workflow"] = blob
+        cols = self._VERSION_COLUMNS
+        with self._db.transaction() as tx:
+            tx.execute(
+                "UPDATE workflow_trash SET data = ? WHERE workflow_id = ? AND version = ?",
+                (json.dumps(data, default=str), workflow_id, latest_row["version"]),
+            )
+            tx.execute(
+                f"INSERT INTO workflow_versions ({cols}) "
+                f"SELECT {cols} FROM workflow_trash WHERE workflow_id = ?",
+                (workflow_id,),
+            )
+            tx.execute("DELETE FROM workflow_trash WHERE workflow_id = ?", (workflow_id,))
+            tx.execute("DELETE FROM workflow_trash_meta WHERE workflow_id = ?", (workflow_id,))
+        # A version of its own, so Version history shows the restore.
+        restored = self.get(workflow_id)
+        if restored is not None:
+            try:
+                self.save(
+                    restored.workflow,
+                    change_summary="Restored from the Bin",
+                    created_by=restored_by,
+                )
+            except Exception:  # noqa: BLE001 — it is already back, as a draft
+                logger.warning(
+                    "restored %s from the Bin but could not add the version note",
+                    workflow_id, exc_info=True,
+                )
+        self._invalidate_usage(entry["workspace_id"])
+        return entry
+
+    def _delete_trash_ids(self, ids: list[str]) -> None:
+        if not ids:
+            return
+        with self._db.transaction() as tx:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                marks = ",".join("?" for _ in chunk)
+                tx.execute(f"DELETE FROM workflow_trash WHERE workflow_id IN ({marks})", tuple(chunk))
+                tx.execute(f"DELETE FROM workflow_trash_meta WHERE workflow_id IN ({marks})", tuple(chunk))
+
+    def purge_trash(self, workflow_id: str, workspace_id: str | None = None) -> dict | None:
+        """Remove one pipeline from the Bin for good. Returns its entry, or
+        None when it was not there (in that workspace)."""
+        entry = self.get_trash_entry(workflow_id, workspace_id)
+        if entry is None:
+            return None
+        self._delete_trash_ids([workflow_id])
+        return entry
+
+    def purge_trash_all(self, workspace_id: str | None = None) -> list[dict]:
+        """Empty the Bin (of one workspace when given). Returns what was removed."""
+        entries = self.list_trash(workspace_id)
+        self._delete_trash_ids([e["id"] for e in entries])
+        return entries
+
+    def purge_trash_older_than(self, cutoff_iso: str) -> list[dict]:
+        """Remove every Bin entry deleted before ``cutoff_iso`` (an ISO UTC
+        timestamp). Returns what was removed."""
+        rows = self._db.fetchall(
+            "SELECT * FROM workflow_trash_meta WHERE deleted_at < ? ORDER BY deleted_at",
+            (cutoff_iso,),
+        )
+        entries = [self._trash_entry(r) for r in rows]
+        self._delete_trash_ids([e["id"] for e in entries])
+        return entries
+
+
+class WorkflowIdInUse(Exception):
+    """A live pipeline already has the id of the one being restored."""

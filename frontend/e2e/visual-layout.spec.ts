@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Uses the existing authenticated E2E fixture; does not run or save pipelines.
-for (const width of [1920, 1440, 1280, 1024, 740, 390]) {
+for (const width of [1920, 1600, 1440, 1366, 1280, 1024, 740, 390]) {
   test(`editor layout at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/#editor');
@@ -14,6 +14,15 @@ for (const width of [1920, 1440, 1280, 1024, 740, 390]) {
         Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1));
     });
     expect(layout.every(overlap => !overlap)).toBe(true);
+    // `main` clips what passes the window's edge, so a button can sit there
+    // cut in half with no overlap for the check above to catch. Publish did.
+    const cutOff = await toolbar.evaluate(element => Array.from(element.querySelectorAll('.editor-toolbar-actions button'))
+      .filter(button => {
+        const box = button.getBoundingClientRect();
+        return box.width > 0 && (box.left < 0 || box.right > window.innerWidth);
+      })
+      .map(button => button.getAttribute('title')));
+    expect(cutOff).toEqual([]);
     const centerOffset = await toolbar.evaluate(element => {
       const header = element.getBoundingClientRect();
       const tabs = element.querySelector('.editor-toolbar-tabs')!.getBoundingClientRect();

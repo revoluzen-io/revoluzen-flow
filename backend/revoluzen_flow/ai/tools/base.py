@@ -33,6 +33,14 @@ class ToolTier(str, Enum):
     HIGH_IMPACT_WRITE = "high_impact_write"
 
 
+class ToolRefusal(ValueError):
+    """A tool declined on purpose and says what to do instead.
+
+    Written for the model to read, so it reaches the model whole. Other tool errors
+    are cut short, which would leave it with half an instruction.
+    """
+
+
 # Handler signature: receives the validated inputs dict + a ToolContext, returns
 # a result dict matching output_schema. Step 1.5b wraps this with governance.
 ToolHandler = Callable[[dict[str, Any], "ToolContext"], Awaitable[Any]]
@@ -62,6 +70,14 @@ class ToolContext:
     # questions without making a tool call to discover screen state.
     page: str = ""
     visible_items: tuple[dict[str, Any], ...] = ()
+    # The person's own turn, verbatim — never anything that arrived through
+    # the pipeline. A tool that must distinguish "the user asked for this"
+    # from "something in the data told me to" reads this and nothing else;
+    # see ai/tools/_edit_guards.py. Empty when a caller cannot attribute the
+    # request to a person, which the guards treat as "did not ask".
+    user_intent: str = ""
+    # One agent run. Lets edits made while answering one request build on each other.
+    run_id: str = ""
 
 
 @dataclass
@@ -75,6 +91,12 @@ class ToolDefinition:
     output_schema: Any            # Consumed by ai.normalize
     handler: ToolHandler
     requires_idempotency_key: bool = False
+    # True when a successful call only produces a draft for a person to review
+    # and changes nothing else. A draft has nothing to protect and is cheap to
+    # make again, so these tools skip the dry-run gate for named users and are
+    # never served from the idempotency cache, which could hand back a draft of
+    # an older version of the pipeline.
+    draft_only: bool = False
     # Tags for grouping in UI / analytics. Free-form.
     tags: list[str] = field(default_factory=list)
 

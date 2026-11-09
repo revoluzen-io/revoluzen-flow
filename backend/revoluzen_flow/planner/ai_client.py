@@ -325,7 +325,7 @@ ROW TRANSFORMS:
 - filter: {"condition": "SQL WHERE clause, e.g. amount > 100"}
 - transform: {"expression": "SELECT *, expression AS new_col FROM source_table"}
 - deduplicate: {"key": ["col1", "col2"], "strategy": "keep_first"}
-- sort: {"columns": ["col1"], "ascending": [true]}
+- sort: {"sort_by": ["col1", "col2 DESC"]}
 - rename: {"mappings": {"old_name": "new_name"}}
 - typecast: {"casts": {"column_name": "INTEGER"}}
 - derived_column: {"columns": [{"name": "new_col", "expression": "col1 + col2"}]}
@@ -336,7 +336,7 @@ SET TRANSFORMS:
 - lookup: {"lookup_key": "id", "return_columns": ["name"]}
 - union: {"union_type": "all"}
 - pivot: {"index_column": "date", "pivot_column": "category", "value_column": "amount", "agg_function": "SUM"}
-- unpivot: {"id_columns": ["id"], "value_columns": ["col1", "col2"], "var_name": "variable", "val_name": "value"}
+- unpivot: {"id_columns": ["id"], "columns": ["col1", "col2"], "name_column": "variable", "value_column": "value"}
 - window: {"function": "ROW_NUMBER", "partition_by": ["category"], "order_by": ["date"], "alias": "row_num"}
 
 QUALITY:
@@ -346,7 +346,10 @@ QUALITY:
 
 OUTPUTS:
 - output: {"format": "parquet", "file_path": "output.parquet"}
+- local_table_sink: {"table_name": "target_table", "schema_name": "default", "mode": "replace"}
 - db_sink: {"table_name": "target_table", "write_mode": "append", "connection_string": ""}
+
+Use local_table_sink when the user asks for a managed table or names a table without giving a database connection. Its mode is replace, append or merge.
 
 Layout rules:
 - Position steps left-to-right: first step x=0, then x=350, x=700, x=1050, etc.
@@ -371,13 +374,35 @@ def _audit_ai_call(
     success: bool,
     error: str | None = None,
 ) -> None:
-    """Write one row to audit_log per AI call. Best-effort — never raises.
+    """Record one AI call. Best-effort — never raises.
+
+    Saved to the trace store, so Insights → Activity counts the call with
+    its tokens, cost and any failure (see revoluzen_flow.ai.usage_sources;
+    a caller can name the feature and what the person typed with
+    ``ai_call_details``). Also written to the audit logger when one is
+    installed — this edition has none.
 
     Memory-conscious by design: writes a small dict straight to SQLite via
     the shared audit logger (no buffering, no in-memory queue). If the
     logger isn't available (tests, early boot) we silently skip — an AI
     call shouldn't fail because telemetry failed.
     """
+    try:
+        from revoluzen_flow.ai.usage_sources import record_ai_call
+        record_ai_call(
+            source=source,
+            user_id=user_id,
+            workspace_id=workspace_id,
+            provider=provider,
+            model=model,
+            latency_ms=latency_ms,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            success=success,
+            error=error,
+        )
+    except Exception:
+        pass
     try:
         from revoluzen_flow.main import app_state
         audit = app_state.get("audit_logger")
@@ -486,6 +511,11 @@ async def ai_generate_pipeline(
     return result
 
 
+def claude_text(data: dict) -> str:
+    """Join a Messages API reply's text blocks; newer models may lead with thinking."""
+    return "".join(b.get("text", "") for b in data.get("content") or [] if b.get("type") == "text")
+
+
 async def _call_claude(api_key: str, model: str, messages: list[dict]) -> tuple[dict | None, dict]:
     """Call Anthropic Claude API. Returns (parsed, {input, output}).
 
@@ -512,7 +542,7 @@ async def _call_claude(api_key: str, model: str, messages: list[dict]) -> tuple[
         )
         resp.raise_for_status()
         data = resp.json()
-        text = data["content"][0]["text"]
+        text = claude_text(data)
         usage_raw = data.get("usage") or {}
         usage = {"input": usage_raw.get("input_tokens", 0), "output": usage_raw.get("output_tokens", 0)}
         return _parse_json_response(text), usage
@@ -757,7 +787,7 @@ async def _call_text_claude(api_key, model, system_prompt, messages):
         )
         resp.raise_for_status()
         data = resp.json()
-        text = data["content"][0]["text"]
+        text = claude_text(data)
         usage_raw = data.get("usage") or {}
         return _parse_json_response(text), {
             "input": usage_raw.get("input_tokens", 0),
@@ -879,9 +909,9 @@ async def _call_text_openai_compatible(base_url, api_key, model, system_prompt, 
         }
 
 
-def is_ai_available() -> bool:
-    """Check if any AI provider is configured."""
-    provider, _, _ = _get_provider()
+def is_ai_available(user_id: str | None = None, workspace_id: str | None = None) -> bool:
+    """Check if any AI provider is configured for this caller."""
+    provider, _, _, _ = resolve_provider(user_id=user_id, workspace_id=workspace_id)
     return provider != "none"
 
 
@@ -972,7 +1002,7 @@ async def _call_plain_claude(api_key, model, system_prompt, messages, max_tokens
         )
         resp.raise_for_status()
         data = resp.json()
-        text = data["content"][0]["text"]
+        text = claude_text(data)
         usage_raw = data.get("usage") or {}
         return text, {
             "input": usage_raw.get("input_tokens", 0),

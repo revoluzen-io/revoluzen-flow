@@ -17,7 +17,7 @@ A **Pipeline** in Revoluzen Flow (internally called a *workflow*) is a directed 
 6. [Running a pipeline](#6-running-a-pipeline)
 7. [Scheduling](#7-scheduling)
 8. [Monitoring execution](#8-monitoring-execution)
-9. [Archiving and restoring](#9-archiving-and-restoring)
+9. [Archiving, restoring and deleting](#9-archiving-restoring-and-deleting)
 10. [Cloning a pipeline](#10-cloning-a-pipeline)
 11. [Exporting and importing](#11-exporting-and-importing)
 12. [Versioning model](#12-versioning-model)
@@ -42,11 +42,11 @@ Under the hood, the pipeline is stored as a Pydantic `Workflow` object, serialis
 
 ### 1.1 Node categories
 
-Revoluzen Flow ships with **44 nodes across 6 categories**:
+Revoluzen Flow ships with **45 nodes across 6 categories**:
 
 | Category | Nodes | Purpose |
 |---|---|---|
-| **Data Movement** (5) | `source`, `destination`, `copy_data`, `local_table_source`, `local_table_sink` | Read data in and write it out. One generic Source and one generic Destination — pick the connector inside the node, rather than a node per format. |
+| **Data Movement** (6) | `source`, `destination`, `copy_data`, `local_table_source`, `local_table_sink`, `saas_connector` | Read data in and write it out. One generic Source and one generic Destination — pick the connector inside the node, rather than a node per format. SaaS Connector reads a SaaS application, through a built-in connector or one saved from the API Explorer. |
 | **Transform** (12) | `transform`, `filter`, `derived_column`, `sort`, `deduplicate`, `sample`, `schema_mapper`, `data_wrangler`, `data_quality`, `data_profile`, `flatten_explode`, `scd2` | Change the shape of one input |
 | **Combine** (7) | `join`, `union`, `aggregate`, `lookup`, `pivot`, `unpivot`, `window` | Bring rows or inputs together |
 | **Control Flow** (10) | `if_condition`, `conditional_split`, `foreach_loop`, `foreach_pipeline`, `execute_pipeline`, `lookup_activity`, `set_variable`, `wait_delay`, `retry_handler`, `fail` | Conditional and looping logic |
@@ -261,16 +261,45 @@ in the `step_outputs` store and pruned after 30 days.
 
 ---
 
-## 9. Archiving and restoring
+## 9. Archiving, restoring and deleting
 
-Archive hides a pipeline from normal lists while preserving all versions and history.
+Archive takes a pipeline out of use while preserving all versions and history. In the app: Pipelines page → row → **⋯** menu → **Delete** → **Archive**. The pipeline stays in the list with the status Archived (it also has its own **Archived** tab), and **Restore** on its row brings it back as a draft. The same through the API:
 
 ```bash
 curl -X POST http://localhost:8001/api/workflows/{id}/archive
 curl -X POST http://localhost:8001/api/workflows/{id}/restore
 ```
 
-An archived pipeline cannot be tested, disappears from the default Pipelines page (toggle **Show archived** to see it), and keeps all its version rows + execution history. Schedules become inert. Restore to `DRAFT` at any time.
+An archived pipeline cannot be tested, and it keeps all its version rows + execution history. Schedules become inert. Restore to `DRAFT` at any time.
+
+### 9.1 The Bin
+
+**Delete is not Archive.** **Delete** (same dialog) moves the pipeline to the **Bin**, a tab on the Pipelines page. It leaves the list, its schedules are removed, and its saved versions are kept. Its past runs stay in Executions.
+
+A pipeline stays in the Bin for **30 days**, then a daily job removes it for good. Your administrator can change the number of days, or turn the automatic removal off, with `REVOLUZEN_FLOW_BIN_RETENTION_DAYS` (`0` keeps everything until someone deletes it from the Bin). The Bin tab says how many days apply, and the **Removed for good** column says how long each pipeline has left.
+
+In the Bin, each pipeline has two buttons:
+
+- **Restore** brings it back as a **draft**, with all its saved versions and a "Restored from the Bin" note in its history. It does not come back published, even if it was before; publish it again when you are ready. Schedules it had come back **paused**, so nothing starts running by surprise. If its name has been taken in the meantime it comes back as "Name (2)", and a project or folder that no longer exists is replaced by Default or the project root. A toast lists each of these changes.
+- **Delete forever** removes it from the Bin at once. This cannot be undone.
+
+Admins also see **Empty Bin**, which removes everything in the Bin for good.
+
+Deleting, restoring and removing from the Bin need the Developer role or above; emptying the Bin needs Admin. Anyone who can see the project can see its pipelines in the Bin.
+
+A pipeline that reads a database change feed (CDC) gets a new replication slot when it is restored. It does not replay the changes made to the source while it was in the Bin.
+
+The same through the API:
+
+```bash
+curl -X DELETE http://localhost:8001/api/workflows/{id}                 # into the Bin
+curl http://localhost:8001/api/workflows/bin                            # what is in the Bin
+curl -X POST http://localhost:8001/api/workflows/bin/{id}/restore       # back as a draft
+curl -X DELETE http://localhost:8001/api/workflows/bin/{id}             # delete forever
+curl -X DELETE "http://localhost:8001/api/workflows/{id}?permanent=true"  # skip the Bin (API only)
+```
+
+Archive is the other way to take a pipeline out of use: it stays in the list as Archived and keeps its place in the project, and it is never removed automatically. Choose Archive when you expect to use the pipeline again; choose Delete when you are finished with it.
 
 ---
 
@@ -333,7 +362,7 @@ Every save creates a new version row in `workflow_versions`.
 | `GET /api/workflows/{id}/versions` | Lists all versions |
 | `GET /api/workflows/{id}/diff?v1=N&v2=M` | Diffs two versions |
 
-Versions are **immutable**. Deleting the workflow deletes all its versions; individual versions cannot be deleted.
+Versions are **immutable**. Deleting the workflow moves all its versions to the Bin (see [9.1](#91-the-bin)), and they are removed for good when the pipeline is; individual versions cannot be deleted. A restore adds a version noted "Restored from the Bin".
 
 ---
 
@@ -347,7 +376,11 @@ Key endpoints (full list in the [API reference](../api.md)):
 | `POST` | `/api/workflows/` | Create a workflow |
 | `GET` | `/api/workflows/{id}` | Get latest version |
 | `PUT` | `/api/workflows/{id}` | Save a new version |
-| `DELETE` | `/api/workflows/{id}` | Delete workflow and all versions |
+| `DELETE` | `/api/workflows/{id}` | Delete: moves the workflow and all its versions to the Bin (`?permanent=true` skips the Bin) |
+| `GET` | `/api/workflows/bin` | List the Bin |
+| `POST` | `/api/workflows/bin/{id}/restore` | Restore from the Bin, as a draft |
+| `DELETE` | `/api/workflows/bin/{id}` | Remove one workflow from the Bin for good |
+| `DELETE` | `/api/workflows/bin` | Empty the Bin (admins) |
 | `GET` | `/api/workflows/{id}/versions` | List all versions |
 | `POST` | `/api/workflows/{id}/validate` | Validate structure |
 | `POST` | `/api/workflows/{id}/test` | Run a test |
@@ -387,7 +420,7 @@ Revoluzen Flow Enterprise adds production governance on top of the OSS lifecycle
 | **Pre-deploy checklist** | 8+ automated checks: structural validation, approval, test history, connections mapped, schedule set, alerts configured |
 | **Rollback with hash verification** | Roll back to any prior version; the stored content hash is re-verified before pinning |
 | **Approval gates** | Per-pipeline / per-project / global approver lists; supports two-person rule |
-| **Activate/Deactivate** | Pause a deployed pipeline without un-deploying; approval-gated in PROD |
+| **Activate/Deactivate** | In PROD, a request goes to an approver. In DEV, and on the free edition, a row's ⋯ menu switches it directly: while paused, schedules are skipped and endpoints answer 423, and it can still be run by hand |
 | **Audit log** | Every approval, deploy, rollback, activate event is persisted with retention controls |
 
 [Learn more about Revoluzen Flow Enterprise →](https://revoluzen.io/flow#revoluzen-flow-plus)

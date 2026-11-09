@@ -28,17 +28,24 @@ def preview_relation(relation: duckdb.DuckDBPyRelation, limit: int = 50) -> dict
     columns = relation.columns
     types = relation.types
 
+    # A relation is lazy, so a value that does not fit a step's logic only fails
+    # here, when rows are read. A preview still returns what it can, and carries
+    # the error for a caller that must not read this as a clean run.
+    read_error = ""
+
     # Get total row count
     try:
         total_rows = fetch_scalar(relation.aggregate("count(*)"))
-    except Exception:
+    except Exception as exc:
         total_rows = -1
+        read_error = str(exc)
 
     # Fetch sample rows
     try:
         sample = relation.limit(limit).fetchall()
-    except Exception:
+    except Exception as exc:
         sample = []
+        read_error = read_error or str(exc)
 
     sample_data = []
     for row in sample:
@@ -74,4 +81,5 @@ def preview_relation(relation: duckdb.DuckDBPyRelation, limit: int = 50) -> dict
         "total_columns": len(columns),
         "preview_rows": len(sample_data),
         "truncated": total_rows > limit if total_rows >= 0 else False,
+        "read_error": read_error,
     }

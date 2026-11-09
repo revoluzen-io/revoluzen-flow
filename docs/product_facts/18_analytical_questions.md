@@ -265,7 +265,7 @@ or no argument (returns the next N upcoming fires across the workspace).
 
 ### Why didn't my schedule fire?
 
-1. Schedule disabled? Schedules page → row → enabled toggle.
+1. Schedule disabled? Pipelines page → row → Schedule. Is the pipeline paused? A **Paused** badge means its schedules are skipped until you click Activate.
 2. Pipeline status = `archived` or `draft`? Only `published` /
    `testing` pipelines fire on schedule.
 3. Watchdog working? Check backend logs for `_timeout_watchdog_loop`.
@@ -315,7 +315,7 @@ Three layers:
    can_deploy_prod.
 2. **Layer 2 — product knowledge RAG**: 17+ curated `docs/product_facts/`
    files retrieved per turn based on the user's query.
-3. **Layer 3 — tools**: 30 tools that fetch live workspace state when
+3. **Layer 3 — tools**: 32 tools that fetch live workspace state when
    the LLM picks them.
 
 The agent does NOT know the contents of pipeline rows, individual
@@ -370,9 +370,10 @@ Recommend at least **5 GB free disk** for a comfortable install,
 
 ### Who edited pipeline X?
 
-Audit log query: Insights → Activity → filter `entity_id=<pipeline_id>`,
-`action=*pipeline*`. Each row has `user_id`, `timestamp`, `action`,
-`source_ip`, `status`.
+Open the pipeline's **Version history** (Pipelines → the pipeline's **⋯**
+menu → Version history): each version shows who saved it and when, and
+**Compare** shows what it added or removed. This edition has no audit-log
+page; Insights → Activity lists AI requests, not changes people made.
 
 ### How long are audit logs kept?
 

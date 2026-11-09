@@ -17,6 +17,7 @@ Two layers:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import threading
 import time
@@ -159,8 +160,11 @@ def test_start_connects_and_provisions_stream(mocked_nats):
         cfg = mocked_nats["js"].add_stream.await_args.args[0]
         assert cfg.name == "revoluzen_flow-evt"
         assert cfg.subjects == ["revoluzen_flow.>"]
-        # max_age expressed in nanoseconds.
-        assert cfg.max_age == 7 * 24 * 3600 * 1_000_000_000
+        # max_age is passed in SECONDS; nats-py's StreamConfig.as_dict()
+        # converts to nanoseconds for the wire. The bus used to multiply by
+        # 1e9 itself, which overflowed int64 on a real server.
+        assert cfg.max_age == 7 * 24 * 3600
+        assert cfg.as_dict()["max_age"] == 7 * 24 * 3600 * 1_000_000_000
     finally:
         b.close()
 
@@ -215,14 +219,17 @@ def test_durable_publish_writes_to_jetstream_and_returns_cursor(bus, mocked_nats
     assert event.cursor == "1"
 
 
-def test_durable_publish_also_fans_out_to_core_for_live_subscribers(bus, mocked_nats):
+def test_durable_publish_writes_the_stream_exactly_once(bus, mocked_nats):
     bus.publish(StepCompleted(
         run_id="r1", step_id="s1", step_type="filter",
         duration_ms=10, row_count=100,
     ))
-    # Core publish piggybacks so subscribe() listeners get it live.
-    assert len(mocked_nats["core_publishes"]) == 1
-    assert mocked_nats["core_publishes"][0][0] == "revoluzen_flow.step.completed"
+    # One JetStream publish and NO extra core publish. A JetStream publish
+    # already reaches live subscribe() listeners; a second core publish on
+    # the same subject is captured by the stream too and doubles every
+    # event in storage and on replay (seen against a real server).
+    assert mocked_nats["js"].publish.await_count == 1
+    assert mocked_nats["core_publishes"] == []
 
 
 def test_best_effort_publish_uses_core_only_no_jetstream(bus, mocked_nats):
@@ -374,6 +381,7 @@ def test_stream_without_since_uses_deliver_new(bus, mocked_nats):
 # ── End-to-end against a real NATS server (opt-in) ──────────────
 
 
+@pytest.mark.external
 @pytest.mark.skipif(
     os.environ.get("REVOLUZEN_FLOW_NATS_E2E") != "1",
     reason="Set REVOLUZEN_FLOW_NATS_E2E=1 (and run a NATS server with JetStream) to enable.",
@@ -414,5 +422,19 @@ def test_e2e_durable_publish_and_replay():
 
         events = asyncio.run(consume())
         assert [e.step_id for e in events] == ["s1", "s2"]
+        # Exactly two messages in the stream: one per durable publish. A
+        # second copy per event (the old core "fan-out" publish on the same
+        # subject) would show up here as 4.
+        info = asyncio.run_coroutine_threadsafe(
+            bus._js.stream_info(stream), bus._loop,
+        ).result(timeout=10)
+        assert info.state.messages == 2
     finally:
+        # Drop the stream so a retry, or the next run on a shared server,
+        # does not fail with "subjects overlap with an existing stream".
+        if bus._js is not None and bus._loop is not None:
+            with contextlib.suppress(Exception):
+                asyncio.run_coroutine_threadsafe(
+                    bus._js.delete_stream(stream), bus._loop,
+                ).result(timeout=10)
         bus.close()

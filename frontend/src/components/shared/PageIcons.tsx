@@ -51,6 +51,7 @@ export type PageIconKey =
   | 'pipelines'      // a.k.a. Workflows
   | 'editor'
   | 'executions'
+  | 'triggers'
   | 'templates'
   | 'connections'
   | 'credentials'
@@ -122,6 +123,12 @@ const PAGE_ICON_CONTENT: Record<PageIconKey, IconContent> = {
         <circle cx="12" cy="12" r="10" />
         <polygon points="10 8 16 12 10 16 10 8" />
       </>
+    ),
+  },
+  triggers: {
+    meaning: 'Lightning bolt — a run started from outside the product. Same mark as the sidebar and the Workflows tab.',
+    children: (
+      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
     ),
   },
   templates: {

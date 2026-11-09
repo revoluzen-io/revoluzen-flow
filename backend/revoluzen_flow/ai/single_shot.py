@@ -76,6 +76,16 @@ _MULTISTEP_MARKERS = (
 )
 
 
+# Questions about what actually happened, or about the user's own pipeline,
+# can only be answered from live data, and single-shot has no tools.
+_LIVE_DATA_MARKERS = (
+    "fail", "error", "went wrong", "broke", "last run", "latest run", "slow",
+    "this pipeline", "this canvas", "this workflow",
+    "my pipeline", "my canvas", "my workflow",
+    "current pipeline", "current canvas",
+)
+
+
 def should_use_single_shot(prompt: str) -> bool:
     """Decide whether this prompt is a good fit for single-shot.
 
@@ -83,6 +93,7 @@ def should_use_single_shot(prompt: str) -> bool:
       * Prompt contains a reasoning marker ("why", "explain", etc.)
       * AND no imperative-action marker
       * AND no multi-step marker
+      * AND no live-data marker
       * AND prompt length is reasonable (≤ 280 chars — tweet-length).
         Longer prompts are usually multi-part and the agent loop is
         a better fit.
@@ -99,6 +110,8 @@ def should_use_single_shot(prompt: str) -> bool:
     if any(m in p for m in _IMPERATIVE_MARKERS):
         return False
     if any(m in p for m in _MULTISTEP_MARKERS):
+        return False
+    if any(m in p for m in _LIVE_DATA_MARKERS):
         return False
     return True
 

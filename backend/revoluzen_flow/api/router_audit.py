@@ -168,9 +168,12 @@ async def router_audit(request: Request, include_reference: bool = True) -> dict
         from revoluzen_flow.main import app_state  # type: ignore
         ts = app_state.get("trace_store") if app_state else None
         if ts is not None and getattr(ts, "_db", None) is not None:
+            # Copilot runs only: rows with a `source` are AI calls from other
+            # features (see ai/usage_sources.py), not prompts the router saw.
             cur = ts._db.execute(
                 "SELECT user_intent, outcome, iterations, elapsed_ms, created_at "
-                "FROM agent_traces ORDER BY created_at DESC LIMIT 100"
+                "FROM agent_traces WHERE COALESCE(source, '') IN ('', 'copilot') "
+                "ORDER BY created_at DESC LIMIT 100"
             )
             for row in cur.fetchall():
                 ui = row[0] if not isinstance(row, dict) else row.get("user_intent")

@@ -1,8 +1,9 @@
 """Folders API — nested grouping of pipelines inside a project.
 
-Cascade-delete semantics: removing a folder removes every descendant
-folder AND every workflow whose `folder_id` lives anywhere in that
-subtree. Pipelines at the project root (folder_id=None) are not
+Delete semantics: removing a folder removes every descendant folder. The
+workflows whose `folder_id` lives anywhere in that subtree are either kept
+(``move_to_root``) or, with ``force``, sent to the Bin, which a published
+pipeline blocks. Pipelines at the project root (folder_id=None) are not
 affected by a folder delete.
 """
 
@@ -11,10 +12,17 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from revoluzen_flow.auth.deps import require_auth, current_workspace_id
+from revoluzen_flow.auth.deps import require_auth, require_min_rank, current_workspace_id
 from revoluzen_flow.folders.models import Folder, FolderCreate, FolderUpdate
+from revoluzen_flow.ir.schema import PipelineStatus
 
 router = APIRouter(prefix="/api/folders", tags=["folders"])
+
+# Deleting a folder can delete the pipelines inside it (``force``), which takes
+# the same rank as deleting a pipeline: developer and above. Without this an
+# analyst or viewer, who get 403 on ``DELETE /workflows/{id}``, could send every
+# pipeline in a folder to the Bin through here.
+_AUTHOR = Depends(require_min_rank("developer"))
 
 
 def _store():
@@ -153,10 +161,12 @@ async def update_folder(
 def _compute_folder_delete_impact(folder_id: str, workspace_id: str):
     """Compute the impact of deleting a folder without doing it.
 
-    Returns (folder, doomed_folder_ids, affected_workflow_ids) or raises
-    404 if the folder doesn't exist or isn't in this workspace. Used by
-    both the dry-run preview endpoint and the actual delete so the
-    counting logic is identical between preview and execute.
+    Returns (folder, doomed_folder_ids, affected_workflow_ids, descendants,
+    published) or raises 404 if the folder doesn't exist or isn't in this
+    workspace. ``published`` lists ``{"id", "name"}`` for the affected
+    pipelines whose status is published. Used by both the dry-run preview
+    endpoint and the actual delete so the counting logic is identical
+    between preview and execute.
     """
     folder = _store().get(folder_id)
     if not folder or folder.workspace_id != workspace_id:
@@ -167,14 +177,17 @@ def _compute_folder_delete_impact(folder_id: str, workspace_id: str):
 
     wf_store = _workflow_store()
     affected_workflow_ids: list[str] = []
+    published: list[dict] = []
     for wf_row in wf_store.list_all(workspace_id=workspace_id):
         wf_id = wf_row.get("id")
         if not wf_id:
             continue
         if wf_row.get("folder_id") in doomed_folder_ids:
             affected_workflow_ids.append(wf_id)
+            if wf_row.get("status") == PipelineStatus.PUBLISHED.value:
+                published.append({"id": wf_id, "name": wf_row.get("name") or wf_id})
 
-    return folder, doomed_folder_ids, affected_workflow_ids, descendants
+    return folder, doomed_folder_ids, affected_workflow_ids, descendants, published
 
 
 @router.get("/{folder_id}/delete-preview")
@@ -192,9 +205,12 @@ async def preview_folder_delete(
     Cascade-delete before the destructive op fires.
 
     Returns folder names + pipeline ids so the UI can show them in
-    the confirmation modal. Does not mutate anything.
+    the confirmation modal. ``published_workflow_*`` name the pipelines
+    that are published: ``force`` refuses to delete a folder while any
+    exist (see delete_folder), so the UI says so before it asks. Does not
+    mutate anything.
     """
-    folder, doomed_folder_ids, affected_workflow_ids, descendants = (
+    folder, doomed_folder_ids, affected_workflow_ids, descendants, published = (
         _compute_folder_delete_impact(folder_id, workspace_id)
     )
     return {
@@ -205,10 +221,13 @@ async def preview_folder_delete(
         "doomed_folder_count": len(doomed_folder_ids),
         "affected_workflow_count": len(affected_workflow_ids),
         "affected_workflow_ids": affected_workflow_ids,
+        "published_workflow_count": len(published),
+        "published_workflow_ids": [p["id"] for p in published],
+        "published_workflow_names": [p["name"] for p in published],
     }
 
 
-@router.delete("/{folder_id}")
+@router.delete("/{folder_id}", dependencies=[_AUTHOR])
 async def delete_folder(
     folder_id: str,
     user=Depends(require_auth),
@@ -225,8 +244,14 @@ async def delete_folder(
         pipeline whose folder is being deleted to project-root
         (folder_id = None), then delete the folder + descendants.
         Pipelines are preserved.
-      * ``force=true``: original cascade — folder + descendants +
-        pipelines all deleted. Use only when you really mean it.
+      * ``force=true``: the cascade — folder + descendants deleted, and
+        every pipeline in them moved to the Bin (restorable until its
+        retention window ends; they come back in the project's top level).
+        Needs developer rank, like deleting a pipeline. Refused (409,
+        ``code: published_pipelines_in_folder``) while any pipeline in the
+        subtree is published: a published pipeline cannot be deleted from
+        the Pipelines page either (revoke it first), and a folder delete
+        must not be a way around that.
       * Neither flag set + the folder contains pipelines: 409. The
         client must explicitly pick a mode. This avoids the silent
         data-loss the audit flagged.
@@ -234,7 +259,7 @@ async def delete_folder(
     Empty folders (no pipelines anywhere in the subtree) delete
     without any flag — there's nothing to lose.
     """
-    _folder, doomed_folder_ids, affected_workflow_ids, descendants = (
+    _folder, doomed_folder_ids, affected_workflow_ids, descendants, published = (
         _compute_folder_delete_impact(folder_id, workspace_id)
     )
 
@@ -252,6 +277,26 @@ async def delete_folder(
                 "affected_workflow_count": len(affected_workflow_ids),
                 "affected_workflow_ids": affected_workflow_ids,
                 "descendant_folder_count": len(descendants),
+            },
+        )
+
+    if force and not move_to_root and published:
+        shown = ", ".join(f'"{p["name"]}"' for p in published[:3])
+        if len(published) > 3:
+            shown += f" and {len(published) - 3} more"
+        plural = "pipeline" if len(published) == 1 else "pipelines"
+        raise HTTPException(
+            409,
+            {
+                "code": "published_pipelines_in_folder",
+                "message": (
+                    f"This folder holds {len(published)} published {plural} ({shown}). "
+                    "A published pipeline cannot be deleted: revoke it first, or "
+                    "use move_to_root=true to keep the pipelines in the project."
+                ),
+                "published_workflow_count": len(published),
+                "published_workflow_ids": [p["id"] for p in published],
+                "published_workflow_names": [p["name"] for p in published],
             },
         )
 
@@ -278,8 +323,24 @@ async def delete_folder(
                 # folder); the user can retry.
                 continue
     elif force and affected_workflow_ids:
+        # Into the Bin, like any other delete: "delete them with the folder"
+        # stays recoverable until the Bin's retention window ends. The
+        # deleted_workflow_count in the response counts them as before.
+        from revoluzen_flow.ir import workflow_bin
+        from revoluzen_flow.main import app_state
+        actor_id = getattr(user, "id", "") or ""
+        actor_name = getattr(user, "name", "") or getattr(user, "email", "") or ""
         for wf_id in affected_workflow_ids:
-            if wf_store.delete(wf_id):
+            result = workflow_bin.delete_pipeline(
+                wf_id,
+                workspace_id,
+                store=wf_store,
+                schedule_store=app_state.get("schedule_store"),
+                data_dir=app_state.get("data_dir"),
+                actor_id=actor_id,
+                actor_name=actor_name,
+            )
+            if result is not None:
                 deleted_workflows += 1
 
     for fid in doomed_folder_ids:
