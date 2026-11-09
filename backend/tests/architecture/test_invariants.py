@@ -146,8 +146,15 @@ def test_rule_05_no_unbounded_in_memory_log_buffers():
     Heuristic: module-level `logs = []` / `events = []` / `traces = []` without
     nearby maxlen / collections.deque(maxlen=...) usage.
     """
+    # Column 0 only: a module-level list lives for the life of the process,
+    # which is what makes it a retention problem. The same name indented
+    # inside a function (`logs = []` in a request handler or a node's
+    # execute) is a local that dies with the call, and the two "pre-existing
+    # violations" the earlier `^\s*` form reported were exactly that
+    # (api/monitor.py and nodes/flow_control.py). Tightened 2026-11-09 and
+    # the rule now asserts instead of skipping.
     suspicious = re.compile(
-        r"^\s*(logs|events|traces|history|messages)\s*[:\s]*=\s*\[\s*\]\s*$",
+        r"^(logs|events|traces|history|messages)\s*(?::[^=\n]+)?=\s*\[\s*\]\s*$",
         re.MULTILINE,
     )
     has_deque_cap = re.compile(r"deque\(\s*maxlen\s*=")
@@ -156,11 +163,10 @@ def test_rule_05_no_unbounded_in_memory_log_buffers():
         text = path.read_text(encoding="utf-8")
         if suspicious.search(text) and not has_deque_cap.search(text):
             violations.append(str(path.relative_to(REPO_ROOT)))
-    if violations:
-        pytest.skip(
-            "PRE-EXISTING violations exist; tighten heuristic in Step 1 then unskip:\n"
-            + "\n".join(violations)
-        )
+    assert not violations, (
+        "Rule 5: module-level log/event buffers must be bounded "
+        "(collections.deque(maxlen=...)).\n" + "\n".join(violations)
+    )
 
 
 # ---------------------------------------------------------------------------

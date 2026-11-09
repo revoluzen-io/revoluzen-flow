@@ -955,7 +955,9 @@ class WorkflowExecutor:
             if not inputs:
                 return
             rel = inputs[0]
-            row_count = int(rel.count("*").fetchone()[0])
+            # `count()` returns a relation; DuckDB 2.0 removed fetchone() on
+            # relations, so read it through the compat helper.
+            row_count = int(fetch_scalar(rel.count("*"), default=0))
             columns = list(getattr(rel, "columns", []) or [])
             # Deliberately NOT behind the checkable-guarantee test below.
             # A contract of only post-run guarantees blocks nothing, which
