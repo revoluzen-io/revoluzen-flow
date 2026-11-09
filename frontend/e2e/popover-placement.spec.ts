@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { openEditor } from './helpers';
 
 /**
  * Menus and popovers must open fully on screen (2026-10-26).
@@ -85,6 +86,46 @@ function appeared(before: Floater[], after: Floater[]): Floater[] {
 }
 
 /**
+ * Self-test: the detector must be able to fail.
+ *
+ * Every "all panels on screen" result below is worth exactly as much as
+ * this test. Twice now a placement check passed while a panel really was
+ * off-screen — once because it measured the largest floating box (the
+ * Copilot drawer) instead of the panel that opened, once because the
+ * app's first-run wizard ate the clicks so nothing opened at all. Both
+ * printed green.
+ *
+ * So: inject a panel 233px off the left edge — the exact shape of the
+ * original Steward bug — and require the detector to see it. This runs
+ * in the suite rather than as a one-off source edit, because the last
+ * hand-rolled negative control was left behind in a component and
+ * shipped the bug back.
+ */
+test('the off-screen detector actually detects', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: NARROW.height });
+  await openEditor(page);
+
+  const before = await floaters(page);
+  await page.evaluate(() => {
+    const d = document.createElement('div');
+    d.id = '__placement_selftest';
+    d.style.cssText =
+      'position:fixed;left:-233px;top:120px;width:828px;height:400px;background:#fff;z-index:9999';
+    document.body.appendChild(d);
+  });
+  const panels = appeared(before, await floaters(page));
+  await page.evaluate(() => document.getElementById('__placement_selftest')?.remove());
+
+  const offLeft = panels.filter((p) => p.left < 0).map((p) => p.left);
+  expect(
+    offLeft,
+    'The detector did not flag a panel hanging 233px off the left edge, so '
+    + 'every other assertion in this file is vacuous. Fix the measurement '
+    + 'before trusting a green run.',
+  ).toContain(-233);
+});
+
+/**
  * Controls that MUST be present in this build. A missing one fails the
  * test rather than skipping it, because skipping is how fiction gets in:
  * an earlier list named a "Table columns" menu on /pipelines that does
@@ -103,33 +144,60 @@ const TRIGGERS: Array<{ name: string; page: string; selector: string }> = [
   { name: 'Account menu', page: 'editor', selector: 'button[title*="Account menu" i]' },
 ];
 
-for (const t of TRIGGERS) {
-  test(`${t.name} opens on screen at ${NARROW.width}px`, async ({ page }) => {
-    await page.setViewportSize(NARROW);
-    await page.goto(`/#${t.page}`);
-    await page.waitForTimeout(2500);
+/**
+ * Widths, not one width.
+ *
+ * This spec first checked 900px only, and passed — while the
+ * notifications panel was starting 210px off the left edge at 768px and
+ * the account menu 62px off. One sample proves one sample: right-anchored
+ * panels fail progressively as the window narrows and the trigger walks
+ * left, so the guard has to cover the narrow end where they actually
+ * break, not the comfortable middle.
+ */
+const WIDTHS = [1280, 900, 768];
 
+for (const t of TRIGGERS) {
+ for (const width of WIDTHS) {
+  test(`${t.name} opens on screen at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: NARROW.height });
+    // openEditor waits for the canvas pane and dismisses the first-run
+    // wizard, whose backdrop otherwise swallows every click — measured
+    // through it, all four triggers report "no panel appeared" and the
+    // run still prints a clean result.
+    await openEditor(page);
+
+    // Wait for the control, don't sleep at it. A fixed 2.5s pause passed
+    // when this spec ran alone and failed inside the full suite, where a
+    // loaded machine had not finished mounting the editor toolbar yet —
+    // reported as "Pipeline actions not found", which reads like the
+    // control was deleted rather than like a slow boot.
     const trigger = page.locator(t.selector).first();
-    expect(
-      await trigger.count(),
-      `${t.name} not found by \`${t.selector}\`. Either the control was `
-      + 'removed/renamed (update TRIGGERS) or it is edition-gated and does '
-      + 'not belong in this list — do NOT convert this back into a skip.',
-    ).toBeGreaterThan(0);
+    await expect(
+      trigger,
+      `${t.name} never appeared, matched by \`${t.selector}\`. Either the `
+      + 'control was removed/renamed (update TRIGGERS) or it is edition-gated '
+      + 'and does not belong in this list — do NOT convert this back into a skip.',
+    ).toBeVisible({ timeout: 20_000 });
 
     const before = await floaters(page);
     await trigger.click();
     await page.waitForTimeout(600);
 
     const panels = appeared(before, await floaters(page));
-    expect(panels.length, `${t.name} opened no new panel — the trigger or the selector has moved`)
-      .toBeGreaterThan(0);
+    expect(
+      panels.length,
+      `${t.name} opened no new panel at ${width}px. The trigger or selector `
+      + 'may have moved — but check first that nothing is covering the app: a '
+      + 'first-run wizard swallowing every click reported exactly this for all '
+      + 'four triggers at all widths, and still printed a confident pass.',
+    ).toBeGreaterThan(0);
 
     for (const p of panels) {
-      expect(p.left, `${t.name} runs off the LEFT edge (left=${p.left}, width=${p.width})`)
+      expect(p.left, `${t.name} runs off the LEFT edge at ${width}px (left=${p.left}, width=${p.width})`)
         .toBeGreaterThanOrEqual(0);
-      expect(p.right, `${t.name} runs off the RIGHT edge (right=${p.right} > ${p.viewport})`)
+      expect(p.right, `${t.name} runs off the RIGHT edge at ${width}px (right=${p.right} > ${p.viewport})`)
         .toBeLessThanOrEqual(p.viewport);
     }
   });
+ }
 }

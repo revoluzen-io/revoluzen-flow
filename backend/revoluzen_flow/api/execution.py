@@ -404,6 +404,12 @@ async def run_workflow_ephemeral(
     return response
 
 
+def _not_a_resume() -> None:
+    """Keeps `resume_from_run_id` off the public Run route. Only
+    `resume_workflow`, which checks the run first, passes a value."""
+    return None
+
+
 @router.post("/workflow/{workflow_id}")
 async def run_workflow(
     workflow_id: str,
@@ -413,6 +419,7 @@ async def run_workflow(
     environment: str = "dev",
     safety_mode: str = "live",
     workspace_id: str = Depends(_safe_workspace_id),
+    resume_from_run_id: str | None = Depends(_not_a_resume),
 ):
     """Execute all steps of a workflow — workspace-scoped.
 
@@ -434,9 +441,11 @@ async def run_workflow(
           "run_date": "2026-04-30"
         }
       }
-    Values must match the names declared in ``workflow.parameters``;
-    unknown keys raise 400, type-coercion failures raise 400, missing
-    required parameters raise 400.
+    Values must match the names declared in ``workflow.parameters``. An
+    unknown key, a failed type coercion or a missing required parameter
+    stops the run before any step starts: the response has status "error"
+    and a ``parameter_resolution`` step naming it. (A published endpoint
+    answers 400 instead, see api/gateway.py.)
     """
     # Best-effort body parse — empty body / missing Content-Type both fine.
     parameter_values: dict[str, Any] = {}
@@ -509,6 +518,54 @@ async def run_workflow(
                 f"{safety_mode}: {'no issues found' if not errors and not connection_issues else 'issues found'}"
             ),
         }
+
+    from revoluzen_flow.auth.deps import current_user_optional as _cuo
+    _run_user = _cuo(request)
+    return await run_saved_workflow(
+        v,
+        workflow_id=workflow_id,
+        workspace_id=workspace_id,
+        parameter_values=parameter_values,
+        preview_limit=preview_limit,
+        full_run=full_run,
+        environment=environment,
+        safety_mode=safety_mode,
+        resume_from_run_id=resume_from_run_id,
+        run_user_id=getattr(_run_user, "id", None) or "system",
+        owner_email=(getattr(_run_user, "email", "") or "") if _run_user else "",
+    )
+
+
+async def run_saved_workflow(
+    v,
+    *,
+    workflow_id: str,
+    workspace_id: str,
+    parameter_values: dict[str, Any] | None = None,
+    preview_limit: int = 50,
+    full_run: bool = False,
+    environment: str = "dev",
+    safety_mode: str = "live",
+    resume_from_run_id: str | None = None,
+    triggered_by: str = "manual",
+    run_user_id: str = "system",
+    owner_email: str = "",
+    run_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Run a saved pipeline version and record it. Returns the full result.
+
+    The one path for a real run started over HTTP: overlap policy, the
+    execution record, pool admission, step logs, the bell and alert rules.
+    The Run button and a published endpoint differ only in what they pass
+    here, so a fix to one cannot miss the other.
+
+    ``triggered_by`` is the value the Executions page and the Dashboard read,
+    and ``run_metadata`` is stored on the record for whoever audits the run.
+    The returned dict carries sample rows, so a caller outside the product
+    must reduce it before sending it on. See api/gateway.py.
+    """
+    wf = v.workflow
+    parameter_values = parameter_values or {}
     exe_store = get_execution_store()
     data_dir = get_data_dir()
 
@@ -565,8 +622,15 @@ async def run_workflow(
         project_id=getattr(wf, "project_id", "default"),
         workspace_id=workspace_id,
         steps_total=len(wf.steps),
+        triggered_by=triggered_by,
         workflow_snapshot=wf.model_dump(mode="json"),
+        workflow_version=v.version,
     )
+    if run_metadata:
+        exe.metadata = {**exe.metadata, **run_metadata}
+    if resume_from_run_id:
+        exe.triggered_by = f"resume:{resume_from_run_id[:8]}"
+        exe.metadata = {**exe.metadata, "resumed_from": resume_from_run_id}
 
     start = time.time()
     from revoluzen_flow.main import app_state as _app_state
@@ -608,10 +672,8 @@ async def run_workflow(
         # authorized run and hand it to the executor. No-op unless
         # REVOLUZEN_FLOW_REQUIRE_EXECUTION_CODE is on; the executor enforces it.
         from revoluzen_flow.security.execution_codes import get_execution_code_store
-        from revoluzen_flow.auth.deps import current_user_optional as _cuo
-        _run_user = _cuo(request)
         _exec_code = get_execution_code_store().mint(
-            user_id=getattr(_run_user, "id", None) or "system",
+            user_id=run_user_id,
             workspace_id=getattr(wf, "workspace_id", None) or "default",
             pipeline_id=workflow_id,
             job_run_id=exe.id,
@@ -627,12 +689,13 @@ async def run_workflow(
                     project_id=getattr(wf, "project_id", "default"),
                     workspace_id=workspace_id,
                     environment=environment,
-                    triggered_by="manual",
+                    triggered_by="resume" if resume_from_run_id else triggered_by,
                     priority=min(max(priority, 1), 5),
                     fn=lambda: executor.execute_workflow(
                         wf, preview_limit=preview_limit, full_run=full_run,
                         parameter_values=parameter_values or None,
                         run_id=exe.id,
+                        resume_from_run_id=resume_from_run_id,
                         execution_code=_exec_code,
                         **sample_kwargs,
                     ),
@@ -642,9 +705,16 @@ async def run_workflow(
         # Build step logs from result
         step_logs = []
         error_analyses = {}
+        resumed_steps = []
         for step in wf.steps:
             step_result = result.step_results.get(step.id)
             if step_result:
+                # The executor marks a step loaded from its snapshot with
+                # error="resumed-from-snapshot" on a success. It is not an
+                # error, and would otherwise become the run's error message.
+                resumed = step_result.error == "resumed-from-snapshot"
+                if resumed:
+                    resumed_steps.append(step.id)
                 step_logs.append(StepLog(
                     step_id=step.id,
                     step_name=step.label or step.id,
@@ -652,7 +722,7 @@ async def run_workflow(
                     status=step_result.status,
                     rows_processed=step_result.row_count,
                     duration_ms=step_result.duration_ms,
-                    error_message=step_result.error,
+                    error_message=None if resumed else step_result.error,
                 ))
 
                 # Run error intelligence on failed steps
@@ -684,12 +754,21 @@ async def run_workflow(
             md["sample_count"] = _resmon.sample.sample_count
             if parameter_values:
                 md["parameter_values"] = parameter_values
+            if resumed_steps:
+                md["resumed_steps"] = resumed_steps
             exe.metadata = md
         except Exception:
             pass
         if result.status == "error":
             failed_steps = [s for s in step_logs if s.error_message]
-            exe.error_message = failed_steps[0].error_message if failed_steps else "Unknown error"
+            if failed_steps:
+                exe.error_message = failed_steps[0].error_message
+            else:
+                # A run refused before any step ran (validation, parameters,
+                # capability check) reports through a synthetic step that is
+                # not on the canvas. Its text is the real reason.
+                refused = [r.error for r in result.step_results.values() if r.error]
+                exe.error_message = refused[0] if refused else "Unknown error"
 
         exe_store.record(exe)
 
@@ -778,7 +857,7 @@ async def run_workflow(
                 execution_id=exe.id,
                 status=result.status,
                 workspace_id=workspace_id,
-                triggered_by="manual",
+                triggered_by=triggered_by,
                 error_message=exe.error_message or "",
                 failed_step=_alert_failed,
                 duration_ms=round(duration),
@@ -794,13 +873,6 @@ async def run_workflow(
         # 2026-05-21: also forward project/folder/owner/trigger/started/
         # rows/steps so the redesigned alert email's Run Details block
         # has the operational metadata it needs (was empty before).
-        _alert_owner_email = ""
-        try:
-            from revoluzen_flow.auth.deps import current_user_optional
-            _u = current_user_optional(request)
-            _alert_owner_email = (getattr(_u, "email", "") or "") if _u else ""
-        except Exception:
-            pass
         _alert_rows_total = sum(int(s.rows_processed or 0) for s in step_logs)
         _alert_started_iso = exe.started_at.isoformat() if exe.started_at else ""
         _trigger_pipeline_alerts(
@@ -818,12 +890,12 @@ async def run_workflow(
             first_failed_step=_alert_failed,
             project_id=getattr(wf, "project_id", "") or "",
             folder_id=getattr(wf, "folder_id", "") or "",
-            triggered_by="manual",
+            triggered_by=triggered_by,
             started_at=_alert_started_iso,
             rows_processed=_alert_rows_total,
             steps_completed=exe.steps_completed,
             steps_total=exe.steps_total,
-            owner_email=_alert_owner_email,
+            owner_email=owner_email,
         )
 
         # The Executions page should reflect what the user experiences:
@@ -866,7 +938,7 @@ async def run_workflow(
                 execution_id=exe.id,
                 status="error",
                 workspace_id=workspace_id,
-                triggered_by="manual",
+                triggered_by=triggered_by,
                 error_message=str(e),
                 duration_ms=round(duration),
             )
@@ -889,6 +961,7 @@ async def run_workflow(
             status_code=500,
             detail={
                 "message": str(e),
+                "execution_id": exe.id,
                 "error_intelligence": analysis.model_dump(mode="json"),
             },
         )
@@ -1184,6 +1257,7 @@ async def replay_execution(
         steps_total=len(wf.steps),
         triggered_by=f"replay:{execution_id[:8]}",
         workflow_snapshot=wf.model_dump(mode="json"),
+        workflow_version=getattr(original, "workflow_version", None),
     )
 
     start = time.time()
@@ -1358,6 +1432,7 @@ async def run_step(
 async def resume_workflow(
     workflow_id: str,
     run_id: str,
+    request: Request,
     preview_limit: int = 50,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
@@ -1367,19 +1442,24 @@ async def resume_workflow(
     `pipeline_checkpoints` for that run, loads parquet snapshots for every
     step that succeeded, and re-executes only the rest. The new run has
     its own fresh `run_id`, so a future resume can chain off this one.
-    """
-    v = get_store().get(workflow_id, workspace_id=workspace_id)
-    if not v:
-        raise HTTPException(404, "Workflow not found")
 
-    from revoluzen_flow.main import app_state as _app_state
-    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
-    result = await anyio.to_thread.run_sync(
-        lambda: executor.execute_workflow_resume(
-            v.workflow, run_id=run_id, preview_limit=preview_limit,
-        )
+    Goes through `run_workflow` so a resume is a real run: admitted to the
+    pool, recorded in history, and followed by the usual notifications.
+    """
+    prior = get_execution_store().get(run_id, workspace_id=workspace_id)
+    if not prior or prior.workflow_id != workflow_id:
+        raise HTTPException(404, "Run not found for this pipeline")
+
+    return await run_workflow(
+        workflow_id,
+        request,
+        preview_limit=preview_limit,
+        full_run=True,
+        environment="dev",
+        safety_mode="live",
+        workspace_id=workspace_id,
+        resume_from_run_id=run_id,
     )
-    return result.model_dump(mode="json")
 
 
 @router.post("/workflow/{workflow_id}/step/{step_id}/resume")

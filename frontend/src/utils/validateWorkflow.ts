@@ -1,6 +1,7 @@
 // validateWorkflow.ts — Pre-execution validation for Revoluzen Flow pipeline nodes
 
-import { contractFor, RESERVED_METADATA_COLUMNS, sideEffectClassFor } from './nodeArity';
+import { contractFor, sideEffectClassFor } from './nodeArity';
+import { dqRuleIssues, ignoredParamIssues } from './dataQualityRules';
 import { findCycleNodeIds } from './graphCycles';
 
 export interface ValidationIssue {
@@ -267,6 +268,22 @@ function hasAnyParam(params: Record<string, any> | undefined, fields: string[]):
   return fields.some((f) => hasParam(params, f));
 }
 
+/** Like hasParam, but text that is only spaces is empty too (a query of " " names nothing). */
+function hasText(params: Record<string, any> | undefined, field: string): boolean {
+  const val = params?.[field];
+  return typeof val === 'string' ? val.trim() !== '' : hasParam(params, field);
+}
+
+/**
+ * What a database Source reads, as the node reads it (db_source.py): its `source_mode`,
+ * a query unless it says otherwise. The mode the Source panel writes is `source_mode`;
+ * nothing writes a `kind` any more, and the node ignores one.
+ */
+function databaseSourceMode(params: Record<string, any> | undefined): 'query' | 'table' | 'procedure' {
+  const mode = String(params?.source_mode ?? '').trim().toLowerCase();
+  return mode === 'table' || mode === 'procedure' ? mode : 'query';
+}
+
 // ---------------------------------------------------------------------------
 // Main validation
 // ---------------------------------------------------------------------------
@@ -505,27 +522,41 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
         }
       }
 
-      if (hasConn) {
-        // Only run the kind-specific checks when we're in the
-        // connection-driven flow. File-uploaded sources don't have a
-        // schema/table — the per-format sub-config validates them via
-        // SOURCE_REQUIREMENTS above (csv_source, json_source, etc.).
-        const kind = (params?.kind || 'table') as string;
-        if (kind === 'table' && !hasParam(params, 'table')) {
+      // A table or query only means something on a database or warehouse. An
+      // FTP upload saved with a connection and a remote path used to fail
+      // here, asking for a table it has no field for.
+      const usesTables = !connector || connector === 'database' || connector === 'warehouse';
+      if (hasConn && (connector === 'ftp' || connector === 'sftp') && !hasParam(params, 'remote_path')) {
+        issues.push({
+          nodeId: node.id,
+          nodeLabel: label,
+          level: 'error',
+          message: 'Missing required field: remote path (where the file is on the server).',
+          field: 'remote_path',
+        });
+      }
+      if (hasConn && usesTables) {
+        // Only run these checks when we're in the connection-driven flow.
+        // File-uploaded sources don't have a schema/table — the per-format
+        // sub-config validates them via SOURCE_REQUIREMENTS above
+        // (csv_source, json_source, etc.).
+        //
+        // What a database step must name follows what the node reads: a Source
+        // says so in `source_mode` (a query unless told otherwise), a Destination
+        // writes to a table. This used to read a `kind` that no panel writes any
+        // more, so every query Source looked like a table Source and was refused
+        // with "Missing required field: table", however it was filled in.
+        const need = stepType === 'source' ? databaseSourceMode(params) : 'table';
+        if (!hasText(params, need)) {
+          const where = stepType === 'source'
+            ? `this Source is in ${need === 'procedure' ? 'stored-procedure' : need} mode`
+            : 'the table this Destination writes to';
           issues.push({
             nodeId: node.id,
             nodeLabel: label,
             level: 'error',
-            message: 'Missing required field: table (Source/Destination is in table mode).',
-            field: 'table',
-          });
-        } else if (kind === 'query' && !hasParam(params, 'query')) {
-          issues.push({
-            nodeId: node.id,
-            nodeLabel: label,
-            level: 'error',
-            message: 'Missing required field: query (Source/Destination is in query mode).',
-            field: 'query',
+            message: `Missing required field: ${need} (${where}).`,
+            field: need,
           });
         }
       }
@@ -859,8 +890,8 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
         issues.push({
           nodeId: node.id, nodeLabel: label, level: 'error', field: 'target_kind',
           message:
-            "'files' mode is not implemented in this edition — NO files would be deleted. " +
-            "Use a File System node for file cleanup, or switch Delete Target to 'rows'.",
+            "This step is set to delete files, which Delete Data does not do — NO files would be deleted. " +
+            "Use a File System node for file cleanup, and open this step to switch it back to deleting rows.",
         });
       } else if (!hasParam(params, 'condition')) {
         issues.push({
@@ -1089,6 +1120,24 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
       }
     }
 
+    // --- Data Quality rules the step cannot run ---
+    // The node stops the run on a rule with no column, a check it does not have, or
+    // a value it cannot read; it used to compile such a rule to TRUE and pass every
+    // row. Say so here, before Run. The same table of cases holds this and the node
+    // (__tests__/fixtures/dqRuleCases.json). An empty or missing `rules` list is the
+    // required-field check's to report.
+    //
+    // Keys the step does not read (a rule's `check` / `min` / `max`, the step's
+    // `on_failure`) are a warning: the step still runs, but not as they say.
+    if (stepType === 'data_quality') {
+      for (const issue of dqRuleIssues(params?.rules)) {
+        issues.push({ nodeId: node.id, nodeLabel: label, level: issue.level, field: 'rules', message: issue.message });
+      }
+      for (const issue of ignoredParamIssues(params)) {
+        issues.push({ nodeId: node.id, nodeLabel: label, level: issue.level, field: issue.field, message: issue.message });
+      }
+    }
+
     // --- Schema-driven required fields (C3 / Phase 2) ---
     // The backend param_schema is authoritative. Runs when the registry is
     // loaded; the legacy SOURCE/TRANSFORM/FLOW/ACTION map blocks above defer
@@ -1175,52 +1224,83 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
 
   // --- Loop / split metadata leaking into a sink (A5) ---
   // foreach_loop adds `_batch_index`/`_batch_total`, conditional_split
-  // adds `_split_output`, data_quality (tag/split) adds `__dq_passed`,
-  // etc. If a downstream pass-through sink writes that schema verbatim
-  // to a target table, the table picks up engine-internal columns the
-  // user didn't ask for. Warn so the user can drop them via a `select`
-  // step (or `rename` / `schema_mapper`) before the sink.
-  const METADATA_PRODUCERS = new Set([
-    'foreach_loop',
-    'conditional_split',
-    'data_quality',
-    'validate',
-    'llm_guardrail',
-    'kafka_source',
+  // adds `_split_output`, data_quality adds `__dq_passed` (tag mode),
+  // `__dq_score` (Add Quality Score Column) and `_split_output` (reject
+  // mode, unless the rows leave by its Pass / Reject output), etc. If a
+  // downstream pass-through sink writes that schema verbatim to a target
+  // table, the table picks up engine-internal columns the user didn't ask
+  // for. Warn so the user can drop them via a `select` step (or `rename` /
+  // `schema_mapper`) before the sink.
+  //
+  // Each producer names the columns it adds WITH ITS CURRENT SETTINGS (an
+  // empty list = none), so a Data Quality step in drop / fail / split mode
+  // does not trigger the warning. `viaHandle` is the output handle of the
+  // producer that the rows left by (edge.sourceHandle).
+  type MetadataColumns = (params: Record<string, any> | undefined, viaHandle?: string) => string[];
+  const METADATA_PRODUCERS = new Map<string, MetadataColumns>([
+    ['foreach_loop', () => ['_batch_index', '_batch_total']],
+    // A Switch tags every row with its output; the executor strips the tag from the rows
+    // that leave by one of its named outputs, so only the default output carries it.
+    ['conditional_split', (_params, viaHandle) => (viaHandle && viaHandle !== 'output' ? [] : ['_split_output'])],
+    ['data_quality', (params, viaHandle) => {
+      const columns: string[] = [];
+      const mode = String(params?.mode ?? 'drop');
+      if (mode === 'tag') columns.push('__dq_passed');
+      if (params?.include_score) columns.push('__dq_score');
+      // reject tags every row pass / reject; the executor strips the tag from
+      // the rows that leave by the Pass or the Reject output.
+      if (mode === 'reject' && viaHandle !== 'pass' && viaHandle !== 'reject') columns.push('_split_output');
+      return columns;
+    }],
+    ['validate', () => ['is_valid']],
+    ['llm_guardrail', () => ['__guardrail_flags']],
+    ['kafka_source', () => ['_kafka_offset', '_kafka_partition', '_kafka_topic']],
     // 2026-06-15: set_variable removed — it was repurposed to write
     // {{ $vars }} on the run context and now passes input rows through
     // UNCHANGED (it no longer appends columns), so it injects no metadata.
   ]);
+  // The edges into each node: the walk below needs the output handle a step's rows left by.
+  const edgesInto = new Map<string, any[]>();
+  for (const edge of edges) {
+    if (!edgesInto.has(edge.target)) edgesInto.set(edge.target, []);
+    edgesInto.get(edge.target)!.push(edge);
+  }
   for (const node of nodes) {
     const stepType: string = node.data?.stepType || '';
     if (sideEffectClassFor(stepType) !== 'passthrough') continue;  // sinks only
     if (deactivated.has(node.id) || shadowed.has(node.id)) continue;
-    // Walk ancestors looking for metadata producers; collect the closest one.
-    const producers: string[] = [];
-    const seen = new Set<string>();
-    const stack = [...(incoming.get(node.id) || [])];
+    // Walk ancestors looking for steps that add metadata columns. A step is
+    // looked at once per output handle it is reached by (a reject step can be
+    // routed on one branch and not on another); its own ancestors are walked once.
+    const producers = new Map<string, string>();   // step id -> label
+    const added: string[] = [];
+    const expanded = new Set<string>();
+    const stack = (edgesInto.get(node.id) || []).map((e) => ({ id: e.source as string, handle: e.sourceHandle as string | undefined }));
     while (stack.length > 0) {
-      const cur = stack.pop()!;
-      if (seen.has(cur)) continue;
-      seen.add(cur);
-      const n = nodes.find((x) => x.id === cur);
+      const { id: cur, handle } = stack.pop()!;
+      const n = nodeById.get(cur);
       const t: string = n?.data?.stepType || '';
-      if (METADATA_PRODUCERS.has(t)) {
-        const label = n?.data?.label || t || cur;
-        producers.push(String(label));
+      const columns = METADATA_PRODUCERS.get(t)?.(n?.data?.params, handle) ?? [];
+      if (columns.length > 0) {
+        if (!producers.has(cur)) producers.set(cur, String(n?.data?.label || t || cur));
+        for (const c of columns) if (!added.includes(c)) added.push(c);
       }
-      for (const p of incoming.get(cur) || []) stack.push(p);
+      if (expanded.has(cur)) continue;
+      expanded.add(cur);
+      for (const e of edgesInto.get(cur) || []) stack.push({ id: e.source, handle: e.sourceHandle });
     }
-    if (producers.length === 0) continue;
+    if (producers.size === 0) continue;
+    const names = Array.from(producers.values());
+    const one = names.length === 1;
     const label = node.data?.label || stepType || node.id;
     issues.push({
       nodeId: node.id,
       nodeLabel: label,
       level: 'warning',
       message:
-        `${label} writes upstream output verbatim, but ${producers.length === 1 ? 'an upstream node' : 'upstream nodes'} ` +
-        `(${producers.slice(0, 3).join(', ')}${producers.length > 3 ? ', …' : ''}) ` +
-        `inject internal metadata columns (${Array.from(RESERVED_METADATA_COLUMNS).slice(0, 4).join(', ')}, …). ` +
+        `${label} writes upstream output verbatim, but ${one ? 'an upstream node' : 'upstream nodes'} ` +
+        `(${names.slice(0, 3).join(', ')}${names.length > 3 ? ', …' : ''}) ` +
+        `${one ? 'adds' : 'add'} internal metadata columns (${added.slice(0, 6).join(', ')}${added.length > 6 ? ', …' : ''}). ` +
         `Drop them with a Rename or Select step before this sink so they don't end up in your output.`,
     });
   }

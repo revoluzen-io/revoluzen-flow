@@ -106,6 +106,14 @@ See the [connector catalog](../connectors.md) for the full list.
 
 ## 7. Credentials at rest
 
+### Reuse a saved credential
+
+Instead of typing a password into each connection, save it once on **Connections → Credentials**, then pick it under **Saved credential** when you create or edit a connection. The fields it holds fill themselves. For example, a credential with a `username` and a `password` fills those two fields on a Postgres connection, and you type only the host and database. The fields show which credential they come from, and the secret stays in the credential. Change the credential once and every connection using it picks up the new value on its next test or run.
+
+Give a credential an **expiry date** and administrators are warned on the notification bell and by email a week ahead, a day ahead and when it expires. See [the notifications guide](../product_facts/09_notifications.md).
+
+### How it is stored
+
 Revoluzen Flow encrypts saved credentials using **Fernet (AES-128-CBC + HMAC-SHA256)**. The master key lives in `<REVOLUZEN_FLOW_DATA_DIR>/secret.key` (Docker default: `/data/secret.key`; or override the path via `REVOLUZEN_FLOW_MASTER_KEY_FILE`). POSIX permissions are enforced to `0600` on startup — the server fails closed if the perms are wider.
 
 The plaintext password / API key is **never** returned by any API endpoint after save — neither in `GET /api/connections/{id}` nor in exports. To rotate, edit the connection and provide a new credential.

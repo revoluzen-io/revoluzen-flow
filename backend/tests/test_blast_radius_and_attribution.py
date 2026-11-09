@@ -130,6 +130,32 @@ def test_the_biggest_collapse_wins_not_the_last_one():
     assert receipt.attribution[0].rows_in == 1000
 
 
+def test_a_branching_pipeline_is_compared_along_its_wires():
+    # Orders and customers both feed a join. In execution order customers
+    # comes straight after orders, which used to read as "48,210 -> 6,120
+    # at customers": the filter that emptied the run was never named.
+    receipt = verify_contract(
+        _contract(NO_EMPTY),
+        _run(("orders", 48210), ("customers", 6120), ("paid", 0), ("unique", 6000), ("join", 0), ("sink", 0)),
+        upstream={"paid": ["orders"], "unique": ["customers"], "join": ["paid", "unique"], "sink": ["join"]},
+        labels={"paid": "Paid only"},
+    )
+    cause = receipt.attribution[0]
+    assert cause.step_id == "paid"
+    assert cause.upstream_step == "orders"
+    assert cause.detail == "48,210 -> 0 at 'Paid only'"
+
+
+def test_a_join_that_keeps_its_big_side_has_lost_nothing():
+    receipt = verify_contract(
+        _contract(Guarantee(type=GuaranteeType.ROW_COUNT_MIN, min_rows=100)),
+        _run(("orders", 50), ("customers", 6000), ("join", 50), ("sink", 50)),
+        upstream={"join": ["orders", "customers"], "sink": ["join"]},
+    )
+    assert receipt.attribution[0].step_id == "join"
+    assert receipt.attribution[0].rows_in == 6000
+
+
 def test_an_empty_source_is_reported_as_such_not_as_a_lost_row():
     # Nothing collapsed — nothing ever arrived. That is a different fix
     # (look at the source) and saying so beats staying silent.

@@ -131,7 +131,7 @@ Copy a **v1** file — those are the ones that run.
       "name": "items",
       "path": "/items",
       "method": "GET",
-      "pagination": { "type": "page", "page_param": "page", "size_param": "limit" },
+      "pagination": { "type": "page", "page_param": "page", "page_size_param": "limit" },
       "primary_key": "id"
     }
   ]
@@ -162,6 +162,19 @@ Copy a **v1** file — those are the ones that run.
 Both tables are counted from the shipped manifests rather than from a schema
 document, so they reflect what the runtime demonstrably supports. Read a real
 manifest for the exact field names each type expects.
+
+**Page size and the page cap.** For `offset` / `offset_limit` and `page` /
+`page_number`, the page size is sent on every request, the first one included.
+If the stream's `query` already sets that parameter, its value is used as the
+page size.
+
+`max_pages` (default 50) is a safety cap, not a sample size. When a stream
+reaches it and the API still has rows, the run fails with
+`PaginationLimitReached` instead of returning partial data as if it were
+complete. Set `"on_max_pages": "stop"` in the `pagination` block to keep the
+rows read so far; a warning is logged. Previews always keep the partial result.
+`url`-type pagination (and `cursor` with `next_url_path`) follows the API's
+next link until it runs out and is not counted against `max_pages`.
 
 ### 5. Load it
 

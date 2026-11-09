@@ -1,38 +1,46 @@
 /**
- * ActivityPage — causal-lineage timeline view.
+ * ActivityPage — Insights → Activity: what the AI did.
  *
- * Renders the unified feed from /api/v1/activity: every audit-log entry,
- * agent run, and pipeline execution in chronological order. Cycode/Wiz-
- * inspired pattern — converts the trust artifacts we already store into
- * a visible enterprise feature.
+ * One row per AI request from `/api/v1/activity?scope=ai` — the Copilot's,
+ * or another feature's such as drafting a pipeline in the Editor: what was
+ * asked, where it came from, the model that answered, tokens, the estimated
+ * cost and how it ended. The four cards total the whole window (the
+ * endpoint's `summary`), not only the rows in the table. Click a row to see
+ * its steps.
  *
- * Filter chips for kind (audit / agent / execution) and severity. Click
- * an event row to see the kind-specific details inline.
+ * There is no "who asked": this edition has one user. Pipeline runs are
+ * not repeated here either: their history is on Workflows → Executions.
  */
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useDarkMode } from '../../hooks/useDarkMode';
+import { usePageContext } from '../../hooks/usePageContext';
 import HeroCard from '../shared/HeroCard';
 import { api } from '../../api/client';
-import { computeCostUsd, DEFAULT_RATES, type CostRates } from '../../lib/cost';
-
-interface ActivityEvent {
-  kind: 'audit' | 'agent' | 'execution';
-  timestamp: string;
-  actor: string;
-  subject: string;
-  summary: string;
-  severity: 'info' | 'warning' | 'error';
-  details: Record<string, unknown>;
-}
-
-interface ActivityResponse {
-  events: ActivityEvent[];
-  count: number;
-  kind_counts: Record<string, number>;
-  severity_counts: Record<string, number>;
-  filter: Record<string, unknown>;
-}
+import { navigateTo } from '../../router';
+import { DEFAULT_RATES, type CostRates } from '../../lib/cost';
+import {
+  AI_ACTIVITY_URL,
+  AI_RESULTS,
+  AI_RESULT_LABELS,
+  WINDOW_DAYS,
+  aiActivityCsv,
+  aiResult,
+  failureText,
+  fmtUsd,
+  outcomeLabel,
+  pageLabel,
+  questionOf,
+  runCostUsd,
+  runDetails,
+  sourceSplit,
+  summaryFromEvents,
+  tokensOf,
+  usageTotals,
+  whereOf,
+  type AiActivityResponse,
+  type AiResult,
+} from '../../lib/aiActivity';
 
 interface TraceStep {
   step_id: string;
@@ -57,43 +65,11 @@ interface TraceDetail {
   final_text?: string;
 }
 
-const KIND_LABELS: Record<string, string> = {
-  audit: 'Audit',
-  agent: 'Agent',
-  execution: 'Execution',
+const RESULT_DOT: Record<AiResult, string> = {
+  answered: 'bg-emerald-500',
+  failed: 'bg-red-500',
+  blocked: 'bg-amber-500',
 };
-
-const KIND_TONES_LIGHT: Record<string, string> = {
-  audit: 'bg-slate-100 text-slate-700 ring-slate-200',
-  agent: 'bg-indigo-100 text-indigo-700 ring-indigo-200',
-  execution: 'bg-emerald-100 text-emerald-700 ring-emerald-200',
-};
-
-const KIND_TONES_DARK: Record<string, string> = {
-  audit: 'bg-slate-700/40 text-slate-200 ring-slate-600',
-  agent: 'bg-indigo-500/20 text-indigo-200 ring-indigo-500/30',
-  execution: 'bg-emerald-500/20 text-emerald-200 ring-emerald-500/30',
-};
-
-const SEVERITY_DOT_LIGHT: Record<string, string> = {
-  info: 'bg-slate-400',
-  warning: 'bg-amber-500',
-  error: 'bg-red-500',
-};
-
-// 2026-05-19 (P1 #10 of PAGE_BY_PAGE_AUDIT.md): the `_headers` helper
-// used to hand-roll `Authorization` + `X-Workspace-Id` for raw fetch
-// calls — bypassing the api client's 401 interceptor and
-// backend-reachable signal. Both call sites now route through `api.get()`
-// so this page inherits the global behaviour. The helper is retained as
-// a no-op shim only because external callers may import it; remove in a
-// follow-up sweep if unused.
-function _headers(): Record<string, string> {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const token = localStorage.getItem('revoluzen_flow_token') || '';
-  const ws = localStorage.getItem('revoluzen_flow_workspace_id') || 'default';
-  return { 'X-Workspace-Id': ws, ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-}
 
 function fmtTime(iso: string): string {
   try {
@@ -116,15 +92,21 @@ function fmtRelative(iso: string): string {
   return `${Math.round(sec / 86400)}d ago`;
 }
 
+function fmtSeconds(ms?: number | null): string | null {
+  if (ms == null || !Number.isFinite(Number(ms))) return null;
+  const s = Number(ms) / 1000;
+  return s < 10 ? `${s.toFixed(1)} s` : `${Math.round(s)} s`;
+}
+
 export default function ActivityPage({ embedded = false }: { embedded?: boolean } = {}) {
   const dark = useDarkMode();
-  const [data, setData] = useState<ActivityResponse | null>(null);
+  const [data, setData] = useState<AiActivityResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeKinds, setActiveKinds] = useState<Set<string>>(new Set(['audit', 'agent', 'execution']));
-  const [activeSeverities, setActiveSeverities] = useState<Set<string>>(new Set(['info', 'warning', 'error']));
+  const [activeResults, setActiveResults] = useState<Set<AiResult>>(new Set(AI_RESULTS));
   const [searchTerm, setSearchTerm] = useState('');
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // Open rows, keyed by run id so a filter change does not open another row.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [traceDetails, setTraceDetails] = useState<Record<string, TraceDetail | 'loading' | 'error'>>({});
   const [rates, setRates] = useState<CostRates>(DEFAULT_RATES);
 
@@ -132,10 +114,10 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     setLoading(true);
     setError(null);
     try {
-      const json = await api.get<ActivityResponse>('/api/v1/activity?limit=200');
+      const json = await api.get<AiActivityResponse>(AI_ACTIVITY_URL);
       setData(json);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load activity');
+      setError(e instanceof Error ? e.message : 'Could not load AI activity');
     } finally {
       setLoading(false);
     }
@@ -145,9 +127,9 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     refresh();
   }, []);
 
-  // Fetch AI cost-rate table. Workspace-scoped so admin overrides apply.
-  // We also re-fetch when SettingsPage broadcasts a save, so the tile
-  // updates without requiring a page reload.
+  // AI cost-rate table. Workspace-scoped so admin overrides apply, and
+  // re-fetched when Settings → AI Pricing saves, so the cost updates
+  // without a reload.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -167,101 +149,79 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     };
   }, []);
 
+  // Only AI requests are asked for; the kind check keeps the page honest if
+  // an older backend ignores `scope` and sends the full timeline.
+  const requests = useMemo(
+    () => (data?.events || []).filter((e) => e.kind === 'agent'),
+    [data],
+  );
+
+  const resultCounts = useMemo(() => {
+    const counts: Record<AiResult, number> = { answered: 0, failed: 0, blocked: 0 };
+    for (const ev of requests) counts[aiResult(runDetails(ev).outcome)] += 1;
+    return counts;
+  }, [requests]);
+
   const filtered = useMemo(() => {
-    if (!data) return [];
     const q = searchTerm.trim().toLowerCase();
-    return data.events.filter((e) => {
-      if (!activeKinds.has(e.kind) || !activeSeverities.has(e.severity)) return false;
+    return requests.filter((ev) => {
+      const d = runDetails(ev);
+      if (!activeResults.has(aiResult(d.outcome))) return false;
       if (!q) return true;
-      const d = e.details as { model?: string; user_intent?: string } | undefined;
-      const hay = `${e.actor} ${e.summary} ${d?.model || ''} ${d?.user_intent || ''}`.toLowerCase();
+      const hay = `${questionOf(ev)} ${whereOf(ev)} ${d.model || ''} ${d.provider || ''}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [data, activeKinds, activeSeverities, searchTerm]);
+  }, [requests, activeResults, searchTerm]);
 
-  // AI activity summary — derived from agent events in the visible window.
-  // Cost uses the workspace's rate table (per provider+model) so the number
-  // reflects what was actually billed. Ollama → $0 (no per-token cost);
-  // cloud providers → input + output priced separately at their published
-  // rates. Users can override rates in Settings → AI Pricing.
-  const aiSummary = useMemo(() => {
-    if (!data) {
-      return { runs: 0, tokens: 0, tokens_in: 0, tokens_out: 0, est_cost_usd: 0, errors: 0, all_local: true };
-    }
-    let runs = 0;
-    let tokens_in = 0;
-    let tokens_out = 0;
-    let est_cost_usd = 0;
-    let errors = 0;
-    let any_ollama_seen = false;
-    let any_non_ollama_seen = false;
-    for (const e of data.events) {
-      if (e.kind !== 'agent') continue;
-      runs += 1;
-      const d = e.details as { tokens?: number; tokens_in?: number; tokens_out?: number; provider?: string; model?: string } | undefined;
-      const ti = Number(d?.tokens_in || 0);
-      const to = Number(d?.tokens_out || 0);
-      if (ti || to) {
-        tokens_in += ti;
-        tokens_out += to;
-      } else {
-        tokens_in += Number(d?.tokens || 0);
-      }
-      est_cost_usd += computeCostUsd(rates, d?.provider, d?.model, ti, to);
-      const p = d?.provider?.toLowerCase();
-      if (p === 'ollama') any_ollama_seen = true;
-      else if (p) any_non_ollama_seen = true;
-      // Unknown/null provider stays out of both buckets — we don't claim
-      // "local" without positive evidence, and we don't claim "cloud" either.
-      if (e.severity === 'error') errors += 1;
-    }
-    const tokens = tokens_in + tokens_out;
-    // "Local" badge only shows when every classified run was Ollama
-    // (and at least one event was classified). Legacy null-provider runs
-    // do not unlock the badge — they get costed at the fallback rate.
-    const all_local = any_ollama_seen && !any_non_ollama_seen;
-    return { runs, tokens, tokens_in, tokens_out, est_cost_usd, errors, all_local };
-  }, [data, rates]);
+  const summary = useMemo(() => data?.summary ?? summaryFromEvents(requests), [data, requests]);
+  const totals = useMemo(() => usageTotals(summary, rates), [summary, rates]);
+  const split = sourceSplit(summary);
+  const totalInWindow = data?.summary?.requests ?? requests.length;
 
-  // Export the currently-filtered events as CSV. The point is operator
-  // visibility — admins need to hand auditors / finance a flat table of what
-  // the AI did, what it cost, and which model served the request. Honours
-  // active KINDS/SEVERITY/search filters so users export what they see.
+  // Tell the Copilot what this tab shows: the AI requests on screen, so a
+  // question like "which requests failed?" or "what did the AI cost?" can
+  // be answered from the page.
+  usePageContext({
+    page: 'ai.activity',
+    visible_ids: filtered.map((ev) => ev.subject).filter(Boolean),
+    filters: {
+      tab: 'activity',
+      results: AI_RESULTS.filter((r) => activeResults.has(r)),
+      search: searchTerm.trim() || null,
+    },
+    visible_items: filtered.slice(0, 50).map((ev) => {
+      const d = runDetails(ev);
+      return {
+        id: ev.subject,
+        name: questionOf(ev),
+        kind: 'ai_request',
+        status: aiResult(d.outcome),
+        // The Copilot's prompt shows the first four of these.
+        meta: {
+          where: whereOf(ev),
+          tokens: tokensOf(ev).total,
+          est_cost_usd: Number(runCostUsd(ev, rates).toFixed(6)),
+          model: d.model || d.provider || null,
+          when: ev.timestamp,
+        },
+      };
+    }),
+  });
+
   function exportCsv() {
-    const esc = (v: unknown): string => {
-      const s = v == null ? '' : String(v);
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const headers = ['kind', 'actor', 'model', 'provider', 'tokens_in', 'tokens_out', 'tokens_total', 'summary', 'timestamp', 'severity'];
-    const lines = [headers.join(',')];
-    for (const ev of filtered) {
-      const d = ev.details as { model?: string; provider?: string; tokens_in?: number; tokens_out?: number; tokens?: number } | undefined;
-      lines.push([
-        ev.kind,
-        ev.actor,
-        d?.model || '',
-        d?.provider || '',
-        d?.tokens_in ?? '',
-        d?.tokens_out ?? '',
-        d?.tokens ?? '',
-        ev.summary,
-        ev.timestamp,
-        ev.severity,
-      ].map(esc).join(','));
-    }
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([aiActivityCsv(filtered, rates)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `revoluzen-flow-activity-${stamp}.csv`;
+    a.download = `revoluzen-flow-ai-activity-${stamp}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  // Fetch the rich trace detail (with steps) when an agent row is expanded.
+  // Fetch the steps of a request when its row is opened.
   async function fetchTraceDetail(runId: string) {
     setTraceDetails((cur) => ({ ...cur, [runId]: 'loading' }));
     try {
@@ -272,34 +232,22 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
     }
   }
 
-  const toggleKind = (k: string) => {
-    setActiveKinds((s) => {
-      const n = new Set(s);
-      if (n.has(k)) n.delete(k); else n.add(k);
-      // Don't allow zero kinds — keeping at least one selected.
-      return n.size === 0 ? s : n;
-    });
-  };
-
-  const toggleSev = (s: string) => {
-    setActiveSeverities((cur) => {
+  const toggleResult = (r: AiResult) => {
+    setActiveResults((cur) => {
       const n = new Set(cur);
-      if (n.has(s)) n.delete(s); else n.add(s);
+      if (n.has(r)) n.delete(r); else n.add(r);
+      // Keep at least one selected.
       return n.size === 0 ? cur : n;
     });
   };
 
-  const KIND_TONES = dark ? KIND_TONES_DARK : KIND_TONES_LIGHT;
+  const muted = 'text-slate-500';
+  const dash = <span className={dark ? 'text-slate-600' : 'text-slate-500'}>—</span>;
 
-  // Body content — used both for standalone page and as embedded section
-  // in AIPage. When `embedded`, the parent page provides the chrome (sticky
-  // PROD/DEV banner, tab bar, max-width wrapper) so we render the inner
-  // content only.
+  // Body content — used both for the standalone page and embedded in the
+  // Insights hub (AIPage), which provides the header and tab bar.
   const Body = (
     <>
-      {/* HeroCard KPI strip — matches Executions / Pool style: 4 gradient
-          cards with icons. Replaces the previous compact white tiles
-          (which were too understated for the Insights landing). */}
       <div className={embedded ? '' : 'w-full px-8 pt-4'}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <HeroCard
@@ -309,8 +257,13 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                 <path d="M12 2l2.09 6.26L20 10l-5.91 1.74L12 18l-2.09-6.26L4 10l5.91-1.74z" />
               </svg>
             }
-            label="Agent Runs"
-            value={String(aiSummary.runs)}
+            label="AI requests"
+            value={totals.requests.toLocaleString()}
+            footer={
+              split.other > 0
+                ? `${split.copilot.toLocaleString()} Copilot · ${split.other.toLocaleString()} other features`
+                : `Last ${WINDOW_DAYS} days`
+            }
           />
           <HeroCard
             gradient="from-sky-400 to-blue-500"
@@ -321,8 +274,8 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
               </svg>
             }
             label="Tokens"
-            value={aiSummary.tokens.toLocaleString()}
-            footer={`Input ${aiSummary.tokens_in.toLocaleString()} · Output ${aiSummary.tokens_out.toLocaleString()}`}
+            value={(totals.tokensIn + totals.tokensOut).toLocaleString()}
+            footer={`Input ${totals.tokensIn.toLocaleString()} · Output ${totals.tokensOut.toLocaleString()}`}
           />
           <HeroCard
             gradient="from-emerald-400 to-teal-500"
@@ -331,72 +284,55 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                 <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
               </svg>
             }
-            label="Est. Cost"
-            value={aiSummary.all_local ? '$0.00' : `$${aiSummary.est_cost_usd.toFixed(4)}`}
-            footer={aiSummary.all_local ? 'local — no per-token cost' : 'per-model rates · edit in Settings'}
+            label="Est. cost"
+            value={totals.allLocal ? '$0.00' : fmtUsd(totals.costUsd)}
+            footer={totals.allLocal ? 'Local model, no per-token cost' : 'Per-model rates, set in Settings'}
           />
           <HeroCard
-            gradient={aiSummary.errors > 0 ? 'from-red-400 to-rose-500' : 'from-slate-400 to-slate-500'}
+            gradient={totals.failed > 0 ? 'from-red-400 to-rose-500' : 'from-slate-400 to-slate-500'}
             icon={
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" />
               </svg>
             }
-            label="Failed Runs"
-            value={String(aiSummary.errors)}
+            label="Failed AI calls"
+            value={totals.failed.toLocaleString()}
+            footer={
+              totals.blocked > 0
+                ? `Model errors and time-outs · ${totals.blocked} blocked by a limit`
+                : 'Model errors and time-outs'
+            }
           />
         </div>
       </div>
 
-      {/* Filters + Table */}
       <div className={embedded ? 'pt-4 space-y-3' : 'w-full px-8 py-4 space-y-3'}>
-        {/* Filter toolbar — same card style as the KPI tiles for consistency. */}
+        {/* Filter toolbar — same card style as the KPI tiles. */}
         <div
           className={`rounded-xl border shadow-sm px-3 py-2.5 flex items-center gap-2 flex-wrap ${
             dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'
           }`}
         >
-          <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-            Kinds:
+          <span className={`text-xs font-bold uppercase tracking-wider ${muted}`}>
+            Result:
           </span>
-          {(['audit', 'agent', 'execution'] as const).map((k) => {
-            const active = activeKinds.has(k);
-            const count = data?.kind_counts[k] || 0;
+          {AI_RESULTS.map((r) => {
+            const active = activeResults.has(r);
             return (
               <button
-                key={k}
+                key={r}
                 type="button"
-                onClick={() => toggleKind(k)}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md ring-1 transition-colors ${
-                  active ? KIND_TONES[k] : (dark ? 'bg-transparent text-slate-500 ring-white/[0.08]' : 'bg-white text-slate-500 ring-slate-200')
-                }`}
-              >
-                {KIND_LABELS[k]}
-                <span className="ml-1.5 opacity-70">{count}</span>
-              </button>
-            );
-          })}
-          <span className={`mx-2 text-xs ${dark ? 'text-slate-600' : 'text-slate-300'}`}>·</span>
-          <span className={`text-xs font-bold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-            Severity:
-          </span>
-          {(['info', 'warning', 'error'] as const).map((s) => {
-            const active = activeSeverities.has(s);
-            const count = data?.severity_counts[s] || 0;
-            return (
-              <button
-                key={s}
-                type="button"
-                onClick={() => toggleSev(s)}
+                aria-pressed={active}
+                onClick={() => toggleResult(r)}
                 className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded-md ring-1 transition-colors ${
                   active
                     ? (dark ? 'bg-white/[0.06] text-slate-200 ring-white/[0.1]' : 'bg-white text-slate-700 ring-slate-300')
                     : (dark ? 'text-slate-500 ring-white/[0.05]' : 'text-slate-500 ring-slate-200')
                 }`}
               >
-                <span className={`inline-block w-2 h-2 rounded-full ${SEVERITY_DOT_LIGHT[s]}`} />
-                {s}
-                <span className="ml-0.5 opacity-70">{count}</span>
+                <span className={`inline-block w-2 h-2 rounded-full ${RESULT_DOT[r]}`} />
+                {AI_RESULT_LABELS[r]}
+                <span className="ml-0.5 opacity-70">{resultCounts[r]}</span>
               </button>
             );
           })}
@@ -409,8 +345,9 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search actor, summary, model…"
-              className={`px-2 py-1 text-xs rounded-md ring-1 outline-none focus:ring-2 w-56 ${
+              placeholder="Search question, where, model…"
+              aria-label="Search AI requests"
+              className={`px-2 py-1 text-xs rounded-md ring-1 outline-none focus:ring-2 w-60 ${
                 dark
                   ? 'bg-white/[0.04] text-slate-200 ring-white/[0.08] focus:ring-amber-400/60 placeholder:text-slate-500'
                   : 'bg-white text-slate-700 ring-slate-200 focus:ring-amber-400 placeholder:text-slate-500'
@@ -430,37 +367,39 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
         </div>
 
         {error && (
-          <div className={`rounded-lg border p-3 text-[12px] ${dark ? 'bg-red-500/10 border-red-500/20 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
-            Failed to load activity: {error}
+          <div role="alert" className={`rounded-lg border p-3 text-[12px] ${dark ? 'bg-red-500/10 border-red-500/20 text-red-300' : 'bg-red-50 border-red-200 text-red-700'}`}>
+            Could not load AI activity: {error}
           </div>
         )}
 
         {!loading && !error && filtered.length === 0 && (
           <div className={`rounded-lg border p-6 text-center text-sm ${dark ? 'bg-[#111827] border-white/[0.08] text-slate-400' : 'bg-white border-slate-200 text-slate-500'}`}>
-            No events in this window. Trigger a pipeline or talk to the Copilot to see entries here.
+            {requests.length === 0
+              ? `No AI requests in the last ${WINDOW_DAYS} days. When you ask the Copilot or use another AI feature, such as drafting a pipeline in the Editor, each request shows up here, with the model, tokens and estimated cost.`
+              : 'No requests match these filters.'}
           </div>
         )}
 
-        {/* Timeline table — uses the canonical thead-dev tokens (slate-700
-            header bg + amber-300 text) so it matches Projects / Executions /
-            every other table in the app. tableCard token = `border-2
-            border-thead-dev-border rounded-lg overflow-hidden shadow-sm bg-white`. */}
+        {/* Request table — canonical thead-dev tokens so it matches every
+            other table in the app. */}
         <div className="rounded-lg border-2 border-thead-dev-border overflow-hidden shadow-sm bg-white">
-          {/* Toolbar strip — matches TableToolbar pattern: dark band with
-              counts (left) and actions (right). Mirrors Projects "1 project ·
-              9/15 columns" toolbar. */}
           <div className="bg-thead-dev-bg px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
             <div className="text-[12px] text-white/85 font-medium">
-              {data ? `${filtered.length} of ${data.count} events` : 'Loading…'}
+              {data
+                ? `${filtered.length} of ${requests.length} request${requests.length === 1 ? '' : 's'}`
+                : 'Loading…'}
+              {data && totalInWindow > requests.length && (
+                <span className="text-white/60"> (latest {requests.length} of {totalInWindow.toLocaleString()})</span>
+              )}
               <span className="text-white/40 mx-1.5">·</span>
-              <span className="text-white/60">workspace-scoped · last 7 days</span>
+              <span className="text-white/60">last {WINDOW_DAYS} days</span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={exportCsv}
                 disabled={filtered.length === 0}
-                title={filtered.length === 0 ? 'Nothing to export' : `Export ${filtered.length} event${filtered.length === 1 ? '' : 's'} as CSV`}
+                title={filtered.length === 0 ? 'Nothing to export' : `Export ${filtered.length} request${filtered.length === 1 ? '' : 's'} as CSV`}
                 className="px-2.5 py-1 text-xs font-semibold text-white bg-white/10 hover:bg-white/20 rounded ring-1 ring-white/15 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -483,30 +422,35 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
           <div className="overflow-x-auto">
             <table className="w-full text-[12px] table-fixed">
               <colgroup>
-                <col className="w-[80px]" />
-                <col className="w-[120px]" />
-                <col className="w-[150px]" />
+                <col className="w-[140px]" />
                 <col />
-                <col className="w-[140px]" />
-                <col className="w-[140px]" />
-                <col className="w-[80px]" />
+                <col className="w-[150px]" />
+                <col className="w-[160px]" />
+                <col className="w-[90px]" />
+                <col className="w-[130px]" />
               </colgroup>
               <thead className="bg-thead-dev-bg text-thead-dev-text border-b-2 border-thead-dev-border">
                 <tr className="text-xs font-bold uppercase tracking-wider">
-                  <th className="text-left px-3 py-2">Kind</th>
-                  <th className="text-left px-3 py-2">Actor</th>
-                  <th className="text-left px-3 py-2">Model</th>
-                  <th className="text-left px-3 py-2">Summary</th>
-                  <th className="text-left px-3 py-2">Tokens</th>
                   <th className="text-left px-3 py-2">When</th>
-                  <th className="text-left px-3 py-2">Severity</th>
+                  <th className="text-left px-3 py-2">Question</th>
+                  <th className="text-left px-3 py-2">Model</th>
+                  <th className="text-left px-3 py-2">Tokens</th>
+                  <th className="text-left px-3 py-2">Est. cost</th>
+                  <th className="text-left px-3 py-2">Result</th>
                 </tr>
               </thead>
               <tbody className={dark ? 'divide-y divide-white/[0.04]' : 'divide-y divide-slate-100'}>
                 {filtered.map((ev, i) => {
-                  const isExpanded = expanded.has(i);
+                  const rowKey = ev.subject || `row-${i}`;
+                  const isExpanded = expanded.has(rowKey);
+                  const d = runDetails(ev);
+                  const t = tokensOf(ev);
+                  const result = aiResult(d.outcome);
+                  const modelLabel = d.model || d.provider;
+                  const asked = pageLabel(d.page);
+                  const took = fmtSeconds(d.elapsed_ms);
                   return (
-                    <Fragment key={i}>
+                    <Fragment key={rowKey}>
                       <tr
                         className={`cursor-pointer transition-colors ${
                           dark ? 'hover:bg-white/[0.02]' : 'hover:bg-slate-50/60'
@@ -514,146 +458,116 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
                         onClick={() => {
                           setExpanded((s) => {
                             const n = new Set(s);
-                            if (n.has(i)) n.delete(i); else n.add(i);
+                            if (n.has(rowKey)) n.delete(rowKey); else n.add(rowKey);
                             return n;
                           });
-                          if (ev.kind === 'agent' && ev.subject && !traceDetails[ev.subject]) {
+                          if (ev.subject && !traceDetails[ev.subject]) {
                             fetchTraceDetail(ev.subject);
                           }
                         }}
                       >
-                        <td className="px-3 py-2">
-                          <span className={`text-xs font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ring-1 ${KIND_TONES[ev.kind]}`}>
-                            {KIND_LABELS[ev.kind]}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <code className={`font-mono text-xs truncate block ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                            {ev.actor}
-                          </code>
-                        </td>
-                        <td className="px-3 py-2">
-                          {(() => {
-                            const d = ev.details as { model?: string; provider?: string } | undefined;
-                            const label = d?.model || d?.provider;
-                            if (!label) {
-                              return <span className={dark ? 'text-slate-600' : 'text-slate-500'}>—</span>;
-                            }
-                            const title = d?.model && d?.provider ? `${d.provider} · ${d.model}` : label;
-                            return (
-                              <code
-                                title={title}
-                                className={`font-mono text-xs truncate block ${dark ? 'text-slate-300' : 'text-slate-700'}`}
-                              >
-                                {label}
-                              </code>
-                            );
-                          })()}
-                        </td>
-                        <td className={`px-3 py-2 truncate ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
-                          {ev.summary}
-                        </td>
-                        <td className="px-3 py-2">
-                          {(() => {
-                            const d = ev.details as { tokens?: number; tokens_in?: number; tokens_out?: number } | undefined;
-                            const total = Number(d?.tokens || 0);
-                            const ti = Number(d?.tokens_in || 0);
-                            const to = Number(d?.tokens_out || 0);
-                            if (!total && !ti && !to) {
-                              return <span className={dark ? 'text-slate-600' : 'text-slate-500'}>—</span>;
-                            }
-                            return (
-                              <div className="leading-tight">
-                                <div className={`text-xs font-semibold tabular-nums ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
-                                  {(total || ti + to).toLocaleString()}
-                                </div>
-                                <div className={`text-xs tabular-nums ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
-                                  in {ti.toLocaleString()} · out {to.toLocaleString()}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-                        <td className={`px-3 py-2 text-xs tabular-nums ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+                        <td className={`px-3 py-2 text-xs tabular-nums ${muted}`}>
                           <div>{fmtRelative(ev.timestamp)}</div>
                           <div className={`text-xs ${dark ? 'text-slate-600' : 'text-slate-500'}`}>{fmtTime(ev.timestamp)}</div>
                         </td>
+                        <td className="px-3 py-2" title={`${questionOf(ev)} (${whereOf(ev)})`}>
+                          <div className={`truncate ${dark ? 'text-slate-200' : 'text-slate-800'}`}>{questionOf(ev)}</div>
+                          <div className={`truncate text-xs ${muted}`}>{whereOf(ev)}</div>
+                        </td>
+                        <td className="px-3 py-2">
+                          {modelLabel ? (
+                            <code
+                              title={d.model && d.provider ? `${d.provider} · ${d.model}` : modelLabel}
+                              className={`font-mono text-xs truncate block ${dark ? 'text-slate-300' : 'text-slate-700'}`}
+                            >
+                              {modelLabel}
+                            </code>
+                          ) : dash}
+                        </td>
+                        <td className="px-3 py-2">
+                          {t.total ? (
+                            <div className="leading-tight">
+                              <div className={`text-xs font-semibold tabular-nums ${dark ? 'text-slate-200' : 'text-slate-800'}`}>
+                                {t.total.toLocaleString()}
+                              </div>
+                              <div className={`text-xs tabular-nums ${muted}`}>
+                                in {t.tokensIn.toLocaleString()} · out {t.tokensOut.toLocaleString()}
+                              </div>
+                            </div>
+                          ) : dash}
+                        </td>
+                        <td className={`px-3 py-2 text-xs tabular-nums ${dark ? 'text-slate-300' : 'text-slate-700'}`}>
+                          {t.total ? fmtUsd(runCostUsd(ev, rates)) : dash}
+                        </td>
                         <td className="px-3 py-2">
                           <span className="inline-flex items-center gap-1.5">
-                            <span className={`inline-block w-2 h-2 rounded-full ${SEVERITY_DOT_LIGHT[ev.severity]}`} />
-                            <span className={`text-xs capitalize ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
-                              {ev.severity}
+                            <span className={`inline-block w-2 h-2 rounded-full ${RESULT_DOT[result]}`} />
+                            <span className={`text-xs ${dark ? 'text-slate-300' : 'text-slate-600'}`}>
+                              {outcomeLabel(d.outcome)}
                             </span>
                           </span>
                         </td>
                       </tr>
                       {isExpanded && (
                         <tr className={dark ? 'bg-white/[0.02]' : 'bg-slate-50/40'}>
-                          <td colSpan={7} className="px-3 py-3">
-                            {ev.kind === 'agent' && ev.subject ? (
-                        (() => {
-                          const td = traceDetails[ev.subject as string];
-                          if (td === 'loading') {
-                            return <div className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>Loading trace…</div>;
-                          }
-                          if (td === 'error' || !td) {
-                            return td === 'error'
-                              ? <div className={`text-xs ${dark ? 'text-amber-300' : 'text-amber-700'}`}>Couldn't load trace details.</div>
-                              : null;
-                          }
-                          const trace = td as TraceDetail;
-                          return (
+                          <td colSpan={6} className="px-3 py-3">
                             <div className="space-y-2">
-                              {trace.user_intent && (
-                                <div className={`text-xs italic ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                                  "{trace.user_intent}"
-                                </div>
-                              )}
-                              <div className={`flex flex-wrap items-center gap-2 text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-                                <span>iter <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{trace.iterations}</b></span>
-                                <span>·</span>
-                                <span>tok in <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{trace.total_tokens_in}</b></span>
-                                <span>·</span>
-                                <span>tok out <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{trace.total_tokens_out}</b></span>
-                                <span>·</span>
-                                <span>elapsed <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{trace.elapsed_ms}ms</b></span>
-                                <span>·</span>
-                                <span>outcome <b className={trace.outcome === 'success' ? 'text-emerald-500' : 'text-amber-500'}>{trace.outcome}</b></span>
+                              <div className={`text-xs italic ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                                "{questionOf(ev)}"
                               </div>
-                              {trace.steps && trace.steps.length > 0 && (
-                                <div className={`rounded border ${dark ? 'border-white/[0.05]' : 'border-slate-200'} divide-y ${dark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
-                                  {trace.steps.map((st) => (
-                                    <div key={st.step_id} className="px-2 py-1.5 flex items-center gap-2 flex-wrap">
-                                      <code className={`font-mono text-xs ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>{st.tool_name}</code>
-                                      <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${st.tool_tier === 'read' ? (dark ? 'bg-slate-700/40 text-slate-300' : 'bg-slate-100 text-slate-600') : (dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')}`}>{st.tool_tier}</span>
-                                      <span className={`text-xs font-semibold ${st.outcome === 'success' ? (dark ? 'text-emerald-300' : 'text-emerald-700') : (dark ? 'text-red-300' : 'text-red-600')}`}>{st.outcome}</span>
-                                      <span className={`text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{st.latency_ms}ms</span>
-                                      {st.policy_rules_fired && st.policy_rules_fired.length > 0 && (
-                                        <span className={`text-xs ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
-                                          policy: {st.policy_rules_fired.join(', ')}
-                                        </span>
-                                      )}
-                                      <span className={`flex-1 truncate text-xs ${dark ? 'text-slate-500' : 'text-slate-500'}`} title={st.decision_reason}>
-                                        {st.decision_reason}
-                                      </span>
-                                    </div>
-                                  ))}
+                              <div className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-xs ${muted}`}>
+                                {asked && <span>From <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{asked}</b></span>}
+                                {took && <span>took <b className={dark ? 'text-slate-200' : 'text-slate-700'}>{took}</b></span>}
+                                {typeof d.step_count === 'number' && (
+                                  <span><b className={dark ? 'text-slate-200' : 'text-slate-700'}>{d.step_count}</b> step{d.step_count === 1 ? '' : 's'}</span>
+                                )}
+                              </div>
+                              {result !== 'answered' && failureText(d.failure_reason) && (
+                                <div className={`text-xs ${dark ? 'text-red-300' : 'text-red-700'}`}>
+                                  Why it failed: {failureText(d.failure_reason)}
                                 </div>
                               )}
-                              {trace.final_text && (
-                                <div className={`rounded p-2 text-xs ${dark ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-700 border border-slate-200'}`}>
-                                  {trace.final_text.slice(0, 800)}
-                                  {trace.final_text.length > 800 && '…'}
-                                </div>
-                              )}
+                              {(() => {
+                                const td = ev.subject ? traceDetails[ev.subject] : undefined;
+                                if (td === 'loading') {
+                                  return <div className={`text-xs ${muted}`}>Loading the steps…</div>;
+                                }
+                                if (td === 'error') {
+                                  return <div className={`text-xs ${dark ? 'text-amber-300' : 'text-amber-700'}`}>Could not load the steps for this request.</div>;
+                                }
+                                if (!td) return null;
+                                return (
+                                  <>
+                                    {td.steps && td.steps.length > 0 && (
+                                      <div className={`rounded border ${dark ? 'border-white/[0.05]' : 'border-slate-200'} divide-y ${dark ? 'divide-white/[0.04]' : 'divide-slate-100'}`}>
+                                        {td.steps.map((st) => (
+                                          <div key={st.step_id} className="px-2 py-1.5 flex items-center gap-2 flex-wrap">
+                                            <code className={`font-mono text-xs ${dark ? 'text-indigo-300' : 'text-indigo-700'}`}>{st.tool_name}</code>
+                                            <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${st.tool_tier === 'read' ? (dark ? 'bg-slate-700/40 text-slate-300' : 'bg-slate-100 text-slate-600') : (dark ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700')}`}>{st.tool_tier}</span>
+                                            <span className={`text-xs font-semibold ${st.outcome === 'success' ? (dark ? 'text-emerald-300' : 'text-emerald-700') : (dark ? 'text-red-300' : 'text-red-600')}`}>{st.outcome}</span>
+                                            <span className={`text-xs ${muted}`}>{st.latency_ms}ms</span>
+                                            {st.policy_rules_fired && st.policy_rules_fired.length > 0 && (
+                                              <span className={`text-xs ${dark ? 'text-amber-300' : 'text-amber-700'}`}>
+                                                policy: {st.policy_rules_fired.join(', ')}
+                                              </span>
+                                            )}
+                                            <span className={`flex-1 truncate text-xs ${muted}`} title={st.decision_reason}>
+                                              {st.decision_reason}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {td.final_text && (
+                                      <div className={`rounded p-2 text-xs ${dark ? 'bg-slate-900 text-slate-300' : 'bg-slate-50 text-slate-700 border border-slate-200'}`}>
+                                        {td.final_text.slice(0, 800)}
+                                        {td.final_text.length > 800 && '…'}
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </div>
-                          );
-                        })()
-                      ) : (
-                        <pre className={`p-2 rounded text-xs font-mono whitespace-pre-wrap break-words ${dark ? 'bg-slate-900 text-emerald-300' : 'bg-slate-50 text-slate-700 border border-slate-200'}`}>
-{JSON.stringify(ev.details, null, 2)}
-                        </pre>
-                      )}
                           </td>
                         </tr>
                       )}
@@ -665,32 +579,36 @@ export default function ActivityPage({ embedded = false }: { embedded?: boolean 
           </div>
         </div>
 
-        {data && (
-          <div className={`text-center text-xs pt-2 ${dark ? 'text-slate-600' : 'text-slate-500'}`}>
-            {filtered.length} of {data.count} events shown · workspace-scoped · last 7 days by default
-          </div>
-        )}
+        <div className={`text-center text-xs pt-2 ${dark ? 'text-slate-500' : 'text-slate-500'}`}>
+          Pipeline runs are listed under{' '}
+          <button
+            type="button"
+            onClick={() => navigateTo('executions')}
+            className={`font-semibold underline underline-offset-2 ${dark ? 'text-slate-300 hover:text-slate-100' : 'text-slate-700 hover:text-slate-900'}`}
+          >
+            Workflows → Executions
+          </button>
+          .
+        </div>
       </div>
     </>
   );
 
-  // Embedded mode: just the body. Parent provides chrome (page header + tab
-  // bar). The table card has its own toolbar with the Refresh action so we
-  // don't duplicate it at the top.
+  // Embedded in the Insights hub: the parent provides the header and tabs.
   if (embedded) {
     return <div className="space-y-3">{Body}</div>;
   }
 
-  // Standalone mode: full page with own header (legacy /#activity route).
+  // Standalone page with its own header.
   return (
     <div className={`flex-1 overflow-auto ${dark ? 'bg-[#0b1120]' : 'bg-canvas-bg'}`}>
       <div className={`border-b ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'}`}>
         <div className="w-full max-w-[1500px] mx-auto px-8 py-5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h1 className={`text-xl font-bold ${dark ? 'text-slate-100' : 'text-slate-800'}`}>Activity timeline</h1>
+              <h1 className={`text-xl font-bold ${dark ? 'text-slate-100' : 'text-slate-800'}`}>AI activity</h1>
               <p className={`text-xs mt-1 max-w-2xl ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
-                Every audit-log entry, agent run, and pipeline execution in chronological order — workspace-scoped causal trace.
+                Every AI request, from the Copilot or another AI feature: which model answered, the tokens it used, the estimated cost, and any that failed.
               </p>
             </div>
             <button

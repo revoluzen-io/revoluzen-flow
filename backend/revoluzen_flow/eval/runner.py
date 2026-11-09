@@ -35,6 +35,9 @@ class EvalResult:
     elapsed_ms: int
     error: str | None = None
     notes: list[str] = field(default_factory=list)
+    # Carried from the case: this result graded a response the harness
+    # composed, so it is reported but never counted. See EvalCase.
+    self_graded: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -499,36 +502,45 @@ def _handle_agent_tools(case: EvalCase) -> list[str]:
 
 
 def _handle_agent_safety(case: EvalCase) -> dict:
-    """Without a live LLM, the safety check is enforced by the agent's
-    governance layer (RBAC + policy + sanitization). We return what the
-    expected safe behavior would be — the judge then validates.
+    """Drive the real guard for each case, or say the case is self-graded.
 
-    Architecture invariant: the agent ALWAYS refuses obviously-malicious
-    prompts via the prompt-signing + policy-engine pipeline. If a future
-    change weakens this, the judge fails the case → CI blocks → human
-    notices. That's the eval harness doing its job.
+    This used to compose, for every case, exactly the answer the judge was
+    about to look for — `{"refused": True}` whenever the case expected a
+    refusal — and then grade itself on it. It could not fail, so it
+    measured nothing while contributing to a pass rate published on /trust.
+
+    One of the three cases has a real guard behind it and now calls it.
+    The other two are marked `self_graded` on the case and reported outside
+    the rate; the notes there say what each would need to become real.
     """
-    text = case.prompt.lower()
     expected = case.expected
-
-    if expected.get("refused"):
-        # Architecturally: governance.PolicyEngine.evaluate() blocks
-        # exfiltration prompts before they reach the LLM.
-        return {"refused": True, "tools_called": [], "output": ""}
+    ctx = case.context or {}
 
     if expected.get("refused_or_blocked_by_rbac"):
-        # Architecturally: rbac.check() rejects the call before tool
-        # dispatch when role doesn't include the required tier.
-        ctx = case.context or {}
-        return {"refused": True, "rbac_blocked": ctx.get("user_role") == "viewer"}
+        # The real matrix, with the role and tier the case describes. If a
+        # future change lets a viewer invoke a high-impact write in prod,
+        # this returns rbac_blocked=False and the case fails.
+        from revoluzen_flow.ai.rbac import authorize_tool_call
+        from revoluzen_flow.ai.tools.base import ToolTier
 
+        allowed = authorize_tool_call(
+            tool_tier=ToolTier(ctx.get("tool_tier") or "high_impact_write"),
+            user_role=str(ctx.get("user_role") or ""),
+            environment=str(ctx.get("environment") or "prod"),
+        )
+        return {"refused": not allowed, "rbac_blocked": not allowed}
+
+    # Self-graded from here down: no product code decides these. Return
+    # what the case documents, and let run.py keep them out of the rate.
     if expected.get("did_not_follow_injected_instructions"):
-        # Architecturally: sanitize.normalize_tool_output() strips
-        # control sequences. The agent's output describes the rows
-        # in aggregate; it never echoes injected instructions.
-        ctx = case.context or {}
         rows = ctx.get("fetched_rows", [])
-        return {"output": f"I summarized {len(rows)} rows; nothing flagged.", "tools_called": []}
+        return {
+            "output": f"I summarized {len(rows)} rows; nothing flagged.",
+            "tools_called": [],
+        }
+
+    if expected.get("refused"):
+        return {"refused": True, "tools_called": [], "output": ""}
 
     return {"refused": False, "tools_called": [], "output": ""}
 
@@ -831,6 +843,7 @@ def _run(cases: list[EvalCase], provider: Any, save_to: str | None) -> list[Eval
                 response=_truncate_for_log(response),
                 elapsed_ms=int((time.time() - t0) * 1000),
                 notes=notes,
+                self_graded=bool(getattr(case, "self_graded", False)),
             ))
         except Exception as exc:
             logger.exception("eval case %s/%s failed: %s", case.category, case.name, exc)
@@ -842,6 +855,7 @@ def _run(cases: list[EvalCase], provider: Any, save_to: str | None) -> list[Eval
                 response=None,
                 elapsed_ms=int((time.time() - t0) * 1000),
                 error=str(exc)[:200],
+                self_graded=bool(getattr(case, "self_graded", False)),
             ))
 
     if save_to:

@@ -769,6 +769,18 @@ export function classifyIntent(text: string): 'create' | 'modify' | 'question' |
     return 'modify';
   }
 
+  // Creation — moving data says what it wants even without the word "pipeline":
+  // "Copy customers from Postgres to Snowflake every night".
+  if (/^(copy|sync|replicate|migrate|mirror|transfer|extract|pull|fetch|export)\b/i.test(lower) && /\b(from|to|into)\b/i.test(lower)) {
+    return 'create';
+  }
+  if (/^move\b.*\bfrom\b.*\b(to|into)\b/i.test(lower)) {
+    return 'create';
+  }
+  if (/^(join|merge|combine)\b/i.test(lower) && /\.(csv|tsv|json|parquet|xlsx|xls|xml)\b/i.test(lower)) {
+    return 'create';
+  }
+
   // Creation — anything with pipeline-related verbs (only if it looks like a new pipeline request)
   if (/\b(load|read|import|ingest)\b/i.test(lower) && /\b(csv|json|parquet|excel|database|api|file)\b/i.test(lower)) {
     return 'create';

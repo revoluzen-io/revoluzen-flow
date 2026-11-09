@@ -18,11 +18,13 @@ Specific UI moments where the agent augments a single action:
 
 ### Copilot dock
 
-The floating chat panel in the bottom-right corner. Opens to a full conversation with 30 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
+The floating chat panel in the bottom-right corner. Opens to a full conversation with 32 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
 
-| Read tools (21) | Draft / Write tools (4) |
+| Read tools (24) | Draft / Write tools (8) |
 |---|---|
-| `list_pipelines`, `list_projects`, `list_schedules`, `list_alerts`, `list_executions`, `list_catalog`, `list_storage`, `list_templates`, `inspect_connections`, `summarize_pipeline`, `query_metrics`, `compose_report` (draft-only), `recall_history`, `workspace_overview`, `get_user_role`, `get_user_role`, `get_installation_health`, `get_next_scheduled`, `get_running_executions`, `lookup_help_topic`, `explain_step`, `validate_pipeline` | `draft_pipeline_from_intent`, `apply_pipeline_draft` (always confirms), `modify_pipeline_step`, `draft_alert_rule` |
+| `get_user_role`, `get_workspace_overview`, `list_pipelines`, `list_projects`, `list_schedules`, `list_alerts`, `list_executions`, `list_storage`, `inspect_connections`, `list_catalog`, `list_templates`, `summarize_pipeline`, `validate_pipeline`, `explain_step`, `inspect_step_columns`, `test_pipeline_draft`, `query_metrics`, `recall_history`, `lookup_help_topic`, `get_running_executions`, `get_next_scheduled`, `get_installation_health`, `get_security_posture`, `list_steward_findings` | `draft_pipeline_from_intent`, `apply_pipeline_draft` (always confirms), `modify_pipeline_step`, `draft_alert_rule`, `compose_report`, `draft_connector_from_openapi`, `draft_connector_from_samples`, `test_connection` |
+
+Asked to build a pipeline, the Copilot first asks where the data comes from and where it goes, offering your real connections, uploaded files and managed tables. A connection you don't have yet can be created in the chat.
 
 Slash commands: `/fix`, `/explain`, `/optimize`, `/test`. Type `/` to see them.
 
@@ -55,7 +57,7 @@ You can also pull from inside Revoluzen Flow: open **Insights → AI Provider** 
 
 ### 3. Verify
 
-The Copilot's status banner should show `ollama / qwen2.5:7b · 30 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
+The Copilot's status banner should show `ollama / qwen2.5:7b · 32 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
 
 If it times out, you're likely on a model heavier than 7B on a CPU-only host. Switch back to `qwen2.5:7b` or pick a cloud provider for faster responses.
 

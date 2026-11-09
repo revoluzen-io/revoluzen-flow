@@ -19,6 +19,8 @@ Everything about *who* can do *what* in Revoluzen Flow.
 
 **Rule of thumb:** grant the least role that gets the job done. Ten analysts are safer than ten admins.
 
+**Triggers page:** creating or changing endpoints and API keys needs `data_engineer` or above. Every signed-in role can view them, with keys masked.
+
 ---
 
 ## 2. Adding a user

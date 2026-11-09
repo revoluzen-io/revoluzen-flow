@@ -25,7 +25,15 @@ This is the per-pipeline list — every pipeline in the workspace with its statu
 
 ## Where are my schedules?
 
-**Sidebar** → **Schedules**. Each row shows the pipeline + cadence + next fire time + enabled toggle.
+**Pipelines page** → the pipeline's row, and the **Schedule** button in the Editor toolbar. There is no separate Schedules page. Active schedules also appear on the Dashboard.
+
+## Where do I pause a pipeline?
+
+**Pipelines page** → the row's **⋯** menu → **Deactivate**. Its schedules are skipped and its endpoints answer `423` until you click **Activate**.
+
+## Where do I let another application start a pipeline?
+
+**Workflows** → **Triggers** tab. URL hash: `#triggers`. Create an endpoint for a saved pipeline and an API key there, then copy the ready-to-use command. On the Pipelines page, a row's **⋯** menu → **Run from another app** opens the same page with that pipeline chosen.
 
 ## Where are my alerts / notifications?
 
@@ -65,24 +73,29 @@ Destructive actions (Delete, Drop, Replace) warn before proceeding when usage ex
 
 ## Where do I manage credentials?
 
-**Sidebar** → **Credentials** (key icon). URL: `#credentials`. Workspace-scoped list.
+**Sidebar** → **Connections** → **Credentials**. URL: `#credentials`. Workspace-scoped list.
 
 For project-scoped credentials: open the project → **Credentials** tab.
 
+## Where do I turn credential expiry warnings on or off?
+
+**Settings** → **Notifications** tab → **Automatic Alerts** → **Credential expiry warnings**. On by default. A credential is warned about only if it has an expiry date, which you set on the Credentials page.
+
 ## Where do I manage connections?
 
-**Sidebar** → **Connections** (plug icon). URL: `#connections`. Connections reference credentials by ID; you can configure a connection without leaving this page.
+**Sidebar** → **Connections** (plug icon). URL: `#connections`. Connections reference credentials by ID; pick one under **Saved credential** and the fields it holds fill themselves.
 
 ## Where do I configure the AI Copilot?
 
-**Settings** → **AI Provider** tab. URL: `#settings` then click the AI Provider tab. Or click the **Configure »** chip in the chat dock header.
+**Insights** → **AI Provider** tab. Or click the **Configure »** chip in the chat dock header.
 
-## Where do I see what the agent has done (audit trail)?
+## Where do I see what the AI has done, and what it cost?
 
-Insights → **Activity** subtab. Combined audit + agent trace + execution timeline.
+Insights → **Activity** subtab. One row per AI request: what was asked, where it came from (the Copilot, or a feature such as drafting a pipeline in the Editor, SQL help, or a run or notification summary), the model that answered, tokens, estimated cost, and the result (Answered, Failed or Blocked). The cards at the top total the last 7 days. Click a request to see its steps.
 
-For just the agent: Insights → Activity → filter source = **agent**.
-For just pipeline runs: **Executions** page.
+Pipeline runs are not on Activity: they are on the **Executions** page (Workflows → Executions).
+
+Who changed a pipeline, and when, is in its **Version history** (Pipelines → the pipeline's **⋯** menu → Version history). This edition has no audit-log page.
 
 ## Where is the Trust page?
 
@@ -151,7 +164,7 @@ OSS Free has no approval workflow.
 ## Where do I view the docs from inside the app?
 
 **Sidebar** → **Help**. Has tabs:
-- **Getting Started** — 6-step onboarding for new users
+- **Getting Started** — 7-step onboarding for new users
 - **How-To Guides** — recipe-style step-by-step guides grouped by category
 - **Shortcuts** — keyboard shortcuts reference
 - **Nodes** — searchable catalog of every node type with descriptions
@@ -183,7 +196,7 @@ To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/s
 
 - **Backend stdout**: from-source: terminal where uvicorn runs. Docker: `docker compose logs flow`.
 - **Per-pipeline-run output**: Executions page → click the run → **Logs** tab.
-- **Audit log**: Insights → Activity tab.
+- **Audit events**: the backend logs them as `AUDIT:` lines at INFO level, which the default server setup does not print. There is no audit-log page in this edition; Insights → Activity lists AI requests, not audit events.
 
 ## Where do I find Ollama logs?
 
@@ -198,7 +211,7 @@ To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/s
 - **Chat fast lane**: type `what tools does the agent have` → instant answer.
 - **API**: `GET /api/ai/agent/status` returns `tool_count`.
 - **Code**: `backend/revoluzen_flow/ai/tools/` — one file per tool.
-- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 30 tools by tier.
+- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 32 tools by tier.
 
 ## Where do I see what's running right now?
 

@@ -1,6 +1,6 @@
 # Revoluzen Flow node types reference
 
-A pipeline is a directed graph of nodes. Each node reads from upstream nodes, transforms data, and emits a relation that downstream nodes can read. Revoluzen Flow ships 44 node types organised by category.
+A pipeline is a directed graph of nodes. Each node reads from upstream nodes, transforms data, and emits a relation that downstream nodes can read. Revoluzen Flow ships 45 node types organised by category.
 
 **Edition badges:** OSS = available in Revoluzen Flow Free. Plus = Revoluzen Flow Enterprise only. Most nodes are OSS.
 
@@ -12,7 +12,7 @@ A pipeline is a directed graph of nodes. Each node reads from upstream nodes, tr
 
 **REST/HTTP API** — OSS. Generic REST connector for any HTTP+JSON source. Configure auth (api_key / bearer / oauth2), pagination, and response schema.
 
-**SaaS Connector** — OSS. Universal node that picks any installed manifest at runtime. Revoluzen Flow ships ~31 SaaS manifests (HubSpot, Stripe, Shopify, Zendesk, Jira, Notion, Salesforce starter, etc.) — part of the 37 total connectors. Each is graded 0-5 on the certification matrix. Current state (May 4 2026): 8 v2 beta (validation in progress), 27 v1 functional, 2 v1 basic. The v1→v2 + fixture-authoring uplift is the post-1.0 connector roadmap.
+**SaaS Connector** — OSS. Universal node that picks any installed manifest at runtime. It is in the palette's Import group, takes a saved credential so the key stays out of the pipeline, and is how a connector saved from Insights → API Explorer gets used. Revoluzen Flow ships ~31 SaaS manifests (HubSpot, Stripe, Shopify, Zendesk, Jira, Notion, Salesforce starter, etc.). Each is graded 0-5 on the certification matrix. Current state (May 4 2026): 8 v2 beta (validation in progress), 27 v1 functional, 2 v1 basic. The v1→v2 + fixture-authoring uplift is the post-1.0 connector roadmap.
 
 **Cloud Storage** — OSS. Read files from S3, GCS, or Azure Blob.
 

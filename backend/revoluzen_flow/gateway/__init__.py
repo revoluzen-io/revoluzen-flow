@@ -76,6 +76,15 @@ class GatewayStore:
             CREATE INDEX IF NOT EXISTS idx_rate_limit_ts
             ON rate_limit_log(key_hash, timestamp)
         """)
+        # The keyless-endpoint SQL override used to be checked at publish time
+        # only, so it was never stored. A pipeline can change after publishing,
+        # so the route now checks again on every call and has to remember it.
+        columns = {r["name"] for r in self._db.fetchall("PRAGMA table_info(published_endpoints)")}
+        if "allow_templated_sql_public" not in columns:
+            self._db.execute_write(
+                "ALTER TABLE published_endpoints "
+                "ADD COLUMN allow_templated_sql_public INTEGER DEFAULT 0"
+            )
 
     # ── API Keys ──────────────────────────────────────────────────────
 
@@ -146,6 +155,13 @@ class GatewayStore:
             result.append(d)
         return result
 
+    def get_api_key(self, key_id: str) -> dict | None:
+        """One key's metadata. Never the hash."""
+        return self._db.fetchone(
+            "SELECT id, name, key_prefix, workspace_id, is_active FROM api_keys WHERE id=?",
+            (key_id,),
+        )
+
     def revoke_api_key(self, key_id: str):
         self._db.execute_write("UPDATE api_keys SET is_active=0 WHERE id=?", (key_id,))
 
@@ -188,6 +204,7 @@ class GatewayStore:
         rate_limit_rpm: int = 30,
         timeout_seconds: int = 300,
         input_schema: dict | None = None,
+        allow_templated_sql_public: bool = False,
     ) -> dict:
         """Publish a pipeline as a REST endpoint."""
         ep_id = f"ep_{uuid.uuid4().hex[:8]}"
@@ -197,11 +214,12 @@ class GatewayStore:
             "INSERT INTO published_endpoints "
             "(id, workflow_id, path, method, name, description, workspace_id, "
             "require_api_key, rate_limit_rpm, timeout_seconds, input_schema, "
-            "is_active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            "allow_templated_sql_public, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
             (ep_id, workflow_id, path, method.upper(), name, description,
              workspace_id, 1 if require_api_key else 0, rate_limit_rpm,
-             timeout_seconds, json.dumps(input_schema or {}), now, now),
+             timeout_seconds, json.dumps(input_schema or {}),
+             1 if allow_templated_sql_public else 0, now, now),
         )
         return self.get_endpoint(ep_id)
 
@@ -210,9 +228,11 @@ class GatewayStore:
         return self._ep_to_dict(row) if row else None
 
     def get_endpoint_by_path(self, path: str) -> dict | None:
+        # Includes turned-off endpoints: a path that exists but is off answers
+        # 503, which a caller reads differently from a 404 for a wrong URL.
         path = path.strip("/")
         row = self._db.fetchone(
-            "SELECT * FROM published_endpoints WHERE path=? AND is_active=1", (path,),
+            "SELECT * FROM published_endpoints WHERE path=?", (path,),
         )
         return self._ep_to_dict(row) if row else None
 
@@ -224,7 +244,10 @@ class GatewayStore:
         return [self._ep_to_dict(r) for r in rows]
 
     def update_endpoint(self, endpoint_id: str, **kwargs) -> dict | None:
-        allowed = {"name", "description", "rate_limit_rpm", "timeout_seconds", "is_active", "require_api_key"}
+        allowed = {
+            "name", "description", "rate_limit_rpm", "timeout_seconds",
+            "is_active", "require_api_key", "allow_templated_sql_public",
+        }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
             return self.get_endpoint(endpoint_id)

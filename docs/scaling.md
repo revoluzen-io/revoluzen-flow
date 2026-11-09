@@ -55,8 +55,9 @@ REVOLUZEN_FLOW_DUCKDB_MEMORY_LIMIT=6GB
 REVOLUZEN_FLOW_DUCKDB_THREADS=2
 REVOLUZEN_FLOW_DUCKDB_TEMP_DIR=/mnt/nvme/duckdb_spill
 REVOLUZEN_FLOW_MAX_UPLOAD_MB=2000
-REVOLUZEN_FLOW_MAX_SOURCE_ROWS=50000000
 ```
+
+`REVOLUZEN_FLOW_MAX_SOURCE_ROWS` is off by default. It truncates a source with no error, so anything it cuts is missing from the destination. Set it only if you deliberately want to bound what an install reads.
 
 ## The Global Resource Governor
 

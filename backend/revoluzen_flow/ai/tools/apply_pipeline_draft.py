@@ -15,7 +15,10 @@ from __future__ import annotations
 from typing import Any
 
 from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolTier
-from revoluzen_flow.ai.tools.draft_pipeline_from_intent import get_draft
+from revoluzen_flow.ai.tools.draft_pipeline_from_intent import (
+    DRY_RUN_DRAFT_IDS,
+    get_draft,
+)
 
 
 async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
@@ -37,14 +40,23 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             "message": "[dry-run] Draft would be saved to workflow store.",
         }
 
-    if draft_id == "dry-run-draft":
-        # Apply called with a dry-run draft id — bail out gracefully.
+    # Every draft tool's dry-run path returns a fixed stub id. Each one has
+    # to be listed here: `modify_pipeline_step` returns "dry-run-mod-draft"
+    # and was missing, so applying it fell through to the lookup below and
+    # raised "Draft not found (expired or already consumed)" — which sends
+    # the reader after an expiry that never happened, instead of telling
+    # them the draft was a dry run. Keep this in step with the stubs in
+    # draft_pipeline_from_intent and modify_pipeline_step.
+    if draft_id in DRY_RUN_DRAFT_IDS:
         return {
             "workflow_id": "",
             "name": "",
             "step_count": 0,
             "saved": False,
-            "message": "Cannot apply a dry-run draft. Re-draft first.",
+            "message": (
+                "Cannot apply a dry-run draft — it was never built. Re-run the "
+                "edit outside dry-run to get a real draft_id, then apply that."
+            ),
         }
 
     ir = get_draft(draft_id)

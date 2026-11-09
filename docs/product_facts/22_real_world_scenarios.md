@@ -151,7 +151,7 @@ DuckDB out-of-memory error.
 
 ## 8. Schedule fires but pipeline doesn't start
 
-**Symptom:** Schedules page shows "Last fired: 5 min ago" but no
+**Symptom:** The schedule shows "Last fired: 5 min ago" but no
 matching execution on the Executions page.
 
 **Diagnosis:**
@@ -174,7 +174,7 @@ verify the schedule's environment is DEV.
 alert fired.
 
 **Diagnosis:**
-1. Settings → Notifications → Pipeline Notifications section → check
+1. Settings → Notifications → Automatic Alerts section → check
    the long-running threshold value (default 30 minutes).
 2. The watchdog reads config from `GET /api/notifications/config`. If
    the SettingsPage never saved notification config, the watchdog has

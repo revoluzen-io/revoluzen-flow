@@ -105,10 +105,12 @@ def test_registry_register_initial_loads_all_tools():
     (2026-10-26 — +get_security_posture READ tool, so the Copilot can
     answer Security & Diagnostics questions from the real install rather
     than from the model's general knowledge.)
+    (2026-11-03 — +test_pipeline_draft READ tool, so the Copilot can run
+    its own draft and find the next fault instead of stopping at the first.)
     """
     reg = ToolRegistry()
     register_initial_tools(reg)
-    assert len(reg) == 30
+    assert len(reg) == 32
     for name in (
         # Original 10 READ
         "get_user_role", "get_workspace_overview",
@@ -120,7 +122,9 @@ def test_registry_register_initial_loads_all_tools():
         "list_catalog", "recall_history",
         "get_installation_health",
         # Editor assistant Phase 1 (2026-05-12)
-        "validate_pipeline", "explain_step",
+        "validate_pipeline", "explain_step", "inspect_step_columns",
+        # Run a draft and report the result (2026-11-03)
+        "test_pipeline_draft",
         # Templates discovery
         "list_templates",
         # Atlas lookup (2026-05-17)
@@ -155,7 +159,8 @@ def test_registry_filter_by_tiers_excludes_writes_for_read_only():
         "list_catalog", "recall_history",
         "get_installation_health",
         # Added since the original test was written
-        "validate_pipeline", "explain_step",
+        "validate_pipeline", "explain_step", "inspect_step_columns",
+        "test_pipeline_draft",  # Run a draft, report the result (2026-11-03)
         "list_templates",
         "lookup_help_topic",  # Atlas lookup (2026-05-17)
         "list_storage",       # Storage inventory (2026-05-25)
@@ -169,12 +174,13 @@ def test_registry_filter_by_tiers_includes_safe_write_when_allowed():
     reg = ToolRegistry()
     register_initial_tools(reg)
     rw = reg.filter_by_tiers([ToolTier.READ, ToolTier.SAFE_WRITE])
-    # 22 READ + 7 SAFE_WRITE = 29 (excludes the 1 HIGH_IMPACT_WRITE).
+    # 23 READ + 7 SAFE_WRITE = 30 (excludes the 1 HIGH_IMPACT_WRITE).
     # 2026-05-25 — bumped after +list_storage (Storage inventory tool).
     # 2026-06-16 — bumped after +list_steward_findings (Steward advisories).
     # 2026-07-21 — +draft_connector_from_openapi/_from_samples/test_connection.
     # 2026-10-26 — +get_security_posture (Security & Diagnostics baseline).
-    assert len(rw) == 29
+    # 2026-11-03 — +test_pipeline_draft (run a draft, report the result).
+    assert len(rw) == 31
 
 
 def test_rbac_unknown_role_allows_all_tiers_on_oss():
@@ -345,8 +351,10 @@ def test_initial_tools_count():
     advisories — duplicate sources, governance, connector health, user rules).
     Earlier bumps: +list_storage (2026-05-25), +lookup_help_topic (2026-05-17),
     +validate_pipeline + explain_step (2026-05-12), and +list_templates.
+    2026-11-03: +test_pipeline_draft (READ — run a draft on sample data and
+    report each step's status, so the agent can find the next fault itself).
     """
-    assert len(INITIAL_TOOLS) == 30
+    assert len(INITIAL_TOOLS) == 32
 
 
 def test_list_pipelines_handler_returns_shape():

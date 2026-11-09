@@ -215,6 +215,13 @@ class TestMatchHelpAndGreet:
         # the longer prompt is the question, not the greeting.
         assert try_match("hi can you list my pipelines").name == "list_pipelines"
 
+    def test_first_pipeline_answer_sends_you_to_the_node_panel_on_the_left(self):
+        # The node panel is on the left of the canvas (the Copilot is on the right).
+        intent = try_match("how do i build a pipeline")
+        assert intent is not None and intent.name == "help.first_pipeline"
+        assert "node panel on the left" in intent.static_answer
+        assert "right-hand" not in intent.static_answer
+
 
 class TestMatchProductInfo:
     @pytest.mark.parametrize("prompt", [

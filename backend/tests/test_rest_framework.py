@@ -503,3 +503,139 @@ def test_dynamics365_manifest_uses_url_pagination():
     # (pre-T1 manifest authors) — both must paginate correctly under T1.
     assert page.get("type") in {"url", "cursor"}
     assert page.get("next_url_path") == "@odata.nextLink"
+
+
+# ── First-page size + max_pages truncation (2026-11-07) ───────────────────
+
+
+def _offset_manifest(page_size: int = 2, max_pages: int = 3, query: dict | None = None,
+                     on_max_pages: str | None = None) -> rf.RestConnectorManifest:
+    pagination: dict[str, Any] = {"type": "offset_limit", "page_size": page_size,
+                                  "max_pages": max_pages}
+    if on_max_pages:
+        pagination["on_max_pages"] = on_max_pages
+    return rf.RestConnectorManifest.from_dict({
+        "id": "tcase", "name": "T", "base_url": "https://api",
+        "auth": {"type": "none"},
+        "streams": [{"name": "rows", "path": "/r", "data_path": "",
+                     "query": query or {}, "pagination": pagination}],
+    })
+
+
+def test_offset_limit_sends_page_size_on_first_request(monkeypatch):
+    """Page 1 must carry limit=page_size. Before the fix it carried none,
+    the API answered with its own smaller default, and that short page
+    ended the stream after page 1."""
+    manifest = _offset_manifest()
+    driver = _patch_http(monkeypatch, [
+        [{"id": 1}, {"id": 2}],
+        [{"id": 3}],
+    ])
+    rows = rf._execute_stream(manifest, manifest.streams[0], {})
+    assert [r["id"] for r in rows] == [1, 2, 3]
+    assert "limit=2" in driver.calls[0][0]
+
+
+def test_page_number_sends_page_size_on_first_request(monkeypatch):
+    manifest = rf.RestConnectorManifest.from_dict({
+        "id": "tcase", "name": "T", "base_url": "https://api",
+        "auth": {"type": "none"},
+        "streams": [{"name": "rows", "path": "/r", "data_path": "",
+                     "pagination": {"type": "page_number", "page_size": 2,
+                                    "max_pages": 5}}],
+    })
+    driver = _patch_http(monkeypatch, [[{"id": 1}, {"id": 2}], []])
+    rf._execute_stream(manifest, manifest.streams[0], {})
+    assert "per_page=2" in driver.calls[0][0]
+
+
+def test_explicit_size_in_stream_query_wins_and_drives_paging(monkeypatch):
+    """A limit the stream already sets is kept, and offsets step by it."""
+    manifest = _offset_manifest(page_size=100, query={"limit": "2"})
+    driver = _patch_http(monkeypatch, [
+        [{"id": 1}, {"id": 2}],
+        [{"id": 3}],
+    ])
+    rows = rf._execute_stream(manifest, manifest.streams[0], {})
+    assert [r["id"] for r in rows] == [1, 2, 3]
+    assert "limit=2" in driver.calls[0][0]
+    assert "offset=2" in driver.calls[1][0]
+    assert "limit=2" in driver.calls[1][0]
+
+
+def test_max_pages_with_more_data_raises_by_default(monkeypatch):
+    """Hitting the cap while the API still has rows must fail loudly, not
+    return a partial result that looks complete."""
+    manifest = _offset_manifest(max_pages=2)
+    _patch_http(monkeypatch, [
+        [{"id": 1}, {"id": 2}],
+        [{"id": 3}, {"id": 4}],
+        [{"id": 5}],          # probe: proves there is more
+    ])
+    with pytest.raises(rf.PaginationLimitReached, match="max_pages=2"):
+        rf._execute_stream(manifest, manifest.streams[0], {})
+
+
+def test_max_pages_stop_mode_returns_partial_result(monkeypatch, caplog):
+    manifest = _offset_manifest(max_pages=2, on_max_pages="stop")
+    _patch_http(monkeypatch, [
+        [{"id": 1}, {"id": 2}],
+        [{"id": 3}, {"id": 4}],
+        [{"id": 5}],
+    ])
+    with caplog.at_level("WARNING", logger=rf.__name__):
+        rows = rf._execute_stream(manifest, manifest.streams[0], {})
+    assert [r["id"] for r in rows] == [1, 2, 3, 4]
+    assert "max_pages=2" in caplog.text
+
+
+def test_caller_override_beats_stream_setting(monkeypatch):
+    """Previews pass on_max_pages='stop' even when the stream says error."""
+    manifest = _offset_manifest(max_pages=1, on_max_pages="error")
+    _patch_http(monkeypatch, [[{"id": 1}, {"id": 2}], [{"id": 3}]])
+    rows = rf._execute_stream(manifest, manifest.streams[0], {}, on_max_pages="stop")
+    assert [r["id"] for r in rows] == [1, 2]
+
+
+def test_data_ending_exactly_on_the_cap_is_not_an_error(monkeypatch):
+    """page_number only learns it is done from an empty page. When the last
+    full page lands on max_pages, the probe finds nothing and the read is
+    reported complete."""
+    manifest = rf.RestConnectorManifest.from_dict({
+        "id": "tcase", "name": "T", "base_url": "https://api",
+        "auth": {"type": "none"},
+        "streams": [{"name": "rows", "path": "/r", "data_path": "",
+                     "pagination": {"type": "page_number", "page_size": 2,
+                                    "max_pages": 2}}],
+    })
+    driver = _patch_http(monkeypatch, [
+        [{"id": 1}, {"id": 2}],
+        [{"id": 3}, {"id": 4}],
+        [],                   # probe: nothing more
+    ])
+    rows = rf._execute_stream(manifest, manifest.streams[0], {})
+    assert [r["id"] for r in rows] == [1, 2, 3, 4]
+    assert len(driver.calls) == 3
+
+
+def test_cursor_cap_with_next_cursor_raises(monkeypatch):
+    manifest = rf.RestConnectorManifest.from_dict({
+        "id": "tcase", "name": "T", "base_url": "https://api",
+        "auth": {"type": "none"},
+        "streams": [{"name": "rows", "path": "/r", "data_path": "data",
+                     "pagination": {"type": "cursor", "cursor_field": "next",
+                                    "max_pages": 1}}],
+    })
+    _patch_http(monkeypatch, [
+        {"data": [{"id": 1}], "next": "c2"},
+        {"data": [{"id": 2}]},
+    ])
+    with pytest.raises(rf.PaginationLimitReached):
+        rf._execute_stream(manifest, manifest.streams[0], {})
+
+
+def test_invalid_on_max_pages_is_rejected(monkeypatch):
+    manifest = _offset_manifest(on_max_pages="ignore")
+    _patch_http(monkeypatch, [])
+    with pytest.raises(ValueError, match="on_max_pages"):
+        rf._execute_stream(manifest, manifest.streams[0], {})

@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { WORKSPACES_ENABLED } from '../config/edition';
 import { canAccessAdmin, canAccessAdminInEnv, canAccessProd, hasPermission, roleLabel } from '../auth/permissions';
 import { useDarkMode } from '../hooks/useDarkMode';
+import { useAnchoredPanel } from '../hooks/useAnchoredPanel';
 import { notificationHref } from '../lib/notificationHref';
 // 2026-05-19 (OSS-9 of PAGE_BY_PAGE_AUDIT.md): `Page` is now imported
 // from the canonical `../types` instead of being redefined here. The
@@ -126,6 +127,15 @@ const NAV_ITEMS: NavItem[] = [
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
             <polygon points="10 8 16 12 10 16 10 8" />
+          </svg>
+        ),
+      },
+      {
+        page: 'triggers',
+        label: 'Triggers',
+        icon: (
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
           </svg>
         ),
       },
@@ -311,6 +321,8 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
   // by accident and hid who you were actually logged in as.
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  // Same reason as the bell: 62px off the left edge at 768px.
+  const userMenuPos = useAnchoredPanel(userMenuOpen, userMenuRef, { width: 320 });
 
   // Close the popover on outside click / Escape. Ref-scoped so clicks inside
   // the popover (e.g. on the Logout button) aren't swallowed.
@@ -337,6 +349,9 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const notifRef = useRef<HTMLDivElement>(null);
+  // Measured against the bell and clamped to the window. Right-anchoring
+  // put this 420px panel 210px off the left edge at 768px.
+  const notifPos = useAnchoredPanel(notifOpen, notifRef, { width: 420 });
 
   const refreshUnread = useCallback(() => {
     if (!user) return;
@@ -1017,8 +1032,11 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             )}
           </button>
 
-          {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-[420px] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-50">
+          {notifOpen && notifPos && (
+            <div
+              className="fixed bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-50"
+              style={{ top: notifPos.top, left: notifPos.left, width: notifPos.width }}
+            >
               {/* Header */}
               <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
                 <span className="text-sm font-bold text-slate-800">Notifications</span>
@@ -1062,6 +1080,7 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                           n.type === 'approved' ? 'bg-emerald-100 text-emerald-600' :
                           n.type === 'rejected' ? 'bg-red-100 text-red-600' :
                           n.type === 'deployed' ? 'bg-purple-100 text-purple-600' :
+                          n.type === 'credential_expiry' ? 'bg-amber-100 text-amber-700' :
                           'bg-slate-100 text-slate-600'
                         }`}>
                           {n.type === 'approved' ? (
@@ -1070,6 +1089,8 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                           ) : n.type === 'deployed' ? (
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16" /><line x1="12" y1="12" x2="12" y2="21" /><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" /></svg>
+                          ) : n.type === 'credential_expiry' ? (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
                           ) : (
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /></svg>
                           )}
@@ -1126,10 +1147,11 @@ export default function Sidebar({ activePage, onNavigate, user, onLogout, enviro
             {(user.name || user.email || '?')[0].toUpperCase()}
           </button>
 
-          {userMenuOpen && (
+          {userMenuOpen && userMenuPos && (
             <div
               role="menu"
-              className="absolute right-0 top-full mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-100"
+              className="fixed bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden z-50 animate-in fade-in slide-in-from-top-1 duration-100"
+              style={{ top: userMenuPos.top, left: userMenuPos.left, width: userMenuPos.width }}
             >
               {/* Identity card */}
               <div className="px-5 py-4 bg-gradient-to-br from-amber-50 to-orange-50 border-b border-amber-100">

@@ -111,8 +111,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install minimal deps
-        run: pip install "pydantic>=2.10"
+      # 2026-11-09: was `pip install "pydantic>=2.10"` only, under which the
+      # smoke runner printed "SKIP (optional)" for
+      # revoluzen_flow.api.security_headers (no fastapi) and stayed green.
+      # Install the real requirements, as the security-headers job below
+      # does; the runner now treats every module as required.
+      - name: Install backend requirements
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Run security-focused smoke
         working-directory: backend

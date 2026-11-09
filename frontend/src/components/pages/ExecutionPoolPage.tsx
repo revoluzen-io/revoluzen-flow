@@ -23,6 +23,7 @@ import PageHeader from '../shared/PageHeader';
 import StatusPill from '../shared/StatusPill';
 import { usePageContext } from '../../hooks/usePageContext';
 import { toast } from '../Toast';
+import { triggerLabel } from '../../utils/triggerLabel';
 
 /* 2026-06-03 — copy-to-clipboard helper for the read-only env-var
    tuning rows on Pool → Configuration. Produces the canonical bash
@@ -732,7 +733,7 @@ export default function ExecutionPoolPage({
                 footer={
                   pool.capped
                     ? `${pool.busy_workers || 0} / ${pool.concurrency_limit} concurrent runs`
-                    : 'No concurrency limit set'
+                    : status ? 'No concurrency limit set' : ' '
                 }
                 bar={pool.capped ? (pool.utilization_pct || 0) : undefined}
               />
@@ -921,7 +922,7 @@ export default function ExecutionPoolPage({
                     that does not exist. Say which it is. */}
                 {pool.capped
                   ? `Workers (${pool.concurrency_limit ?? pool.max_workers ?? 0})`
-                  : `Workers (${pool.busy_workers || 0} running, no limit)`}
+                  : status ? `Workers (${pool.busy_workers || 0} running, no limit)` : 'Workers'}
                   </h2>
                   {allIdle && (
                     <button
@@ -1046,7 +1047,7 @@ export default function ExecutionPoolPage({
                       <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
                       <span className="font-semibold text-slate-700 truncate">{w.workflow_name}</span>
                       <span className="text-slate-500 shrink-0">
-                        · {w.triggered_by}
+                        · {triggerLabel(w.triggered_by)}
                         {w.environment === 'prod' ? ' · PROD' : ''}
                       </span>
                       <span className="ml-auto tabular-nums text-amber-800 font-semibold shrink-0">
@@ -1069,7 +1070,7 @@ export default function ExecutionPoolPage({
                 </p>
               </div>
             )}
-            {queue.length === 0 ? (
+            {queue.length === 0 ? waitingRuns.length === 0 && (
               <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-100">
                 <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
                 <span className="text-xs font-semibold text-slate-600">No jobs waiting</span>
@@ -1078,7 +1079,7 @@ export default function ExecutionPoolPage({
                 <span className="text-xs text-slate-500">
                   {pool.capped
                     ? '· runs start as soon as a worker is free'
-                    : '· no concurrency limit — runs start immediately'}
+                    : status ? '· no concurrency limit — runs start immediately' : ''}
                 </span>
               </div>
             ) : (
@@ -1131,7 +1132,7 @@ export default function ExecutionPoolPage({
         const priorityRuns = priorityFilter === 'all' ? statusRuns : statusRuns.filter((h: any) => h.priority === priorityFilter);
         const triggerRuns = triggerFilter === 'all' ? priorityRuns : priorityRuns.filter((h: any) => (h.triggered_by || '') === triggerFilter);
         const filteredRuns = searchQuery.trim()
-          ? triggerRuns.filter((h: any) => { const q = searchQuery.toLowerCase(); return (h.workflow_name || h.workflow_id || '').toLowerCase().includes(q) || (h.status || '').toLowerCase().includes(q) || (h.triggered_by || '').toLowerCase().includes(q) || (h.error || '').toLowerCase().includes(q); })
+          ? triggerRuns.filter((h: any) => { const q = searchQuery.toLowerCase(); return (h.workflow_name || h.workflow_id || '').toLowerCase().includes(q) || (h.status || '').toLowerCase().includes(q) || (h.triggered_by || '').toLowerCase().includes(q) || triggerLabel(h.triggered_by).toLowerCase().includes(q) || (h.error || '').toLowerCase().includes(q); })
           : triggerRuns;
         // Distinct trigger values across all history (for the trigger chip set).
         const triggerSet = Array.from(new Set(history.map((h: any) => h.triggered_by || '').filter(Boolean))).sort();
@@ -1238,7 +1239,7 @@ export default function ExecutionPoolPage({
                         <option value="all">All triggers ({envRuns.length})</option>
                         {triggerSet.map((t: string) => (
                           <option key={t} value={t}>
-                            {`${t} (${envRuns.filter((h: any) => (h.triggered_by || '') === t).length})`}
+                            {`${triggerLabel(t)} (${envRuns.filter((h: any) => (h.triggered_by || '') === t).length})`}
                           </option>
                         ))}
                       </select>
@@ -1284,9 +1285,9 @@ export default function ExecutionPoolPage({
                 // no PROD, so leaking the column into CSV exports would
                 // be misleading.
                 ...(isFree ? {} : { environment: h.environment || 'dev' }),
-                worker: `W${h.worker_id}`,
+                worker: h.worker_id != null ? `W${h.worker_id}` : '',
                 status: h.status,
-                trigger: h.triggered_by,
+                trigger: triggerLabel(h.triggered_by),
                 duration: formatDuration(h.duration_ms),
                 wait: h.wait_ms > 100 ? formatDuration(h.wait_ms) : '',
                 queued: h.queued_at || '',
@@ -1363,7 +1364,7 @@ export default function ExecutionPoolPage({
 
                       {/* Worker */}
                       {runColState.isVisible('worker') && (
-                        <div className="flex-[0.6] text-xs text-slate-500">W{h.worker_id}</div>
+                        <div className="flex-[0.6] text-xs text-slate-500">{h.worker_id != null ? `W${h.worker_id}` : '—'}</div>
                       )}
 
                       {/* Status — OSS-2 (2026-05-19) — unified <StatusPill>
@@ -1376,7 +1377,7 @@ export default function ExecutionPoolPage({
 
                       {/* Trigger */}
                       {runColState.isVisible('trigger') && (
-                        <div className="flex-[0.5] text-xs text-slate-500">{h.triggered_by}</div>
+                        <div className="flex-[0.5] text-xs text-slate-500">{triggerLabel(h.triggered_by)}</div>
                       )}
 
                       {/* Duration bar */}

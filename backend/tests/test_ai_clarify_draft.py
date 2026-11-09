@@ -163,9 +163,12 @@ def test_render_card_has_detected_intent_echo():
     )
     assert cset is not None
     rendered = render_clarification_card(cset)
-    assert "oracle_bip" in rendered
-    assert "sql_server" in rendered
+    assert "Oracle BI Publisher" in rendered
+    assert "SQL Server" in rendered
     assert "A few quick questions before I draft it" in rendered
+    # Shown as plain text, so markdown would appear as raw asterisks.
+    assert "*" not in cset.detected_intent
+    assert "*" not in rendered
 
 
 def test_render_card_includes_all_chip_options():

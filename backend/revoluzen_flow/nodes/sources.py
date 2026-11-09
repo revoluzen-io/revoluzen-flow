@@ -454,7 +454,8 @@ class S3SourceNode(BaseNode):
         access_key = self.params.get("access_key", "")
         secret_key = self.params.get("secret_key", "")
         region = self.params.get("region", "us-east-1")
-        file_format = self.params.get("format", "auto")
+        # The step's settings save `file_format`, and a connection saves `endpoint_url`.
+        file_format = self.params.get("file_format") or self.params.get("format", "auto")
         connection_id = self.params.get("connection_id", "")
 
         # Try loading from saved connection
@@ -463,7 +464,7 @@ class S3SourceNode(BaseNode):
             result = _get_connection_config(connection_id)
             if result:
                 config, _ = result
-                endpoint = config.get("endpoint", endpoint)
+                endpoint = config.get("endpoint_url") or config.get("endpoint", endpoint)
                 access_key = config.get("access_key", access_key)
                 secret_key = config.get("secret_key", secret_key)
                 region = config.get("region", region)

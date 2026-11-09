@@ -186,14 +186,23 @@ def _receipt_payload(
 
 
 def _attribute_failures(
-    run: WorkflowRunResult, clauses: list[ClauseResult]
+    run: WorkflowRunResult,
+    clauses: list[ClauseResult],
+    upstream: dict[str, list[str]] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> list[StepAttribution]:
     """Point each failed row-count clause at the step that dropped the rows.
 
     The sink reports the symptom ("output is empty"); the cause is
-    upstream. Walking the steps in execution order and finding the
-    largest collapse in row count locates it in one pass, which is what
-    an engineer does by hand when reading the run.
+    upstream. Comparing each step with what fed it and finding the largest
+    collapse in row count locates it in one pass, which is what an engineer
+    does by hand when reading the run.
+
+    ``upstream`` maps a step to the steps wired into it. Without it, steps
+    are compared in execution order, which only holds for a straight line:
+    with two sources, a join's second source would be "compared" with the
+    first and blamed for the difference. ``labels`` are the names the author
+    gave the steps, so the receipt doesn't read as a random id.
 
     A lead, not a proof — a step may legitimately filter everything out.
     Reported only for the row-count guarantees, where "rows went missing"
@@ -210,12 +219,23 @@ def _attribute_failures(
         return []
 
     steps = list(run.step_results.values())
+    if upstream is None:
+        pairs = list(zip(steps, steps[1:]))
+    else:
+        # A step with two inputs is measured against the larger one: a join
+        # that keeps every row of its big side has lost nothing.
+        pairs = []
+        for cur in steps:
+            feeds = [run.step_results[s] for s in upstream.get(cur.step_id, []) if s in run.step_results]
+            if feeds:
+                pairs.append((max(feeds, key=lambda f: f.row_count or 0), cur))
     biggest_drop = 0
     culprit: tuple[Any, Any] | None = None
-    for prev, cur in zip(steps, steps[1:]):
+    for prev, cur in pairs:
         drop = (prev.row_count or 0) - (cur.row_count or 0)
         if drop > biggest_drop:
             biggest_drop, culprit = drop, (prev, cur)
+    name = lambda step_id: (labels or {}).get(step_id) or step_id  # noqa: E731
 
     if culprit is None:
         # No collapse anywhere: the pipeline started with nothing. Saying
@@ -227,7 +247,7 @@ def _attribute_failures(
                 StepAttribution(
                     guarantee=c.type, step_id=first.step_id,
                     detail=f"no rows entered the pipeline — "
-                           f"'{first.step_id}' produced 0",
+                           f"'{name(first.step_id)}' produced 0",
                     rows_out=0,
                 )
                 for c in failed
@@ -242,7 +262,7 @@ def _attribute_failures(
             upstream_step=prev.step_id,
             rows_in=prev.row_count,
             rows_out=cur.row_count,
-            detail=f"{prev.row_count} -> {cur.row_count} at '{cur.step_id}'",
+            detail=f"{prev.row_count:,} -> {cur.row_count:,} at '{name(cur.step_id)}'",
         )
         for c in failed
     ]
@@ -279,6 +299,8 @@ def verify_contract(
     engine_version: str | None = None,
     trigger: str | None = None,
     blast_radius: list[BlastRadius] | None = None,
+    upstream: dict[str, list[str]] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> ContractVerification:
     """Verify ``contract`` against ``run`` and return a hash-receipt verdict.
 
@@ -302,7 +324,7 @@ def verify_contract(
     # no cause to attribute, and the blast radius of a write that did
     # what it promised is not news.
     radius = list(blast_radius or [])
-    attribution = _attribute_failures(run, clauses) if verdict == "failed" else []
+    attribution = _attribute_failures(run, clauses, upstream, labels) if verdict == "failed" else []
 
     receipt = _receipt_hash(
         _receipt_payload(contract, rid, verdict, clauses, ts, prev_hash,

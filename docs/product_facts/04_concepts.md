@@ -42,6 +42,8 @@ A credential stores authentication material (password, API key, OAuth token, cer
 
 Encryption is **always-on for both Free and Plus** (changed May 4 2026 — previous OSS versions stored credentials in plaintext on disk; upgrades re-encrypt on next save). Plus adds an additional path — the **Vault-Ref** pattern — where credentials live in an external vault (HashiCorp Vault, AWS Secrets Manager, etc.) and Revoluzen Flow stores only a reference. See `07_credentials.md` for the operator-level guide.
 
+Give a credential an expiry date and administrators are warned on the notification bell and by email a week ahead, a day ahead and when it expires. Picking a saved credential on a connection fills the fields it holds.
+
 The agent's `inspect_connections` tool returns connection metadata + key NAMES only — never key values.
 
 ## Variable
@@ -58,7 +60,7 @@ The Executions page lists recent runs with filters by status, pipeline, environm
 
 These terms overlap. Precise meaning:
 
-- **Trigger** — what caused the run to start: `manual` (user clicked Run), `schedule` (a Schedule fired), `event` (an upstream pipeline emitted a complete event).
+- **Trigger** — what caused the run to start: `manual` (user clicked Run), `schedule` (a Schedule fired), `api` (another application called an endpoint from the Triggers page, shown as **API**), `replay` or `resume` (a past run was run again).
 - **Run** / **execution** — used interchangeably. One invocation of a pipeline.
 - **Run ID** — a UUID assigned at run start. Used as the join key in `pipeline_checkpoints` and for the Resume-from-step feature.
 

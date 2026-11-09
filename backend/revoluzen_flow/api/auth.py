@@ -411,6 +411,11 @@ def _read_signup_policy() -> dict:
         case the next /register call is allowed regardless of the flag
         and the created user is elevated to super_admin so the operator
         can bootstrap the instance without needing someone to invite them
+
+    Neither flag decides whether the sign-up TAB exists. The login screen
+    always offers it; these two decide what it holds — the form, or the
+    explanation of how accounts are made on this install. Keep the 403 in
+    `register` and that explanation saying the same thing.
     """
     from revoluzen_flow.main import app_state
     db = app_state.get("db")
@@ -432,9 +437,14 @@ def _read_signup_policy() -> dict:
     # Bootstrap: if there are literally no users in the system, the FIRST
     # call to /register is always allowed — otherwise an operator who
     # just installed Revoluzen Flow with `allow_self_registration=False` (the default)
-    # would have no way to create the very first account. In practice OSS
-    # auto-seeds the bootstrap admin on first boot, so the table is never empty
-    # and this branch stays dormant — it's a safety net, not the normal path.
+    # would have no way to create the very first account.
+    #
+    # This is the NORMAL path, not a safety net. The seeded bootstrap admin
+    # that would make the table non-empty exists only under
+    # REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1 (headless / Docker / CI) — see the
+    # constants below — so a plain `pip install` + `revoluzen-flow serve`
+    # starts with an empty table and every interactive first run comes
+    # through here. A previous version of this comment claimed the opposite.
     user_store = app_state.get("user_store")
     is_bootstrap = False
     if user_store:
@@ -478,14 +488,19 @@ def _bootstrap_password_pending() -> bool:
 
 @router.get("/signup-policy")
 async def signup_policy():
-    """Public endpoint the LoginPage calls to decide whether to show the
-    "Sign up" link. Returns the same shape as `_read_signup_policy` minus
-    anything sensitive.
+    """Public endpoint the LoginPage calls to decide what its "Sign up" tab
+    holds. Returns the same shape as `_read_signup_policy` minus anything
+    sensitive.
+
+    The tab itself is unconditional — it is shown whatever this returns. A
+    closed instance gets a panel explaining that it already has its operator
+    and how to start your own, which is strictly more than the old screen
+    said when it deleted the tab instead.
 
     Deliberately unauthenticated — the login page can't hit it with a
     token since the user isn't signed in yet. The information leaked is
-    limited to "does this instance accept new signups" which is already
-    implicit from the login screen showing or hiding the signup link.
+    limited to "does this instance accept new signups", which the sign-up
+    tab now states in words to anyone who opens it.
 
     It also reports whether the one-time bootstrap password is still
     pending, so the sign-in screen can stop telling EVERY operator to go

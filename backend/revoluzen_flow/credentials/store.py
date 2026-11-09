@@ -143,9 +143,12 @@ class CredentialStore:
         updates: dict,
         workspace_id: str | None = None,
     ) -> Credential | None:
-        credential = self.get(credential_id, workspace_id=workspace_id)
+        # Decrypted, because _save encrypts: saving the stored form would
+        # encrypt every secret a second time and leave it unreadable.
+        credential = self.get_raw(credential_id, workspace_id=workspace_id)
         if not credential:
             return None
+        stored = self.get(credential_id, workspace_id=workspace_id)
         for key, value in updates.items():
             # Refuse to cross workspace boundary via an update body —
             # workspace membership of a credential is immutable once set
@@ -153,11 +156,35 @@ class CredentialStore:
             # recreate, which produces an audit trail).
             if key == "workspace_id":
                 continue
+            if key == "config" and isinstance(value, dict):
+                value = self._keep_unchanged_secrets(value, credential.config, stored.config)
             if value is not None and hasattr(credential, key):
                 setattr(credential, key, value)
         credential.updated_at = datetime.now(timezone.utc)
         self._save(credential)
-        return credential
+        return self.get(credential_id, workspace_id=workspace_id)
+
+    @classmethod
+    def _keep_unchanged_secrets(cls, incoming: dict, plain: dict, stored: dict) -> dict:
+        """Treat a value the edit form was shown as "leave this as it is".
+
+        The form pre-fills each field with what the API returned: a masked
+        value, or the stored ciphertext for fields the mask doesn't cover.
+        Saving those as they are would replace the real secret with the
+        placeholder.
+        """
+        kept = dict(incoming)
+        for key, value in incoming.items():
+            if key not in plain:
+                continue
+            shown = (
+                stored.get(key),
+                cls._mask_config({key: stored.get(key)})[key],
+                cls._mask_config({key: plain[key]})[key],
+            )
+            if value in shown:
+                kept[key] = plain[key]
+        return kept
 
     def delete(self, credential_id: str, workspace_id: str | None = None) -> bool:
         # Pre-check via get so cross-tenant delete is a no-op + 404
@@ -169,7 +196,8 @@ class CredentialStore:
 
     def mark_used(self, credential_id: str, workspace_id: str | None = None) -> None:
         """Update last_used timestamp — scoped when workspace_id provided."""
-        cred = self.get(credential_id, workspace_id=workspace_id)
+        # Decrypted for the same reason as update().
+        cred = self.get_raw(credential_id, workspace_id=workspace_id)
         if cred:
             cred.last_used = datetime.now(timezone.utc)
             self._save(cred)

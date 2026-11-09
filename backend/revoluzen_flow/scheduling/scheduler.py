@@ -22,6 +22,7 @@ from typing import Any, TYPE_CHECKING
 
 from zoneinfo import ZoneInfo
 
+from revoluzen_flow.ir.governance import is_deactivated
 from revoluzen_flow.scheduling.models import Schedule, ScheduleType
 
 if TYPE_CHECKING:
@@ -76,6 +77,7 @@ class PipelineScheduler:
         # an interval schedule is severely overdue (>= 2x interval).
         self._miss_notifier: Any = None
         self._miss_alerted: dict[str, datetime] = {}
+        self._credentials_checked_at: datetime | None = None
         # Durable cross-instance lease. Built lazily on first tick because
         # app_state["db"] does not exist yet when main.py constructs this.
         self._lease_obj: "SchedulerLease | None" = None
@@ -193,8 +195,19 @@ class PipelineScheduler:
                 return
 
             self._check_schedules()
+            self._check_credential_expiry()
         except Exception as e:
             logger.error(f"Scheduler loop error: {e}")
+
+    def _check_credential_expiry(self) -> None:
+        """Hourly, and only on the lease holder, so each warning goes out once."""
+        now = datetime.now(timezone.utc)
+        if self._credentials_checked_at and (now - self._credentials_checked_at).total_seconds() < 3600:
+            return
+        self._credentials_checked_at = now
+        from revoluzen_flow.credentials.expiry import check_in_background
+        from revoluzen_flow.main import app_state
+        check_in_background(app_state)
 
     # Grace period before the watchdog even *considers* a run-lock for
     # eviction. Below this, a held lock is always treated as a healthy run
@@ -310,8 +323,9 @@ class PipelineScheduler:
             if schedule_id in self._running_jobs:
                 continue
 
-            # PR12 — skip if the parent workflow is paused in PROD.
-            # Scheduled runs target PROD by convention; deactivate halts them.
+            # Skip if the parent workflow is deactivated. The schedule model
+            # carries no environment (see _run_pipeline), so a pause in either
+            # environment stops it, the same rule published endpoints follow.
             # Best-effort: if we can't resolve the workflow, fall through and
             # let the executor decide (legacy behavior).
             if wf_store is not None:
@@ -319,9 +333,9 @@ class PipelineScheduler:
                     workflow_id = sched_dict.get("workflow_id")
                     if workflow_id:
                         v = wf_store.get(workflow_id)
-                        if v and getattr(v.workflow, "is_active_prod", True) is False:
+                        if v and is_deactivated(v.workflow):
                             logger.debug(
-                                "Skipping schedule %s — workflow %s is paused in PROD",
+                                "Skipping schedule %s — workflow %s is deactivated",
                                 schedule_id, workflow_id,
                             )
                             continue
@@ -362,14 +376,14 @@ class PipelineScheduler:
             if running_key in self._running_jobs:
                 continue
 
-            # Pause check — same convention as schedules: if the
-            # workflow is `is_active_prod=False`, skip silently.
-            if wf_store is not None and d.environment == "prod":
+            # Pause check — same rule as schedules: a deactivated workflow
+            # is skipped silently.
+            if wf_store is not None:
                 try:
                     v = wf_store.get(d.workflow_id)
-                    if v and getattr(v.workflow, "is_active_prod", True) is False:
+                    if v and is_deactivated(v.workflow):
                         logger.debug(
-                            "Skipping deployment %s — workflow %s paused in PROD",
+                            "Skipping deployment %s — workflow %s is deactivated",
                             d.id, d.workflow_id,
                         )
                         continue
@@ -767,6 +781,7 @@ class PipelineScheduler:
             exe.project_id = getattr(wf, "project_id", "default")
             exe.steps_total = len(wf.steps)
             exe.workflow_snapshot = wf.model_dump(mode="json")
+            exe.workflow_version = getattr(versioned, "version", None)
             if execution_store is not None:
                 try:
                     execution_store.record(exe)

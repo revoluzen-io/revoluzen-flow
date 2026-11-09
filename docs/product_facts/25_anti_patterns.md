@@ -172,13 +172,13 @@ alternatives.
 monitoring."
 
 **Why wrong:** Revoluzen Flow is a data pipeline platform, not an
-APM/observability tool. It has an Activity page for audit + execution
-history, but it's not a monitoring product.
+APM/observability tool. It keeps run history (Executions) and a record of
+what its AI did (Insights → Activity), but it's not a monitoring product.
 
-**Correct:** "Revoluzen Flow's Activity page (Insights → Activity) shows audit
-logs, agent traces, and execution history. For infrastructure
-monitoring, use your existing observability stack — Revoluzen Flow is the data
-pipeline tool, not the monitoring tool."
+**Correct:** "Revoluzen Flow's Executions page shows every pipeline run, and
+Insights → Activity shows what the Copilot did and what it cost. For
+infrastructure monitoring, use your existing observability stack — Revoluzen
+Flow is the data pipeline tool, not the monitoring tool."
 
 ---
 
@@ -376,13 +376,13 @@ using a Database Source with an incremental query
 
 **Bad:** "The Copilot has 16 tools."
 
-**Why wrong:** The canonical count is **30 tools** (22 READ + 7
+**Why wrong:** The canonical count is **32 tools** (24 READ + 7
 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), verified against the registry
-2026-10-28, plus 2 opt-in web tools registered only when the operator
+2026-11-03, plus 2 opt-in web tools registered only when the operator
 enables web access. 16 / 19 / 20 / 25 / 26 were all stale numbers from
 earlier reconciliations — this rule has now been wrong twice itself.
 
-**Correct:** "The Copilot has 30 tools organized in three tiers. Full
+**Correct:** "The Copilot has 32 tools organized in three tiers. Full
 list in `docs/product_facts/10_ai_copilot.md`."
 
 **Source:** `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`
@@ -394,8 +394,8 @@ including this one.
 
 **Bad:** "Revoluzen Flow has 40 node types, all in OSS."
 
-**Why wrong:** Two things are wrong with that sentence. The count is **44**,
-not 40, as of 2026-10-28. And one node family is Plus-only — CDC Source.
+**Why wrong:** Two things are wrong with that sentence. The count is **45**,
+not 40, as of 2026-11-04. And one node family is Plus-only — CDC Source.
 (Vector DB sinks and the JDBC dialect registry were Plus-only until
 2026-10-23 and are now OSS; see `edition-matrix.md`. Only the *maintained
 enterprise dialects* shipped through the JDBC registry remain Enterprise.)
@@ -404,12 +404,12 @@ registered so existing pipelines keep running, and hidden from the palette.
 Note: there is no Python-code node in either edition — do not list
 "Python Transform" as a Plus node type.
 
-**Correct:** "Revoluzen Flow ships 44 node types across 6 categories in OSS.
+**Correct:** "Revoluzen Flow ships 45 node types across 6 categories in OSS.
 Plus adds the CDC Source node type and the maintained enterprise JDBC
 dialects. See `02_node_types.md` for the per-node breakdown."
 
 **Source:** the palette is `MODULES` in
-`frontend/src/components/ModulesPanel.tsx` (39 curated), plus any backend
+`frontend/src/components/modulesPanelData.ts` (40 curated), plus any backend
 type not listed in `HIDDEN_TYPES` in
 `frontend/src/components/hiddenNodeTypes.ts`, which `makeReconciledModulesHook`
 appends (5 more: `data_profile`, `delete_data`, `execute_sql_task`,

@@ -844,6 +844,24 @@ class WorkerPool:
             except Exception:  # noqa: BLE001 — never mask the run's own outcome
                 logger.warning("pool accounting failed after run", exc_info=True)
 
+    def _may_start(self, job: QueuedJob, waiting_since: datetime | None) -> bool:
+        """Whether `job` may take a free slot (must hold self._lock).
+
+        Free slots go to the highest priority waiting, then to whoever has
+        waited longest. A condition variable wakes its waiters in no useful
+        order, so without this a P5 archive job could beat a P1 that had been
+        waiting for a minute.
+        """
+        if not self._capped:
+            return True
+        mine = (job.priority, waiting_since or datetime.now(timezone.utc))
+        ahead = sum(
+            1 for other, since in self._waiting.values()
+            if other.id != job.id and (other.priority, since) < mine
+        )
+        idle = sum(1 for w in self._workers if w.status == "idle")
+        return ahead < idle
+
     def _acquire_admission(self, job: QueuedJob) -> WorkerSlot:
         """Take a slot, waiting when capped and full. Returns the slot."""
         waiting_since: datetime | None = None
@@ -858,7 +876,7 @@ class WorkerPool:
                     # instead, which also keeps the run visible.
                     worker = WorkerSlot(id=len(self._workers))
                     self._workers.append(worker)
-                if worker is not None:
+                if worker is not None and self._may_start(job, waiting_since):
                     worker.status = "busy"
                     worker.current_job_id = job.id
                     worker.current_workflow_id = job.workflow_id
@@ -869,6 +887,8 @@ class WorkerPool:
                     job.started_at = worker.started_at
                     self._active[job.id] = job
                     self._waiting.pop(job.id, None)
+                    # Whoever is behind this job may now be next for another free slot.
+                    self._slot_free.notify_all()
                     return worker
                 # Capped and full — wait for a slot to free.
                 #

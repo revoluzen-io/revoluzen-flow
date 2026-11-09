@@ -25,7 +25,10 @@ _BACKEND = os.path.dirname(_HERE)
 if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
-pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows ACL behaviour")
+pytestmark = [
+    pytest.mark.windows,
+    pytest.mark.skipif(os.name != "nt", reason="Windows ACL behaviour"),
+]
 
 from revoluzen_flow.security.win_acl import (  # noqa: E402
     ALWAYS_ALLOWED_SIDS, SID_ADMINISTRATORS, SID_LOCAL_SYSTEM,

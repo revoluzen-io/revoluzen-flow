@@ -332,13 +332,13 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 
 ### Data Quality — `data_quality`
 **Purpose.** Validate rows against declarative rules, then drop / fail / tag / reject (two ports) / split failures aside. ADF Assert / quality split.
-**Design.** Each rule compiles via `_DQ_OPS` (`not_null, is_null, eq, ne, gt, lt, gte, lte, in, not_in, regex, between, min_length, max_length`); the row predicate is their `AND`. `quality_threshold>0` computes pass rate (raises in fail mode / logs otherwise); `include_score` adds `__dq_score`. Modes: **fail** → raise on any failing row; **tag** → add `(predicate) AS __dq_passed`, keep all; **reject** → `CASE WHEN predicate THEN 'pass' ELSE 'reject' END AS _split_output`; **split** → store failing rows in `ctx.vars["_dq_failures_<step_id>"]`, emit only passing; **drop** (default) → emit only passing.
+**Design.** Each rule compiles via `_DQ_OPS` (`not_null, is_null, eq, ne, gt, lt, gte, lte, in, not_in, regex, between, min_length, max_length`); the row predicate is their `AND`, wrapped in `COALESCE(…, FALSE)` so a rule that gives NULL (a NULL `amount` under `between`) counts as failed in every mode. `quality_threshold>0` computes pass rate (raises in fail mode / logs otherwise); `include_score` adds `__dq_score`. Modes: **fail** → raise on any failing row; **tag** → add `(predicate) AS __dq_passed`, keep all; **reject** → `CASE WHEN predicate THEN 'pass' ELSE 'reject' END AS _split_output`; **split** → store failing rows in `ctx.vars["_dq_failures_<step_id>"]`, emit only passing; **drop** (default) → emit only passing. A rule is read as `{column, op, value}` and the step's settings as the five in the table below; any other key (`check`, `min`, `max`, `type`, `columns`, `rule` on a rule, `on_fail` / `on_failure` on the step) is ignored, so the editor warns about them before Run: a rule with no `op` runs as `not_null`, and a step with no `mode` drops failing rows.
 **Inputs.** One; `inputs[0]`.
 **Input fields.**
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `rules` | `rule_list` | yes | `[]` | `{column,op,value}` checks. Empty → pass-through. |
+| `rules` | `rule_list` | yes | `[]` | `{column,op,value}` checks. Empty → pass-through. A rule the step cannot use stops the run (see Fails when). |
 | `mode` | `select` (`drop`,`fail`,`tag`,`reject`,`split`) | no | `drop` | What happens to failing rows. |
 | `quality_threshold` | `number` | no | `0` | If >0, treat below-threshold pass rate as failure per mode. |
 | `include_score` | `boolean` | no | `False` | Add `__dq_score` (0–100) per row. |
@@ -346,7 +346,7 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 
 **Output.** drop/split → passing rows; tag → all + `__dq_passed`; reject → all + `_split_output` routed to **Pass**/**Reject**; fail → all rows or aborts. Single `output` except in reject mode.
 **Variables & parameters.** Rule `value` fields resolve `${param.x}` / `{{ }}`. **Writes** `ctx.vars["_dq_failures_<step_id>"]` in `split` mode.
-**Fails when.** No input; `mode='fail'` with any failing row or pass rate below `quality_threshold`.
+**Fails when.** No input; a rule the step cannot use, which it reports before checking any row (`dq_rule_problems`, a `ValueError` naming each rule by number): no column, a check that is not one of the fourteen, or a value the check cannot read (eq / ne / gt / lt / gte / lte need one value, in / not_in a non-empty list with no empty entry, between `[low, high]` with both filled in, regex a non-empty pattern, min_length / max_length a whole number of 0 or more; not_null / is_null need none; no `op` reads as `not_null`). Such a rule used to compile to `TRUE` and pass every row. `mode='fail'` with any failing row or pass rate below `quality_threshold`.
 
 ### Data Profile — `data_profile`
 **Purpose.** Emit one row per source column with summary statistics (null %, distinct, min/max, top value, mean/median/stddev, length stats). A profiling/audit node.
@@ -795,25 +795,21 @@ These nodes perform side effects (HTTP, email/Slack, file ops, SQL, deletes) or 
 **Fails when.** Never raises on delivery failure (errors are caught and logged).
 
 ### Delete Data — `delete_data`
-**Purpose.** Remove rows matching a condition (inverse of Filter); a `files` mode is advertised but intentionally not implemented. ADF Delete activity (files) / a delete in a data flow.
-**Design.** `target_kind=files` raises immediately (not implemented — fail loud over silent no-op). `rows` mode: empty `condition` → input unchanged; else `SELECT * FROM __delete_input WHERE NOT (<condition>)` (rows where the condition is TRUE are removed). Condition interpolated directly (no binding).
-**Inputs.** Exactly 1 (rows mode).
+**Purpose.** Remove rows matching a condition (inverse of Filter). It changes the data passing through the pipeline only: it deletes nothing in a database or in storage. To delete files use File System; to run a `DELETE` statement in a database use Execute SQL. The closest ADF equivalent is a filter in a data flow (ADF's Delete activity, which removes files, maps to File System).
+**Design.** Rows only. Empty `condition` → input unchanged; else `SELECT * FROM __delete_input WHERE NOT (<condition>)` (rows where the condition is TRUE are removed). Condition interpolated directly (no binding). The settings used to offer a `files` target (`target_kind`, `target_path`, `wildcard`, `recursive`) that was never implemented; it is no longer offered. A step saved while it was offered, with `target_kind=files`, still raises immediately — fail loud over silent no-op.
+**Inputs.** Exactly 1.
 **Input fields.**
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| target_kind | select (rows/files) | Yes | rows | rows: filter the relation. files: raises (not implemented). |
-| condition | expression | No | "id IS NULL" | Predicate; matching rows are REMOVED (rows mode). |
-| target_path | text | No | "" | files mode — unused. |
-| wildcard | text | No | "" | files mode — unused. |
-| recursive | boolean | No | false | files mode — unused. |
-| max_concurrent | number | No | 1 | Settings; not used in rows mode. |
-| enable_logging | boolean | No | false | Logging; not used in rows mode. |
-| log_path | text | No | "" | Logging; not used in rows mode. |
+| condition | expression | No | "id IS NULL" | Predicate; matching rows are REMOVED. |
+| max_concurrent | number | No | 1 | Settings; not used. |
+| enable_logging | boolean | No | false | Logging; not used. |
+| log_path | text | No | "" | Logging; not used. |
 
 **Output.** Surviving rows (input minus matched). With no condition, the input unchanged.
 **Variables & parameters.** `condition` resolves `${param.x}` / `{{ }}`. Does not read/write `$vars`.
-**Fails when.** `target_kind=files`; invalid `condition` SQL.
+**Fails when.** A saved step still has `target_kind=files`; invalid `condition` SQL.
 
 ### Get Metadata — `get_metadata`
 **Purpose.** Return schema + basic statistics about the input instead of the data. ADF Get Metadata / a column-profile step.
@@ -834,8 +830,8 @@ These nodes perform side effects (HTTP, email/Slack, file ops, SQL, deletes) or 
 **Fails when.** No explicit raise (per-column stat failures are swallowed); fails only if the initial `COUNT(*)`/registration errors.
 
 ### File System — `file_system`
-**Purpose.** Local filesystem operations — copy/move/rename/delete/create — on files and directories on the runtime host. ADF Copy/Delete against a file system / n8n Read/Write/Move Files.
-**Design.** `operation` must be in `_OPS`. Mapping: `copy_file` → `FileExistsError` if dest exists and overwrite off, else `shutil.copy2`; `move_file`/`move_directory` → `shutil.move`; `rename_file` → `os.replace`; `delete_file` → `Path.unlink(missing_ok=True)`; `copy_directory` → `shutil.copytree(dirs_exist_ok=overwrite)`; `delete_directory` → `shutil.rmtree(ignore_errors=not recursive)`; `create_directory` → `mkdir(parents=True, exist_ok=True)`. Builds a one-row result; on error records `status="error"` and re-raises unless `continue_on_error`. Local FS only (no path sandboxing).
+**Purpose.** Local filesystem operations — copy/move/rename/delete/create — on files and directories on the runtime host. A relative path means inside the data folder (`outbox/orders.csv` lands under the data folder), and an absolute path is used as written. ADF Copy/Delete against a file system / n8n Read/Write/Move Files.
+**Design.** `operation` must be in `_OPS`. Mapping: `copy_file` → `FileExistsError` if dest exists and overwrite off, else `shutil.copy2`; `move_file`/`move_directory` → `shutil.move`; `rename_file` → `os.replace`; `delete_file` → `Path.unlink(missing_ok=True)`; `copy_directory` → `shutil.copytree(dirs_exist_ok=overwrite)`; `delete_directory` → `shutil.rmtree(ignore_errors=not recursive)`; `create_directory` → `mkdir(parents=True, exist_ok=True)`. Before a copy, move or rename, the destination's missing parent folders are created. Builds a one-row result that shows the paths as given; on error records `status="error"` and re-raises unless `continue_on_error`. Local FS only (no path sandboxing).
 **Inputs.** Takes no input data — acts on configured paths.
 **Input fields.**
 

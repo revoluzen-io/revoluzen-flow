@@ -24,13 +24,23 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolTier
+from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolRefusal, ToolTier
 
 # Module-level draft store — keyed by draft_id, valued by the IR dict.
 # Bounded TTL via simple FIFO eviction; the agent is expected to consume
 # the draft within the same run. Cross-run drafts are not supported.
 _DRAFT_STORE: dict[str, dict[str, Any]] = {}
 _DRAFT_MAX = 64
+
+# The fixed id each draft tool hands back from its dry-run path. Nothing is
+# stored under these, so apply_pipeline_draft has to recognise them and say
+# "this was a dry run" rather than looking them up and reporting an expiry.
+# They live here, with the store, so a new draft tool's stub is declared in
+# the same place the check reads — the modify tool's id was missing from
+# that check for exactly as long as it was written in only one file.
+DRY_RUN_DRAFT_ID = "dry-run-draft"
+MODIFY_DRY_RUN_DRAFT_ID = "dry-run-mod-draft"
+DRY_RUN_DRAFT_IDS = frozenset({DRY_RUN_DRAFT_ID, MODIFY_DRY_RUN_DRAFT_ID})
 
 
 def _evict_if_full() -> None:
@@ -67,7 +77,7 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     # Dry-run returns a stable mock draft so the agent can continue planning.
     if ctx.dry_run:
         return {
-            "draft_id": "dry-run-draft",
+            "draft_id": DRY_RUN_DRAFT_ID,
             "name": name or "[dry-run] Untitled",
             "step_count": 0,
             "ir": {"steps": [], "connections": []},
@@ -75,18 +85,59 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             "ai_powered": False,
         }
 
+    # The same rule the chat card follows: a new pipeline doesn't guess where
+    # its data comes from or where it goes. The refusal reaches the model whole,
+    # and it asks; its next call names what the person chose. A rebuild of an
+    # existing pipeline isn't a build request, so it isn't stopped here.
+    from revoluzen_flow.ai.clarify_draft import (
+        clarification_set_from_slots,
+        detect_draft_slots,
+        is_build_request,
+        render_questions_for_model,
+    )
+    from revoluzen_flow.ai.draft_choices import (
+        apply_choices_to_ir,
+        choices_from_slots,
+        read_workspace_inventory,
+    )
+
+    slots = None
+    if is_build_request(intent) or is_build_request(ctx.user_intent):
+        inventory = read_workspace_inventory(ctx.workspace_id or "default")
+        if inventory is not None:
+            slots = detect_draft_slots(intent, inventory, assume_build=True)
+    if slots is not None and slots.questions:
+        raise ToolRefusal(render_questions_for_model(clarification_set_from_slots(slots)))
+
     # Use the existing planner to turn intent → IR.
+    from revoluzen_flow.ai.usage_sources import ai_call_details
     from revoluzen_flow.planner.ai_client import ai_generate_pipeline
+    from revoluzen_flow.planner.ir_from_json import planner_json_to_ir
 
     messages = [{"role": "user", "content": intent}]
     try:
-        ir = await ai_generate_pipeline(
-            messages,
-            user_id=ctx.user_id,
-            workspace_id=ctx.workspace_id,
-        )
+        # A separate model call inside the Copilot's request: Activity lists
+        # it under the Copilot, with its own tokens.
+        with ai_call_details(source="copilot.draft_pipeline", intent=intent):
+            ir = await ai_generate_pipeline(
+                messages,
+                user_id=ctx.user_id,
+                workspace_id=ctx.workspace_id,
+            )
     except Exception as e:
         raise RuntimeError(f"Planner failed: {type(e).__name__}: {e}")
+
+    # The planner writes connections by array index, because its steps have
+    # no ids yet. Translating them is not optional: without it the draft
+    # carries `from_step: 0`, which matches no step, and the pipeline is
+    # saved with every step disconnected. api/planner.py always did this;
+    # this tool did not, and shares the one implementation now.
+    ir = planner_json_to_ir(ir, name=name, project_id=project_id)
+
+    # What the intent names by name goes on the draft by id, whatever the model
+    # wrote: its step types use parameter names the nodes don't read.
+    if ir is not None and slots is not None:
+        apply_choices_to_ir(ir, choices_from_slots(slots))
 
     if ir is None:
         # No provider OR planner couldn't parse a valid IR — fall back to a
@@ -105,8 +156,6 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
         ai_powered = False
     else:
         steps = ir.get("steps") or []
-        ir.setdefault("name", name or ir.get("name") or "New pipeline")
-        ir.setdefault("project_id", project_id)
         summary = (
             f"Generated a {len(steps)}-step pipeline from your description. "
             f"Inspect the steps below; call apply_pipeline_draft with this "
@@ -166,5 +215,6 @@ DEFINITION = ToolDefinition(
     },
     handler=_handler,
     requires_idempotency_key=True,
+    draft_only=True,
     tags=["pipeline", "build", "draft"],
 )

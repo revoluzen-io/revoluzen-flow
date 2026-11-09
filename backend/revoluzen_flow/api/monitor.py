@@ -63,6 +63,17 @@ async def list_executions(
     return store.list_all(limit, workspace_id=workspace_id)
 
 
+@router.get("/run-counts")
+async def run_counts(
+    hours: int = 24,
+    project_id: str | None = None,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Every run in the window, counted by status in ten-minute slots."""
+    hours = max(1, min(hours, 24 * 90))
+    return get_execution_store().run_counts(hours, workspace_id=workspace_id, project_id=project_id)
+
+
 @router.get("/recent-statuses")
 async def recent_statuses(
     workflow_ids: str = "",
@@ -611,6 +622,7 @@ async def replay_execution(
         workspace_id=workspace_id,
         steps_total=len(wf.steps),
         workflow_snapshot=wf.model_dump(mode="json"),
+        workflow_version=original.workflow_version,
         triggered_by="replay",
         metadata={
             "replay_of": original.id,

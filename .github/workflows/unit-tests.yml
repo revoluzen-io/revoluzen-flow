@@ -29,8 +29,18 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install minimal deps (avoid heavy native wheels)
-        run: pip install "pydantic>=2.10"
+      # 2026-11-09: was `pip install "pydantic>=2.10"` only. With that, the
+      # smoke runner could not import revoluzen_flow.api.security_headers
+      # (its package __init__ pulls in every router, hence fastapi) and
+      # printed "SKIP (optional)" while the job stayed green. The job now
+      # installs the real backend requirements, the same set the
+      # "Security headers" job in security-scan.yml installs, and the
+      # runner treats every module as required, so a skip is a failure.
+      - name: Install backend requirements
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Run smoke suite
         working-directory: backend

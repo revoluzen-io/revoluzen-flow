@@ -38,6 +38,8 @@ def verify_run(
     engine_version: str | None = None,
     trigger: str | None = None,
     blast_radius: list[BlastRadius] | None = None,
+    upstream: dict[str, list[str]] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> ContractVerification:
     """Verify ``contract`` against a finished ``run`` and return the receipt.
 
@@ -71,4 +73,6 @@ def verify_run(
         prev_hash=prev_hash, resumed_from=resumed_from,
         pipeline_hash=pipeline_hash, engine_version=engine_version, trigger=trigger,
         blast_radius=blast_radius,
+        upstream=upstream,
+        labels=labels,
     )

@@ -22,6 +22,7 @@ const PAGES: { route: string; name: string }[] = [
   { route: 'editor',      name: 'Pipeline editor' },
   { route: 'pool',        name: 'Execution pool' },
   { route: 'executions',  name: 'Monitor / runs' },
+  { route: 'triggers',    name: 'Triggers' },
   { route: 'insights',    name: 'AI / Steward (Insights)' },
   { route: 'settings',    name: 'Settings' },
   { route: 'help',        name: 'Help' },

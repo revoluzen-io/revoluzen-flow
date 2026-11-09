@@ -8,9 +8,13 @@ Falls back to DuckDB in-memory if no connection is specified.
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import sqlite3
 import time
+from datetime import date, datetime, time as time_of_day
+from decimal import Decimal
 from typing import Any, TYPE_CHECKING
 
 # Stage 2.5b: duckdb only used for the execute() return-type annotation.
@@ -25,6 +29,8 @@ from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
 
 import re as _re
+
+logger = logging.getLogger(__name__)
 
 # SQL injection hardening. `schema` / `table` / `columns` / `watermark_column`
 # are string-concatenated into SQL that runs against the real customer DB, and
@@ -94,7 +100,8 @@ def _get_connection_config(connection_id: str) -> tuple[dict, str] | None:
         if connection.credential_id and cred_store:
             cred = cred_store.get_raw(connection.credential_id)
             if cred and cred.config:
-                config.update(cred.config)
+                from revoluzen_flow.connections.credentials import apply_linked_credential
+                apply_linked_credential(config, cred.config)
 
         return config, connection.type
     except Exception:
@@ -206,7 +213,8 @@ def describe_table_columns(
             conn.close()
 
     if ct == "sqlite":
-        db_path = config.get("database") or config.get("file")
+        from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+        db_path = sqlite_db_path(config)
         if not db_path:
             raise ValueError("SQLite connection has no database path")
         conn = sqlite3.connect(db_path)
@@ -376,10 +384,11 @@ def describe_table_canonical(
         # from_sqlite mapper (SQLite's type system is too loose to merit
         # one — STORAGE is typeless; declared types are advisory).
         import sqlite3
+        from revoluzen_flow.connections.sqlite_path import sqlite_db_path
         from revoluzen_flow.types.canonical import (
             CanonicalSchema, Evidence, FPField, FPType, Provenance,
         )
-        db_path = config.get("path") or config.get("database") or ":memory:"
+        db_path = sqlite_db_path(config) or ":memory:"
         conn = sqlite3.connect(db_path, timeout=10)
         try:
             cur = conn.cursor()
@@ -579,7 +588,7 @@ class DbSourceNode(BaseNode):
         # 2026-05-30 (P2): persist the new watermark for incremental mode.
         # The next run reads it back at the top of execute() above.
         if sync_mode == "incremental" and watermark_col:
-            self._save_sync_cursor(ctx, watermark_col, len(rows))
+            self._save_sync_cursor(ctx, watermark_col, len(rows), relation)
 
         return relation
 
@@ -655,11 +664,17 @@ class DbSourceNode(BaseNode):
         return None
 
     def _save_sync_cursor(self, ctx: "ExecutionContext", cursor_col: str,
-                          rows_loaded: int) -> None:
+                          rows_loaded: int, relation=None) -> None:
         """After a successful incremental load, compute MAX(cursor_col)
         across what was just materialised and upsert into the state
         store. The fresh upper bound becomes the lower bound of the
-        next run's WHERE clause."""
+        next run's WHERE clause.
+
+        ``relation`` is the rows this run loaded. They used to be found by
+        the staging table's bare name, ``__db_source``, but the table is
+        named per step (``ctx.scoped_name``), so that lookup failed quietly,
+        no cursor was ever saved and every run read every row. A caller with
+        no relation gets the staging table by its per-step name."""
         try:
             from revoluzen_flow.engine.sync_state_store import sync_state_store, SyncState
             workflow_id = getattr(ctx, "workflow_id", None) or ""
@@ -667,9 +682,18 @@ class DbSourceNode(BaseNode):
             if not (workflow_id and step_id):
                 return
             try:
-                row = fetch_one(ctx.conn.sql(
-                    f'SELECT MAX("{cursor_col}") FROM __db_source'
-                ))
+                if relation is None:
+                    relation = ctx.conn.sql(f"SELECT * FROM {ctx.scoped_name('__db_source')}")
+                if cursor_col.lower() not in {str(c).lower() for c in relation.columns}:
+                    logger.warning(
+                        "DB Source %s: watermark column %r is not in the query result "
+                        "(columns: %s), so no cursor was saved and the next run reads "
+                        "everything again.",
+                        step_id, cursor_col, ", ".join(str(c) for c in relation.columns),
+                    )
+                    return
+                quoted = '"' + cursor_col.replace('"', '""') + '"'
+                row = fetch_one(relation.aggregate(f"MAX({quoted})"))
                 new_cursor = str(row[0]) if row and row[0] is not None else None
             except Exception:  # noqa: BLE001 — keep stale cursor on probe failure
                 new_cursor = None
@@ -767,7 +791,8 @@ class DbSourceNode(BaseNode):
         amortises the file-open cost across steps. The file-open cost
         is small but adds up for workflows with many steps reading the
         same .db file."""
-        db_path = config.get("database") or config.get("file")
+        from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+        db_path = sqlite_db_path(config)
         if not db_path or not os.path.isfile(db_path):
             raise ValueError(f"SQLite: database file not found: {db_path}")
 
@@ -1009,10 +1034,22 @@ class DbSourceNode(BaseNode):
         def format_val(v):
             if v is None:
                 return "NULL"
+            if isinstance(v, bool):  # before int, because bool is an int
+                return "true" if v else "false"
+            if isinstance(v, float) and not math.isfinite(v):
+                return f"'{v}'::DOUBLE"
             if isinstance(v, (int, float)):
                 return str(v)
-            if isinstance(v, bool):
-                return "true" if v else "false"
+            # Databases hand these back as their own types. Quoted as text they
+            # arrive as VARCHAR, so SUM(amount) or a date comparison then fails.
+            if isinstance(v, Decimal):
+                return format(v, "f") if v.is_finite() else "NULL"
+            if isinstance(v, datetime):
+                return f"{'TIMESTAMPTZ' if v.tzinfo else 'TIMESTAMP'} '{v.isoformat(' ')}'"
+            if isinstance(v, date):
+                return f"DATE '{v.isoformat()}'"
+            if isinstance(v, time_of_day):
+                return f"TIME '{v.isoformat()}'"
             # String — escape single quotes
             return "'" + str(v).replace("'", "''") + "'"
 

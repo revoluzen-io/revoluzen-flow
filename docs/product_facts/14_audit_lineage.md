@@ -4,15 +4,13 @@ Per `edition-matrix.md` line 137-144 (audit, governance, compliance) and line 96
 
 ## Three audit surfaces in OSS Free
 
-### 1. Application `audit_log` table — basic
+### 1. Audit events and pipeline version history
 
-Captures every authenticated action: who, what, when, IP, status. Used for security review and "who changed this pipeline?" investigations.
+This edition has no `audit_log` table and no audit-log page. Some actions — deleting a pipeline, restoring one from the Bin or removing it from the Bin for good, an uploaded file or a managed table, renaming a table, cleaning up storage, testing a connection, starting a backfill, creating or revoking an endpoint API key, publishing, changing or removing an endpoint — call `revoluzen_flow.audit.audit_action`, which writes one `AUDIT:` line to the `revoluzen_flow.audit` logger at INFO level. The default server setup does not print INFO lines from the app, so keeping them needs Python logging configured for that logger.
 
-- Persists in the SQLite database
-- Indexed by `(user_id, timestamp DESC)` for "recent activity by user" queries
-- Retention is **best-effort in OSS** — no enforced retention policy. Operators rotate manually if disk pressure becomes an issue.
+For "who changed this pipeline?", use the pipeline's **Version history** (Pipelines → the pipeline's **⋯** menu → Version history): every save that changes a pipeline adds a version with who saved it and when, and **Compare** shows what it added or removed.
 
-**Where to view:** Insights → Activity tab. Filters by user, action type, date range.
+**Not here:** Insights → Activity lists AI requests (see 2), not audit events.
 
 ### 2. Agent trace store — every Copilot run
 
@@ -25,9 +23,11 @@ Every agent run captures:
 - Per-step: `tool_name`, input/output **hashes only** (never raw values per AI_BOUNDARY_CONTRACT §2), latency, tokens in/out, redactions count
 - Total tokens + estimated cost
 
-**API:** `GET /api/ai/agent/traces?limit=20`, `GET /api/ai/agent/trace/{run_id}` for the full detail.
+**Where to view:** Insights → Activity: one row per AI request with the model, tokens, estimated cost and the result; click a row for its steps. Besides Copilot runs, the same store keeps the AI calls other features make (drafting a pipeline in the Editor, SQL help, run and notification summaries), each marked with where it came from.
 
-**OSS retention:** in-process, kept in SQLite alongside the audit log. No retention policy enforced.
+**API:** `GET /api/v1/activity?scope=ai` (the Activity page's feed, with totals for the window), `GET /api/ai/agent/traces?limit=20`, `GET /api/ai/agent/trace/{run_id}` for the full detail.
+
+**OSS retention:** kept in SQLite with no time limit by default. Set `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS` and a daily job deletes older traces.
 
 ### 3. Execution log — every pipeline run
 
@@ -70,7 +70,7 @@ OSS ships `docs/ai-ops-contract.md` and `docs/compliance.md` (the compliance one
 ## Anti-patterns
 
 - ❌ Telling an OSS user "Revoluzen Flow is SOC 2 certified" — the SOFTWARE isn't certified; the OPERATOR's deployment may bring Revoluzen Flow into scope of the operator's own SOC 2. Equally, never promise a Revoluzen SOC 2 report: no audit has been completed yet.
-- ❌ "Use the Activity timeline as your forensic audit log" — it's the right starting point, but it's the SHARED audit + agent + execution feed combined. For forensics on the agent specifically, use the trace store API. For pipeline state changes, the audit_log table.
+- ❌ "Use Insights → Activity as your audit log" — it lists AI requests only (what the AI did and what it cost). For the agent, open a request there or use the trace store API; for changes to a pipeline, its Version history; for pipeline runs, the Executions page.
 - ❌ Promising lineage in OSS — it's Plus only. The OSS path for "where did this data come from" is `recall_history` against the RAG index plus `summarize_pipeline` on each upstream node.
 - ❌ Confusing audit log with execution log — they are different stores. Audit log = who did what (auth-scoped). Execution log = pipeline runs (system-scoped).
 
@@ -78,8 +78,8 @@ OSS ships `docs/ai-ops-contract.md` and `docs/compliance.md` (the compliance one
 
 | Question | Where (OSS) | Plus extension |
 | --- | --- | --- |
-| Who changed pipeline X? | `audit_log` table, filter by entity_id | + sigstore-signed export |
-| What did the agent do at 14:32? | `GET /api/ai/agent/traces?limit=20` | + 1-year retention |
+| Who changed pipeline X? | Pipelines → ⋯ → Version history | + audit log with sigstore-signed export |
+| What did the agent do at 14:32? | Insights → Activity, or `GET /api/ai/agent/traces?limit=20` | + 1-year retention |
 | Why did this run OOM? | Executions page → run row → `peak_memory_mb` | (same — retention extended) |
 | Where did this row come from? | `recall_history` + `summarize_pipeline` | + Marquez lineage graph |
 | Are credentials encrypted? | `GET /api/trust/posture` → `security_baseline.credential_encryption.status = ok` | + Vault-Ref pattern |

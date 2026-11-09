@@ -474,6 +474,59 @@ class ApprovalNotifier:
             "schedule_miss",
         )
 
+    def on_credential_expiry(
+        self,
+        credential_id: str,
+        credential_name: str,
+        expires_at: datetime,
+        days_left: int,
+        band: str,
+    ):
+        """A saved credential is about to expire, or has. ``band`` is the warning
+        this is ("7", "1" or "expired"); each one goes out once per expiry date,
+        so renewing to a new date starts the warnings again."""
+        config = self._get_config()
+        if not config.get("notify_on_credential_expiry", True):
+            return
+
+        when = expires_at.strftime("%d %b %Y")
+        expired = band == "expired"
+        title = f"Credential expired: {credential_name}" if expired else f"Credential expiring soon: {credential_name}"
+        message = (
+            f"\"{credential_name}\" expired on {when}. Pipelines that use it will fail until it is renewed."
+            if expired else
+            f"\"{credential_name}\" expires on {when}, in {days_left} day{'' if days_left == 1 else 's'}. "
+            "Renew it before then so that pipelines that use it keep running."
+        )
+        marker = {"credential_id": credential_id, "band": band, "expires_at": expires_at.isoformat()}
+
+        admins = self._get_admin_users()
+        told = []
+        for admin in admins:
+            recent = self._store.list_for_user(admin["id"], unread_only=False, limit=100)
+            if any({k: (n.get("metadata") or {}).get(k) for k in marker} == marker for n in recent):
+                continue
+            self._store.create(Notification(
+                user_id=admin["id"],
+                type="credential_expiry",
+                title=title,
+                message=message,
+                link_type="credentials",
+                link_id=credential_id,
+                metadata={**marker, "credential_name": credential_name},
+            ))
+            told.append(admin)
+
+        if told:
+            self._send_all_channels(
+                config,
+                f"[Revoluzen Flow] {title}",
+                f"{message}\n\nOpen Connections, then Credentials, to update it. Change it once there, "
+                "and every connection that uses it picks up the new value.",
+                [a["email"] for a in told if a.get("email")],
+                "credential_expiry",
+            )
+
     # ── Internal helpers ────────────────────────────────────────────────
 
     def _get_config(self) -> dict:

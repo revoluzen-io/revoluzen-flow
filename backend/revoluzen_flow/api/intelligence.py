@@ -419,7 +419,8 @@ async def analyze_step_output(
     if not step:
         raise HTTPException(404, f"Step '{step_id}' not found in workflow")
 
-    executor = WorkflowExecutor(data_dir=get_data_dir())
+    from revoluzen_flow.main import app_state as _app_state
+    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
     result = executor.execute_step(wf, step_id, preview_limit=200)
 
     if result.status == "error":

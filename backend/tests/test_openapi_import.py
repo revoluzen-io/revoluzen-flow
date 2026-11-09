@@ -26,6 +26,70 @@ def _openapi3(security_schemes):
     }
 
 
+def _reply_spec(schema, schemas=None):
+    return {
+        "openapi": "3.0.0",
+        "info": {"title": "Acme API"},
+        "servers": [{"url": "https://api.acme.com"}],
+        "components": {"schemas": schemas or {}},
+        "paths": {"/things": {"get": {"responses": {"200": {"description": "ok", "content": {"application/json": {"schema": schema}}}}}}},
+    }
+
+
+def _rows_path_of(spec):
+    return manifest_from_openapi(spec)["streams"][0].get("data_path")
+
+
+_ROWS = {"type": "array", "items": {"type": "object", "properties": {"id": {"type": "string"}}}}
+
+
+def test_a_wrapped_list_gets_its_data_path():
+    assert _rows_path_of(_reply_spec({"type": "object", "properties": {"items": _ROWS, "total": {"type": "integer"}}})) == "items"
+
+
+def test_any_name_counts_when_the_rest_is_paging():
+    assert _rows_path_of(_reply_spec({"type": "object", "properties": {"prices": _ROWS, "next_cursor": {"type": "string"}, "has_more": {"type": "boolean"}}})) == "prices"
+
+
+def test_a_list_defined_by_reference_is_found():
+    spec = _reply_spec({"$ref": "#/components/schemas/Page"}, {
+        "Page": {"type": "object", "properties": {"items": {"$ref": "#/components/schemas/Things"}, "total": {"type": "integer"}}},
+        "Things": _ROWS,
+    })
+    assert _rows_path_of(spec) == "items"
+
+
+def test_a_nested_wrapper_gives_a_dotted_path():
+    schema = {"type": "object", "properties": {"data": {"type": "object", "properties": {"results": _ROWS, "count": {"type": "integer"}}}, "status": {"type": "string"}}}
+    assert _rows_path_of(_reply_spec(schema)) == "data.results"
+
+
+def test_a_plain_array_needs_no_path():
+    assert _rows_path_of(_reply_spec(_ROWS)) is None
+
+
+def test_one_record_holding_a_list_stays_one_row():
+    schema = {"type": "object", "properties": {"id": {"type": "string"}, "lines": _ROWS}}
+    assert _rows_path_of(_reply_spec(schema)) is None
+
+
+def test_two_lists_are_left_for_a_person_to_choose():
+    schema = {"type": "object", "properties": {"orders": _ROWS, "refunds": _ROWS}}
+    assert _rows_path_of(_reply_spec(schema)) is None
+
+
+def test_a_swagger2_reply_is_read_too():
+    spec = {
+        "swagger": "2.0", "info": {"title": "Old"}, "host": "api.acme.com",
+        "paths": {"/things": {"get": {"responses": {"200": {"schema": {"type": "object", "properties": {"items": _ROWS, "total": {"type": "integer"}}}}}}}},
+    }
+    assert _rows_path_of(spec) == "items"
+
+
+def test_a_spec_that_says_nothing_about_replies_is_fine():
+    assert _rows_path_of(_openapi3({})) is None
+
+
 def test_openapi3_bearer_basic_shape():
     m = manifest_from_openapi(_openapi3({"BearerAuth": {"type": "http", "scheme": "bearer"}}))
     assert m["id"] == "acme_api"

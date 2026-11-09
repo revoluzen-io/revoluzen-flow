@@ -21,7 +21,7 @@ from revoluzen_flow.connections.models import (
 )
 from revoluzen_flow.connections.tester import ConnectionTester
 from revoluzen_flow.connections.catalog import get_catalog, registry_status
-from revoluzen_flow.connections.credentials import resolve_credentials
+from revoluzen_flow.connections.credentials import apply_linked_credential, resolve_credentials
 from revoluzen_flow.auth.deps import (
     current_workspace_id,
     require_auth,
@@ -528,7 +528,7 @@ async def test_connection(
                     connection.credential_id, workspace_id=workspace_id
                 )
                 if cred and cred.config:
-                    config.update(cred.config)
+                    apply_linked_credential(config, cred.config)
         except Exception:
             pass
 
@@ -740,15 +740,7 @@ async def test_connection_inline(
                 # existence in another tenant.
                 raise HTTPException(404, "Credential not found")
             if cred.config:
-                field_map = config.get("credential_field_map")
-                if isinstance(field_map, dict):
-                    for target_key, source_key in field_map.items():
-                        if not isinstance(target_key, str) or not isinstance(source_key, str):
-                            continue
-                        if source_key in cred.config:
-                            config[target_key] = cred.config[source_key]
-                elif field_map is None:
-                    config.update(cred.config)
+                apply_linked_credential(config, cred.config)
         except HTTPException:
             raise
         except Exception:

@@ -40,6 +40,8 @@ This RBAC gates **who can edit what in the workspace**. Five tiers, per-environm
 4. **Analyst** — read everywhere; can approve PROD changes; cannot edit pipelines.
 5. **Viewer** — read-only. Sees pipelines, executions, dashboards. Cannot save or run.
 
+On the Triggers page, creating or changing endpoints and API keys needs Data Engineer or above. Every signed-in role can view them, with keys masked.
+
 **Distinct from agent RBAC:** workspace-RBAC sets who can hit `POST /api/workflows` (edit a pipeline). Agent-RBAC sets what the LLM can call on the user's behalf via `POST /api/ai/agent`. Both checks fire on every action; both must pass.
 
 **OSS Free does NOT have workspace RBAC.** The single operator is effectively the workspace admin and is treated as such by the API.

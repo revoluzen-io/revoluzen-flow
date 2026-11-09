@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { validateWorkflow } from '../utils/validateWorkflow';
+import { RESERVED_METADATA_COLUMNS } from '../utils/nodeArity';
 import { wouldCreateCycle, findCycleNodeIds } from '../utils/graphCycles';
 import { INTENT_FOR_STEP_TYPE } from '../components/modulesPanelData';
 import { HIDDEN_TYPES } from '../components/hiddenNodeTypes';
@@ -420,5 +421,382 @@ describe('validateWorkflow — schema-driven required fields (C3)', () => {
   it('respects one-of groups (csv_source: file_path OR url)', () => {
     const issues = validateWorkflow([node('s', 'csv_source', { url: 'http://x/a.csv' })], []);
     expect(issues.some((i) => i.nodeId === 's' && i.field === 'file_path' && i.level === 'error')).toBe(false);
+  });
+});
+
+// A5 — a step that adds internal columns, upstream of a sink that writes its rows
+// as they are. A Data Quality step adds columns only in some settings: tag adds
+// __dq_passed, "Add Quality Score Column" adds __dq_score, and reject adds
+// _split_output unless the rows leave by its Pass / Reject output. drop, fail and
+// split add none, so warning about them told people to clean up what is not there.
+describe('validateWorkflow — internal metadata columns reaching a sink (A5)', () => {
+  const src = node('src', 'source', { connector_type: 'csv', file_path: 'a.csv' });
+  const sink = node('out', 'destination', { connector_type: 'csv', file_path: 'out.csv' });
+  const dq = (params: Record<string, any>) =>
+    node('dq', 'data_quality', { rules: [{ column: 'id', op: 'not_null' }], ...params });
+  const via = (source: string, target: string, sourceHandle?: string) => ({
+    ...edge(source, target),
+    ...(sourceHandle ? { sourceHandle } : {}),
+  });
+
+  /** The metadata warnings, as { sink, message }. */
+  const leaks = (nodes: any[], edges: any[]) =>
+    validateWorkflow(nodes, edges)
+      .filter((i) => /internal metadata columns/.test(i.message))
+      .map((i) => ({ sink: i.nodeId, message: i.message }));
+  const straight = (params: Record<string, any>) =>
+    leaks([src, dq(params), sink], [edge('src', 'dq'), edge('dq', 'out')]);
+
+  it.each([
+    ['drop', { mode: 'drop' }],
+    ['no mode set (drop)', {}],
+    ['fail', { mode: 'fail' }],
+    ['split', { mode: 'split' }],
+    ['drop with a pass-rate threshold', { mode: 'drop', quality_threshold: 90 }],
+    ['drop with profiling', { mode: 'drop', include_profile: true }],
+  ])('does not warn about a Data Quality step in %s mode: it adds no column', (_name, params) => {
+    expect(straight(params)).toEqual([]);
+  });
+
+  it('warns about tag mode, and names the column it adds', () => {
+    const found = straight({ mode: 'tag' });
+    expect(found).toHaveLength(1);
+    expect(found[0].sink).toBe('out');
+    expect(found[0].message).toContain('__dq_passed');
+    expect(found[0].message).not.toContain('__dq_score');
+  });
+
+  it.each(['drop', 'fail', 'split', 'tag'])('warns when %s mode also adds the quality score', (mode) => {
+    const found = straight({ mode, include_score: true });
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('__dq_score');
+  });
+
+  it('names both columns for tag mode with the quality score', () => {
+    const [found] = straight({ mode: 'tag', include_score: true });
+    expect(found.message).toContain('__dq_passed');
+    expect(found.message).toContain('__dq_score');
+  });
+
+  it('does not warn when reject mode sends its rows out by Pass and Reject', () => {
+    const rejected = node('bad', 'destination', { connector_type: 'csv', file_path: 'bad.csv' });
+    const found = leaks(
+      [src, dq({ mode: 'reject' }), sink, rejected],
+      [edge('src', 'dq'), via('dq', 'out', 'pass'), via('dq', 'bad', 'reject')],
+    );
+    expect(found).toEqual([]);
+  });
+
+  it('warns when reject mode feeds a sink without going through Pass or Reject', () => {
+    const found = leaks([src, dq({ mode: 'reject' }), sink], [edge('src', 'dq'), edge('dq', 'out')]);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('_split_output');
+  });
+
+  it('warns only about the sink that is not routed', () => {
+    const routed = node('good', 'destination', { connector_type: 'csv', file_path: 'good.csv' });
+    const found = leaks(
+      [src, dq({ mode: 'reject' }), routed, sink],
+      [edge('src', 'dq'), via('dq', 'good', 'pass'), edge('dq', 'out')],
+    );
+    expect(found.map((f) => f.sink)).toEqual(['out']);
+  });
+
+  it('finds the step through the ones in between', () => {
+    const filter = node('keep', 'filter', { condition: 'id > 0' });
+    const found = leaks(
+      [src, dq({ mode: 'tag' }), filter, sink],
+      [edge('src', 'dq'), edge('dq', 'keep'), edge('keep', 'out')],
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].sink).toBe('out');
+  });
+
+  it('lists only the steps that add a column when there are several', () => {
+    const dropper = { ...dq({ mode: 'drop' }), id: 'dq1', data: { stepType: 'data_quality', params: dq({ mode: 'drop' }).data.params, label: 'Drop bad rows' } };
+    const tagger = { ...dq({ mode: 'tag' }), id: 'dq2', data: { stepType: 'data_quality', params: dq({ mode: 'tag' }).data.params, label: 'Mark rows' } };
+    const found = leaks(
+      [src, dropper, tagger, sink],
+      [edge('src', 'dq1'), edge('dq1', 'dq2'), edge('dq2', 'out')],
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('Mark rows');
+    expect(found[0].message).not.toContain('Drop bad rows');
+  });
+
+  it('still warns about the other steps that add columns, naming theirs', () => {
+    const loop = node('loop', 'foreach_loop', {});
+    const split = node('split', 'conditional_split', {});
+    const [fromLoop] = leaks([src, loop, sink], [edge('src', 'loop'), edge('loop', 'out')]);
+    expect(fromLoop.message).toContain('_batch_index');
+    expect(fromLoop.message).toContain('_batch_total');
+    const [fromSplit] = leaks([src, split, sink], [edge('src', 'split'), edge('split', 'out')]);
+    expect(fromSplit.message).toContain('_split_output');
+    expect(fromSplit.message).not.toContain('__dq_passed');
+  });
+
+  it('does not warn when a Switch sends its rows out by its named outputs', () => {
+    const split = node('split', 'conditional_split', { conditions: [{ name: 'a', condition: 'x = 1' }, { name: 'b', condition: 'x = 2' }] });
+    const other = node('other', 'destination', { connector_type: 'csv', file_path: 'other.csv' });
+    expect(leaks([src, split, sink, other], [edge('src', 'split'), via('split', 'out', 'a'), via('split', 'other', 'b')])).toEqual([]);
+  });
+
+  it('warns when a Switch feeds a sink by its default output', () => {
+    const split = node('split', 'conditional_split', { conditions: [{ name: 'a', condition: 'x = 1' }] });
+    const found = leaks([src, split, sink], [edge('src', 'split'), via('split', 'out', 'output')]);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain('_split_output');
+  });
+
+  it('does not warn about a sink that has no such step upstream', () => {
+    expect(leaks([src, sink], [edge('src', 'out')])).toEqual([]);
+  });
+
+  it('names only columns the engine reserves (nodeArity.RESERVED_METADATA_COLUMNS)', () => {
+    const producers: Array<[string, Record<string, any>]> = [
+      ['foreach_loop', {}],
+      ['conditional_split', {}],
+      ['data_quality', { mode: 'tag', include_score: true }],
+      ['data_quality', { mode: 'reject' }],
+      ['validate', {}],
+      ['llm_guardrail', {}],
+      ['kafka_source', {}],
+    ];
+    for (const [stepType, params] of producers) {
+      const [found] = leaks([src, node('p', stepType, params), sink], [edge('src', 'p'), edge('p', 'out')]);
+      expect(found, `${stepType} ${JSON.stringify(params)}`).toBeTruthy();
+      const named = /metadata columns \(([^)]*)\)/.exec(found.message)![1].split(', ');
+      expect(named.length).toBeGreaterThan(0);
+      for (const column of named) {
+        expect(RESERVED_METADATA_COLUMNS.has(column), `${stepType}: ${column}`).toBe(true);
+      }
+    }
+  });
+});
+
+// A Data Quality rule the node cannot use (no column, a check it does not have, a
+// value it cannot read) stops the run: the node raises before it checks a row,
+// where it used to compile the rule to TRUE and pass every row. The editor says
+// so before Run, from the same table of cases the node is tested against
+// (fixtures/dqRuleCases.json, see dataQualityRuleCases.test.ts).
+describe('validateWorkflow — Data Quality rules the step cannot run', () => {
+  const src = node('src', 'source', { connector_type: 'csv', file_path: 'a.csv' });
+  const check = (params: Record<string, any>, settings?: Record<string, any>) =>
+    validateWorkflow(
+      [src, node('dq', 'data_quality', settings ? { ...params, _settings: settings } : params)],
+      [edge('src', 'dq')],
+    ).filter((i) => i.nodeId === 'dq' && /^Rule \d/.test(i.message));
+
+  it('flags a rule with no column, naming the rule, as an error on the rules field', () => {
+    const found = check({ rules: [{ op: 'not_null' }], mode: 'drop' });
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('error');
+    expect(found[0].field).toBe('rules');
+    expect(found[0].message).toMatch(/^Rule 1 \(not_null\): Choose a column\./);
+  });
+
+  it('flags the shape the old templates used, which the node reads as no rule at all', () => {
+    const found = check({ rules: [{ type: 'unique', columns: ['id'] }], on_fail: 'fail' });
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toMatch(/Choose a column/);
+  });
+
+  it('flags a between with empty limits, and one saved as the text "10,100"', () => {
+    for (const value of [['', ''], [10, ''], '10,100', undefined]) {
+      const found = check({ rules: [{ column: 'amount', op: 'between', value }] });
+      expect(found, JSON.stringify(value)).toHaveLength(1);
+      expect(found[0].level).toBe('error');
+      expect(found[0].message).toMatch(/^Rule 1 \(amount between\): /);
+    }
+  });
+
+  it('reports every rule that cannot run, once each, and none that can', () => {
+    const found = check({
+      rules: [
+        { column: 'id', op: 'not_null' },
+        { column: 'region', op: 'in', value: [] },
+        { column: 'amount', op: 'between', value: [10, 100] },
+        { column: 'name', op: 'regex', value: '' },
+      ],
+    });
+    expect(found.map((i) => i.message.slice(0, 6))).toEqual(['Rule 2', 'Rule 4']);
+    expect(found.every((i) => i.level === 'error')).toBe(true);
+  });
+
+  it('says nothing about rules that can run', () => {
+    expect(
+      check({
+        rules: [
+          { column: 'id', op: 'not_null' },
+          { column: 'amount', op: 'between', value: [10, 100] },
+          { column: 'region', op: 'in', value: ['north', 'south'] },
+          { column: 'email', op: 'regex', value: '^[^@]+@[^@]+$' },
+          { column: 'code', op: 'min_length', value: 3 },
+        ],
+        mode: 'fail',
+      }),
+    ).toEqual([]);
+  });
+
+  it('only warns when the low limit is above the high one, because that rule runs', () => {
+    const found = check({ rules: [{ column: 'amount', op: 'between', value: [100, 10] }] });
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('warning');
+  });
+
+  it('leaves a step with no rules to the required-field check', () => {
+    expect(check({ rules: [], mode: 'drop' })).toEqual([]);
+    expect(check({ mode: 'drop' })).toEqual([]);
+  });
+
+  it('does not look at a step that is turned off', () => {
+    expect(check({ rules: [{ op: 'not_null' }] }, { deactivated: true })).toEqual([]);
+  });
+});
+
+// The step reads a rule as { column, op, value } and its own settings as rules, mode,
+// quality_threshold, include_score and include_profile. Anything else is ignored, and
+// the old templates were full of it: { column, check: 'between', min, max } ran as a
+// plain not-null, and on_failure: 'fail' left the step dropping rows. The editor warns
+// about such keys before Run (the node cannot raise on them: it may be a note someone
+// added, and the step still runs).
+describe('validateWorkflow — Data Quality keys the step does not read', () => {
+  const src = node('src', 'source', { connector_type: 'csv', file_path: 'a.csv' });
+  const check = (params: Record<string, any>, settings?: Record<string, any>) =>
+    validateWorkflow(
+      [src, node('dq', 'data_quality', settings ? { ...params, _settings: settings } : params)],
+      [edge('src', 'dq')],
+    ).filter((i) => i.nodeId === 'dq' && /not read by this step/.test(i.message));
+
+  it('warns about the keys of the old { column, check, min, max } shape, and says what the rule does', () => {
+    const found = check({ rules: [{ column: 'amount', check: 'between', min: 0, max: 100 }], mode: 'drop' });
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('warning');
+    expect(found[0].field).toBe('rules');
+    expect(found[0].message).toMatch(/^Rule 1 \(amount not_null\): "check", "max" and "min" are not read by this step/);
+    expect(found[0].message).toMatch(/only checks that the column is not empty/);
+  });
+
+  it('warns about on_failure, which is not the On Failure setting', () => {
+    const found = check({ rules: [{ column: 'id', op: 'not_null' }], on_failure: 'fail' });
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('warning');
+    expect(found[0].field).toBe('mode');
+    expect(found[0].message).toMatch(/"on_failure" is not read by this step/);
+    expect(found[0].message).toMatch(/drops failing rows/);
+  });
+
+  it('reports the whole old template shape: the rule that cannot run, and on_fail', () => {
+    const all = validateWorkflow(
+      [src, node('dq', 'data_quality', { rules: [{ type: 'unique', columns: ['id'] }], on_fail: 'fail' })],
+      [edge('src', 'dq')],
+    ).filter((i) => i.nodeId === 'dq' && (i.field === 'rules' || i.field === 'mode'));
+    expect(all.map((i) => [i.level, i.field])).toEqual([
+      ['error', 'rules'],
+      ['warning', 'mode'],
+    ]);
+    expect(all[0].message).toMatch(/Choose a column\..*"columns" and "type" are not read/);
+  });
+
+  it('says nothing when every key is one the step reads', () => {
+    expect(
+      check({
+        rules: [
+          { column: 'id', op: 'not_null', value: '' },
+          { column: 'amount', op: 'between', value: [10, 100] },
+        ],
+        mode: 'reject',
+        quality_threshold: 90,
+        include_score: true,
+        include_profile: false,
+      }),
+    ).toEqual([]);
+  });
+
+  it('leaves the editor and engine keys alone, and a key that was removed', () => {
+    expect(
+      check({ rules: [{ column: 'id', op: 'not_null' }], mode: 'drop', on_fail: undefined }, { on_error: 'continue' }),
+    ).toEqual([]);
+  });
+
+  it('does not look at a step that is turned off', () => {
+    expect(check({ rules: [{ column: 'id', check: 'not_null' }], on_fail: 'fail' }, { deactivated: true })).toEqual([]);
+  });
+});
+
+// A database step with a saved connection must name what it reads or writes. A Source says
+// so in `source_mode`, and the node reads a query unless told otherwise; a Destination
+// writes to a table. The check read a `kind` that no panel writes any more, so it took every
+// Source for a table Source: a database query Source with its connection chosen was refused
+// with "Missing required field: table", and Run stayed blocked however it was filled in.
+describe('validateWorkflow — what a database step with a saved connection must name', () => {
+  const sink = node('out', 'destination', { connector_type: 'csv', file_path: 'out.csv' });
+  const database = (params: Record<string, any>) =>
+    node('src', 'source', { connector_type: 'database', connection_id: 'c1', ...params });
+  const sourceErrors = (params: Record<string, any>) =>
+    validateWorkflow([database(params), sink], [edge('src', 'out')])
+      .filter((i) => i.level === 'error' && i.nodeId === 'src')
+      .map((i) => ({ field: i.field, message: i.message }));
+  const sinkErrors = (params: Record<string, any>) =>
+    validateWorkflow(
+      [node('src', 'source', { connector_type: 'csv', file_path: 'a.csv' }), node('out', 'destination', params)],
+      [edge('src', 'out')],
+    )
+      .filter((i) => i.level === 'error' && i.nodeId === 'out')
+      .map((i) => ({ field: i.field, message: i.message }));
+
+  it('accepts a query Source that does not say its mode: the node reads a query by default', () => {
+    expect(sourceErrors({ query: 'SELECT 1' })).toEqual([]);
+  });
+
+  it('accepts a query Source in query mode', () => {
+    expect(sourceErrors({ source_mode: 'query', query: 'SELECT 1' })).toEqual([]);
+  });
+
+  it.each([
+    ['no mode set', {}],
+    ['query mode', { source_mode: 'query' }],
+    ['query mode with a blank query', { source_mode: 'query', query: '  ' }],
+  ])('asks a query Source for its query, not a table (%s)', (_name, params) => {
+    const found = sourceErrors(params);
+    expect(found).toHaveLength(1);
+    expect(found[0].field).toBe('query');
+    expect(found[0].message).toMatch(/Missing required field: query/);
+  });
+
+  it('accepts a table Source that names its table, and asks one that does not', () => {
+    expect(sourceErrors({ source_mode: 'table', table: 'orders' })).toEqual([]);
+    const found = sourceErrors({ source_mode: 'table' });
+    expect(found).toHaveLength(1);
+    expect(found[0].field).toBe('table');
+    expect(found[0].message).toMatch(/Missing required field: table/);
+  });
+
+  it('asks a stored-procedure Source for its procedure', () => {
+    expect(sourceErrors({ source_mode: 'procedure', procedure: 'sp_refresh' })).toEqual([]);
+    const found = sourceErrors({ source_mode: 'procedure' });
+    expect(found).toHaveLength(1);
+    expect(found[0].field).toBe('procedure');
+  });
+
+  it('ignores a `kind` left in the settings: the node does not read it', () => {
+    expect(sourceErrors({ kind: 'table', source_mode: 'query', query: 'SELECT 1' })).toEqual([]);
+    expect(sourceErrors({ kind: 'query', source_mode: 'table' }).map((e) => e.field)).toEqual(['table']);
+  });
+
+  it.each(['database', 'warehouse'])('asks a %s Destination for the table it writes to', (connector) => {
+    expect(sinkErrors({ connector_type: connector, connection_id: 'c1', table: 'orders' })).toEqual([]);
+    const found = sinkErrors({ connector_type: connector, connection_id: 'c1' });
+    expect(found).toHaveLength(1);
+    expect(found[0].field).toBe('table');
+    expect(found[0].message).toMatch(/Missing required field: table/);
+  });
+
+  it('asks for the connection first, and for nothing else until there is one', () => {
+    const noConnection = validateWorkflow(
+      [node('src', 'source', { connector_type: 'database', query: 'SELECT 1' }), sink],
+      [edge('src', 'out')],
+    ).filter((i) => i.level === 'error' && i.nodeId === 'src');
+    expect(noConnection.map((i) => i.field)).toEqual(['connection_id']);
   });
 });

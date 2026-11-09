@@ -18,6 +18,7 @@ from typing import Any
 import httpx
 
 from revoluzen_flow.ai.agent import AgentLLMClient, LLMResponse, LLMToolUse
+from revoluzen_flow.ai.tls import ai_ssl_context
 
 
 @dataclass
@@ -70,7 +71,7 @@ class AnthropicAgentClient:
         if tools:
             body["tools"] = tools
 
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, verify=ai_ssl_context()) as client:
             resp = await client.post(
                 self.api_url,
                 headers={

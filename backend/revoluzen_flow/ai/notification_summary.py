@@ -22,9 +22,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
+
+from revoluzen_flow.ai.tls import ai_ssl_context
+from revoluzen_flow.planner.ai_client import claude_text
 
 logger = logging.getLogger("revoluzen_flow.ai.notification_summary")
 
@@ -78,28 +82,66 @@ def summarize_notification_body(
         f"original_body:\n{body[:2000]}"
     )
 
+    callers = {"claude": _call_claude_sync, "openai": _call_openai_sync, "ollama": _call_ollama_sync}
+    call = callers.get(provider)
+    if call is None:
+        return body, False
+
+    # Each summary is an AI call no person asked for; Insights → Activity
+    # counts it, with its tokens, as an automatic one.
+    t0 = time.monotonic()
+    reply: dict[str, Any] = {}
     try:
-        if provider == "claude":
-            text = _call_claude_sync(api_key, model, user_message)
-        elif provider == "openai":
-            text = _call_openai_sync(api_key, model, user_message)
-        elif provider == "ollama":
-            text = _call_ollama_sync(base_url or api_key, model, user_message)
-        else:
-            return body, False
+        target = (base_url or api_key) if provider == "ollama" else api_key
+        text, reply = call(target, model, user_message)
     except Exception as e:
         logger.debug("Notification LLM summary failed (%s): %s", provider, e)
+        _record(provider, model, t0, reply, user_id, workspace_id, error=f"{type(e).__name__}: {e}")
         return body, False
 
     summary = _extract_summary(text)
+    _record(provider, model, t0, reply, user_id, workspace_id, ok=bool(summary))
     if not summary:
         return body, False
     # Keep the summary bounded so email clients render predictably.
     return summary[:1500], True
 
 
-def _call_claude_sync(api_key: str, model: str, user_message: str) -> str:
-    with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
+def _record(
+    provider: str,
+    model: str,
+    t0: float,
+    reply: dict[str, Any],
+    user_id: str | None,
+    workspace_id: str | None,
+    *,
+    ok: bool = False,
+    error: str | None = None,
+) -> None:
+    """Save the call for Insights → Activity. Never raises: a notification
+    must go out whatever happens to the record of its summary."""
+    try:
+        from revoluzen_flow.ai.usage_sources import record_ai_call, tokens_from_reply
+
+        tokens_in, tokens_out = tokens_from_reply(reply)
+        record_ai_call(
+            source="notifications.summary",
+            user_id=user_id,
+            workspace_id=workspace_id,
+            provider=provider,
+            model=model,
+            latency_ms=int((time.monotonic() - t0) * 1000),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            success=ok,
+            error=error,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _call_claude_sync(api_key: str, model: str, user_message: str) -> tuple[str, dict[str, Any]]:
+    with httpx.Client(timeout=_TIMEOUT_SECONDS, verify=ai_ssl_context()) as client:
         resp = client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -116,11 +158,11 @@ def _call_claude_sync(api_key: str, model: str, user_message: str) -> str:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["content"][0]["text"]
+        return claude_text(data), data
 
 
-def _call_openai_sync(api_key: str, model: str, user_message: str) -> str:
-    with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
+def _call_openai_sync(api_key: str, model: str, user_message: str) -> tuple[str, dict[str, Any]]:
+    with httpx.Client(timeout=_TIMEOUT_SECONDS, verify=ai_ssl_context()) as client:
         resp = client.post(
             "https://api.openai.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -137,10 +179,10 @@ def _call_openai_sync(api_key: str, model: str, user_message: str) -> str:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        return data["choices"][0]["message"]["content"], data
 
 
-def _call_ollama_sync(base_url: str, model: str, user_message: str) -> str:
+def _call_ollama_sync(base_url: str, model: str, user_message: str) -> tuple[str, dict[str, Any]]:
     # 2026-05-22: IPv4 default so Windows `localhost`→::1 doesn't fail.
     url = (base_url or "http://127.0.0.1:11434").rstrip("/") + "/api/chat"
     with httpx.Client(timeout=_TIMEOUT_SECONDS * 2) as client:
@@ -158,7 +200,7 @@ def _call_ollama_sync(base_url: str, model: str, user_message: str) -> str:
         )
         resp.raise_for_status()
         data = resp.json()
-        return data["message"]["content"]
+        return data["message"]["content"], data
 
 
 def _extract_summary(text: str) -> str | None:

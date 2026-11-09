@@ -11,8 +11,10 @@
  *   - Returns cached schema from `workflowStore.stepSchemas` if present.
  *   - On cache miss: fetches via `api.getStepSchema`, populates the cache,
  *     re-renders the caller.
- *   - Invalidates on every `schemaVersion` bump (param edits, edge changes,
- *     node add/remove — see workflowStore for the trigger points).
+ *   - Refetches when a `schemaVersion` bump (param edits, edge changes, node
+ *     add/remove — see workflowStore for the trigger points) has removed this
+ *     step's entry. An entry that survives the bump is still correct: the
+ *     store only removes what the change affected.
  *   - Debounced — rapid keystrokes in ConfigPanel don't spam the backend.
  *   - Sends the in-memory canvas IR via POST so the lookup reflects the
  *     user's UNSAVED edits, not just the last persisted version.
@@ -65,18 +67,14 @@ export function useUpstreamSchema(stepId: string | null): UpstreamSchemaResult {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Track which (stepId, schemaVersion) tuple we last fetched. Lets us
-  // skip refetches when nothing changed.
-  const lastFetchKey = useRef<string | null>(null);
+  // The entry this hook last stored. Still in the cache after a version bump
+  // means the change wasn't upstream of this step, so there's nothing to fetch.
+  const lastEntry = useRef<StepSchemaResponse | null>(null);
 
   useEffect(() => {
     if (!stepId) return;
 
-    const fetchKey = `${stepId}::${schemaVersion}`;
-    if (cached && lastFetchKey.current === fetchKey) {
-      // Cache hit AND we already attempted this exact version — nothing to do.
-      return;
-    }
+    if (cached && cached === lastEntry.current) return;
 
     // C10 (2026-05-18): try the local mock-eval first. For "trivial"
     // single-input transforms (rename / select / typecast / derived_column)
@@ -86,7 +84,7 @@ export function useUpstreamSchema(stepId: string | null): UpstreamSchemaResult {
     const store = useWorkflowStore.getState();
     const mock = tryLocalMockEval(stepId, store);
     if (mock) {
-      lastFetchKey.current = fetchKey;
+      lastEntry.current = mock;
       setStepSchema(stepId, mock);
       return;
     }
@@ -102,7 +100,7 @@ export function useUpstreamSchema(stepId: string | null): UpstreamSchemaResult {
       try {
         const wfIdForCall = workflowId || 'unsaved';
         const resp = await api.getStepSchema(wfIdForCall, stepId, unsavedWorkflow);
-        lastFetchKey.current = fetchKey;
+        lastEntry.current = resp;
         setStepSchema(stepId, resp);
         if (resp.error) setError(resp.error);
       } catch (e: any) {
@@ -113,8 +111,8 @@ export function useUpstreamSchema(stepId: string | null): UpstreamSchemaResult {
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(handle);
-    // We intentionally do NOT depend on `cached` here — re-rendering when
-    // the cache fills would re-trigger the effect and reset lastFetchKey.
+    // We intentionally do NOT depend on `cached` here — filling the cache
+    // must not re-trigger the effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, schemaVersion, workflowId]);
 

@@ -10,6 +10,7 @@ import HelpFeedback from '../help/HelpFeedback';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
 import Icon from '../shared/Icon';
+import { NODE_CATALOG, NODE_COUNT } from '../help/nodeCatalog';
 import { APP_VERSION } from '../../appMeta';
 
 type HelpTab = 'getting-started' | 'how-to' | 'shortcuts' | 'nodes' | 'reference';
@@ -37,9 +38,9 @@ const GETTING_STARTED = [
     content: [
       'Go to the **Editor** page from the navigation bar.',
       'You can start in three ways:',
-      '- **Chat**: Describe your pipeline in plain English (e.g. "Load orders.csv, filter by status, output to parquet")',
+      '- **Chat**: Describe your pipeline in plain English (e.g. "Load orders.csv, filter by status, output to parquet"). If you leave out where the data comes from or where it goes, the Copilot asks first.',
       '- **Template**: Click "Start with a Template" and choose Simple ETL, Dedup, Aggregation, or Data Quality',
-      '- **Drag & Drop**: Drag nodes from the right-side panel onto the canvas',
+      '- **Drag & Drop**: Drag nodes from the node panel on the left onto the canvas',
       'Or import 18 ready-made sample pipelines from `samples/free-api-pipelines/` via the included `import.ps1` script.',
     ],
   },
@@ -106,11 +107,11 @@ const GETTING_STARTED = [
       <svg {...STEP_ICON_PROPS}><path d="M5 12h14" /><path d="M12 5l7 7-7 7" /></svg>
     ),
     content: [
-      'Pipelines can be triggered over HTTP and accept parameters per run — point any external app, CI job, or webhook at the run endpoint.',
-      '- **Authenticated**: `POST /api/execute/workflow/{id}` with body `{"parameter_values": {"NAME": "value"}}`',
-      '- **Public webhook**: publish the pipeline as a Gateway endpoint to get a stable URL + API key — `POST /api/published/{your-path}` with params as the body',
-      'The values in `parameter_values` populate the pipeline\'s declared **parameters** — reference them in any step field as `${param.NAME}`.',
-      'See **Help → Documentation → "Triggering Pipelines from the API"** for the full guide with curl examples, declared inputs, and overlap policies.',
+      'Another application can start a pipeline and pass it values. Open the **Triggers** tab under Workflows, create an endpoint and an API key, then copy the ready-to-use command.',
+      '- **From another application**: `POST /api/published/{your-path}` with an `X-API-Key` header. The JSON body holds the values, as in `{"NAME": "value"}`.',
+      '- **As a signed-in user**: `POST /api/execute/workflow/{id}` with a session token and the body `{"parameter_values": {"NAME": "value"}}`.',
+      'The values fill the pipeline\'s declared **parameters**. Reference them in any step field as `${param.NAME}`.',
+      'See **Help → Documentation → "Triggering Pipelines from External Systems"** for the full guide with curl examples, declared inputs, and overlap policies.',
     ],
   },
   {
@@ -122,6 +123,7 @@ const GETTING_STARTED = [
     content: [
       'The **Copilot** dock appears in the bottom-right of every page (including the Editor) by default — it is now the single Copilot across the whole app. Click to open.',
       'Page-aware: on Pipelines it knows your pipelines; on Executions it can diagnose failures; in the Editor it sees the selected node and can write SQL.',
+      'Ask it to build a pipeline and it first asks where the data comes from and where it goes, offering your real connections, uploaded files and managed tables. If the connection you need does not exist yet, you can create it right there in the chat.',
       'Type **/** in the input for slash commands: `/sql`, `/fix`, `/explain-code`, `/diagnose`, `/health`, `/cost`.',
       'When the Copilot drafts a pipeline change, a **diff preview** shows exactly what will be added, removed, or modified before you click Confirm — keys only, never values, so credentials never leak.',
       'Toggle **Safety mode** in Settings → General → AI Assistant to block write tools while exploring. Read-only tools and chat keep working.',
@@ -231,8 +233,8 @@ const HOW_TO_GUIDES = [
         steps: [
           'Auto-save is intentionally suspended on published pipelines so live scheduled runs can\'t be broken by exploratory edits.',
           'A **violet banner** appears above the editor toolbar reminding you that auto-save is off and any unsaved changes will be lost.',
-          'Click **Save** in the editor to commit your changes as a new draft. The published version stays running until you re-publish.',
-          'When you\'re ready to ship, click **Publish** to swap the live version with your new draft.',
+          'Test Node, Sample and Run all use the unsaved canvas, so you can check a change before keeping it.',
+          'Click **Save** in the editor when the change is ready. In DEV, the next scheduled run uses the latest saved version.',
         ],
       },
     ],
@@ -247,6 +249,7 @@ const HOW_TO_GUIDES = [
           'Go to **Connections** in the navigation',
           'Click **+ New Connection** and choose your database type',
           'Enter host, port, database name, and credentials',
+          'If the username and password are already saved, pick them under **Saved credential**. The fields it holds fill themselves, so you only type the rest',
           'Click **Test Connection** to verify, then save',
           'Use this connection in Database Source or Database Sink nodes',
         ],
@@ -254,11 +257,12 @@ const HOW_TO_GUIDES = [
       {
         title: 'Store Credentials Securely',
         steps: [
-          'Go to **Credentials** in the navigation.',
+          'Go to **Connections → Credentials** in the navigation.',
           'Click **Add Credential** and give it a name. Local (Revoluzen Flow) is the only secret source in OSS.',
           'Add fields like Username, Password, API Key, Token. Sensitive fields are masked by default — toggle the eye icon to reveal.',
           'Pick a **Category** to group the entry (Database / Cloud / API / Messaging / Email / Data Warehouse / **AI Provider** / Other). Choosing **AI Provider** on a new credential pre-seeds `provider` / `api_key` / `base_url`, and that credential can then be imported on **Insights → AI Provider** via its *Use a saved credential* option — so your LLM key lives in the same governed store as every other secret.',
-          'Set an expiry date to get notified before credentials expire.',
+          'Set an **Expiry date** if the secret has one. Administrators are then warned on the bell and by email a week ahead, a day ahead and when it expires.',
+          'To use it, pick it under **Saved credential** on a connection, or on a SaaS Connector step. Change the credential once, and everything using it picks up the new value.',
           'Toggle columns shown (Created By, Username, Source, Created, Expires) via the Columns button.',
           'Storage is encrypted at rest. See **Settings → Security & Diagnostics** for what this install can actually verify about that, and what it cannot.',
         ],
@@ -275,27 +279,39 @@ const HOW_TO_GUIDES = [
       {
         title: 'Read or Write Files over FTP / SFTP',
         steps: [
-          '**Read**: drag the **FTP / SFTP Source** node (Sources palette). **Write**: drag the **FTP / SFTP Sink** node (Outputs palette). Both share the same connection fields and protocol resolver.',
-          'Set **Protocol** to `ftp`, `ftps` (FTP over TLS), or `sftp` (SSH File Transfer). SFTP needs the `paramiko` package — Revoluzen Flow lazy-imports it and shows a clear install hint if it is missing.',
+          '**Read**: drag a **Source** node. **Write**: drag a **Destination** node. In either one, pick a saved FTP or SFTP connection, so the host and password never live in the pipeline.',
+          'The protocol is `ftp`, `ftps` (FTP over TLS), or `sftp` (SSH File Transfer). FTP and FTPS need nothing extra. SFTP needs the `paramiko` package, and the step tells you how to install it if it is missing.',
           '**Port** auto-defaults to 21 for ftp/ftps and 22 for sftp — leave it at 0 to use the default, or set an explicit port.',
-          '**Auth**: enter Username + Password, or for SFTP paste a PEM **Private Key** for key-based auth (RSA / Ed25519 / ECDSA are tried in turn). Better still, save the host + secrets once as a **Connection** and pick it via the `connection_id` field so credentials never live in the pipeline JSON.',
-          '**Write specifics**: choose the output **Format** (csv / json / parquet) and a **Remote File Path** (e.g. `/uploads/orders.csv`). The remote directory must already exist — the sink uploads the file but does not create folders. Like every sink, input rows pass through unchanged so you can chain another step after it.',
+          '**Auth**: the connection holds a username and password, or for SFTP a PEM **Private Key** (RSA / Ed25519 / ECDSA are tried in turn).',
+          '**Remote Path** is the file to read or write, for example `/uploads/orders.csv`. When writing, also choose the **File Format** (csv / json / parquet). The folder must already exist on the server: the upload does not create folders. Like every sink, input rows pass through unchanged so you can chain another step after it.',
+        ],
+      },
+      {
+        title: 'Copy, Move or Delete Files with the File System Step',
+        steps: [
+          'Drag a **File System** node onto the canvas. It works on the machine running Revoluzen Flow, not on remote servers or cloud storage.',
+          'Pick an **Operation**: copy, move, rename or delete a file or folder, or create a folder.',
+          'A relative path means inside the data folder, so `outbox/orders.csv` lands in `outbox` there. An absolute path is used as written.',
+          'Folders the destination needs are created for you. Copying over an existing file fails unless you turn on **Overwrite if Exists**.',
+          'A common use: write a file with a Destination step, then copy it into a folder another system picks up from.',
         ],
       },
       {
         title: 'Pick a SaaS Connector & Read Its Confidence Tier',
         steps: [
-          'Drag a **REST / SaaS Connector** node and open the **Connector** dropdown — it lists every shipped manifest (Salesforce, HubSpot, Stripe, ServiceNow, …) plus any you have generated.',
+          'Drag a **SaaS Connector** node from the **Import** group of the palette and open its dropdown. It lists every shipped manifest (Salesforce, HubSpot, Stripe, ServiceNow, …) plus any you have generated.',
+          'If the connector needs a key, choose it under **Saved credential**. The key stays encrypted in Credentials, and the pipeline stores only which credential to use.',
           'Each option carries a **confidence tier** so you know how battle-tested it is: **Certified** (shown as a plain name — has a `<id>.v2.json` certification spec and curated streams), **Beta**, **Community**, or **Generated**.',
           'Non-certified tiers are suffixed into the label so the signal shows even in a plain dropdown — e.g. `Acme CRM · beta`, `Internal API · generated`. A plain name with no suffix means Certified.',
           'Prefer **Certified** connectors for production pipelines. **Beta / Community / Generated** are fine for exploration but confirm pagination + auth behave as you expect before scheduling them.',
-          'After picking a connector, set the **Stream** field to the dataset you want (e.g. `accounts`, `contacts`). Streams come from the manifest.',
+          'After picking a connector, set **Stream / Endpoint** to the dataset you want (e.g. `accounts`, `contacts`). Streams come from the manifest.',
         ],
       },
       {
         title: 'Generate a Connector from an OpenAPI / Swagger Spec',
         steps: [
           'Have an OpenAPI 3.x or Swagger 2 spec URL (or JSON)? Revoluzen Flow can scaffold a working connector from it instead of hand-writing a manifest.',
+          'The easiest way in is **Insights → API Explorer**: import the spec, try an endpoint, then click **Save as Beta connector**. It is usable straight away through a **SaaS Connector** node.',
           'Call **POST `/api/connectors/author/from-openapi-runtime`** with `{ "connector_id": "my_api", "openapi_url": "https://…/openapi.json" }` — or pass an already-parsed spec inline as `openapi_spec`. The spec fetch is SSRF-guarded — internal / private-IP URLs are rejected.',
           'You get back a **runtime (v1) manifest** that the SaaS Connector node can use immediately — paths, methods, and pagination are inferred from the spec.',
           'Two sibling endpoints generate the richer **certification (v2)** manifest for review/curation: `/from-openapi` (from a spec) and `/from-samples` (from 1–5 example API responses). A v2 manifest that ships as `<id>.v2.json` auto-promotes the connector to the **Certified** tier.',
@@ -452,6 +468,26 @@ const HOW_TO_GUIDES = [
         ],
       },
       {
+        title: 'Get Warned Before a Credential Expires',
+        steps: [
+          'On **Connections → Credentials**, give the credential an **Expiry date**.',
+          'Administrators are warned on the notification bell and by email a week ahead, a day ahead and when it expires. Each warning goes out once.',
+          'Email needs SMTP set up under **Settings → Notifications**. The bell works without it.',
+          'Click the warning to open the Credentials page. Renew the credential there, and every connection using it picks up the new value. A new expiry date starts the warnings again.',
+          'To stop these warnings, turn off **Credential expiry warnings** under **Settings → Notifications**.',
+          'The date is the one you entered: Revoluzen Flow does not ask the provider, and a credential with no date gets no warning.',
+        ],
+      },
+      {
+        title: 'Activate or Deactivate a Pipeline',
+        steps: [
+          'On the **Pipelines** page, open a row\'s **⋯** menu and click **Deactivate**. The row shows a **Paused** badge straight away.',
+          'While it is paused, its schedules are skipped and its endpoints on the **Triggers** page answer **423 Locked**.',
+          'You can still run it yourself with **Run**, so you can test a fix before switching it back on.',
+          'Click **Activate** in the same menu to switch it back on. Nothing else about the pipeline changes.',
+        ],
+      },
+      {
         title: 'Compute-Usage Alerts on the Pool (PROD only)',
         plus_only: true,
         steps: [
@@ -482,9 +518,25 @@ const HOW_TO_GUIDES = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></svg>,
     guides: [
       {
+        title: 'Start a pipeline from another application',
+        steps: [
+          'Open **Workflows → Triggers**, or choose **Run from another app** in a pipeline\'s row menu on the Pipelines page.',
+          'Click **New endpoint**, pick a saved pipeline and check the URL path. Leave **Require an API key** on, unless anyone who can reach this server should be able to start the pipeline.',
+          'Click **New API key** and name it after the application that will use it. The full key is shown once, so copy it before you close the dialog.',
+          'Under **Ready-to-use command**, copy the command and run it, or send the same request from your application:',
+          '```\ncurl -X POST http://localhost:8001/api/published/daily-orders \\\n  -H "X-API-Key: YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d \'{ "region": "EU", "min_amount": 100 }\'\n```',
+          'The keys in the JSON body are the pipeline\'s parameters. An unknown name, a missing required parameter or a value of the wrong type returns **400** naming the parameter, and nothing runs.',
+          'The call waits for the run to finish, then returns `status`, `execution_id`, `pipeline_id`, `parameter_values`, `duration_ms`, and `steps` with each step\'s status and row count. It never returns your data.',
+          'A run that starts and then fails still returns **200**, with `status` set to `error` and the failed step named. Open the run on the **Executions** page to see why.',
+          'Other answers: **401** no key, **403** a wrong or revoked key, **404** no such path, **405** the wrong HTTP method, **423** the pipeline is deactivated, **429** too many calls, **503** the endpoint is turned off.',
+          'The run appears on the **Executions** page with the trigger **API** and its parameter values. It reads all of the data, not the dev sample, and it counts toward the **Success rate · automated** tile on the Dashboard.',
+          'Values reach the pipeline as plain text, so treat them as untrusted when you use them in SQL. Prefer `int`, `float` and `bool` parameters there. An endpoint without an API key is refused if its pipeline puts a parameter in SQL.',
+        ],
+      },
+      {
         title: 'Run a pipeline from the REST API',
         steps: [
-          'Every saved pipeline can be triggered without opening the UI by calling **POST /api/execute/workflow/{id}**.',
+          'Every saved pipeline can be triggered without opening the UI by calling **POST /api/execute/workflow/{id}** with a signed-in user\'s session token. To start one from another application with an API key instead, use the **Triggers** page.',
           'The endpoint accepts an optional JSON body with `parameter_values` to override declared pipeline parameters per run.',
           '**curl example** (no parameters):',
           '```\ncurl -X POST http://localhost:8001/api/execute/workflow/abc123def456 \\\n  -H "X-Workspace-Id: default" \\\n  -H "Authorization: Bearer YOUR_TOKEN"\n```',
@@ -492,7 +544,7 @@ const HOW_TO_GUIDES = [
           '```\ncurl -X POST "http://localhost:8001/api/execute/workflow/abc123def456?safety_mode=live" \\\n  -H "Content-Type: application/json" \\\n  -H "X-Workspace-Id: default" \\\n  -H "Authorization: Bearer YOUR_TOKEN" \\\n  -d \'{ "parameter_values": { "dataset": "orders_2026_04", "batch_size": 5000, "run_date": "2026-04-30" } }\'\n```',
           'Query-string options: `?full_run=true` (skip dev sample cap), `?environment=prod` (target env), `?safety_mode=sample|dry_run|validate_only|live` (Copilot pre-run banner equivalent).',
           'Response includes: `step_results`, `status`, `error_intelligence`, and `metadata.peak_memory_mb` / `metadata.cpu_seconds` from the resource sampler.',
-          'Unknown parameters or required-but-missing parameters return **400 Bad Request** with the offending name. Type coercion failures (e.g. `"abc"` for an `int` parameter) also raise 400.',
+          'An unknown parameter, a missing required parameter or a value of the wrong type (e.g. `"abc"` for an `int` parameter) stops the run before any step starts. The response has `status` set to `error` and a `parameter_resolution` step naming the offending parameter.',
         ],
       },
       {
@@ -522,7 +574,7 @@ const HOW_TO_GUIDES = [
         steps: [
           'Open **Insights → AI Provider**. Pick from: **Anthropic Claude** (recommended), **OpenAI** (recommended), **OpenRouter** (single key, 100+ models), Google Gemini, DeepSeek, Groq, Mistral, Azure OpenAI, **Ollama** (local; advanced — slow on CPU), or **Custom** (any OpenAI-compatible endpoint).',
           '**Anthropic / OpenAI** — paste your `sk-ant-…` or `sk-…` key; pick a model (Claude Haiku / GPT-4o mini are the cheapest fast options at ~$0.0006-0.0045 per agent turn).',
-          '**Two ways to supply the key**: the API-key field has an *Enter key inline* / *Use a saved credential* toggle. Inline stores the key encrypted in the AI config. *Use a saved credential* points at an entry in **Insights → Credentials** (category **AI Provider**) — the key is resolved from there at request time and never copied here, so it gets the same expiry / audit / vault governance as your other secrets. Either way the page never shows a saved key, only whether one is set.',
+          '**Two ways to supply the key**: the API-key field has an *Enter key inline* / *Use a saved credential* toggle. Inline stores the key encrypted in the AI config. *Use a saved credential* points at an entry in **Connections → Credentials** (category **AI Provider**) — the key is resolved from there at request time and never copied here, so it gets the same expiry / audit / vault governance as your other secrets. Either way the page never shows a saved key, only whether one is set.',
           '**OpenRouter** — paste your `sk-or-…` key; the model id is namespaced like `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4`, `meta-llama/llama-3.1-70b-instruct`. One key gets you 100+ models with ~5% markup. Useful when you want flexibility without managing per-provider accounts.',
           '**Ollama** — only practical if you have a GPU. CPU-only laptops take 30-120 s per turn for the 8 B tool-capable models needed by the agent. Set `REVOLUZEN_FLOW_DISABLE_OLLAMA_AUTOPROBE=1` if you don\'t want Revoluzen Flow silently re-attaching to a running Ollama background service.',
           'The **Provider price comparison** card at the bottom of the AI Provider tab updates from OpenRouter\'s public pricing feed (1 h cache, hardcoded fallback when offline) and badges the cheapest low-latency option as Recommended.',
@@ -538,6 +590,15 @@ const HOW_TO_GUIDES = [
           'Not every TOOLS-badged model closes tool loops well. DeepSeek V3, Llama 3.3 70B, Qwen 2.5 72B do. Smaller variants often stop after announcing a tool call. If you see `[No response.]`, switch to a stronger model.',
           'Wallet caps stop runaway loops: 1M tokens/user/day, 10M/workspace/day. Override with `REVOLUZEN_FLOW_AGENT_DAILY_TOKENS_USER` / `_WORKSPACE` env vars. Per-call cost is shown under every agent reply (e.g. `~5,000 tokens · ~$0.001`).',
           'Hit HTTP 429? Switch to a free model from a different upstream provider — each upstream has its own quota bucket.',
+        ],
+      },
+      {
+        title: 'See what the AI did and what it cost',
+        steps: [
+          'Open **Insights → Activity**. Each row is one AI request: when it was made, what was asked, where it came from (the Copilot, or a feature such as drafting a pipeline in the Editor, suggesting SQL or summarising a run), the model that answered, the tokens it used, the estimated cost, and the result (**Answered**, **Failed** or **Blocked**).',
+          'The four cards at the top cover the last 7 days: AI requests, tokens, estimated cost, and failed AI calls (model errors and time-outs). Click a row to see its steps and, for a failure, why it failed.',
+          'The cost uses the per-model rates in **Settings → General → AI Pricing**; a local Ollama model costs nothing. **Export CSV** saves the rows you are looking at, for example for finance.',
+          'Pipeline runs are not listed here: they are on **Workflows → Executions**. Connection tests on the AI Provider page are not counted.',
         ],
       },
       {
@@ -615,15 +676,6 @@ const HOW_TO_GUIDES = [
         ],
       },
       {
-        title: 'Activate or Deactivate a Pipeline',
-        steps: [
-          'On the **Workflows** page, every row has an **Activate** / **Deactivate** button',
-          'Click flips the active flag immediately — no approval needed',
-          'When deactivated, scheduled runs are skipped, webhooks return 423 Locked, and manual run attempts are blocked',
-          'The deployment artifact stays in place — re-activation is instant, no redeploy needed',
-        ],
-      },
-      {
         title: 'Decide Activate / Deactivate Requests (admin)',
         plus_only: true,
         steps: [
@@ -691,10 +743,12 @@ const HOW_TO_GUIDES = [
       {
         title: 'Version Control Your Pipelines',
         steps: [
-          'Every time you save, a new version is created automatically',
-          'Click the clock icon on the Workflows page to view version history',
-          'Compare changes between versions (added/removed steps)',
-          'Restore any previous version with one click',
+          'Every save that changes a pipeline adds a version. A save that changes nothing adds none.',
+          'On the **Pipelines** page, open the pipeline\'s **⋯** menu and choose **Version history**, or open the pipeline\'s details and click **Version history**.',
+          '**Compare** on a version lists the steps and connections the version after it added or removed.',
+          '**Restore** saves that version again as the newest one. The versions after it are kept, so you can switch back. It needs edit rights, and you confirm it first.',
+          'A restore is live at once: schedules, endpoints and other pipelines run the newest version, so a published pipeline\'s schedules use the restored one from their next run.',
+          'Flow keeps the newest 20 versions of each pipeline (an administrator can change this with `REVOLUZEN_FLOW_VERSION_RETENTION`). To get back an older one, open a run that used it under **Executions**, click **Open in Editor**, then **Save**.',
         ],
       },
       {
@@ -923,117 +977,7 @@ const SHORTCUTS: Array<{
   ]},
 ];
 
-/* ── Node Catalog ── */
-// `icon` values come from the shared Icon set in `shared/Icon.tsx`. The
-// rendering site below pipes them through the Icon component so the
-// category headers render consistently across OS / browser fonts.
-const NODE_CATALOG: Array<{ category: string; icon: import('../shared/Icon').IconName; color: string; nodes: Array<{ name: string; desc: string }> }> = [
-  { category: 'Sources', icon: 'download', color: 'bg-blue-50 border-blue-200', nodes: [
-    { name: 'CSV', desc: 'Load data from CSV files with configurable delimiter, encoding, and header options' },
-    { name: 'JSON', desc: 'Parse JSON or JSONL files into tabular data' },
-    { name: 'Parquet', desc: 'Read Apache Parquet columnar files' },
-    { name: 'Excel', desc: 'Import Excel spreadsheets (.xlsx) with sheet selection' },
-    { name: 'XML', desc: 'Parse XML documents with XPath row selection' },
-    { name: 'File (auto)', desc: 'Auto-detect CSV / JSON / Parquet / Excel / XML / NDJSON / TSV by extension' },
-    { name: 'Database', desc: 'Query SQL databases (PostgreSQL, MySQL, SQLite)' },
-    { name: 'JDBC', desc: 'Generic JDBC / warehouse source via dialect registry (Snowflake, BigQuery, Redshift, etc.)' },
-    { name: 'CDC', desc: 'Debezium-style change data capture stream from a source database' },
-    { name: 'REST API', desc: 'Fetch data from HTTP endpoints with auth support' },
-    { name: 'OpenAPI', desc: 'Generic source driven by an OpenAPI / Swagger spec — paginates + auths automatically' },
-    { name: 'REST / SaaS Connector', desc: 'Universal connector for SaaS APIs (Salesforce, HubSpot, Stripe, ServiceNow, etc.)' },
-    { name: 'Vector DB', desc: 'Pinecone / Weaviate / Qdrant / Chroma / pgvector — read embeddings + metadata' },
-    { name: 'S3 / MinIO', desc: 'Read objects from S3-compatible storage' },
-    { name: 'Azure Blob', desc: 'Azure Blob Storage (wasbs://) — flat namespace, SAS / Key / AAD auth' },
-    { name: 'ADLS Gen2', desc: 'Azure Data Lake Storage Gen2 (abfss://) — hierarchical namespace, AAD / SAS / Key auth' },
-    { name: 'GCS', desc: 'Google Cloud Storage (gs://) with service-account or HMAC auth' },
-    { name: 'SharePoint', desc: 'Microsoft Graph: /sites/{site}/drives/{drive}/items — read files from a SharePoint site' },
-    { name: 'OneDrive', desc: 'Microsoft Graph: /me/drive or /users/{id}/drive — read files from OneDrive' },
-    { name: 'Google Drive', desc: 'Google Drive API v3 — read files / folders by ID' },
-    { name: 'Dropbox', desc: 'Dropbox API v2 — read files by path' },
-    { name: 'Box', desc: 'Box API v2 — read files / folders by ID' },
-    { name: 'Kafka', desc: 'Consume messages from Kafka / Redpanda topics' },
-    { name: 'FTP / SFTP', desc: 'Download files from FTP, FTPS, or SFTP servers (password or SSH key auth)' },
-    { name: 'Google Sheets', desc: 'Import from Google Sheets via public CSV export' },
-    { name: 'Delta Lake', desc: 'Read Delta Lake tables with time-travel support' },
-  ]},
-  { category: 'Transform', icon: 'zap', color: 'bg-amber-50 border-amber-200', nodes: [
-    { name: 'Data Wrangler', desc: 'Stepwise transform builder — chain Filter / Select / Rename / Cast / Derive / Group-By sub-steps in one node with per-step preview. Compiles to a single DuckDB CTE pipeline at run time.' },
-    { name: 'Transform (SQL)', desc: 'Write SQL against upstream data. Reference as source_table or by node name.' },
-    { name: 'Filter', desc: 'Filter rows using column conditions (equals, greater than, contains, etc.)' },
-    { name: 'Sort', desc: 'Order rows by one or more columns (ascending/descending, NULLS first/last)' },
-    { name: 'Derived Column', desc: 'Add or replace columns using SQL expressions' },
-    { name: 'Window', desc: 'Window functions: rank, lag, lead, row_number, running totals over partitions' },
-    { name: 'Flatten', desc: 'Flatten nested JSON structs into columns, or explode array columns into one row per element' },
-    { name: 'Schema Mapper', desc: 'Source-to-target field mapping with type coercion — rename + cast + reorder in one step' },
-    { name: 'Sample', desc: 'Take the first N rows, a percentage, or a random sample (seed for repeatable runs)' },
-    { name: 'Data Quality', desc: 'Rule-based row checks (not null / unique / range / accepted values / regex). On failure: drop the bad rows, fail the run, tag them, or split them out a separate "reject" branch.' },
-    { name: 'Data Profile', desc: 'Compute per-column statistics: null %, distinct count, min / max, top values. Useful as a first-step diagnostic.' },
-    { name: 'SCD2', desc: 'Slowly-Changing Dimension Type 2 — track historical versions per business key (effective_from / effective_to / is_current columns)' },
-  ]},
-  { category: 'Combine', icon: 'link', color: 'bg-purple-50 border-purple-200', nodes: [
-    { name: 'Join', desc: 'SQL-style join (inner, left, right, full, cross) on key columns' },
-    { name: 'Union', desc: 'Stack rows from multiple inputs (union all or distinct)' },
-    { name: 'Lookup Join', desc: 'Enrich rows with columns from a reference dataset matched on a key (data lookup; distinct from the control-flow Lookup activity)' },
-    { name: 'Deduplicate', desc: 'Remove duplicate rows by key columns (keep first or last)' },
-    { name: 'Aggregate', desc: 'Group by columns and apply SUM, COUNT, AVG, MIN, MAX functions' },
-    { name: 'Pivot', desc: 'Pivot rows into columns (crosstab / spreadsheet-style)' },
-    { name: 'Unpivot', desc: 'Melt columns into rows (normalize wide data)' },
-  ]},
-  { category: 'Flow Control', icon: 'shuffle', color: 'bg-indigo-50 border-indigo-200', nodes: [
-    { name: 'If Condition', desc: 'Route each row to a True or False output by a condition. Legacy single-output edges map to True.' },
-    { name: 'Switch', desc: 'Route each row to a named output branch by condition — true multi-output.' },
-    { name: 'ForEach', desc: 'Run a saved sub-pipeline once per input row, injecting the row\'s columns as parameters.' },
-    { name: 'Execute Pipeline', desc: 'Execute another saved pipeline as a child step, optionally passing parameters (runs synchronously).' },
-    { name: 'Lookup', desc: 'Lookup activity — fetch a value or reference row into {{ $vars.X }} for control flow (watermarks, config lookups, row-count gates).' },
-    { name: 'Set Variable', desc: 'Set runtime variables ({{ $vars.NAME }}) from a constant or SQL expression — read by any downstream step. Input rows pass through unchanged.' },
-    { name: 'Wait', desc: 'Pause execution for a fixed duration before continuing.' },
-    { name: 'Fail', desc: 'Deliberately halt the run with a custom error message — use to fast-fail when invariants break.' },
-    { name: 'Retry', desc: 'Wrap a step with a retry policy: N attempts with backoff before bubbling the failure.' },
-    { name: 'Batch Rows', desc: 'Advanced — split rows into fixed-size batches, tagging each with its batch index.' },
-  ]},
-  { category: 'Action', icon: 'globe', color: 'bg-teal-50 border-teal-200', nodes: [
-    { name: 'HTTP Request', desc: 'Make HTTP calls (GET, POST, PUT, DELETE) with headers, body, and auth' },
-    { name: 'Code / Script', desc: 'Run custom Python or JavaScript code against pipeline data' },
-    { name: 'Execute SQL Task', desc: 'Run an arbitrary SQL statement against a connection — no result rows needed (DDL, maintenance, etc.)' },
-    { name: 'File System', desc: 'File system operations: copy / move / delete / mkdir on local paths or remote storage' },
-    { name: 'Copy Data', desc: 'Copy data between sources (database, file, S3) in bulk' },
-    { name: 'Delete', desc: 'Delete files, database rows, or S3 objects' },
-    { name: 'Get Metadata', desc: 'Inspect source metadata (size, type, schema, row count)' },
-    { name: 'Send Email', desc: 'Send notification emails with pipeline data or attachments' },
-    { name: 'Slack / Teams', desc: 'Post notifications to Slack or Teams channels via webhook' },
-  ]},
-  { category: 'AI', icon: 'zap', color: 'bg-violet-50 border-violet-200', nodes: [
-    { name: 'Embedder', desc: 'Turn a text column into a vector column using Ollama, OpenAI, Cohere, sentence-transformers, or a deterministic hash fallback' },
-    { name: 'LLM Guardrail', desc: 'PII / profanity / prompt-injection detection — routes flagged rows to a separate output for review' },
-    { name: 'Semantic Router', desc: 'Classify each row into a label via embeddings or LLM. Use to dispatch downstream branches based on content.' },
-  ]},
-  { category: 'Outputs', icon: 'upload', color: 'bg-emerald-50 border-emerald-200', nodes: [
-    { name: 'CSV Sink', desc: 'Write results to CSV files' },
-    { name: 'JSON Sink', desc: 'Write results to JSON or JSONL files' },
-    { name: 'Parquet Sink', desc: 'Write results to Parquet columnar format (via File Sink with .parquet extension)' },
-    { name: 'Excel Sink', desc: 'Export results to Excel spreadsheets' },
-    { name: 'File Sink (auto)', desc: 'CSV / JSON / Parquet / Excel — picks writer from output extension' },
-    { name: 'Database Sink', desc: 'Insert / upsert results into SQL database tables' },
-    { name: 'JDBC Sink', desc: 'Generic JDBC / warehouse sink via dialect registry (Snowflake, BigQuery, Redshift, etc.)' },
-    { name: 'Warehouse Sink', desc: 'Load into cloud warehouses with schema-evolution support' },
-    { name: 'Vector DB Sink', desc: 'Pinecone / Weaviate / Qdrant / Chroma / pgvector — write embeddings + metadata' },
-    { name: 'S3 Sink', desc: 'Upload results to S3-compatible object storage' },
-    { name: 'Azure Blob Sink', desc: 'Write to Azure Blob Storage (wasbs://)' },
-    { name: 'ADLS Gen2 Sink', desc: 'Write to Azure Data Lake Storage Gen2 (abfss://)' },
-    { name: 'GCS Sink', desc: 'Write to Google Cloud Storage (gs://)' },
-    { name: 'SharePoint Sink', desc: 'Upload files to a SharePoint site via Microsoft Graph' },
-    { name: 'OneDrive Sink', desc: 'Upload files to OneDrive via Microsoft Graph' },
-    { name: 'Google Drive Sink', desc: 'Upload files to Google Drive via API v3' },
-    { name: 'Dropbox Sink', desc: 'Upload files to Dropbox via API v2' },
-    { name: 'Box Sink', desc: 'Upload files to Box via API v2' },
-    { name: 'Kafka Sink', desc: 'Publish messages to Kafka / Redpanda topics' },
-    { name: 'FTP / SFTP Sink', desc: 'Upload results as a CSV / JSON / Parquet file to an FTP, FTPS, or SFTP server (password or SSH key auth)' },
-    { name: 'API Sink', desc: 'POST results to REST API endpoints' },
-    { name: 'Webhook Sink', desc: 'Send results to webhook URLs' },
-    { name: 'Email Sink', desc: 'Email pipeline results as attachments' },
-    { name: 'Delta Sink', desc: 'Write to Delta Lake tables with merge / overwrite modes' },
-  ]},
-];
+// Node Reference data lives in ../help/nodeCatalog.ts, where a test holds it to the editor's palette.
 
 export default function HelpPage({
   environment,
@@ -1136,7 +1080,7 @@ export default function HelpPage({
     {
       key: 'getting-started',
       label: 'Getting Started',
-      subtitle: 'Five steps from install to your first pipeline.',
+      subtitle: 'Seven steps, from your first pipeline to starting it from another application.',
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M5 12V7a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v5" /><path d="M3 12h18" /><path d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
@@ -1166,7 +1110,7 @@ export default function HelpPage({
     {
       key: 'nodes',
       label: 'Node Reference',
-      subtitle: 'Every node in Revoluzen Flow — what it does and what to put in it.',
+      subtitle: `The ${NODE_COUNT} nodes in the editor's node panel — what each one does and what to put in it.`,
       icon: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" />
@@ -1467,9 +1411,8 @@ export default function HelpPage({
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <h3 className="text-sm font-bold text-amber-800 mb-1">Pipeline Rollback</h3>
                     <ol className="text-xs text-amber-700 space-y-1.5 ml-4 list-decimal">
-                      <li>Go to DEV → Workflows → select the pipeline</li>
-                      <li>Open version history (clock icon)</li>
-                      <li>Select the last known good version → Restore</li>
+                      <li>Switch to DEV → Pipelines → open the pipeline's ⋯ menu → Version history</li>
+                      <li>Find the last known good version (Compare shows what each change did) → Restore, then confirm</li>
                       <li>Re-deploy from PROD → Deployed → Pending Review</li>
                     </ol>
                   </div>
@@ -1636,7 +1579,7 @@ export default function HelpPage({
               <h2 className="text-lg font-bold text-slate-800 mb-1">Welcome to Revoluzen Flow</h2>
               <p className="text-sm text-slate-600 mb-4 max-w-[75ch]">
                 Build data pipelines visually — connect sources, transforms, and outputs without writing code.
-                Follow these 5 steps to get up and running.
+                Follow these 7 steps to get up and running.
               </p>
               <div className="flex items-center gap-3">
                 <div className="flex -space-x-1">
@@ -1655,7 +1598,7 @@ export default function HelpPage({
                     </span>
                   ))}
                 </div>
-                <span className="text-xs text-blue-600 font-medium">5 steps to your first pipeline</span>
+                <span className="text-xs text-blue-600 font-medium">7 steps to get up and running</span>
               </div>
             </div>
 
@@ -1831,6 +1774,12 @@ export default function HelpPage({
             {/* Live connector-coverage + cert strip (data-driven; fails closed).
                 Hidden during search so it doesn't sit above filtered results. */}
             {!nodeSearch && <ConnectorCoverage />}
+
+            {!nodeSearch && (
+              <p className="text-sm text-slate-600 max-w-[75ch]">
+                These are all the nodes in the editor&apos;s node panel, on the left. The panel opens at the <strong>Standard</strong> level, which groups nodes by purpose and hides the specialist ones; switch it to <strong>All</strong> to see every node under the headings used here. File formats and connections are not separate nodes: drag a <strong>Source</strong> or <strong>Destination</strong> node and choose the format or connection inside it.
+              </p>
+            )}
 
             {(() => {
               // 2026-05-19 (P1 #3 of PAGE_BY_PAGE_AUDIT.md): the previous

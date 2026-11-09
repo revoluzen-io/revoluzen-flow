@@ -95,6 +95,51 @@ def _delegate(target_type: StepType, params: dict[str, Any], ctx: ExecutionConte
     return node.execute(ctx)
 
 
+# Connection types the database nodes can't talk to, though the warehouse
+# dialects can. Source and Destination offer them all under "database", so
+# without this a saved Snowflake connection failed at run time with
+# "unsupported connection type".
+_DIALECT_CONNECTION_TYPES = frozenset({
+    "snowflake", "bigquery", "redshift", "databricks", "clickhouse", "oracle",
+})
+
+
+def _connection_dialect(params: dict[str, Any]) -> str | None:
+    """The warehouse dialect this step's connection needs, if it needs one."""
+    connection_id = params.get("connection_id")
+    if not connection_id:
+        return None
+    from revoluzen_flow.connectors.jdbc import _get_connection_config
+
+    resolved = _get_connection_config(connection_id)
+    return resolved[1] if resolved and resolved[1] in _DIALECT_CONNECTION_TYPES else None
+
+
+def _dialect_source_params(params: dict[str, Any], dialect: str, ctx: ExecutionContext) -> dict[str, Any]:
+    """Database Source params in the shape the warehouse source reads."""
+    from revoluzen_flow.connectors.jdbc import _safe_table
+
+    routed = {**params, "dialect": dialect}
+    if (params.get("source_mode") or "query") == "table":
+        table = str(params.get("table") or "").strip()
+        schema = str(params.get("schema") or "").strip()
+        # BigQuery's reader qualifies the name with its own project and dataset.
+        routed["table"] = _safe_table(f"{schema}.{table}" if schema and dialect != "bigquery" else table)
+        routed["query"] = ""
+    else:
+        routed["table"] = ""
+    if not ctx.full_run:
+        # The same cap a database source applies to anything but a full run.
+        from revoluzen_flow.nodes.db_source import DEV_SAMPLE_ROWS
+
+        sample_rows = params.get("sample_rows")
+        routed["limit"] = (
+            sample_rows if sample_rows is not None
+            else (getattr(ctx, "sample_row_limit", None) or DEV_SAMPLE_ROWS)
+        )
+    return routed
+
+
 @register(StepType.SOURCE)
 class GenericSourceNode(BaseNode):
     """Generic source — routes to a concrete *_SOURCE node by connector_type."""
@@ -115,6 +160,10 @@ class GenericSourceNode(BaseNode):
                 f"Source: unknown connector_type '{connector}'. "
                 f"Supported: {', '.join(sorted(SOURCE_MAP.keys()))}."
             )
+        if connector == "database":
+            dialect = _connection_dialect(self.params)
+            if dialect:
+                return _delegate(StepType.JDBC_SOURCE, _dialect_source_params(self.params, dialect, ctx), ctx)
         return _delegate(target, self.params, ctx)
 
     @staticmethod
@@ -177,6 +226,10 @@ class GenericDestinationNode(BaseNode):
                 f"Destination: unknown connector_type '{connector}'. "
                 f"Supported: {', '.join(sorted(DEST_MAP.keys()))}."
             )
+        if connector == "database":
+            dialect = _connection_dialect(self.params)
+            if dialect:
+                return _delegate(StepType.JDBC_SINK, {**self.params, "dialect": dialect}, ctx)
         return _delegate(target, self.params, ctx)
 
     @staticmethod

@@ -57,9 +57,24 @@ on the approach before you spend hours on a PR. For small fixes, a PR is fine.
 ## Setting up the dev environment
 
 ```bash
-TODO: dev setup instructions land here in Phase 2 of the repo split
-# git clone, python venv, install deps, run tests
+git clone https://github.com/revoluzen-io/revoluzen-flow.git
+cd revoluzen-flow
+
+python -m venv .venv
+. .venv/bin/activate              # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+
+cd frontend && npm ci && cd ..
+
+# backend tests
+PYTHONPATH=backend python -m pytest backend/tests -q
+# frontend tests
+npm --prefix frontend run test
 ```
+
+Full procedures — running it locally, the three test suites, staging the UI,
+building and checking a wheel, and the conventions that fail the build — are in
+[docs/sop/developer-operations.md](docs/sop/developer-operations.md).
 
 ### Database-dialect tests
 

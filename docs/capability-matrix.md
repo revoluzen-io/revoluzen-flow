@@ -21,6 +21,7 @@ Legend: ✅ Supported · ◐ Partial / limited · ✕ Not in OSS
 | SQL transforms | ✅ | `SQL Transform` node runs SELECT/CTE SQL on DuckDB over named inputs. |
 | Data quality / validation / profiling | ✅ | `DataQuality` node (13 checks; drop/fail/tag/reject/split modes, thresholds, per-row score) + data profiling. |
 | Orchestration & scheduling | ✅ | Cron / interval / daily / weekly schedules, overlap watchdog, missed-run alerts, retries with failure classification. |
+| Start a pipeline from another application | ✅ | Workflows → Triggers: endpoints, API keys and a ready-to-use command. The call waits for the run and returns its status and row counts, never its data. |
 | Intra-pipeline DAG (dependency order, topological run) | ✅ | Steps run in dependency order within a pipeline. |
 | Cross-pipeline orchestration (one pipeline triggers another) | ◐ | Only via an explicit `execute_pipeline` step inside a pipeline — there is **no** scheduler-level cross-pipeline dependency graph. |
 | Change data capture (CDC) | ◐ | Kafka/Debezium + Postgres logical-decoding code exists, but reads a **bounded snapshot batch**, not a continuous stream. Edition docs mark CDC **Plus-only**. |

@@ -69,6 +69,7 @@ def render_docx(report: InventoryReport) -> bytes:
     _add_alerts_section(doc, report)
     if not is_free:
         _add_approval_gates_section(doc, report)
+    _add_triggers_section(doc, report)
     if is_free:
         _add_upgrade_cta(doc, report)
     _add_appendix(doc, report)
@@ -333,6 +334,12 @@ def _add_executive_summary(doc: Document, report: InventoryReport) -> None:
     ])
     if not is_free:
         rows.append(("Approval gates", totals.get("approval_gates", 0)))
+    rows.extend([
+        ("Endpoints (on / total)",
+         f"{totals.get('endpoints_enabled', 0)} / {totals.get('endpoints', 0)}"),
+        ("API keys (active / total)",
+         f"{totals.get('api_keys_active', 0)} / {totals.get('api_keys', 0)}"),
+    ])
     for label, val in rows:
         row = tbl.add_row().cells
         row[0].text = str(label)
@@ -965,6 +972,60 @@ def _add_alerts_section(doc: Document, report: InventoryReport) -> None:
         row[2].text = a.condition
         row[3].text = ", ".join(a.channels) or "—"
         row[4].text = "✓" if a.enabled else "✗"
+
+    _page_break(doc)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Triggers
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _add_triggers_section(doc: Document, report: InventoryReport) -> None:
+    doc.add_heading("9. Triggers", level=1)
+
+    if not report.trigger_endpoints and not report.api_keys:
+        doc.add_paragraph("No endpoints or API keys configured.")
+        _page_break(doc)
+        return
+
+    doc.add_paragraph(
+        f"{len(report.trigger_endpoints)} endpoint(s) let another application "
+        f"start a pipeline, and {len(report.api_keys)} API key(s) open them. "
+        "Keys appear masked: the server keeps only a hash of each one."
+    )
+
+    def table(headers: list[str]):
+        tbl = doc.add_table(rows=1, cols=len(headers))
+        tbl.style = "Light Grid Accent 5"
+        hdr = tbl.rows[0].cells
+        for i, h in enumerate(headers):
+            hdr[i].text = h
+            for p in hdr[i].paragraphs:
+                for r in p.runs:
+                    r.font.bold = True
+        return tbl
+
+    if report.trigger_endpoints:
+        tbl = table(["Pipeline", "URL path", "Key required", "On", "Calls", "Last called"])
+        for e in report.trigger_endpoints:
+            row = tbl.add_row().cells
+            row[0].text = e.workflow_name or e.workflow_id
+            row[1].text = f"/api/published/{e.path}"
+            row[2].text = "Yes" if e.require_api_key else "No"
+            row[3].text = "✓" if e.enabled else "✗"
+            row[4].text = str(e.call_count)
+            row[5].text = _fmt_iso(e.last_called_at) if e.last_called_at else "—"
+        doc.add_paragraph()
+
+    if report.api_keys:
+        tbl = table(["API key", "Key", "Active", "Last used"])
+        for k in report.api_keys:
+            row = tbl.add_row().cells
+            row[0].text = k.name
+            row[1].text = k.key_masked
+            row[2].text = "✓" if k.active else "✗"
+            row[3].text = _fmt_iso(k.last_used_at) if k.last_used_at else "—"
 
     _page_break(doc)
 

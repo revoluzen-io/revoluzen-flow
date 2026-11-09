@@ -100,9 +100,15 @@ class DryRunPromoter:
             return 0
         return int(rows[0]["success_count"]) if rows else 0
 
-    def should_force_dry_run(self, user_id: str | None, tool_name: str) -> bool:
+    def should_force_dry_run(
+        self, user_id: str | None, tool_name: str, *, draft_only: bool = False
+    ) -> bool:
         """Force dry_run iff the user has run this tool fewer than threshold
         times successfully.
+
+        ``draft_only`` tools are exempt for named users: their real result is
+        already just a draft for review, so a dry run would only replace a
+        useful draft with a stub.
 
         Anonymous users (no user_id): always force dry-run for write tools,
         regardless of the threshold setting. That matches the policy rule
@@ -113,13 +119,19 @@ class DryRunPromoter:
         """
         if not user_id or user_id == "anonymous":
             return True
+        if draft_only:
+            return False
         threshold = _threshold()
         if threshold <= 0:
             return False
         return self.success_count(user_id, tool_name) < threshold
 
     def record_success(self, user_id: str | None, tool_name: str) -> None:
-        """Bump the counter. Only call after a non-dry-run success."""
+        """Bump the counter after a success, including a forced dry run.
+
+        Forced dry runs have to count. The gate forces dry runs until the
+        threshold is reached, so counting only live runs would never unlock it.
+        """
         if self._db is None:
             return
         if not user_id or user_id == "anonymous" or not tool_name:

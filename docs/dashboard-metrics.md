@@ -22,13 +22,13 @@ The single sentence under your name adapts to what's going on:
 |---|---|---|
 | `failures > 0` (DEV) | "`N` failure(s) in the last 24h" | red |
 | `running > 0` (DEV)  | "`N` pipeline(s) running now" | amber |
-| `no runs at all`     | "Workspace is quiet — nothing running" | grey |
+| `no runs at all` (hand-started runs count too) | "Workspace is quiet — nothing running" | grey |
 | healthy              | "All systems healthy" | green, pulsing |
 | `incidents > 0` (PROD admin) | "`N` incident(s) need attention" | red |
 | `approvalsPending > 0` (PROD admin) | "`N` approval(s) awaiting review" | amber |
 | PROD healthy         | "Production is healthy" | green, pulsing |
 
-The button to the right of the headline (the **hero CTA**) also adapts: admins on PROD with pending approvals see "Review N Approvals"; DEV defaults to "New Pipeline" (or "Team Activity" for admins). One click per dashboard load is the target.
+The button to the right of the headline (the **hero CTA**) also adapts: admins on PROD with pending approvals see "Review N Approvals"; DEV defaults to "New Pipeline" (or "AI Activity" for admins, which opens Insights → Activity). One click per dashboard load is the target.
 
 ## Needs Attention — the alert summary
 
@@ -61,10 +61,11 @@ These cards window on **executions whose `started_at` falls inside
 the last 24 hours**, scoped to the caller's workspace. The 24h window
 is rolling, not calendar-day.
 
-### Success rate (24h)
-- **Formula**: `success / (success + failed)` × 100 — running pipelines and queued ones are excluded from the denominator so the rate doesn't flicker while a long run is in flight.
+### Success rate · automated (24h)
+- **What it covers**: runs that started on their own: on a schedule, from another application through the Triggers page (API), from a webhook, or as a replay. Runs you start by hand are left out, so testing a pipeline doesn't drag the number down. With no automated runs, the tile shows `—` and the all-runs rate underneath.
+- **Formula**: `success / (success + failed + cancelled + skipped)` × 100 — running pipelines and queued ones are excluded from the denominator so the rate doesn't flicker while a long run is in flight.
 - **Why no division-by-zero**: shown as `—` when there are no completed runs in the window.
-- **Backend source**: `GET /api/monitor/stats?hours=24`.
+- **Backend source**: `GET /api/monitor/stats?hours=24`, the `scheduled` block. The list of triggers is `PRODUCTION_TRIGGERS` in `monitoring/store.py`.
 
 ### Runs (24h)
 - **Formula**: total executions in the 24h window. Includes success, failed, running, queued, and cancelled.
@@ -78,9 +79,9 @@ is rolling, not calendar-day.
 - **Note (2026-06-17):** `/api/monitor/failed` is now *current-state* — pipelines whose **latest** run failed — so it's the live-health source for **Needs Attention**. The "pipelines affected" count here is intentionally different: it counts within the selected time window, so a pipeline that failed and recovered still contributes to this 24h count while correctly dropping off Needs Attention.
 
 ### Avg duration (24h)
-- **Formula**: arithmetic mean of `duration_ms` across **only successful** runs in the window. Failed runs are excluded so a single timeout-killed run doesn't blow the average.
-- **Display**: rendered with the smallest sensible unit (`ms`, `s`, or `m`).
-- **Backend source**: `/api/monitor/stats`, `avg_duration_ms`.
+- **Formula**: arithmetic mean of `duration_ms` across **only successful** runs in the window (`ExecutionStore.get_stats`). Failed, cancelled and skipped runs are excluded so a single timeout-killed run doesn't blow the average, and running or queued runs have no finished duration yet. Hand-started runs count: unlike the success rate, this card is not limited to automated runs.
+- **Display**: rendered with the smallest sensible unit (`ms`, `s`, or `m`). With no successful run in the window the tile shows `—` and "No successful runs to average".
+- **Backend source**: `/api/monitor/stats`, `avg_duration_ms`. The Executions page's **Avg Elapsed** card reads the same field, so it shows the same figure.
 
 ## Workspace strip
 
@@ -166,15 +167,18 @@ A single compact row, identified by a **cyan left rail**: `Memory · Threads · 
 
 ## Run volume chart
 
-- **X-axis**: 24h window split into 30-minute buckets.
-- **Y-axis**: count of executions started in each bucket, stacked by status (Success / Failed / Running).
-- **Source**: aggregated from the same `/api/monitor/executions?hours=24` data the Executions page uses.
+- **X-axis**: follows the 24h / 7d / 30d toggle: 24 hourly bars, 7 daily bars or 30 daily bars.
+- **Y-axis**: count of executions started in each bar, stacked by status (Success / Failed / Running).
+- **Which runs**: every run in the window, hand-started ones included. The card reads "No runs yet" only when the window has no runs at all. The automated **Success rate** card is the one figure that leaves hand-started runs out.
+- **Source**: `GET /api/monitor/run-counts`, which counts every run in the window on the server. The chart used to be drawn from a page of recent runs, so a busy window lost its older runs.
 
-## Pipeline status donut
+## Run outcome mix donut
 
-- **Slice values**: counts of pipelines by lifecycle status (Success, Running, Failed, Idle).
-- **"Idle"** = no run in the last 24h, regardless of historical state.
-- **Pipeline status** is independent of execution status — a pipeline marked `failed` here means its **last run** failed, not that the pipeline itself is broken.
+- **Unit**: runs, and only runs. The centre is the number of runs in the window and the slices add up to it.
+- **Slices**: Success, Running and Failed — the same counts the cards above show — plus **Other** (queued, cancelled and skipped runs) when there are any.
+- **Which runs**: every run in the window, hand-started ones included, following the 24h / 7d / 30d toggle.
+- **No runs in the window**: the card shows **Workspace composition** instead, a count of pipelines, connections, credentials and schedules (labelled "items").
+- It is not a count of pipelines. Which pipelines are failing right now is what **Needs Attention** shows: those whose most recent run failed.
 
 ## Failed pipelines list
 
@@ -197,26 +201,42 @@ The same source the Needs Attention card reads — `/api/monitor/failed`.
 
 ## Insights → Activity page
 
-### Agent Runs
+The page shows what the AI did: one row per AI request, with what was asked, where it came from, the model, tokens, the estimated cost and the result (Answered, Failed or Blocked). There is no "who asked" column: this edition has one user. It reads `GET /api/v1/activity?scope=ai&limit=200`. Pipeline runs are not on this page; their history is on **Workflows → Executions**.
 
-- **Formula**: count of `kind = "agent"` events in the visible window.
+- **Window**: the last 7 days.
+- **Source**: the trace store (`agent_traces`). Every request that asked a model is there:
+  - **The Copilot:** full agent runs, its one-call answers (the single-shot and hybrid lanes), and the model calls made inside a Copilot answer (drafting a pipeline, explaining a failed run). Answers the Copilot gives without a model (the fast lane) cost nothing and are not listed.
+  - **Other features:** the Editor's pipeline drafting, its correction pass and its assistant chat; the step and SQL helpers (suggest the next step, fill in settings, help with a step, explain a step's error, explain a transform, suggest SQL, explain selected SQL, fix a SQL error); run summaries, the workspace health summary and the explanation of a failed connection test; and notification summaries, which no person asks for. Each row's `source` says which; the list of sources and their names is `backend/revoluzen_flow/ai/usage_sources.py`.
+  - **Not listed:** the AI Provider page's connection tests, which only check that a key works.
+- **Cards vs table**: the four cards use the endpoint's `summary`, which totals every request in the window. The table shows the newest 200; when there are more, its header says "latest 200 of N".
+
+### AI requests
+
+- **Formula**: `summary.requests` — the number of requests in the window. When other features made some, the footer splits them using `summary.by_source`: "N Copilot · M other features".
 
 ### Tokens (Input · Output · Total)
 
 - **Formula**:
-  - `input` = sum of `total_tokens_in` across agent events.
-  - `output` = sum of `total_tokens_out` across agent events.
+  - `input` = `summary.tokens_in`, the sum of `total_tokens_in` over the window.
+  - `output` = `summary.tokens_out`, the sum of `total_tokens_out`.
   - `total` = `input + output`.
-- Older agent traces (pre-2026-05-19, before the schema split) carry only the combined total; the page back-fills them into `input` so the totals reconcile.
+- Older agent traces (pre-2026-05-19, before the schema split) carry only the combined total; the table back-fills them into `input` so a row's numbers reconcile.
 
-### Est. Cost — the editable rate table
+### Est. cost — the editable rate table
 
-- **Formula**: `Σ (tokens_in × input_per_Mtok / 1,000,000) + (tokens_out × output_per_Mtok / 1,000,000)` across every agent event in the visible window.
-- **Resolution order** for each event's `(provider, model)` tuple:
+- **Formula**: `Σ (tokens_in × input_per_Mtok / 1,000,000) + (tokens_out × output_per_Mtok / 1,000,000)` over `summary.by_model`, which splits the window's tokens per provider and model. Each row's cost uses the same formula for that request.
+- **Resolution order** for each `(provider, model)` tuple:
   1. Exact match in `models[<model>]` (most specific, e.g. `claude-haiku-4-5`).
   2. Provider match in `providers[<provider>]` (e.g. `anthropic`).
   3. `fallback` rate.
-- **Ollama is always $0.** Local inference has no per-token bill; the page shows `$0.00` with the footer "local — no per-token cost" whenever every visible run was served by Ollama.
+- **Ollama is always $0.** Local inference has no per-token bill; the card shows `$0.00` with the footer "Local model, no per-token cost" whenever every request in the window with a recorded provider ran on Ollama.
+
+### Failed AI calls
+
+- **Formula**: `summary.failed` — requests whose outcome is `llm_failure` (the model call errored, returned nothing, or returned something the feature could not use), `tool_failure` (the run broke) or `timeout` (it ran out of steps or time).
+- A feature that falls back to its non-AI behaviour after a failed call (a summary that keeps the plain template, the Editor's rule-based planner) still counts as one failed AI call.
+- Requests stopped by a limit before the model was asked (`policy_block`, for example the daily token cap) are not failures; the card's footer counts them as "blocked by a limit".
+- Open a row to see its steps and, for a failure, the reason recorded with it.
 
 ### Rate table seed (USD per 1M tokens, as of 2026-05-19)
 
@@ -239,16 +259,16 @@ Each entry has three rates: **Input** (uncached), **Cached input** (prompt-cache
 
 Default pricing (unknown provider/model): 0.30 input · 0.15 cached · 0.60 output per 1M tokens.
 
-**Cached-input caveat:** the OSS trace store currently lumps cached + uncached input tokens together in `total_tokens_in`. The cached rate therefore contributes **$0** to the Activity tile today — every input token is priced at the full input rate. The rate field exists for the Cost Simulator (which can model cache savings) and is forward-compatible: when LLM clients are instrumented to report `cached_tokens_in` per run, the existing rate table will apply automatically.
+**Cached-input caveat:** the OSS trace store currently lumps cached + uncached input tokens together in `total_tokens_in`. The cached rate therefore contributes **$0** to the Activity page's cost today — every input token is priced at the full input rate. The rate field exists for the Cost Simulator (which can model cache savings) and is forward-compatible: when LLM clients are instrumented to report `cached_tokens_in` per run, the existing rate table will apply automatically.
 
 ### Editing the rates
 
-`Settings → AI Pricing` exposes the full table:
+`Settings → General → AI Pricing` exposes the full table:
 - Workspace-scoped, persisted at `/api/v1/ai/cost-rates` (workspace_settings table, key `ai_cost_rates`).
 - A **sticky "unsaved changes" banner** appears at the bottom of the section when the draft differs from the persisted state, with **Discard** and **Save** actions.
 - A **search box** filters the per-model overrides; entries are grouped by inferred provider (ANTHROPIC / OPENAI / OLLAMA / OTHER).
 - Numeric inputs are validated (min 0, max 1000, step 0.01); invalid cells render red.
-- Saving emits the `revoluzen-flow-settings-changed` event so any open Activity page re-fetches and the tile updates without a reload.
+- Saving emits the `revoluzen-flow-settings-changed` event so an open Activity page re-fetches the rates and its costs update without a reload.
 - **Reset to defaults** discards all overrides and re-emits the broadcast.
 
 ### Cost simulator

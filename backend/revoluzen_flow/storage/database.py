@@ -220,7 +220,18 @@ logger = logging.getLogger(__name__)
 #     a sink and re-runs.
 #   * TTL behaviour + skip semantics live in revoluzen_flow/sinks/dedupe_store.py;
 #     the per-sink wiring lives in revoluzen_flow/sinks/idempotency_helper.py.
-SCHEMA_VERSION = 32
+#
+# v32 → v33 (Workflow Bin, 2026-11-08):
+#   * adds the `workflow_trash` and `workflow_trash_meta` tables. Deleting a
+#     pipeline now moves its version rows here instead of dropping them, so it
+#     can be restored from Pipelines → Bin until the retention window ends
+#     (REVOLUZEN_FLOW_BIN_RETENTION_DAYS, default 30), after which a daily job
+#     removes it for good.
+#   * pure additive. Pipelines deleted before this version are not recoverable.
+#   * the SQL lives in revoluzen_flow/ir/versioning.py (WorkflowStore.trash,
+#     restore_from_trash, purge_*); schedules, step cache, CDC slots and the
+#     audit trail are handled by revoluzen_flow/ir/workflow_bin.py.
+SCHEMA_VERSION = 33
 
 # All table definitions
 TABLES = """
@@ -907,6 +918,43 @@ CREATE TABLE IF NOT EXISTS sync_state (
 CREATE INDEX IF NOT EXISTS idx_sync_state_workflow
     ON sync_state(workflow_id);
 
+-- ── Workflow Bin (schema v33, 2026-11-08) ───────────────────────────────
+-- A deleted pipeline's version rows move from workflow_versions into
+-- workflow_trash (same columns, same primary key), so every reader of
+-- workflow_versions — the list, the executor, the scheduler, the usage
+-- index — keeps seeing a deleted pipeline as gone. One workflow_trash_meta
+-- row per binned pipeline carries what the Bin list needs (name, project,
+-- who and when) without parsing version JSON, plus a snapshot of the
+-- schedules that were removed with it so a restore can put them back
+-- (paused). The purge date is not stored: it is deleted_at + the retention
+-- setting, so changing the setting applies to everything already binned.
+CREATE TABLE IF NOT EXISTS workflow_trash (
+    workflow_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    data JSON NOT NULL,
+    created_by TEXT DEFAULT 'user',
+    change_summary TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    workspace_id TEXT DEFAULT 'default',
+    content_hash TEXT DEFAULT '',
+    PRIMARY KEY (workflow_id, version)
+);
+CREATE TABLE IF NOT EXISTS workflow_trash_meta (
+    workflow_id     TEXT PRIMARY KEY,
+    workspace_id    TEXT NOT NULL DEFAULT 'default',
+    name            TEXT NOT NULL DEFAULT '',
+    project_id      TEXT NOT NULL DEFAULT 'default',
+    folder_id       TEXT,
+    status_before   TEXT NOT NULL DEFAULT 'draft',
+    deleted_at      TEXT NOT NULL,
+    deleted_by_id   TEXT NOT NULL DEFAULT '',
+    deleted_by_name TEXT NOT NULL DEFAULT '',
+    version_count   INTEGER NOT NULL DEFAULT 0,
+    schedules       JSON NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_wtm_workspace
+    ON workflow_trash_meta(workspace_id, deleted_at);
+
 -- Metadata table for schema version tracking
 CREATE TABLE IF NOT EXISTS _meta (
     key TEXT PRIMARY KEY,
@@ -1436,6 +1484,14 @@ class Database:
                 )
                 conn.commit()
 
+            if previous_version < 33:
+                self._migrate_v33_workflow_trash(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+                    ("schema_version", "33"),
+                )
+                conn.commit()
+
             # Self-healing additive column checks.
             # The version-gated migration above runs once. But there's
             # a sharp edge: if someone bumps SCHEMA_VERSION before
@@ -1480,6 +1536,10 @@ class Database:
             # is a no-op once present. Cheap insurance against the
             # bumped-version-without-migration sharp edge described above.
             self._migrate_v32_ai_credential_ref(conn)
+            conn.commit()
+            # v33 self-heal: the Bin tables are CREATE IF NOT EXISTS, so
+            # re-running is free and covers a stamped-but-missing table.
+            self._migrate_v33_workflow_trash(conn)
             conn.commit()
 
             # Final version stamp — covers the case where SCHEMA_VERSION
@@ -2501,6 +2561,48 @@ class Database:
                         raise
         logger.info("Revoluzen Flow: schema v32 — AI-config credential_id ready")
 
+    def _migrate_v33_workflow_trash(self, conn: sqlite3.Connection) -> None:
+        """v32 → v33: add the tables behind the pipeline Bin.
+
+        Pure additive — no back-fill. The tables only fill as pipelines are
+        deleted from now on; anything deleted before this version is gone
+        for good. The same CREATE TABLE IF NOT EXISTS statements sit in the
+        TABLES block for fresh installs; both paths converge on one schema.
+
+        See revoluzen_flow/ir/versioning.py (SQL) and revoluzen_flow/ir/workflow_bin.py
+        (schedules, step cache, CDC slots, audit) for the behaviour.
+        """
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_trash (
+                workflow_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                data JSON NOT NULL,
+                created_by TEXT DEFAULT 'user',
+                change_summary TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                workspace_id TEXT DEFAULT 'default',
+                content_hash TEXT DEFAULT '',
+                PRIMARY KEY (workflow_id, version)
+            );
+            CREATE TABLE IF NOT EXISTS workflow_trash_meta (
+                workflow_id     TEXT PRIMARY KEY,
+                workspace_id    TEXT NOT NULL DEFAULT 'default',
+                name            TEXT NOT NULL DEFAULT '',
+                project_id      TEXT NOT NULL DEFAULT 'default',
+                folder_id       TEXT,
+                status_before   TEXT NOT NULL DEFAULT 'draft',
+                deleted_at      TEXT NOT NULL,
+                deleted_by_id   TEXT NOT NULL DEFAULT '',
+                deleted_by_name TEXT NOT NULL DEFAULT '',
+                version_count   INTEGER NOT NULL DEFAULT 0,
+                schedules       JSON NOT NULL DEFAULT '[]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_wtm_workspace
+                ON workflow_trash_meta(workspace_id, deleted_at);
+            """
+        )
+
     def _migrate_v31_sync_state(self, conn: sqlite3.Connection) -> None:
         """v30 → v31: add the `sync_state` table for incremental cursor tracking.
 
@@ -3145,11 +3247,18 @@ class Database:
             "alert_logs", "executions", "users", "sessions", "variables",
             "credentials", "connections", "connection_reports",
             "lifecycle_events", "schema_contracts",
+            # The pipeline Bin: deleted pipelines that can still be restored.
+            "workflow_trash", "workflow_trash_meta",
         ]
         export = {"_version": SCHEMA_VERSION, "_tables": {}}
         for table in tables:
             rows = self.fetchall(f"SELECT * FROM {table}")
             export["_tables"][table] = rows
+        # What the Triggers page holds. GatewayStore creates these tables, so they
+        # are absent until it has started. An API key is stored as a hash only.
+        for table in ("api_keys", "published_endpoints"):
+            if self.fetchone("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)):
+                export["_tables"][table] = self.fetchall(f"SELECT * FROM {table}")
         return export
 
     def import_all(self, data: dict[str, Any]):

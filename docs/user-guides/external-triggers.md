@@ -2,40 +2,103 @@
 
 This guide is for integrators wiring Revoluzen Flow pipelines into CI jobs, peer services, scheduled tasks in other tools, or public webhooks. If you just want to "run a pipeline by hand from the UI", that's the **Run** button on the Pipelines page — this guide isn't for you.
 
-There are two ways to invoke an Revoluzen Flow pipeline from outside the product:
+There are two ways to invoke a Revoluzen Flow pipeline from outside the product:
 
-1. **Authenticated API** — for systems that already authenticate against Revoluzen Flow (CI workers with a service account, peer services on the same network, ops tooling).
-2. **Public webhook (Gateway)** — for systems that need a stable URL + API key (SaaS webhooks, marketing automation, customer-facing form submissions).
+1. **Published endpoint with an API key** — for other applications, CI jobs and SaaS webhooks. Set it up on the **Workflows → Triggers** page.
+2. **Authenticated API** — for tools that already hold a signed-in user's session token.
 
-Both can pass parameters that the pipeline uses at runtime. Both flow through the same execution engine with the same precedence rules.
+Both can pass parameter values that the pipeline uses at runtime. Both run through the same path as the **Run** button, so the run is admitted to the pool, recorded on the Executions page and followed by the usual alerts.
 
 ---
 
-## 1. Authenticated API
+## 1. Published endpoint with an API key
+
+The caller needs no user login. It calls a stable URL and proves it may do so with an API key.
+
+### Set it up
+
+1. Open **Workflows → Triggers**, or choose **Run from another app** in a pipeline's row menu on the Pipelines page.
+2. Click **New endpoint**, pick a saved pipeline and check the URL path.
+3. Click **New API key**. The full key is shown once, so copy it before you close the dialog.
+4. Copy the command under **Ready-to-use command**. It holds the real URL and a body built from the pipeline's parameters. Choose **curl** for macOS, Linux and Git Bash, or **PowerShell** for Windows.
+
+### Call it
+
+**Endpoint:** `POST /api/published/{your-path}`
+
+The request body **is** the parameter values, with no wrapper.
+
+```bash
+curl -X POST 'https://your-revoluzen-flow.example.com/api/published/customer-onboarding' \
+  -H 'X-API-Key: YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_id": "cust_42",
+    "tier": "enterprise"
+  }'
+```
+
+An empty body is fine for a pipeline with no required parameters. In server mode the key must be in the `X-API-Key` header. On a local install `?api_key=` also works.
+
+### Response
+
+The call waits for the run to finish, then returns the outcome. It never returns your data.
+
+```json
+{
+  "status": "success",
+  "execution_id": "3a2f2b088479",
+  "pipeline_id": "d5c145430ad9",
+  "parameter_values": { "customer_id": "cust_42", "tier": "enterprise" },
+  "duration_ms": 412.6,
+  "steps": [
+    { "step_id": "src", "name": "Customers", "status": "success", "row_count": 1200 },
+    { "step_id": "flt", "name": "Keep this customer", "status": "success", "row_count": 1 }
+  ]
+}
+```
+
+`parameter_values` shows what the run really used, with defaults filled in. Open the run on the Executions page, by its `execution_id`, for logs and captured samples.
+
+A run that starts and then fails still returns `200`. Its `status` is `error`, the failed step is marked, and `message` says where to look. The error text stays on the run record, because it can name files, tables or values. If the pipeline's overlap policy turns the call away, `status` is `skipped` or `queued` and `running_execution_id` names the run in the way.
+
+### Status codes
+
+| Code | Meaning |
+|---|---|
+| `200` | The call was handled. Read `status` in the body for the outcome of the run. |
+| `400` | The body is not a JSON object, or a parameter is unknown, missing or of the wrong type. The message names it, and nothing runs. |
+| `401` | No API key was sent. |
+| `403` | The key is wrong, revoked, expired or from another workspace, or the caller's address is not on the key's allowlist. |
+| `404` | No endpoint has this path, or its pipeline was deleted. |
+| `405` | The endpoint accepts a different HTTP method. |
+| `423` | The pipeline is deactivated or archived. |
+| `429` | Too many calls. The limit is per key and per endpoint, and per endpoint when no key is required. |
+| `503` | The endpoint is turned off. |
+
+### Endpoints without a key
+
+Turning off **Require an API key** lets anyone who can reach the server start the pipeline. Parameter values are substituted as plain text, so a value placed in SQL could change the query. For that reason an endpoint without a key is refused, when you publish it and again on every call, if its pipeline has a `${param.x}` or `{{ }}` expression in a SQL field. The API's `allow_templated_sql_public` flag overrides this, and that is not recommended.
+
+---
+
+## 2. Authenticated API
 
 **Endpoint:** `POST /api/execute/workflow/{workflow_id}`
 
-The request body is optional. The UI's "Run" button posts no body. External callers add a `params` object to drive the pipeline's variables for that one run.
-
-### Minimal example
+The request body is optional. The UI's **Run** button uses this route. Callers add `parameter_values` to set the pipeline's parameters for that one run.
 
 ```bash
 curl -X POST 'https://your-revoluzen-flow.example.com/api/execute/workflow/wf_abc123' \
   -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer YOUR_SESSION_TOKEN' \
   -H 'X-Workspace-Id: my-workspace' \
   -d '{
-    "params": {
-      "REGION": "eu-west-1",
-      "RUN_DATE": "2026-05-12"
+    "parameter_values": {
+      "region": "eu-west-1",
+      "run_date": "2026-05-12"
     }
   }'
-```
-
-### Step configuration can reference these via `{{ $vars.NAME }}`
-
-```text
-db_source:
-  query: SELECT * FROM orders WHERE region = '{{ $vars.REGION }}' AND order_date = '{{ $vars.RUN_DATE }}'
 ```
 
 ### Query-string knobs (compatible with the UI)
@@ -44,91 +107,71 @@ These remain in the URL, not the body:
 
 | Knob | Default | Effect |
 |---|---|---|
-| `full_run` | `false` | When `true`, source nodes skip the dev sample-row limit and process the entire dataset. |
 | `preview_limit` | `50` | Rows to retain in each step's preview slot. |
+| `safety_mode` | `live` | `sample`, `dry_run` or `validate_only` to run without writing to real destinations. |
 
 ### Response
 
-Same shape as a UI-triggered run — see [API reference: Execution Response](../api.md#execution-response).
+Same shape as a UI-triggered run — see [API reference: Execution Response](../api.md#execution-response). This response includes sample rows, so do not pass it on to anyone who should not see the data.
 
 ---
 
-## 2. Public webhook (Gateway)
-
-If the calling system can't authenticate against Revoluzen Flow (e.g., a SaaS posting a webhook, a marketing form), publish the pipeline as a public endpoint via the Gateway. The Gateway issues an API key and exposes a stable URL.
-
-**Endpoint:** `POST /api/published/{your-custom-path}`
-
-The request body **is** the params dict (no `{ "params": ... }` wrapper).
-
-```bash
-curl -X POST 'https://your-revoluzen-flow.example.com/api/published/customer-onboarding' \
-  -H 'X-API-Key: fpk_live_3a8c...' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "CUSTOMER_ID": "cust_42",
-    "TIER": "enterprise"
-  }'
-```
-
-### When to use which
+## When to use which
 
 | Question | Use this path |
 |---|---|
-| Caller is a CI job using a service account on my network | Authenticated API |
-| Caller is a third-party SaaS that only sends webhooks | Gateway |
-| Need rate-limiting on the trigger | Gateway (per-key + per-endpoint) |
-| Need to expose a stable URL like `/api/published/customer-onboarding` | Gateway |
-| Caller can send the Revoluzen Flow workspace header | Authenticated API |
-| Caller is on the same machine as Revoluzen Flow | Authenticated API |
+| Caller is another application, a CI job or a SaaS that only sends webhooks | Published endpoint |
+| Caller should not hold a user's login | Published endpoint |
+| Need rate limiting on the trigger | Published endpoint (per key and per endpoint) |
+| Need a stable URL like `/api/published/customer-onboarding` | Published endpoint |
+| Caller already has a signed-in user's session token and wants the step samples back | Authenticated API |
 
 ---
 
-## How parameters reach the pipeline
+## How values reach the pipeline
 
-When a step references `{{ $vars.NAME }}`, Revoluzen Flow looks up `NAME` in this order. The first non-empty value wins:
+Declare a parameter in the Editor with the **Parameters** button, then reference it in any step field as `${param.NAME}`:
 
-1. **Caller-supplied `params`** (this run only — never persisted)
-2. **Stored variables** (Settings → Variables)
-3. **The workflow's declared `inputs[*].default`** (if the pipeline defines an inputs schema)
+```text
+filter:
+  condition: region = '${param.region}' AND order_date = '${param.run_date}'
+```
 
-Order matters: a caller passing `{"REGION": "eu-west-1"}` overrides a stored `REGION` value for that one invocation. The stored value isn't touched.
+For each declared parameter the run uses the first of these that exists:
+
+1. **The value in the call** (this run only, recorded on the run but never saved to the pipeline)
+2. **The parameter's declared default**, which may use `${utcnow:%Y-%m-%d}` or `${run_id}`
+
+A `required` parameter with neither is an error before any step runs. Values are coerced to the declared type: `string`, `int`, `float`, `bool` or `json`.
 
 ---
 
-## Declaring inputs (optional but recommended)
-
-A pipeline can declare what parameters it accepts. This adds two things:
-
-1. **Self-documentation** — integrators reading the pipeline JSON see exactly what to send.
-2. **Validation** — if `required: true` and the caller doesn't supply a value AND no stored variable or default exists, the run fails with a clean error before any step executes.
+## Declaring parameters in a pipeline file
 
 ```json
 {
   "name": "Regional sales pipeline",
-  "inputs": [
-    { "name": "REGION",     "type": "string",  "required": true,  "description": "AWS region for the source DB" },
-    { "name": "BATCH_SIZE", "type": "number",  "required": false, "default": 1000 },
-    { "name": "DRY_RUN",    "type": "boolean", "required": false, "default": false }
+  "parameters": [
+    { "name": "region",     "type": "string", "required": true, "description": "Region to load" },
+    { "name": "batch_size", "type": "int",    "default": 1000 },
+    { "name": "dry_run",    "type": "bool",   "default": false }
   ],
   "steps": [ /* ... */ ],
   "connections": [ /* ... */ ]
 }
 ```
 
-Inputs are optional. A pipeline with no `inputs` field accepts any keys the caller passes — useful for ad-hoc pipelines but harder for integrators to use.
-
-### Error response when a required input is missing
+A value for a parameter the pipeline does not declare is an error, so a typo surfaces at once instead of being ignored. A published endpoint answers with `400`. The authenticated API answers `200` with this body:
 
 ```json
 {
   "workflow_id": "wf_abc123",
   "status": "error",
   "step_results": {
-    "inputs": {
-      "step_id": "inputs",
+    "parameter_resolution": {
+      "step_id": "parameter_resolution",
       "status": "error",
-      "error": "Required workflow input(s) missing: REGION"
+      "error": "Parameter resolution failed: Required parameter(s) missing: region"
     }
   }
 }
@@ -138,16 +181,16 @@ Inputs are optional. A pipeline with no `inputs` field accepts any keys the call
 
 ## Idempotency and overlap
 
-If two callers trigger the same pipeline at the same time, the execution engine's overlap policy (configured on the workflow's metadata) decides what happens:
+If two callers trigger the same pipeline at the same time, the overlap policy (set in the pipeline's Execution settings) decides what happens:
 
 | Policy | Behavior |
 |---|---|
 | `parallel` (default) | Both runs proceed. |
-| `skip` | The second caller gets `status: "skipped"` with the running run ID. |
-| `queue` | The second caller gets `status: "queued"`. The system runs it when the first completes. |
+| `skip` | The second caller gets `status: "skipped"` with the running run's ID. |
+| `queue` | The second caller gets `status: "queued"` with the running run's ID. No run starts, so call again later. |
 | `cancel_previous` | The first run is cancelled; the new caller proceeds. |
 
-For external triggers, `skip` or `queue` is usually safer than `parallel`.
+For external triggers, `skip` is usually safer than `parallel`.
 
 ---
 
@@ -159,40 +202,41 @@ For external triggers, `skip` or `queue` is usually safer than `parallel`.
 # Example CI step
 - name: Run Revoluzen Flow nightly pipeline
   run: |
-    curl -fsS -X POST 'https://your-revoluzen-flow.example.com/api/execute/workflow/wf_nightly?full_run=true' \
+    curl -fsS -X POST 'https://your-revoluzen-flow.example.com/api/published/nightly' \
       -H 'Content-Type: application/json' \
-      -H 'X-Workspace-Id: ${{ secrets.REVOLUZEN_FLOW_WORKSPACE }}' \
-      -H 'Authorization: Bearer ${{ secrets.REVOLUZEN_FLOW_TOKEN }}' \
-      -d '{"params": {"RUN_DATE": "${{ github.event.repository.updated_at }}"}}'
+      -H 'X-API-Key: ${{ secrets.REVOLUZEN_FLOW_API_KEY }}' \
+      -d '{"run_date": "${{ github.event.repository.updated_at }}"}'
 ```
 
-### Polling for completion
+`curl -f` only fails on an HTTP error. A run that started and failed returns `200` with `status: "error"`, so check the body if the job should fail with the pipeline.
 
-`POST /api/execute/workflow/{id}` is synchronous — the response returns when the run completes. If you need fire-and-forget, post and then poll `/api/monitor/executions?workflow_id=...` for the latest record.
+### Long-running pipelines
+
+Both routes are synchronous: the response returns when the run completes, so give the caller a timeout longer than the pipeline takes. While it runs, the Execution Pool page shows it.
 
 ### Multi-tenant pipelines
 
 Same pipeline definition, different tenant per invocation:
 
 ```bash
-curl -X POST '.../api/execute/workflow/wf_tenant_sync' \
-  -d '{"params": {"TENANT_ID": "acme-corp"}}'
+curl -X POST '.../api/published/tenant-sync' \
+  -H 'X-API-Key: YOUR_API_KEY' \
+  -H 'Content-Type: application/json' \
+  -d '{"tenant_id": "acme-corp"}'
 ```
-
-The variables store can hold tenant-agnostic defaults (database hosts, etc.). The caller fills in just `TENANT_ID`. The same pipeline serves every customer.
 
 ---
 
 ## What this is NOT
 
-- **Not a queueing system.** Revoluzen Flow runs the pipeline immediately when you POST. If you want long-running asynchronous workflows with retries, use the Gateway's rate-limiting + your own queue in front of it.
+- **Not a queueing system.** Revoluzen Flow runs the pipeline immediately when you POST. If you want long-running asynchronous workflows with retries, put your own queue in front of it and use the endpoint's rate limit.
 - **Not for high-frequency calls.** Source nodes spin up DuckDB; this is heavyweight per request. Don't call this from a per-event hot path.
-- **Not for storing per-call state.** `params` are transient. If you need to remember a value across runs, set it as a variable (Settings → Variables) or write it from inside the pipeline.
+- **Not for storing per-call state.** Parameter values are recorded on the run but not kept for the next one. If you need to remember a value across runs, write it from inside the pipeline.
 
 ---
 
 ## See also
 
+- [Example: a webhook-triggered pipeline](../examples/webhook-trigger.md) — a pipeline you can import and call
 - [API reference: Execution](../api.md#execution) — every endpoint flag and the full response schema
-- [API reference: Variables](../api.md#variables) — CRUD endpoints and scoping rules
 - [Pipelines guide](pipelines.md) — building and publishing pipelines

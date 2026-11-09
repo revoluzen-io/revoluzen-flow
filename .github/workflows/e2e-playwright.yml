@@ -100,6 +100,29 @@ jobs:
           NO_SERVER: "1"   # dev server already running
         run: npx playwright test
 
+      - name: Popover placement sweep
+        working-directory: frontend
+        env:
+          REVOLUZEN_FLOW_URL: http://localhost:5174
+          # 1280,900,768 by default. 768 is the one that matters: at the two
+          # wider sizes every panel measured clean while the notifications
+          # panel was starting 210px off the left edge at 768 and the account
+          # menu 62px off.
+          REVOLUZEN_FLOW_WIDTHS: "1280,900,768"
+        # Opens every menu-ish trigger on every page and fails if a panel
+        # leaves the viewport. The specs above are the named regression guard
+        # for four controls; this is the breadth net (~350 triggers).
+        #
+        # It must run AFTER the specs and from `frontend`: global-setup writes
+        # the saved session to the RELATIVE path e2e/.auth/state.json, so it
+        # lands next to whatever cwd Playwright was launched from, and
+        # storageState is origin-scoped — a state file from another origin
+        # loads without error and grants nothing. The sweep then crawls the
+        # login page, opens nothing, and would report success. It now refuses
+        # to pass when it is signed out or opens zero triggers, but keeping
+        # the cwd aligned is what makes it actually test something.
+        run: npm run check:popovers
+
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4

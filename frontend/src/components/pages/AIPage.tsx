@@ -2,7 +2,10 @@
  * AIPage — consolidated hub for AI-related operator surfaces.
  *
  * Combines four previously-scattered surfaces under one nav entry:
- *   • Activity   — audit + agent-trace + execution timeline (from ActivityPage)
+ *   • Activity   — what the AI did: each AI request (the Copilot's or
+ *                  another feature's), model, tokens, estimated cost,
+ *                  failures (from ActivityPage). Pipeline runs are on
+ *                  Workflows → Executions, not here.
  *   • Trust      — security posture (from TrustPage)
  *   • Reports    — installation report generator (from ReportsPage)
  *   • Settings   — AI provider config (was a Settings page tab)
@@ -235,8 +238,10 @@ export default function AIPage({
   const [tab, setTab] = useState<AITab>(initialTab);
 
   // OSS-4 (2026-05-19) — publish context so the Copilot has a handle on
-  // which AI hub sub-surface the user is viewing.
-  usePageContext({ page: 'ai', filters: { tab } });
+  // which AI hub sub-surface the user is viewing. The Activity tab
+  // publishes its own ('ai.activity', with the AI requests on screen), so
+  // the hub stays quiet there rather than overwrite it.
+  usePageContext({ page: 'ai', filters: { tab }, enabled: tab !== 'activity' });
 
   // Ref to the actual scrolling container (the body div with overflow-auto).
   // 2026-05-19 (P2 #4 of PAGE_BY_PAGE_AUDIT.md): `scrollToProviderForm`
@@ -254,11 +259,13 @@ export default function AIPage({
   // Each tab carries a `subtitle` so the page header (title + subline) updates
   // to describe the active section instead of staying on a generic "Insights"
   // line — added May 10 2026.
-  const TABS: { id: AITab; label: string; subtitle: string; icon: React.ReactNode }[] = [
+  // `title` is the page-header title when it should say more than the
+  // tab's short label.
+  const TABS: { id: AITab; label: string; title?: string; subtitle: string; icon: React.ReactNode }[] = [
     {
       id: 'settings',
       label: 'AI Provider',
-      subtitle: 'Pick a cloud LLM or run locally with Ollama. Your data stays on your machine.',
+      subtitle: 'Pick a cloud LLM with your own key, or run locally with Ollama to keep everything on your machine.',
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 2v4" /><path d="M12 18v4" />
@@ -272,7 +279,10 @@ export default function AIPage({
     {
       id: 'activity',
       label: 'Activity',
-      subtitle: 'Unified timeline of agent runs, audit events, and pipeline executions.',
+      title: 'AI activity',
+      // One truncated line in the header, so the scope comes first; the
+      // pointer to pipeline runs sits under the table.
+      subtitle: 'Each AI request: where it came from, the model, tokens, cost and failures.',
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
@@ -327,7 +337,7 @@ export default function AIPage({
       <PageHeader
         environment={environment}
         icon={<span className={isProd ? 'text-red-400' : 'text-blue-500'}>{activeTab.icon}</span>}
-        title={activeTab.label}
+        title={activeTab.title ?? activeTab.label}
         titleAccessory={<TierChip tier={tier} environment={environment} />}
         subtitle={activeTab.subtitle}
         tabs={

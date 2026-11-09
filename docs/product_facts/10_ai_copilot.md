@@ -26,6 +26,10 @@ Per `edition-matrix.md` line 89-107, the agentic Copilot ships in OSS. Plus adds
 
 The fast lane uses a reasoning gate — prompts containing "why", "explain", "compare", "diagnose", "should I", "walk me through" fall through to the LLM. So "list pipelines" is instant; "why did pipeline X fail" goes to the LLM.
 
+### Asking before drafting
+
+Asked to build a pipeline, the Copilot first works out where the data comes from and where it goes. Whatever the request left open, it asks on a card, offering this workspace's real connections, uploaded files and managed tables as one-click choices. For example, "load orders into the warehouse" asks which connection holds the warehouse. A connection that doesn't exist yet can be created in the chat, with the same form as the Connections page; what you type there goes straight to the connection store and never reaches the model or the transcript. Only ids and names go to the planner.
+
 ### The agent loop
 
 Bounded tool-use loop with hard caps:
@@ -35,9 +39,9 @@ Bounded tool-use loop with hard caps:
 
 ### The agent tools (canonical count: code in `backend/revoluzen_flow/ai/tools/`)
 
-The tool count derived from the codebase is **30 tools** organised in three tiers (plus 2 opt-in web tools, registered only when the operator enables web access). The SOURCE OF TRUTH is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` — the counts below went stale twice by being retyped, so check the code before quoting them. The breakdown:
+The tool count derived from the codebase is **32 tools** organised in three tiers (plus 2 opt-in web tools, registered only when the operator enables web access). The SOURCE OF TRUTH is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` — the counts below went stale twice by being retyped, so check the code before quoting them. The breakdown:
 
-**22 READ tier** (permissive RBAC, no confirmation, standard audit):
+**23 READ tier** (permissive RBAC, no confirmation, standard audit):
 
 - `get_user_role` — caller's role + env + tier
 - `get_workspace_overview` — top-level workspace counts
@@ -51,8 +55,10 @@ The tool count derived from the codebase is **30 tools** organised in three tier
 - `list_catalog` — available node types + connectors
 - `list_templates` — built-in starters + user-saved templates
 - `summarize_pipeline` — plain-English summary of a pipeline
-- `validate_pipeline` — validation errors + warnings for a pipeline
-- `explain_step` — what one step does and how it is configured
+- `validate_pipeline` — validation errors + warnings for a pipeline, or for a draft when given a `draft_id`. Two passes: the IR validator Publish and Run gate on, plus a column check that catches a step referring to a column its input does not have. Reports `columns_checked: false` when it could not read the sources, rather than implying a clean bill
+- `explain_step` — what one step does, how it is configured, and every option that step type accepts with its choices, default and meaning. Added 2026-11-03 after three recorded model runs fixed a renamed join column by writing the new name into `join_key`, when the step needed `key_mode: mapped_keys`
+- `inspect_step_columns` — the columns a step receives, as names and types only, plus what the parameters of the repairable step types mean (`ai/step_params.py`). Runs a one-row preview of upstream steps, and refuses if any of them could have a side effect
+- `test_pipeline_draft` — runs a draft edit, reading up to 1,000 rows and discarding them, and reports each step's status, columns and row count, plus the first error and a warning for a plain `CAST`. A value that only fails when rows are read counts as a failure. A pass means the draft runs, not that it is right. Destinations never run, nothing is saved, and no row values are returned. Added 2026-11-03 so the agent can find the SECOND fault in a pipeline: the engine error names only the first, and without this no recorded model ever completed a two-fault repair
 - `query_metrics` — execution metrics aggregation
 - `recall_history` — RAG search across executions, definitions, catalog, docs
 - `lookup_help_topic` — structured product-knowledge atlas lookup
@@ -67,7 +73,11 @@ The tool count derived from the codebase is **30 tools** organised in three tier
 - `compose_report` — drafts a markdown/PDF report (no live data mutation)
 - `draft_pipeline_from_intent` — turns plain English into a pipeline IR draft
 - `draft_alert_rule` — turns "alert me if X" into an alert rule draft
-- `modify_pipeline_step` — edits a specific step's params in an existing pipeline
+- `modify_pipeline_step` — drafts an edit to an existing pipeline. Nothing is saved until the draft is applied. Edits made for one request build on each other; pass `draft_id` to continue a draft from an earlier request, or `from_saved` to start over. Four kinds of edit are refused in code rather than by prompt, each because a recorded model run showed the prompt alone did not hold (`backend/revoluzen_flow/ai/tools/_edit_guards.py`, `backend/revoluzen_flow/ai/draft_guess.py`):
+  - a guess: replacing a missing column when nothing the step receives resembles it, when several columns do, or when the one match is not used, and repointing a source at something nobody named. The person settles it by saying which one in their own message
+  - deleting or loosening a `validate` / `data_quality` / `fail` step, or inserting a row-removing step in front of one, unless the **person's own message** asked for it. Text inside the pipeline, including a step's label, is never the person asking. The attempt is still recorded, so a model that reaches for it is not scored the same as one that did not
+  - an argument left as a placeholder, such as `<new-condition>`
+  - a join key that cannot work: a `join_key` naming a column only one side has (`same_key` compiles to `left."k" = right."k"`, so this is a run-time Binder Error naming an internal view), or `key_pairs` whose entries do not use the field names `left` and `right`. Each refusal lists the columns that side really has. The second one matters because the node used to read unusable pairs as an `ON TRUE` cross join — a wrong answer with no error — which it now rejects outright
 - `draft_connector_from_openapi` — drafts a connector from a spec or URL
 - `draft_connector_from_samples` — drafts a connector from 1–5 sample responses
 - `test_connection` — tests a saved connection (no secrets reach the LLM)
@@ -93,7 +103,7 @@ All three tiers are workspace-scoped + sanitization-gated + audit-logged. The dr
 - **Dry-run-by-default** — new HIGH_IMPACT_WRITE tools force dry-run for the first 3 successful runs before unlocking live mode
 - **Confirmation card** — every write surfaces a before/after preview the user must approve
 - **Trace store** — every run persisted with replay-safe step records (input/output hashes, never raw values)
-- **Activity timeline** — audit + agent + execution feed combined into one chronological view
+- **AI activity** (Insights → Activity) — each AI request, from the Copilot or from another feature (drafting a pipeline in the Editor, SQL help, run and notification summaries), with the model, tokens, estimated cost and whether it failed. Pipeline runs are on Executions, not here
 - **Prompt signing** — HMAC system prompt integrity check, refuses tampered prompts at module-load time
 - **Tool-tier RBAC** — 4 roles × 2 envs × 3 tiers gating who can call which tier
 - **Wallet caps** — per-user daily token cap, per-request cap, max-iterations cap, wall-clock cap. Layered defense against runaway loops + denial-of-wallet.

@@ -70,7 +70,12 @@ export default function RuntimeDepsBanner({
   if (!data) return null;
   // No degraded checks → render nothing (compact mode) or a calm
   // all-clear row (full mode).
-  const degraded = data.checks.filter((c) => c.status !== 'ok');
+  // An optional add-on that isn't installed (a local LLM, for someone on a
+  // cloud provider) isn't a problem with this install: only the full list in
+  // Settings reports it.
+  const degraded = data.checks.filter(
+    (c) => c.status !== 'ok' && (mode === 'full' || c.required || c.status !== 'missing'),
+  );
   if (degraded.length === 0) {
     if (mode === 'full') {
       return (

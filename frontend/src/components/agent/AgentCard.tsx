@@ -376,6 +376,19 @@ export default function AgentCard({ card, onAction, disabled }: { card: AgentCar
   return null;
 }
 
+/** Models answer in light Markdown: show **bold** and `code` as such, not as punctuation. */
+export function renderInlineMarkdown(text: string) {
+  return text.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
+      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
+      return <code key={i} className="font-mono text-[0.92em] px-1 rounded bg-slate-100">{part.slice(1, -1)}</code>;
+    }
+    return part;
+  });
+}
+
 /**
  * Convenience: render an array of parsed segments (text + cards interleaved).
  * Use this from AgentChatPanel where you currently render `turn.text`.
@@ -390,7 +403,7 @@ export function AgentSegments({ segments, onAction, disabled }: { segments: Pars
         }
         return (
           <div key={i} className="whitespace-pre-wrap leading-relaxed">
-            {seg.text || ''}
+            {renderInlineMarkdown(seg.text || '')}
           </div>
         );
       })}

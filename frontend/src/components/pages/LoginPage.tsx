@@ -1,53 +1,223 @@
-import { useState, useEffect, useCallback } from 'react';
+/**
+ * Revoluzen Flow sign-in — one platform surface, shared with Revoluzen Studio.
+ *
+ * The shell is Studio's: a dark brand panel on wide screens, and beside it the
+ * sign-in column — the application mark on a white tile, the product name with
+ * the product word in gold, a one-line tagline, a white card, and a version
+ * footer. Flow keeps its own ground (the Revoluzen graphite ink) and its own
+ * three claims; the structure, the amber focus ring, the amber action button
+ * and the type scale are identical, so the two products read as one platform.
+ *
+ * Sign up is ALWAYS offered. The tab used to vanish whenever the policy said
+ * self-registration was off, which answered the visitor's question by
+ * deleting it: a second person landing on an instance that already has its
+ * account saw a lone "Sign in" heading and no explanation of how to get one.
+ * Now the tab is always there and the closed state says what is true — this
+ * install has its operator, and here is how to get your own. Studio does the
+ * same thing with the same words.
+ *
+ * Mode machine:
+ *   login / register — the two tabs; `register` also renders the closed state
+ *   forgot           — "enter your email" forgot-password screen
+ *   reset            — "pick a new password", reached either from the forgot
+ *                      screen (token came back in the response body — no SMTP
+ *                      handoff) or from `?reset_token=…` when an operator
+ *                      shared the reset link out-of-band
+ *   reset_done       — terminal success card pushing back to Sign In
+ */
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { api } from '../../api/client';
 import { WORKSPACES_ENABLED, DEFAULT_WORKSPACE_ID } from '../../config/edition';
 import { checkPassword, MIN_LENGTH, MIN_CLASSES, MAX_BYTES } from '../../auth/password';
 import { APP_VERSION } from '../../appMeta';
+import PasswordStrength from '../PasswordStrength';
 
 interface LoginPageProps {
   onLogin: (user: any) => void;
 }
 
+// Shared with Revoluzen Studio's sign-in screen: the amber action gradient,
+// the amber focus ring and the soft slate → amber ground.
+const AMBER = 'linear-gradient(135deg, #F5A623, #D4880A)';
+const SERIF = { fontFamily: 'Palatino Linotype, Iowan Old Style, Georgia, serif' };
+// Flow's own ground. Studio's panel is navy; this is the graphite ink from
+// revoluzen.io (#0D2B33), so each product is recognisable at a glance while
+// the shell around it stays the same.
+const BRAND_BG =
+  'radial-gradient(1200px 500px at 15% -10%, #15454f 0%, #0d2b33 55%, #081c22 100%)';
+const INPUT =
+  'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-amber-300 focus:ring-2 focus:ring-amber-300';
+const LABEL = 'mb-1.5 block text-sm font-semibold text-slate-600';
+const PRIMARY =
+  'w-full rounded-xl py-3 text-sm font-bold text-white shadow-sm transition-all hover:shadow-md disabled:opacity-50';
+const SECONDARY =
+  'w-full rounded-xl border border-slate-300 bg-white py-2.5 text-sm font-bold text-slate-700 transition-all hover:bg-slate-50';
+
+// What the panel claims, all of it true of the shipped engine: the canvas runs
+// on DuckDB/SQLite locally, Execution Contracts refuse a write before it lands
+// rather than reporting it afterwards, and nothing in the path is hosted.
+const HIGHLIGHTS: [string, string, string][] = [
+  [
+    '◆',
+    'Build it once, run it anywhere',
+    'Design on the canvas, then run the same pipeline from the app, the CLI or a schedule — on DuckDB and SQLite, on your own machine.',
+  ],
+  [
+    '§',
+    'Execution Contracts',
+    'State what has to hold. A guarantee that can be judged before the write blocks it, so a bad load is refused rather than reported after the table is gone.',
+  ],
+  [
+    '⚿',
+    'Yours, end to end',
+    'One binary, one data folder. No hosted service sits in the path — your connection secrets and your rows never leave the box.',
+  ],
+];
+
+function ErrorBox({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600">
+      {children}
+    </div>
+  );
+}
+
+/** "Revoluzen Flow" with the product word in the gold of the Flow mark. */
+function ProductName() {
+  return (
+    <>
+      Revoluzen{' '}
+      <span
+        className="bg-clip-text text-transparent"
+        style={{ backgroundImage: 'linear-gradient(135deg, #E3A008, #B45309)' }}
+      >
+        Flow
+      </span>
+    </>
+  );
+}
+
+/**
+ * The shell every auth mode renders into: the brand panel on wide screens,
+ * and the sign-in column — mark, name, tagline, card, version footer.
+ */
+function AuthShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="grid min-h-screen w-full grid-cols-1 md:grid-cols-[1.05fr_1fr]">
+      {/* Brand panel — wide screens only; on a phone the card is the page. */}
+      <aside
+        className="relative hidden flex-col justify-between overflow-hidden p-12 text-slate-200 md:flex"
+        style={{ background: BRAND_BG }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.06]"
+          style={{
+            backgroundImage:
+              'linear-gradient(#ffffff 1px, transparent 1px), linear-gradient(90deg, #ffffff 1px, transparent 1px)',
+            backgroundSize: '38px 38px',
+          }}
+        />
+        <div className="relative">
+          <div className="font-mono text-[11px] tracking-[0.28em] text-amber-400">
+            ◆ REVOLUZEN FLOW
+          </div>
+          <h2 className="mt-3 text-4xl leading-tight text-white" style={SERIF}>
+            Data Pipeline
+            <br />
+            Engine
+          </h2>
+          <p className="mt-4 max-w-sm text-sm leading-relaxed text-slate-300">
+            Build, run and schedule data pipelines on your own machine — with a
+            contract on every run that refuses a bad write instead of reporting
+            it afterwards.
+          </p>
+        </div>
+
+        <div className="relative space-y-5">
+          {HIGHLIGHTS.map(([icon, title, body]) => (
+            <div key={title} className="flex gap-3">
+              <div
+                className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/5 text-amber-400 ring-1 ring-white/10"
+                aria-hidden
+              >
+                {icon}
+              </div>
+              <div>
+                <div className="text-sm font-medium text-white">{title}</div>
+                <div className="max-w-xs text-xs leading-relaxed text-slate-400">{body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="relative font-mono text-[11px] text-slate-500">
+          Revoluzen · self-hosted · open source
+        </div>
+      </aside>
+
+      {/* Sign-in column */}
+      <main className="flex items-center justify-center bg-gradient-to-br from-slate-50 to-amber-50 px-6 py-10">
+        <div className="w-full max-w-md">
+          <div className="mb-10 text-center">
+            <div className="mx-auto mb-5 h-16 w-16 overflow-hidden rounded-2xl bg-white shadow-lg">
+              <img
+                src="/revoluzen-flow-logo-mark.png"
+                alt="Revoluzen Flow"
+                className="h-full w-full object-cover"
+              />
+            </div>
+            <h1 className="text-3xl font-bold text-slate-800">
+              <ProductName />
+            </h1>
+            {/* Tagline matches readme.md's lead and the About card. Leading
+                with "AI-native" set up the wrong expectation — this is a
+                pipeline engine, not a chat product. */}
+            <p className="mt-2 text-base text-slate-500">
+              Single-binary, local-first data pipeline engine
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-xl">
+            {children}
+          </div>
+
+          <p className="mt-5 text-center text-xs text-slate-500">
+            Revoluzen Flow v{APP_VERSION} · Local-first pipeline engine by Revoluzen
+          </p>
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function LoginPage({ onLogin }: LoginPageProps) {
-  // Mode machine:
-  //   login / register — the existing two tabs
-  //   forgot           — "enter your email" forgot-password screen
-  //   reset            — "pick a new password" screen, reached either
-  //                      from the forgot screen (token came back in the
-  //                      response body — no SMTP handoff) or from a URL
-  //                      query string `?reset_token=...` when an admin
-  //                      shared the reset link out-of-band.
-  //   reset_done       — terminal success card pushing the user back to
-  //                      the Sign In tab.
   const [mode, setMode] = useState<'login' | 'register' | 'forgot' | 'reset' | 'reset_done'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  // Forgot / reset-specific state. `resetToken` is the single-use token
-  // minted by /forgot-password (or pasted in via URL). `resetEmail` is
-  // the email bound to that token, shown read-only on the reset form
-  // so the user knows which account they're resetting.
+  // Forgot / reset state. `resetToken` is the single-use token minted by
+  // /forgot-password (or pasted in via URL); `resetEmail` is the address
+  // bound to it, shown read-only on the reset form so the user knows
+  // which account they're resetting.
   const [forgotMessage, setForgotMessage] = useState('');
   const [resetToken, setResetToken] = useState('');
   const [resetEmail, setResetEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
-  const [sso, setSso] = useState<{ enabled: boolean; provider_label: string }>({ enabled: false, provider_label: '' });
-  // Signup policy — defaults to "register hidden", matching the server
-  // (`allow_self_registration` defaults to False: Revoluzen Flow is a
-  // single-operator install and the operator's account is seeded on first
-  // boot). Defaulting to hidden means we never flash a Register tab that
-  // the policy call is about to take away. `firstBootstrap` still wins
-  // over the flag: if the user table is empty the tab always shows, so a
-  // wiped data dir can still create its first account.
-  const [signupAllowed, setSignupAllowed] = useState<boolean>(false);
-  const [firstBootstrap, setFirstBootstrap] = useState<boolean>(false);
+  // Signup policy. Both flags default to the server's own defaults, and
+  // NEITHER controls whether the Sign up tab exists any more — the tab is
+  // always rendered. They decide what it contains: the form, or the
+  // explanation of how accounts are made on this install. `policyLoaded`
+  // keeps us from asserting either one before we've been told.
+  const [signupAllowed, setSignupAllowed] = useState(false);
+  const [firstBootstrap, setFirstBootstrap] = useState(false);
+  const [policyLoaded, setPolicyLoaded] = useState(false);
   // `bootstrap_password_pending` / `bootstrap_admin_email` are still
   // returned by /auth/signup-policy, but nothing on this screen renders
-  // them any more — the card shows the sign-in / sign-up control and
-  // nothing else. Read them again here if that ever changes.
+  // them — the card shows the sign-in / sign-up control and nothing else.
 
   // Password policy + live strength check
   const [pwPolicy, setPwPolicy] = useState<{ min_length: number; rules: string[] } | null>(null);
@@ -71,39 +241,34 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   }, [password, email, name, mode, checkPasswordLive]);
 
   useEffect(() => {
-    // Load password policy
     api.getPasswordPolicy().then(setPwPolicy).catch(() => {});
 
-    // Check signup policy so we can hide the Register tab when the
-    // admin has the instance in invite-only mode. This is a PUBLIC
-    // endpoint — the login page can't attach a token to a request for
-    // something the user isn't signed in for yet.
+    // Read the signup policy. PUBLIC endpoint — the login page can't attach
+    // a token to a request for something the user isn't signed in for yet.
+    // Nothing is hidden on the strength of the answer; it chooses the copy.
     api.getSignupPolicy()
       .then((p: any) => {
         setSignupAllowed(!!p?.allow_self_registration);
         setFirstBootstrap(!!p?.first_user_bootstrap);
-        // Edge case: if the admin disabled self-signup AND the caller
-        // happens to land on the Register tab from a stale URL state,
-        // snap them back to Sign In so the form they see matches what
-        // the server will actually accept.
-        if (!p?.allow_self_registration && !p?.first_user_bootstrap) {
-          setMode('login');
-        }
+        setPolicyLoaded(true);
+        // Fresh install: open the Sign up tab, because creating the first
+        // account is the only thing the visitor can do. Matches Studio.
+        if (p?.first_user_bootstrap) setMode('register');
       })
       .catch(() => {
-        // Endpoint missing or unreachable — stay closed, matching the
-        // server default. Showing a Register tab we can't back up would
-        // send the operator into a form that 403s on submit.
+        // Unreachable or missing: fall back to the server's defaults —
+        // closed, with the explanation. The old code also snapped the user
+        // off the Register tab here; it no longer needs to, because the
+        // closed tab is a real screen rather than a form that 403s.
         setSignupAllowed(false);
+        setPolicyLoaded(true);
       });
 
     // Deep-link entry into the reset flow via query string, e.g.
-    //   https://revoluzen.example/?reset_token=ABCDEF
-    // This is the path an admin uses when they copy a reset link out
-    // of the Auth Queue page and share it with the locked-out user.
-    // We verify the token server-side before flipping into reset mode
-    // so an expired / invalid link lands on the forgot screen with a
-    // clear error instead of a blank form.
+    //   https://flow.example/?reset_token=ABCDEF
+    // We verify the token server-side before flipping into reset mode so an
+    // expired link lands on the forgot screen with a clear error rather than
+    // a blank form.
     const qs = new URLSearchParams(window.location.search);
     const urlToken = qs.get('reset_token');
     if (urlToken) {
@@ -113,9 +278,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           setResetEmail(r?.email || '');
           setMode('reset');
           setError('');
-          // Strip the token from the URL so refreshing the page
-          // doesn't re-verify and doesn't leak the token in the
-          // browser history / share sheet.
+          // Strip the token so a refresh doesn't re-verify and the token
+          // doesn't linger in history or a share sheet.
           window.history.replaceState(null, '', window.location.pathname);
         })
         .catch((err: any) => {
@@ -125,7 +289,10 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         });
     }
 
-    // Handle OIDC callback — token in URL hash
+    // External token handoff: a token delivered in the URL fragment is
+    // adopted as this session. The fragment never reaches the server, and
+    // the token is validated by /auth/me on the next line, so a bad one
+    // simply fails to resolve a user.
     if (window.location.hash.includes('token=')) {
       const params = new URLSearchParams(window.location.hash.slice(1));
       const token = params.get('token');
@@ -133,12 +300,10 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       if (token) {
         localStorage.setItem('revoluzen_flow_token', token);
         window.history.replaceState(null, '', window.location.pathname);
-        // Fetch user details with the new token
         api.getMe().then((user: any) => {
           localStorage.setItem('revoluzen_flow_user', JSON.stringify(user));
           onLogin(user);
         }).catch(() => {
-          // Fallback — create minimal user shim from email
           const shim = { email: emailParam || '', name: emailParam || '' };
           localStorage.setItem('revoluzen_flow_user', JSON.stringify(shim));
           onLogin(shim);
@@ -147,27 +312,15 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     }
   }, []);
 
-  // 2026-05-19 (P0 #7 of PAGE_BY_PAGE_AUDIT.md): when the no-SMTP backend
-  // The decision about whether it is safe to show a reset token inline
-  // belongs to the SERVER, and the client honours it.
-  //
-  // This used to be gated here on a build-time flag
-  // (`VITE_REVOLUZEN_FLOW_FORGOT_TOKEN_INLINE=1`, off by default), which
-  // broke the product's main deployment. The backend's `_inline_ok`
-  // already returns a token only when the instance is single-user and
-  // NOT network-exposed, or the operator opted in from loopback — and it
-  // writes a message saying "You can use it below to set a new password".
-  // The default build then discarded that token, so the user read "use it
-  // below" above a card with nothing below it, under a "Check your email"
-  // heading when no email had been sent. A dead end on the one install
-  // that is supposed to work without any infrastructure.
-  //
-  // A build-time flag cannot know how many accounts exist, whether the
-  // bind is open, or whether SMTP is configured, and one prebuilt binary
-  // ships the same flag to everyone. The server knows all three. So: if a
-  // token comes back, the server decided it was safe to show, and we show
-  // it. If it withheld the token, there is nothing to show and the
-  // message explains what to do instead.
+  // Whether the reset token may be shown inline is the SERVER's decision,
+  // and the client honours it. This was once gated on a build-time flag
+  // (off by default), which broke the product's main deployment: the
+  // backend's `_inline_ok` returns a token only when the instance is
+  // single-user and not network-exposed, and writes a message saying "you
+  // can use it below" — then the default build discarded the token, so the
+  // user read "use it below" above a card with nothing below it. A
+  // build-time flag cannot know how many accounts exist or whether the bind
+  // is open; the server knows both. So if a token comes back, we show it.
 
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -177,19 +330,15 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     try {
       const r: any = await api.forgotPassword(email);
       setForgotMessage(r?.message || 'Request received.');
-      // `smtp_sent` is not a field the API returns; the absence of a token
-      // on a successful call means either SMTP delivered a link or the
-      // server deliberately withheld it. Either way there is nothing for
-      // this screen to offer, and `forgotMessage` says which it was.
       if (r?.reset_token) {
-        // The server judged it safe to inline. Stash the token so the
-        // follow-up CTA opens the reset form with it prefilled. We don't
-        // auto-advance — the message is worth showing once.
+        // The server judged it safe to inline. Stash it so the follow-up
+        // CTA opens the reset form prefilled. We don't auto-advance — the
+        // message is worth showing once.
         setResetToken(r.reset_token);
         setResetEmail(email);
       } else {
-        // No token: emailed, withheld, or no such account. Clear any
-        // stale state so the CTA can't offer to reset the wrong account.
+        // Emailed, withheld, or no such account. Clear any stale state so
+        // the CTA can't offer to reset the wrong account.
         setResetToken('');
         setResetEmail('');
       }
@@ -199,16 +348,12 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(false);
   };
 
-  // Live strength for the reset form. `resetEmail` is the address the
-  // token belongs to, so the policy can reject a password containing it.
-  const resetCheck = newPassword
-    ? checkPassword(newPassword, resetEmail, '')
-    : null;
+  // Live strength for the reset form. `resetEmail` is the address the token
+  // belongs to, so the policy can reject a password containing it. Uses the
+  // local mirror rather than the /check-password round-trip because this
+  // screen is reached while signed out.
+  const resetCheck = newPassword ? checkPassword(newPassword, resetEmail, '') : null;
 
-  // Submit the reset-password form. The server re-validates and remains
-  // the source of truth; checking here too means the user is told before
-  // they submit, instead of after. The confirm-password mismatch is
-  // client-side to avoid a pointless round-trip for a fat-finger.
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -225,17 +370,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     try {
       await api.resetPassword(resetToken, newPassword);
       setMode('reset_done');
-      // Prefill the login tab with the email we just reset so the
-      // user lands one-click away from signing in.
+      // Prefill the login tab with the email we just reset, so the user
+      // lands one click away from signing in.
       setEmail(resetEmail);
       setPassword('');
       setNewPassword('');
       setNewPasswordConfirm('');
       setResetToken('');
     } catch (err: any) {
-      // Weak-password errors come back as a structured dict in the
-      // message. We print the raw text — the full policy checklist
-      // can be wired in later as a dedicated component.
       setError(err?.message || 'Unable to reset password.');
     }
     setLoading(false);
@@ -252,11 +394,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setError('');
     setEmailError('');
 
-    // Email validation
     const emErr = validateEmail(email);
     if (emErr) { setEmailError(emErr); return; }
 
-    // Register-mode: block submit if password policy fails
     if (mode === 'register' && pwCheck && !pwCheck.ok) {
       setError('Password does not meet the strength requirements.');
       return;
@@ -273,27 +413,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       }
       localStorage.setItem('revoluzen_flow_token', result.token);
       localStorage.setItem('revoluzen_flow_user', JSON.stringify(result.user));
-      // Schema v2: persist the user's workspace memberships and pick a
-      // current workspace. Landing rules (order matters):
-      //   1. The shared "default" workspace WHEN the user is a member of
-      //      it. For a single-operator OSS install the operator belongs to
-      //      "default", that's where the seeded + existing pipelines live,
-      //      and it's where the backend's no-header fallback stamps new
-      //      ones (auth/deps current_workspace_id → "default"). Landing
-      //      anywhere else made real pipelines look like they'd vanished.
-      //   2. Otherwise the user's Personal workspace — self-signed-up Plus
-      //      users who aren't "default" members still get their own sandbox
-      //      (unchanged behaviour for that path).
-      //   3. Otherwise the first membership.
-      // If the landing is ever wrong, the Sidebar workspace switcher (shown
-      // whenever the user has >1 workspace, DEV or PROD) recovers it — a
-      // user must never have data they can't reach. We never leave
-      // revoluzen_flow_workspace_id unset because the api client reads it on every
-      // request.
       // OSS is single-operator: always land in the one shared `default`
-      // workspace (the block below only runs when workspaces are enabled in a
-      // Plus build). This is what keeps pipelines from "vanishing" into an
-      // empty Personal scope.
+      // workspace (the branch below only runs in a build with workspaces
+      // enabled). This is what keeps pipelines from "vanishing" into an
+      // empty Personal scope — the operator belongs to `default`, that's
+      // where the seeded and existing pipelines live, and it's where the
+      // backend's no-header fallback stamps new ones. We never leave
+      // revoluzen_flow_workspace_id unset, because the api client reads it
+      // on every request.
       const workspaces: any[] = Array.isArray(result.workspaces) ? result.workspaces : [];
       if (WORKSPACES_ENABLED && workspaces.length > 0) {
         localStorage.setItem('revoluzen_flow_workspaces', JSON.stringify(workspaces));
@@ -313,396 +440,284 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     setLoading(false);
   };
 
-  return (
-    <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-amber-50">
-      <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-10">
-          <div className="w-16 h-16 rounded-2xl shadow-lg mx-auto mb-5 bg-white overflow-hidden">
-            <img src="/revoluzen-flow-logo-mark.png" alt="Revoluzen Flow" className="w-full h-full object-cover" />
-          </div>
-          <h1 className="text-3xl font-bold text-slate-800">Revoluzen Flow</h1>
-          {/* 2026-06-03 — tagline rewritten to match readme.md lead +
-              the About page card. The login screen is the FIRST thing
-              every new user sees; leading with "AI-native" set up the
-              wrong expectation (this is a pipeline engine, not a chat
-              product) and contradicted the sober v1.0 positioning. */}
-          <p className="text-base text-slate-500 mt-2">Single-binary, local-first data pipeline engine</p>
+  const switchTo = (m: 'login' | 'register') => {
+    setMode(m);
+    setError('');
+    setEmailError('');
+  };
+
+  // Is the sign-up FORM available? (The tab always is.)
+  const signupOpen = firstBootstrap || signupAllowed;
+
+  // ── Forgot password ───────────────────────────────────────────────────────
+  if (mode === 'forgot') {
+    return (
+      <AuthShell>
+        <div className="mb-6 text-center">
+          <h2 className="text-lg font-bold text-slate-700">Forgot your password?</h2>
+          {!forgotMessage && (
+            <p className="mt-1 text-xs text-slate-500">
+              Enter the email on your account and we'll generate a reset link.
+            </p>
+          )}
         </div>
 
-        {/* Card */}
-        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 p-8">
-          {/* ── FORGOT PASSWORD VIEW ────────────────────────────────────
-              Standalone screen — no tabs, no SSO block. The user lands
-              here from the "Forgot password?" link under the login
-              form and leaves via either (a) the reset success card
-              (`reset_done`) after completing the flow, or (b) the
-              "Back to sign in" link, which re-snaps mode=login. */}
-          {mode === 'forgot' && (
+        {!forgotMessage ? (
+          <form onSubmit={handleForgot} className="space-y-5">
             <div>
-              <div className="mb-6 text-center">
-                <h2 className="text-lg font-bold text-slate-700">Forgot your password?</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Enter the email on your account and we'll generate a reset link.
-                </p>
-              </div>
-
-              {!forgotMessage ? (
-                <form onSubmit={handleForgot} className="space-y-5">
-                  <div>
-                    <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Email</label>
-                    <input
-                      type="email" value={email} onChange={e => setEmail(e.target.value)}
-                      placeholder="you@example.com" required autoFocus
-                      className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
-                    />
-                  </div>
-                  {error && (
-                    <div className="bg-red-50 border border-red-200 text-red-600 text-sm font-medium px-4 py-2.5 rounded-xl">
-                      {error}
-                    </div>
-                  )}
-                  <button
-                    type="submit" disabled={loading}
-                    className="w-full py-3 text-white text-sm font-bold rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #F5A623, #D4880A)' }}
-                  >
-                    {loading ? 'Submitting...' : 'Send reset link'}
-                  </button>
-                </form>
-              ) : (
-                <div className="space-y-5">
-                  {/* Two treatments share this slot:
-                      - Token in body: the server judged inlining safe, so
-                        show the "Set a new password now" CTA, which opens
-                        the reset form prefilled with that token.
-                      - No token: either SMTP delivered a link or the
-                        server withheld it. This used to be headed "Check
-                        your email" with an envelope glyph, which was a
-                        guess — on the withheld path no email was ever
-                        sent, so the card asserted something untrue. The
-                        API message already distinguishes the cases
-                        ("emailed to you" vs "not shown here, because
-                        this instance is reachable over the network"), so
-                        the message alone is shown and is always right. */}
-                  {resetToken ? (
-                    <>
-                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-xl">
-                        {forgotMessage}
-                      </div>
-                      <button
-                        onClick={() => { setMode('reset'); setError(''); }}
-                        className="w-full py-3 text-white text-sm font-bold rounded-xl shadow-sm hover:shadow-md transition-all"
-                        style={{ background: 'linear-gradient(135deg, #F5A623, #D4880A)' }}
-                      >
-                        Set a new password now
-                      </button>
-                    </>
-                  ) : (
-                    <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm px-4 py-3 rounded-xl">
-                      {forgotMessage}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
-                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
-              >
-                ← Back to sign in
-              </button>
+              <label htmlFor="auth-email" className={LABEL}>Email</label>
+              <input
+                id="auth-email" type="email" value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@example.com" required autoFocus
+                autoComplete="username" className={INPUT}
+              />
             </div>
+            {error && <ErrorBox>{error}</ErrorBox>}
+            <button type="submit" disabled={loading} className={PRIMARY} style={{ background: AMBER }}>
+              {loading ? 'Submitting…' : 'Send reset link'}
+            </button>
+          </form>
+        ) : (
+          /* Two treatments share this slot. With a token in the body the
+             server judged inlining safe, so we offer the CTA into the reset
+             form. Without one, the message itself distinguishes "emailed to
+             you" from "not shown here, because this instance is reachable
+             over the network" — so the message alone is shown and is always
+             right. It used to be headed "Check your email" with an envelope,
+             which asserted something untrue on the withheld path. */
+          <div className="space-y-5">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+              {forgotMessage}
+            </div>
+            {resetToken && (
+              <button
+                onClick={() => { setMode('reset'); setError(''); }}
+                className={PRIMARY} style={{ background: AMBER }}
+              >
+                Set a new password now
+              </button>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
+          className="mt-5 w-full text-xs text-slate-500 transition-colors hover:text-slate-600"
+        >
+          ← Back to sign in
+        </button>
+      </AuthShell>
+    );
+  }
+
+  // ── Choose a new password ─────────────────────────────────────────────────
+  if (mode === 'reset') {
+    return (
+      <AuthShell>
+        <div className="mb-6 text-center">
+          <h2 className="text-lg font-bold text-slate-700">Choose a new password</h2>
+          {resetEmail && (
+            <p className="mt-1 text-xs text-slate-500">
+              Resetting password for{' '}
+              <span className="font-semibold text-slate-600">{resetEmail}</span>
+            </p>
           )}
+        </div>
 
-          {/* ── RESET PASSWORD VIEW ─────────────────────────────────────
-              The form is reached either by clicking "Set a new password
-              now" from the forgot success card, or by visiting the
-              page with `?reset_token=…` in the URL. The email is
-              shown read-only (not editable) because it's derived from
-              the verified token and changing it would be a no-op. */}
-          {mode === 'reset' && (
-            <div>
-              <div className="mb-6 text-center">
-                <h2 className="text-lg font-bold text-slate-700">Choose a new password</h2>
-                {resetEmail && (
-                  <p className="text-xs text-slate-500 mt-1">
-                    Resetting password for <span className="font-semibold text-slate-600">{resetEmail}</span>
-                  </p>
-                )}
-              </div>
+        <form onSubmit={handleReset} className="space-y-5">
+          <div>
+            <label htmlFor="auth-new-password" className={LABEL}>New password</label>
+            <input
+              id="auth-new-password" type="password" value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder="••••••••" required autoFocus
+              minLength={MIN_LENGTH} maxLength={MAX_BYTES}
+              autoComplete="new-password" className={INPUT}
+            />
+            <PasswordStrength
+              password={newPassword}
+              check={resetCheck}
+              hint={`At least ${MIN_LENGTH} characters, using ${MIN_CLASSES} of: lowercase, uppercase, a number, a symbol.`}
+            />
+          </div>
+          <div>
+            <label htmlFor="auth-confirm-password" className={LABEL}>Confirm new password</label>
+            <input
+              id="auth-confirm-password" type="password" value={newPasswordConfirm}
+              onChange={e => setNewPasswordConfirm(e.target.value)}
+              placeholder="••••••••" required
+              minLength={MIN_LENGTH} maxLength={MAX_BYTES}
+              autoComplete="new-password" className={INPUT}
+            />
+          </div>
+          {error && <ErrorBox>{error}</ErrorBox>}
+          <button type="submit" disabled={loading} className={PRIMARY} style={{ background: AMBER }}>
+            {loading ? 'Resetting…' : 'Reset password'}
+          </button>
+        </form>
 
-              <form onSubmit={handleReset} className="space-y-5">
-                <div>
-                  <label className="text-sm font-semibold text-slate-600 mb-1.5 block">New password</label>
-                  <input
-                    type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
-                    placeholder="••••••••" required autoFocus
-                    minLength={MIN_LENGTH} maxLength={MAX_BYTES}
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
-                  />
-                  {/* Same treatment as the sign-up and change-password
-                      forms — bar plus blockers only, never the optional
-                      nudges. This was the one password field in the app
-                      with no feedback at all, so someone resetting found
-                      out their password was too weak only after the
-                      server rejected it. Uses the local mirror rather
-                      than the /check-password round-trip because this
-                      screen is reached while signed out. */}
-                  {!newPassword && (
-                    <p className="text-xs text-slate-500 mt-1.5">
-                      At least {MIN_LENGTH} characters, using {MIN_CLASSES} of:
-                      lowercase, uppercase, a number, a symbol.
-                    </p>
-                  )}
-                  {newPassword && resetCheck && (
-                    <div className="mt-2 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              resetCheck.score >= 3 ? 'bg-emerald-500' : resetCheck.score >= 2 ? 'bg-amber-400' : 'bg-red-400'
-                            }`}
-                            style={{ width: `${Math.min(100, Math.max(8, (resetCheck.score / 4) * 100))}%` }}
-                          />
-                        </div>
-                        <span className={`text-xs font-bold ${
-                          resetCheck.score >= 3 ? 'text-emerald-600' : resetCheck.score >= 2 ? 'text-amber-600' : 'text-red-500'
-                        }`}>{resetCheck.label}</span>
-                      </div>
-                      {newPassword.length >= 4 && resetCheck.failures.length > 0 && (
-                        <ul className="space-y-0.5">
-                          {resetCheck.failures.map((f, i) => (
-                            <li key={i} className="flex items-start gap-1.5 text-xs text-red-500">
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mt-[3px] shrink-0"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                              <span>{f}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                      {newPassword.length >= 4 && resetCheck.failures.length === 0 && (
-                        <p className="flex items-center gap-1.5 text-xs text-emerald-600">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
-                          <span>Looks good.</span>
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Confirm new password</label>
-                  <input
-                    type="password" value={newPasswordConfirm} onChange={e => setNewPasswordConfirm(e.target.value)}
-                    placeholder="••••••••" required
-                    minLength={MIN_LENGTH} maxLength={MAX_BYTES}
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
-                  />
-                </div>
-                {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 text-sm font-medium px-4 py-2.5 rounded-xl">
-                    {error}
-                  </div>
-                )}
-                <button
-                  type="submit" disabled={loading}
-                  className="w-full py-3 text-white text-sm font-bold rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-                  style={{ background: 'linear-gradient(135deg, #F5A623, #D4880A)' }}
-                >
-                  {loading ? 'Resetting...' : 'Reset password'}
-                </button>
-              </form>
+        <button
+          type="button"
+          onClick={() => { setMode('login'); setError(''); }}
+          className="mt-5 w-full text-xs text-slate-500 transition-colors hover:text-slate-600"
+        >
+          ← Cancel and go back to sign in
+        </button>
+      </AuthShell>
+    );
+  }
 
-              <button
-                type="button"
-                onClick={() => { setMode('login'); setError(''); }}
-                className="mt-5 w-full text-xs text-slate-500 hover:text-slate-600 transition-colors"
-              >
-                ← Cancel and go back to sign in
-              </button>
-            </div>
-          )}
+  // ── Reset done ────────────────────────────────────────────────────────────
+  // We keep the user here rather than auto-logging them in, because the
+  // fresh sign-in exercises the new password end to end and leaves no stale
+  // session state from before the reset.
+  if (mode === 'reset_done') {
+    return (
+      <AuthShell>
+        <div className="space-y-5 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50" aria-hidden>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-slate-700">Password reset</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Your password has been updated. Please sign in with the new one.
+            </p>
+          </div>
+          <button
+            onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
+            className={PRIMARY} style={{ background: AMBER }}
+          >
+            Continue to sign in
+          </button>
+        </div>
+      </AuthShell>
+    );
+  }
 
-          {/* ── RESET DONE CARD ─────────────────────────────────────────
-              Terminal screen after a successful self-serve reset. We
-              keep the user on LoginPage rather than auto-logging them
-              in because the new-session flow exercises the fresh
-              password end-to-end and avoids any stale session state
-              lingering from before the reset. */}
-          {mode === 'reset_done' && (
-            <div className="text-center space-y-5">
-              <div className="mx-auto w-14 h-14 rounded-full bg-emerald-50 flex items-center justify-center">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              </div>
-              <div>
-                <h2 className="text-lg font-bold text-slate-700">Password reset</h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Your password has been updated. Please sign in with the new one.
-                </p>
-              </div>
-              <button
-                onClick={() => { setMode('login'); setError(''); setForgotMessage(''); }}
-                className="w-full py-3 text-white text-sm font-bold rounded-xl shadow-sm hover:shadow-md transition-all"
-                style={{ background: 'linear-gradient(135deg, #F5A623, #D4880A)' }}
-              >
-                Continue to sign in
-              </button>
-            </div>
-          )}
+  // ── Sign in / Sign up ─────────────────────────────────────────────────────
+  return (
+    <AuthShell>
+      {/* Both tabs, always. See the file header for why the Sign up tab no
+          longer disappears when the policy is closed. */}
+      <div role="tablist" aria-label="Account" className="mb-7 flex gap-1 rounded-xl bg-slate-100 p-1">
+        {([
+          ['login', 'Sign In'],
+          ['register', firstBootstrap ? 'Create first account' : 'Sign up'],
+        ] as const).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            role="tab"
+            aria-selected={mode === m}
+            onClick={() => switchTo(m)}
+            className={`flex-1 rounded-lg py-2.5 text-sm font-semibold transition-all ${
+              mode === m ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
-          {/* ── LOGIN / REGISTER (existing) ─────────────────────────── */}
-          {(mode === 'login' || mode === 'register') && (<>
-          {/* Tabs — the Register tab is only shown when self-signup is
-              permitted OR this is a brand-new install (first-user
-              bootstrap). In strict invite-only mode we hide the tab
-              strip entirely and show a plain "Sign In" heading, plus a
-              small footer line pointing invitees at their admin. */}
-          {(signupAllowed || firstBootstrap) ? (
-            <div className="flex gap-1 bg-slate-100 rounded-xl p-1 mb-7">
-              <button
-                onClick={() => { setMode('login'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'login' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => { setMode('register'); setError(''); }}
-                className={`flex-1 py-2.5 text-sm font-semibold rounded-lg transition-all ${mode === 'register' ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-500'}`}
-              >
-                {firstBootstrap ? 'Create first account' : 'Register'}
-              </button>
-            </div>
-          ) : (
-            <div className="mb-7 text-center">
-              <h2 className="text-lg font-bold text-slate-700">Sign in</h2>
-              {/* Heading only — no explanatory copy under it, by decision.
-                  This slot previously held an edition statement ("runs as a
-                  single operator") and then a first-run hint naming
-                  INITIAL_ADMIN_PASSWORD.txt. Both are gone: the card shows
-                  the sign-in / sign-up affordance and nothing else. The
-                  first-run password is still written to that file in the
-                  data folder and printed by the CLI on first boot, so the
-                  information is not lost — it just isn't on this screen. */}
-            </div>
-          )}
-
+      {mode === 'register' && !policyLoaded ? (
+        <p className="py-6 text-center text-sm text-slate-500">Checking this install…</p>
+      ) : mode === 'register' && !signupOpen ? (
+        /* Sign-up is closed on this install. Say what is true and what to do
+           about it — the same facts the server's 403 gives, so the screen and
+           the API never disagree. */
+        <div className="space-y-5 text-center">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-600">
+            <p className="font-semibold text-slate-700">This install already has its account.</p>
+            <p className="mt-1">
+              Revoluzen Flow runs as a single operator — one account owns the
+              engine and its data folder. To work alongside it, start your own:
+              point <code className="font-mono text-xs">REVOLUZEN_FLOW_DATA_DIR</code> at a
+              new folder and sign up there.
+            </p>
+            <p className="mt-2 text-xs text-slate-500">
+              Shared workspaces, invites and roles are Revoluzen Flow Enterprise.
+            </p>
+          </div>
+          <button type="button" onClick={() => switchTo('login')} className={PRIMARY} style={{ background: AMBER }}>
+            I already have an account
+          </button>
+        </div>
+      ) : (
+        <>
           <form onSubmit={handleSubmit} className="space-y-5">
             {mode === 'register' && (
               <div>
-                <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Name</label>
+                <label htmlFor="auth-name" className={LABEL}>Name</label>
                 <input
-                  type="text" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Your name"
-                  className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
+                  id="auth-name" type="text" value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="Your name" autoComplete="name" className={INPUT}
                 />
               </div>
             )}
             <div>
-              <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Email <span className="text-red-400">*</span></label>
+              <label htmlFor="auth-email" className={LABEL}>
+                Email <span className="text-red-400">*</span>
+              </label>
               <input
-                type="email" value={email}
+                id="auth-email" type="email" value={email}
                 onChange={e => { setEmail(e.target.value); setEmailError(''); }}
                 onBlur={() => { if (mode === 'register') setEmailError(validateEmail(email)); }}
                 placeholder="you@example.com" required autoFocus
-                className={`w-full px-4 py-3 text-sm border rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none ${emailError ? 'border-red-300 bg-red-50/50' : 'border-slate-200'}`}
+                autoComplete={mode === 'login' ? 'username' : 'email'}
+                className={`${INPUT} ${emailError ? 'border-red-300 bg-red-50/50' : ''}`}
               />
-              {emailError && (
-                <p className="text-xs text-red-500 mt-1 font-medium">{emailError}</p>
-              )}
+              {emailError && <p className="mt-1 text-xs font-medium text-red-500">{emailError}</p>}
             </div>
             <div>
-              <label className="text-sm font-semibold text-slate-600 mb-1.5 block">Password <span className="text-red-400">*</span></label>
+              <label htmlFor="auth-password" className={LABEL}>
+                Password <span className="text-red-400">*</span>
+              </label>
               <input
-                type="password" value={password} onChange={e => setPassword(e.target.value)}
+                id="auth-password" type="password" value={password}
+                onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••" required
                 // Cap only when CREATING a password. The pre-2026-06-03
-                // scheme was salted SHA-256, which had no length limit,
-                // so an account from back then may legitimately have a
-                // password longer than MAX_BYTES — capping the sign-in
-                // field would lock them out of their own install.
+                // scheme was salted SHA-256 with no length limit, so an
+                // account from back then may legitimately hold a password
+                // longer than MAX_BYTES — capping the sign-in field would
+                // lock them out of their own install.
                 maxLength={mode === 'register' ? MAX_BYTES : undefined}
-                className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-300 focus:border-amber-300 outline-none"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                className={INPUT}
               />
-              {/* Password feedback — register mode only.
-                  Deliberately NOT a checklist. We used to render every rule
-                  the server advertises as a ✓/✗ row, with pass/fail decided
-                  by a substring match against the failure text. That meant a
-                  perfectly good passphrase showed a column of red crosses for
-                  rules that are only suggestions, which is the single fastest
-                  way to make someone abandon a sign-up form. The policy is
-                  NIST SP 800-63B — length and a blocklist, no composition —
-                  so the form states the rule once up front and then only
-                  reports what genuinely blocks submit. */}
-              {mode === 'register' && password.length === 0 && pwPolicy && (
-                <p className="text-xs text-slate-500 mt-1.5">
-                  At least {pwPolicy.min_length} characters, using {MIN_CLASSES} of:
-                  lowercase, uppercase, a number, a symbol.
-                </p>
-              )}
-              {mode === 'register' && password.length > 0 && (
-                <div className="mt-2 space-y-1.5">
-                  {/* Strength bar. score is 0..4 (see password_policy.py), so
-                      the bar divides by 4 — dividing by 5 capped a perfect
-                      password at 80% and never filled. */}
-                  {pwCheck && (
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${
-                            pwCheck.score >= 3 ? 'bg-emerald-500' : pwCheck.score >= 2 ? 'bg-amber-400' : 'bg-red-400'
-                          }`}
-                          style={{ width: `${Math.min(100, Math.max(8, (pwCheck.score / 4) * 100))}%` }}
-                        />
-                      </div>
-                      <span className={`text-xs font-bold ${
-                        pwCheck.score >= 3 ? 'text-emerald-600' : pwCheck.score >= 2 ? 'text-amber-600' : 'text-red-500'
-                      }`}>{pwCheck.label}</span>
-                    </div>
-                  )}
-                  {/* Only real blockers, never the optional "add a symbol"
-                      nudges — those live in pwCheck.suggestions and stay off
-                      the form. Held back until the 4th character so the field
-                      doesn't go red on the first keystroke. */}
-                  {pwCheck && password.length >= 4 && pwCheck.failures.length > 0 && (
-                    <ul className="space-y-0.5">
-                      {pwCheck.failures.map((f, i) => (
-                        <li key={i} className="flex items-start gap-1.5 text-xs text-red-500">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="mt-[3px] shrink-0"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-                          <span>{f}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {pwCheck && password.length >= 4 && pwCheck.failures.length === 0 && (
-                    <p className="flex items-center gap-1.5 text-xs text-emerald-600">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="shrink-0"><polyline points="20 6 9 17 4 12" /></svg>
-                      <span>Looks good.</span>
-                    </p>
-                  )}
-                </div>
+              {mode === 'register' && (
+                <PasswordStrength
+                  password={password}
+                  check={pwCheck}
+                  hint={
+                    pwPolicy
+                      ? `At least ${pwPolicy.min_length} characters, using ${MIN_CLASSES} of: lowercase, uppercase, a number, a symbol.`
+                      : undefined
+                  }
+                />
               )}
             </div>
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-600 text-sm font-medium px-4 py-2.5 rounded-xl">
-                {error}
-              </div>
-            )}
+            {error && <ErrorBox>{error}</ErrorBox>}
 
-            <button
-              type="submit" disabled={loading}
-              className="w-full py-3 text-white text-sm font-bold rounded-xl shadow-sm hover:shadow-md transition-all disabled:opacity-50"
-              style={{ background: 'linear-gradient(135deg, #F5A623, #D4880A)' }}
-            >
+            <button type="submit" disabled={loading} className={PRIMARY} style={{ background: AMBER }}>
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  {mode === 'login' ? 'Signing in...' : 'Creating account...'}
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  {mode === 'login' ? 'Signing in…' : 'Creating account…'}
                 </span>
+              ) : mode === 'login' ? (
+                'Sign In'
+              ) : firstBootstrap ? (
+                'Create first account'
               ) : (
-                mode === 'login' ? 'Sign In' : 'Create Account'
+                'Create Account'
               )}
             </button>
           </form>
@@ -711,42 +726,22 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             <div className="mt-3 text-center">
               <button
                 type="button"
-                onClick={() => {
-                  setMode('forgot');
-                  setError('');
-                  setForgotMessage('');
-                }}
-                className="text-xs text-slate-500 hover:text-amber-600 transition-colors font-medium"
+                onClick={() => { setMode('forgot'); setError(''); setForgotMessage(''); }}
+                className="text-xs font-medium text-slate-500 transition-colors hover:text-amber-600"
               >
                 Forgot password?
               </button>
             </div>
           )}
 
-          {sso.enabled && mode === 'login' && (
-            <>
-              <div className="flex items-center gap-2 my-4">
-                <div className="flex-1 h-px bg-slate-200" />
-                <span className="text-xs text-slate-500 font-semibold">OR</span>
-                <div className="flex-1 h-px bg-slate-200" />
-              </div>
-              <a
-                href="/api/auth/oidc/login"
-                className="w-full py-2.5 text-sm font-bold rounded-xl border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-all flex items-center justify-center gap-2"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
-                Sign in with {sso.provider_label}
-              </a>
-            </>
+          {mode === 'register' && firstBootstrap && (
+            <p className="mt-5 text-center text-xs text-slate-500">
+              No accounts exist yet. Whoever creates the first one owns this
+              install and can manage everything in it.
+            </p>
           )}
-          </>)}
-
-        </div>
-
-        <p className="text-center text-xs text-slate-500 mt-5">
-          Revoluzen Flow v{APP_VERSION} · Local-first pipeline engine by Revoluzen
-        </p>
-      </div>
-    </div>
+        </>
+      )}
+    </AuthShell>
   );
 }

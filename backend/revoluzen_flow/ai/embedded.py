@@ -351,7 +351,7 @@ def _fill_sort(date_cols, numeric_cols, col_names):
         ascending = [True]
         reason = f"Sort by {columns[0]} ascending"
     return {
-        "params": {"columns": columns, "ascending": ascending},
+        "params": {"sort_by": [f"{col} {'ASC' if asc else 'DESC'}" for col, asc in zip(columns, ascending)]},
         "explanation": reason
     }
 

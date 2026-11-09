@@ -295,7 +295,7 @@ so re-scans never spam you. Full design rationale in
 
 ## Next steps
 
-- **Nodes** tab in this Help page — full reference for all 44 nodes
+- **Nodes** tab in this Help page — full reference for all 45 nodes
 - **18 sample pipelines** — see `samples/free-api-pipelines/` for ready-to-import demos covering REST APIs, joins, SCD2, pivot/unpivot, conditional routing, XML ingest, and more. Run `pwsh ./import.ps1` (or `.\import.ps1` on Windows PowerShell 5) to land them all as drafts.
 - [Connector catalog](connectors.md) — what works, what's beta
 - [Pipelines guide](user-guides/pipelines.md) — covers scheduling, dependencies, and backfills
