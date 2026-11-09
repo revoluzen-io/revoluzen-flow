@@ -241,21 +241,20 @@ class NatsEventBus(EventBus):
             )
 
     async def _publish_durable(self, event: Event) -> int:
-        """Publish via JetStream (durable) AND Core (live fan-out).
+        """Publish via JetStream; the write is durable and returns the cursor.
 
-        JS write provides the durability + cursor; Core publish
-        ensures live `subscribe()` consumers receive the event
-        without paying for JS replay machinery.
+        One publish serves both audiences. A JetStream publish is an
+        ordinary NATS message with a reply inbox, so every live
+        ``subscribe()`` consumer (a core subscription on the subject)
+        receives it too. This used to publish the same bytes a second time
+        over core "for live fan-out", and because a stream captures every
+        message on its subjects however it was published, each durable
+        event was stored twice: two sequence numbers, and a replay that
+        returned every event twice. The end-to-end test caught it the first
+        time it ran against a real server (2026-11-09).
         """
         payload = serialize(event).encode("utf-8")
         ack = await self._js.publish(event.topic, payload)
-        # Best-effort live fan-out; if Core publish fails, the
-        # durable write already succeeded — caller's contract is
-        # satisfied. Log + swallow.
-        try:
-            await self._nc.publish(event.topic, payload)
-        except Exception:
-            log.exception("core fan-out publish failed (topic=%s)", event.topic)
         return ack.seq
 
     async def _publish_core(self, event: Event) -> None:
