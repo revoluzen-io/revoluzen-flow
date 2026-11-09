@@ -153,6 +153,7 @@ def test_posix_fixer_tightens_the_mode(monkeypatch, tmp_path):
     assert (Path(key).parent.stat().st_mode & 0o777) == 0o700
 
 
+@pytest.mark.windows
 @pytest.mark.skipif(os.name != "nt", reason="NTFS DACL")
 def test_windows_fixer_calls_harden_file(monkeypatch, tmp_path):
     key = tmp_path / "secret.key"
@@ -171,6 +172,7 @@ def test_windows_fixer_calls_harden_file(monkeypatch, tmp_path):
     assert str(key) in message
 
 
+@pytest.mark.windows
 @pytest.mark.skipif(os.name != "nt", reason="NTFS DACL")
 def test_windows_fixer_actually_removes_exposure(tmp_path, monkeypatch):
     """End-to-end on a real file: harden it, then read the real ACL back.

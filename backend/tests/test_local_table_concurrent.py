@@ -13,6 +13,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from revoluzen_flow.common.duckdb_compat import fetch_scalar
+
 
 def _ctx(conn, data_dir, datastore, schema_history_store):
     results: dict[str, object] = {}
@@ -61,7 +63,7 @@ def test_concurrent_replaces_leave_a_true_row_count(tmp_path, datastore, schema_
     assert os.listdir(_table_dir(tmp_path, "shared")) == ["part-000.parquet"]
     conn = duckdb.connect()
     glob = os.path.join(_table_dir(tmp_path, "shared"), "part-*.parquet").replace("\\", "/")
-    assert conn.sql(f"SELECT COUNT(*) FROM read_parquet('{glob}')").fetchone()[0] == rows
+    assert fetch_scalar(conn.sql(f"SELECT COUNT(*) FROM read_parquet('{glob}')")) == rows
     conn.close()
 
 
@@ -82,7 +84,7 @@ def test_failed_replace_keeps_the_old_data(tmp_path, datastore, schema_history_s
 
     assert os.listdir(_table_dir(tmp_path, "kept")) == ["part-000.parquet"]
     glob = os.path.join(_table_dir(tmp_path, "kept"), "part-*.parquet").replace("\\", "/")
-    assert conn.sql(f"SELECT COUNT(*) FROM read_parquet('{glob}')").fetchone()[0] == 2
+    assert fetch_scalar(conn.sql(f"SELECT COUNT(*) FROM read_parquet('{glob}')")) == 2
     conn.close()
 
 

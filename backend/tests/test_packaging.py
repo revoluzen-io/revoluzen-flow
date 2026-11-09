@@ -209,6 +209,10 @@ def test_frontend_dist_resolution_prefers_packaged_copy():
 
 
 @pytest.mark.slow
+# `external`: needs the frontend staged into frontend_dist and `python -m
+# build`, which the fast gate does not have (it skipped there on every run).
+# The wheel-install-smoke CI job stages the frontend and runs this.
+@pytest.mark.external
 def test_built_wheel_contains_ui_and_connectors(tmp_path):
     """Build the wheel and assert what's inside it.
 

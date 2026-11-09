@@ -13,6 +13,7 @@ from decimal import Decimal
 import duckdb
 import pytest
 
+from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
 from revoluzen_flow.nodes.activities import DbSinkNode
 from revoluzen_flow.nodes.db_source import DbSourceNode
 
@@ -23,14 +24,14 @@ def _read(*row):
     values = node._rows_to_values([tuple(row)], columns)
     con = duckdb.connect(":memory:")
     rel = con.sql(f"SELECT * FROM (VALUES {values}) AS v ({', '.join(columns)})")
-    return [str(t) for t in rel.types], rel.fetchone()
+    return [str(t) for t in rel.types], fetch_one(rel)
 
 
 def test_decimals_stay_numbers_and_can_be_added_up():
     node = DbSourceNode(params={})
     values = node._rows_to_values([(Decimal("1299.50"),), (Decimal("849.25"),)], ["amount"])
     con = duckdb.connect(":memory:")
-    total = con.sql(f"SELECT SUM(amount) FROM (VALUES {values}) AS v (amount)").fetchone()[0]
+    total = fetch_scalar(con.sql(f"SELECT SUM(amount) FROM (VALUES {values}) AS v (amount)"))
     assert total == Decimal("2148.75")
 
 

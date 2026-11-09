@@ -170,6 +170,23 @@ jobs:
         run: |
           pip install build
           python -m build --wheel --outdir dist_ci
+      # 2026-11-09: tests/test_packaging.py::test_built_wheel_contains_ui_and_connectors
+      # builds the wheel and inspects its contents. It needs the staged
+      # frontend, which only this job has, so it is marked `external`, the
+      # fast gate deselects it, and it runs here, after the staging step.
+      - name: Inspect the wheel contents (pytest)
+        working-directory: backend
+        env:
+          REVOLUZEN_FLOW_MODE: dev
+          PYTHONPATH: .
+        run: |
+          set -o pipefail
+          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pytest tests/test_packaging.py -m external -ra --tb=short | tee pytest-packaging.log
+          if grep -qiE '[0-9]+ skipped|no tests ran|collected 0 items' pytest-packaging.log; then
+            echo "::error::the wheel-contents test did not run — frontend not staged, or the 'external' marker is missing"
+            exit 1
+          fi
 
       - name: Install the wheel into a clean venv
         # /tmp, not the repo — if CWD were the checkout, the source-tree
@@ -285,8 +302,57 @@ jobs:
           # dropped `-x` so the whole suite still runs when one worker dies,
           # then re-run ONLY the failed test(s) serially: a flaky crash clears,
           # while a genuine failure re-fails and reddens the build.
-          python -m pytest -n auto --tb=short -m "not stress and not external and not e2e" \
-            || python -m pytest --last-failed --tb=short -m "not stress and not external and not e2e"
+          # -rs: print every skip with its reason in the summary, so a test
+          # that quietly stops running (missing dependency, unreachable
+          # service, platform guard) is visible in the job log rather than a
+          # bare count.
+          # `not windows`: the NTFS ACL tests can only run on Windows and
+          # have their own job below (backend-pytest-windows); deselecting
+          # them here means they are neither skipped nor counted on Linux.
+          python -m pytest -n auto -rs --tb=short -m "not stress and not external and not e2e and not windows" \
+            || python -m pytest --last-failed -rs --tb=short -m "not stress and not external and not e2e and not windows"
+
+  backend-pytest-windows:
+    name: Backend pytest (Windows — NTFS ACL hardening of the master key)
+    # 2026-11-09: twelve tests guard the master key's NTFS DACL through
+    # pywin32 and can only run on Windows. Until now they were skipped on
+    # every Linux job, so the Windows hardening path had no CI coverage at
+    # all. They carry the `windows` marker; the Linux fast gate deselects it
+    # and this job selects it. A skip here means pywin32 or the marker is
+    # broken, so it fails the job.
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend requirements
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+      - name: Run the Windows-only tests
+        working-directory: backend
+        shell: bash
+        env:
+          REVOLUZEN_FLOW_MODE: dev
+          PYTHONPATH: .
+        run: |
+          set -o pipefail
+          python -m pytest -m windows -ra --tb=short \
+            tests/test_master_key_acl.py \
+            tests/test_master_key_startup_hardening.py \
+            tests/test_trust_remediation.py | tee pytest-windows.log
+          if grep -qiE '[0-9]+ skipped' pytest-windows.log; then
+            echo "::error::Windows ACL tests reported skips — pywin32 missing or the platform guard misfired"
+            exit 1
+          fi
+          if grep -qiE 'no tests ran|collected 0 items' pytest-windows.log; then
+            echo "::error::no Windows ACL tests ran — check the 'windows' marker"
+            exit 1
+          fi
 
   backend-pytest-dialects:
     name: Backend pytest (database dialects — real Postgres, MySQL, SQL Server)
@@ -304,6 +370,12 @@ jobs:
         env:
           POSTGRES_PASSWORD: flowtest
           POSTGRES_DB: flowtest
+          # 2026-11-09: logical replication, so the CDC integration test
+          # (tests/integration/test_cdc_postgres.py) runs here instead of
+          # skipping everywhere. A service container takes no `command:`, so
+          # the knobs go through initdb, which PG16 lets set with -c. Same
+          # values as docker-compose.test.yml.
+          POSTGRES_INITDB_ARGS: "-c wal_level=logical -c max_wal_senders=4 -c max_replication_slots=4"
         ports:
           - 5432:5432
         options: >-
@@ -421,6 +493,20 @@ jobs:
           wait("mssql", os.environ["REVOLUZEN_FLOW_TEST_MSSQL"], ms, attempts=60)
           PY
 
+      # 2026-11-09: a NATS server with JetStream for the event-bus
+      # end-to-end test (tests/test_event_bus_nats.py, marked external).
+      # Started with `docker run` rather than `services:` because the image
+      # needs the `-js` argument and a service container cannot be given a
+      # command.
+      - name: Start NATS (JetStream)
+        run: |
+          docker run -d --name nats-js -p 4222:4222 nats:2.10-alpine -js
+          for i in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/4222) >/dev/null 2>&1 && { echo "nats: reachable"; exit 0; }
+            sleep 1
+          done
+          echo "::error::NATS did not start"; docker logs nats-js; exit 1
+
       - name: Run dialect suite
         # `-m external` is required: pytest.ini's addopts deselect that
         # marker, so without it the file collects and runs nothing.
@@ -430,6 +516,10 @@ jobs:
         # when a server is unreachable, which is right on a laptop and
         # useless here, where it would turn "the database was never tested"
         # into a green tick. Both that and a zero-test run fail the job.
+        #
+        # 2026-11-09: two more `external` files run here, the only job with
+        # the servers they need: Postgres logical-replication CDC and the
+        # NATS JetStream round trip. The fast gate deselects the marker.
         working-directory: backend
         env:
           REVOLUZEN_FLOW_MODE: dev
@@ -437,9 +527,19 @@ jobs:
           REVOLUZEN_FLOW_TEST_PG: postgresql://postgres:flowtest@127.0.0.1:5432/flowtest
           REVOLUZEN_FLOW_TEST_MYSQL: mysql://root:flowtest@127.0.0.1:3306/flowtest
           REVOLUZEN_FLOW_TEST_MSSQL: "mssql://sa:FlowTest!2026x@127.0.0.1:1433/master"
+          # The CDC test reads the server as separate parts, not a URL.
+          REVOLUZEN_FLOW_TEST_PG_HOST: 127.0.0.1
+          REVOLUZEN_FLOW_TEST_PG_PORT: "5432"
+          REVOLUZEN_FLOW_TEST_PG_USER: postgres
+          REVOLUZEN_FLOW_TEST_PG_PASS: flowtest
+          REVOLUZEN_FLOW_TEST_PG_DB: flowtest
+          REVOLUZEN_FLOW_NATS_E2E: "1"
+          REVOLUZEN_FLOW_NATS_SERVERS: nats://127.0.0.1:4222
         run: |
           set -o pipefail
           python -m pytest tests/test_db_sink_merge_dialects.py \
+            tests/integration/test_cdc_postgres.py \
+            tests/test_event_bus_nats.py \
             -m external -ra --tb=short | tee pytest-dialects.log
 
           if grep -qiE '[0-9]+ skipped' pytest-dialects.log; then

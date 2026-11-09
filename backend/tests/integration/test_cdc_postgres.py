@@ -53,15 +53,20 @@ def _can_connect() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _can_connect(),
-    reason=(
-        "Test Postgres not reachable on "
-        f"{PG_HOST}:{PG_PORT}. Start it with "
-        "`docker compose -f docker-compose.test.yml up -d` "
-        "or set REVOLUZEN_FLOW_TEST_PG_* env vars."
+pytestmark = [
+    # Needs a real Postgres with wal_level=logical. The fast gate deselects
+    # `external`; the dialects CI job provides the server and runs this.
+    pytest.mark.external,
+    pytest.mark.skipif(
+        not _can_connect(),
+        reason=(
+            "Test Postgres not reachable on "
+            f"{PG_HOST}:{PG_PORT}. Start it with "
+            "`docker compose -f docker-compose.test.yml up -d` "
+            "or set REVOLUZEN_FLOW_TEST_PG_* env vars."
+        ),
     ),
-)
+]
 
 
 def _connect():

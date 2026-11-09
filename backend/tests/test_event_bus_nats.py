@@ -374,6 +374,7 @@ def test_stream_without_since_uses_deliver_new(bus, mocked_nats):
 # ── End-to-end against a real NATS server (opt-in) ──────────────
 
 
+@pytest.mark.external
 @pytest.mark.skipif(
     os.environ.get("REVOLUZEN_FLOW_NATS_E2E") != "1",
     reason="Set REVOLUZEN_FLOW_NATS_E2E=1 (and run a NATS server with JetStream) to enable.",

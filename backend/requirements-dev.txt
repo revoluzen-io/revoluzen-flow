@@ -45,5 +45,16 @@ coverage>=7.4
 # Static analysis (optional but useful in CI)
 ruff>=0.5.0
 
+# 2026-11-09: two dependencies whose absence made tests skip silently in
+# the fast gate.
+#
+# nats-py is a runtime OPTIONAL (only REVOLUZEN_FLOW_EVENT_BUS=nats needs it,
+# see requirements.txt), but tests/test_event_bus_nats.py is mock-based and
+# needs only the client library to import, so the dev install carries it.
+nats-py>=2.6.0
+# `python -m build` is what tests/test_packaging.py uses to build the wheel
+# it then inspects; without the package the test skipped.
+build>=1.0
+
 # Type stubs for common deps
 types-requests>=2.31

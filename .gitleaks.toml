@@ -66,4 +66,10 @@ regexes = [
     # these are column-value literals, not credentials.
     '''schema_version''',
     '''signup_default_v3''',
+    # 2026-11-09 — in-app Help node catalogue (help/nodeCatalog.ts) lists
+    # the Source node's connectors as prose: "... REST APIs, S3-compatible
+    # storage, Azure Blob Storage ...". generic-api-key reads "APIs," as a
+    # key label followed by a comma separator and takes "S3-compatible" as
+    # the value. It is a product name in display copy, not a credential.
+    '''S3-compatible''',
 ]

@@ -5,10 +5,11 @@ build this script does a fast smoke check: it imports the public `revoluzen_flow
 package and reports the version. Real per-module tests are run via
 `pytest backend/tests` directly during development.
 
-Kept dependency-light on purpose. The only third-party module touched at
-smoke time is `pydantic`, and only if the relevant revoluzen_flow submodule is
-importable in the current environment. Anything missing is reported and
-skipped — the smoke fails only if `revoluzen_flow` itself can't import.
+Every module listed in REQUIRED must import, or the smoke fails. Until
+2026-11-09 the API module was "optional" and a missing dependency printed
+`SKIP (optional)` while the job stayed green; the CI jobs that run this
+script now install backend/requirements.txt, so nothing is optional and a
+skip is a failure.
 
 Accepts the same flags the GitHub Actions workflow passes so the CI job
 contract stays stable:
@@ -30,11 +31,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
-REQUIRED = ["revoluzen_flow"]
-OPTIONAL = [
+REQUIRED = [
+    "revoluzen_flow",
     "revoluzen_flow.storage.database",
     "revoluzen_flow.api.security_headers",
 ]
+OPTIONAL: list[str] = []
 
 
 def smoke() -> int:
