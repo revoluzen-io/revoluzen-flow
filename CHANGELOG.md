@@ -193,6 +193,16 @@ follows the compatibility rules documented there.
 
 ### Fixed
 
+- **The NATS event bus never worked against a real server.** With
+  `REVOLUZEN_FLOW_EVENT_BUS=nats`, creating the JetStream stream failed with
+  "invalid JSON": the stream's retention age was converted to nanoseconds
+  twice and overflowed. And every durable event was published a second time
+  over core NATS "for live fan-out", which the stream also captured, so each
+  event took two sequence numbers and a replay returned everything twice.
+  One publish now, and the age is passed in seconds as the client expects.
+  Found by running the end-to-end test against a server in CI for the first
+  time.
+
 - **A folder that held pipelines could not be deleted.** The confirm said its
   pipelines would be "permanently deleted", but the screen sent no mode and the
   server will not guess what to do with them (409), so the user only saw a failure.
