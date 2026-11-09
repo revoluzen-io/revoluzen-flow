@@ -16,7 +16,7 @@ import { checkPassword, MIN_LENGTH, MIN_CLASSES, MAX_BYTES } from '../../auth/pa
  * Sections:
  *   1. Profile        — read most fields, edit display name (whitelisted)
  *   2. Password       — change own password (requires current password)
- *   3. Active sessions — list of own sessions, current one highlighted
+ *   Those two tabs are the whole page — there is no sessions list.
  *
  * Why this is its own page (not a Settings tab):
  *   Settings is app-level preferences (theme, timezone, autosave). Account is
@@ -240,7 +240,7 @@ export default function AccountPage({ onProfileUpdated, onNavigate, environment 
         titleAccessory={<TierChip tier={tier} environment={environment} />}
         subtitle={isProd
           ? 'Production environment — account settings apply to all environments.'
-          : 'Manage your profile, password, and active sessions.'}
+          : 'Manage your profile and password.'}
       />
       <div className="w-full max-w-[1100px] mx-auto px-6 py-8">
 

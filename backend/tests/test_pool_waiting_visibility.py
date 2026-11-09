@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -174,6 +174,60 @@ def test_longest_waiter_is_listed_first():
     t0.join(timeout=5)
     for t in waiters:
         t.join(timeout=5)
+
+
+def _wait_until(check, seconds=5):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if check():
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def test_highest_priority_goes_first_then_longest_waiting():
+    pool = WorkerPool(max_workers=1)
+    hold = threading.Event()
+    inside = threading.Event()
+    t0 = threading.Thread(target=lambda: pool.run_admitted(job(0), lambda: (inside.set(), hold.wait(5))))
+    t0.start()
+    assert inside.wait(timeout=3)
+
+    order: list[str] = []
+    threads = []
+    for n, priority in ((1, 5), (2, 3), (3, 3), (4, 1)):
+        queued = job(n)
+        queued.priority = priority
+        waiting = len(threads) + 1
+        t = threading.Thread(target=lambda q=queued: pool.run_admitted(q, lambda: order.append(q.id)))
+        t.start()
+        threads.append(t)
+        assert _wait_until(lambda w=waiting: pool.get_status()["pool"]["waiting_for_capacity"] == w)
+        time.sleep(0.02)
+
+    hold.set()
+    t0.join(timeout=5)
+    for t in threads:
+        t.join(timeout=5)
+    assert order == ["job-4", "job-2", "job-3", "job-1"]
+
+
+def test_a_new_run_does_not_jump_ahead_of_those_waiting():
+    pool = WorkerPool(max_workers=1)
+    pool._waiting["early"] = (job(9), datetime.now(timezone.utc) - timedelta(seconds=5))
+    assert pool._may_start(job(1), None) is False
+    urgent = job(2)
+    urgent.priority = 1
+    assert pool._may_start(urgent, None) is True
+
+
+def test_two_free_slots_serve_the_second_in_line_too():
+    pool = WorkerPool(max_workers=2)
+    first, second, third = job(1), job(2), job(3)
+    now = datetime.now(timezone.utc)
+    pool._waiting = {"job-1": (first, now - timedelta(seconds=5)), "job-2": (second, now - timedelta(seconds=4))}
+    assert pool._may_start(second, pool._waiting["job-2"][1]) is True
+    assert pool._may_start(third, None) is False
 
 
 def test_uncapped_pool_never_reports_waiting(monkeypatch):

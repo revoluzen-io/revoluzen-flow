@@ -122,7 +122,7 @@ def _node_topics() -> list[Topic]:
         body = (
             f"**{pretty} node** (`{value}`). {desc} "
             f"Drag it onto the canvas from the Editor's node palette, then configure "
-            f"it in the right-hand panel."
+            f"it in its config panel, which opens along the bottom of the editor."
         )
         out.append(Topic(
             id=f"node.{value}",

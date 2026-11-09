@@ -626,6 +626,14 @@ class SortNode(BaseNode):
         default_dir = str(self.params.get("direction", "ASC")).upper()
         if isinstance(raw, str):
             raw = [t.strip() for t in raw.split(",") if t.strip()]
+        # Copilot drafts were told to write {columns, ascending}, which this node
+        # ignored, so those pipelines hold a sort that never happened.
+        if not raw and isinstance(self.params.get("columns"), list):
+            ascending = self.params.get("ascending") or []
+            raw = [
+                {"column": col, "direction": "ASC" if (ascending[i] if i < len(ascending) else True) else "DESC"}
+                for i, col in enumerate(self.params["columns"])
+            ]
 
         rules: list[tuple[str, str, str]] = []
         for item in raw:
@@ -1034,7 +1042,7 @@ class LookupNode(BaseNode):
             {"name": "multiple_match", "type": "select", "label": "If Multiple Matches",
              "options": ["all", "first"], "default": "all",
              "description": "all = return every match (may duplicate main rows); first = one match per key."},
-            {"name": "return_columns", "type": "text", "label": "Return Columns",
+            {"name": "return_columns", "type": "column_list", "label": "Return Columns",
              "description": "Reference columns to append. Empty = all except the key."},
         ]
 
@@ -1799,6 +1807,10 @@ class DbSinkNode(BaseNode):
         """Map a DuckDB type string to the target database SQL type."""
         base = str(duckdb_type).upper().split("(")[0].strip()
         mapped = cls._DUCKDB_TO_SQL.get(base, "TEXT")
+        # A bare DECIMAL means DECIMAL(10,0) in MySQL and (18,0) in SQL Server,
+        # which rounds every amount to a whole number. Keep the width.
+        if base == "DECIMAL" and "(" in str(duckdb_type) and conn_type != "sqlite":
+            return str(duckdb_type).upper()
         if conn_type == "mysql":
             if mapped == "BOOLEAN":
                 return "TINYINT(1)"
@@ -1916,7 +1928,9 @@ class DbSinkNode(BaseNode):
 
     def _write_sqlite(self, config, table, columns, rows, mode, types=None, merge_on=None):
         import sqlite3
-        db_path = config.get("database") or config.get("file")
+
+        from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+        db_path = sqlite_db_path(config)
         if not db_path:
             raise ValueError("SQLite Sink: no database path configured")
         conn = sqlite3.connect(db_path)

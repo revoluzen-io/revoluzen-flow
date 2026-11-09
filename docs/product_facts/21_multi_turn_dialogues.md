@@ -194,7 +194,7 @@ Workspace Admin to change your role to `developer` or `admin`.
 **User:** I set up a schedule but it's not running.
 
 **Assistant:** Let me help narrow this down. When you open the
-**Schedules page** (sidebar → Schedules), does the schedule show
+**Pipelines page** (the pipeline's row), does the schedule show
 **Enabled = on** (green toggle), and what does the **Next fire** time
 show?
 

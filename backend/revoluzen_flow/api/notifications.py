@@ -79,7 +79,7 @@ def _get_db():
 
 # Defaults match what the watchdog assumes when admin_settings is empty
 # (see worker_pool._long_running_threshold_min and on_long_running /
-# on_schedule_miss in notifications/service.py).
+# on_schedule_miss / on_credential_expiry in notifications/service.py).
 _DEFAULT_CONFIG: dict[str, Any] = {
     # Pipeline event toggles
     "notify_on_success": True,
@@ -89,6 +89,7 @@ _DEFAULT_CONFIG: dict[str, Any] = {
     "notify_on_long_running": True,
     "long_running_threshold_min": 30,
     "notify_on_schedule_miss": True,
+    "notify_on_credential_expiry": True,
     # External channels
     "channels": ["email"],
     "email_enabled": False,
@@ -174,6 +175,7 @@ class NotificationConfigUpdate(BaseModel):
     notify_on_long_running: bool | None = None
     long_running_threshold_min: int | None = Field(default=None, ge=1, le=1440)
     notify_on_schedule_miss: bool | None = None
+    notify_on_credential_expiry: bool | None = None
     channels: list[str] | None = None
     email_enabled: bool | None = None
     browser_enabled: bool | None = None

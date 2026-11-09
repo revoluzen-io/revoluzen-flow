@@ -4,12 +4,14 @@ Per `edition-matrix.md` line 64-72, notification capabilities split as follows.
 
 ## OSS Free includes
 
-**Channels** — in-app bell + email + Slack + Discord + generic webhook. Configure each in **Settings → Notifications**.
+**Channels** — in-app bell + email + Slack + Teams + Discord + generic webhook. Configure each in **Settings → Notifications**.
 
 **Per-pipeline triggers**:
 - **`ON_FAILURE`** — fires when a pipeline run ends with status=error
 - **`ON_LONG_RUNNING`** — fires when a run exceeds the configured duration threshold (default 30 minutes; tunable in Settings)
 - **`ON_SCHEDULE_MISS`** — fires when a scheduled pipeline doesn't fire within its expected window (default 5-minute grace)
+
+**Credential expiry warnings** — when a saved credential has an expiry date, administrators are warned on the bell and by email a week ahead, a day ahead and when it expires, once each per date. For example, a key expiring on 30 June is flagged on 23 June, on 29 June and on 30 June. Renewing to a new date starts the warnings again. The check runs hourly. Email needs SMTP. Turn it off with **Settings → Notifications → Automatic Alerts → Credential expiry warnings** (`notify_on_credential_expiry`, on by default). The warning opens the Credentials page, and the **Credentials** chip on the Notifications page filters to these.
 
 **Watchdog** — a background loop that polls the executions store at the schedule cadence to detect schedule-miss + long-running situations. Lives in `worker_pool._timeout_watchdog_loop`.
 
@@ -33,7 +35,7 @@ Per `edition-matrix.md` line 64-72, notification capabilities split as follows.
 **OSS Free**:
 - Settings → Notifications → channels (email SMTP, Slack webhook, Discord webhook, generic webhook URL)
 - Pipelines page → pipeline detail → Alerts tab → add rule
-- Settings → Notifications → Pipeline Notifications section → long-running threshold + schedule-miss grace
+- Settings → Notifications → Automatic Alerts section → long-running threshold, schedule-miss detection and credential expiry warnings
 
 **Revoluzen Flow Enterprise** (above plus):
 - Settings → Notifications → Quiet Hours
@@ -56,5 +58,6 @@ Per `edition-matrix.md` line 64-72, notification capabilities split as follows.
 | Which channels can I send to? | Settings → Notifications |
 | Why didn't my schedule-miss alert fire? | Backend log line `_timeout_watchdog_loop` ran at … |
 | Did the email leave the host? | Settings → Notifications → "Test email" button |
-| What's the long-running threshold? | Settings → Notifications → Pipeline Notifications |
+| What's the long-running threshold? | Settings → Notifications → Automatic Alerts |
+| Why was I warned about a credential? | Its expiry date is within a week, or has passed. Connections → Credentials |
 | How do I disable a noisy alert temporarily? | Pipelines → pipeline → Alerts tab → toggle |

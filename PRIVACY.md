@@ -52,16 +52,17 @@ If a network connection is critical for your threat model, you can verify in cod
 
 ## Data retention
 
-**Revoluzen Flow keeps your data indefinitely, with one exception.** This
-build has no time-based retention policy and no retention settings UI — a
-retention scheduler is a Revoluzen Flow Enterprise feature. Everything stays
-on your disk until you delete it.
+**Revoluzen Flow keeps your data indefinitely, with two exceptions that are on
+by default.** This build has no time-based retention policy and no retention
+settings UI — a retention scheduler is a Revoluzen Flow Enterprise feature.
+Everything stays on your disk until you delete it.
 
 What is deleted automatically:
 
 | What | Behaviour | Control |
 |---|---|---|
 | Captured step-output **samples** (the example rows shown on a run's steps) | Sample rows are dropped 30 days after capture. Row counts and schema are kept indefinitely, so historical lineage still resolves. | `REVOLUZEN_FLOW_DISABLE_STEP_OUTPUT_PRUNE=1` turns the pruner off |
+| **Deleted pipelines** in the Bin | Deleting a pipeline moves it to the Bin, with its saved versions, where it can be restored. A daily job removes it for good 30 days after it was deleted. **Delete forever** and **Empty Bin** remove it at once. | `REVOLUZEN_FLOW_BIN_RETENTION_DAYS=30` (any positive number; `0` = never removed automatically) |
 | AI **agent traces** | **Off by default** — traces are kept forever. Set a number of days and a daily sweep deletes traces older than that. | `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS=90` (any positive number; `0` = keep forever) |
 
 Two stores are bounded **by count, not by age** — the oldest entries are
@@ -78,7 +79,9 @@ Sign-in sessions expire on their own schedule
 Everything else — execution history, the audit log, token-wallet records —
 grows without bound in this build. If you handle regulated data,
 treat those stores as in scope for your own retention process; deleting a
-project or pipeline in the UI is the supported way to remove its records.
+project or pipeline in the UI is the supported way to remove its records. A
+deleted pipeline waits in the Bin until the daily job removes it, so use
+**Delete forever** there to remove it, and its saved versions, straight away.
 
 > **Correction (2026-10-28).** Earlier revisions of this page described
 > execution-log and audit-log retention settings under

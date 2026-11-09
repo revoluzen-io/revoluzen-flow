@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<products>
+  <product>
+    <id>1</id>
+    <sku>TL-1001</sku>
+    <name>Cordless Drill 18V</name>
+    <category>tools</category>
+    <price>129.00</price>
+    <stock>333</stock>
+  </product>
+  <product>
+    <id>2</id>
+    <sku>TL-1002</sku>
+    <name>Impact Driver Kit</name>
+    <category>tools</category>
+    <price>159.00</price>
+    <stock>116</stock>
+  </product>
+  <product>
+    <id>3</id>
+    <sku>TL-1003</sku>
+    <name>Socket Set 120pc</name>
+    <category>tools</category>
+    <price>89.50</price>
+    <stock>43</stock>
+  </product>
+  <product>
+    <id>4</id>
+    <sku>TL-1004</sku>
+    <name>Laser Level</name>
+    <category>tools</category>
+    <price>74.99</price>
+    <stock>274</stock>
+  </product>
+  <product>
+    <id>5</id>
+    <sku>TL-1005</sku>
+    <name>Torque Wrench</name>
+    <category>tools</category>
+    <price>64.00</price>
+    <stock>213</stock>
+  </product>
+  <product>
+    <id>6</id>
+    <sku>TL-1006</sku>
+    <name>Angle Grinder</name>
+    <category>tools</category>
+    <price>98.00</price>
+    <stock>349</stock>
+  </product>
+  <product>
+    <id>7</id>
+    <sku>TL-1007</sku>
+    <name>Workbench Vise</name>
+    <category>tools</category>
+    <price>112.00</price>
+    <stock>65</stock>
+  </product>
+  <product>
+    <id>8</id>
+    <sku>TL-1008</sku>
+    <name>Oscillating Multi-Tool</name>
+    <category>tools</category>
+    <price>139.00</price>
+    <stock>24</stock>
+  </product>
+  <product>
+    <id>9</id>
+    <sku>EL-2001</sku>
+    <name>USB-C Dock 12-in-1</name>
+    <category>electronics</category>
+    <price>189.00</price>
+    <stock>121</stock>
+  </product>
+  <product>
+    <id>10</id>
+    <sku>EL-2002</sku>
+    <name>27in 4K Monitor</name>
+    <category>electronics</category>
+    <price>349.00</price>
+    <stock>106</stock>
+  </product>
+  <product>
+    <id>11</id>
+    <sku>EL-2003</sku>
+    <name>Mechanical Keyboard</name>
+    <category>electronics</category>
+    <price>119.00</price>
+    <stock>1</stock>
+  </product>
+  <product>
+    <id>12</id>
+    <sku>EL-2004</sku>
+    <name>Wireless Mouse</name>
+    <category>electronics</category>
+    <price>49.00</price>
+    <stock>33</stock>
+  </product>
+  <product>
+    <id>13</id>
+    <sku>EL-2005</sku>
+    <name>Noise-Cancelling Headset</name>
+    <category>electronics</category>
+    <price>229.00</price>
+    <stock>187</stock>
+  </product>
+  <product>
+    <id>14</id>
+    <sku>EL-2006</sku>
+    <name>1080p Webcam</name>
+    <category>electronics</category>
+    <price>79.00</price>
+    <stock>47</stock>
+  </product>
+  <product>
+    <id>15</id>
+    <sku>EL-2007</sku>
+    <name>Portable SSD 2TB</name>
+    <category>electronics</category>
+    <price>179.00</price>
+    <stock>22</stock>
+  </product>
+  <product>
+    <id>16</id>
+    <sku>EL-2008</sku>
+    <name>Smart Power Strip</name>
+    <category>electronics</category>
+    <price>39.00</price>
+    <stock>304</stock>
+  </product>
+  <product>
+    <id>17</id>
+    <sku>EL-2009</sku>
+    <name>Label Printer</name>
+    <category>electronics</category>
+    <price>95.00</price>
+    <stock>318</stock>
+  </product>
+  <product>
+    <id>18</id>
+    <sku>EL-2010</sku>
+    <name>Thermal Receipt Printer</name>
+    <category>electronics</category>
+    <price>215.00</price>
+    <stock>235</stock>
+  </product>
+  <product>
+    <id>19</id>
+    <sku>BN-3001</sku>
+    <name>Home Office Starter Bundle</name>
+    <category>bundles</category>
+    <price>399.00</price>
+    <stock>139</stock>
+  </product>
+  <product>
+    <id>20</id>
+    <sku>BN-3002</sku>
+    <name>Workshop Essentials Bundle</name>
+    <category>bundles</category>
+    <price>449.00</price>
+    <stock>331</stock>
+  </product>
+  <product>
+    <id>21</id>
+    <sku>BN-3003</sku>
+    <name>Streaming Kit Bundle</name>
+    <category>bundles</category>
+    <price>329.00</price>
+    <stock>223</stock>
+  </product>
+  <product>
+    <id>22</id>
+    <sku>BN-3004</sku>
+    <name>Field Technician Bundle</name>
+    <category>bundles</category>
+    <price>519.00</price>
+    <stock>215</stock>
+  </product>
+  <product>
+    <id>23</id>
+    <sku>OF-4001</sku>
+    <name>Ergonomic Chair</name>
+    <category>office</category>
+    <price>279.00</price>
+    <stock>81</stock>
+  </product>
+  <product>
+    <id>24</id>
+    <sku>OF-4002</sku>
+    <name>Sit-Stand Desk</name>
+    <category>office</category>
+    <price>459.00</price>
+    <stock>181</stock>
+  </product>
+  <product>
+    <id>25</id>
+    <sku>OF-4003</sku>
+    <name>Monitor Arm Dual</name>
+    <category>office</category>
+    <price>89.00</price>
+    <stock>3</stock>
+  </product>
+  <product>
+    <id>26</id>
+    <sku>OF-4004</sku>
+    <name>Desk Lamp LED</name>
+    <category>office</category>
+    <price>34.00</price>
+    <stock>49</stock>
+  </product>
+  <product>
+    <id>27</id>
+    <sku>OF-4005</sku>
+    <name>Whiteboard 120x90</name>
+    <category>office</category>
+    <price>69.00</price>
+    <stock>220</stock>
+  </product>
+  <product>
+    <id>28</id>
+    <sku>OF-4006</sku>
+    <name>Filing Cabinet 3-drawer</name>
+    <category>office</category>
+    <price>149.00</price>
+    <stock>275</stock>
+  </product>
+  <product>
+    <id>29</id>
+    <sku>OF-4007</sku>
+    <name>Paper Shredder</name>
+    <category>office</category>
+    <price>84.00</price>
+    <stock>160</stock>
+  </product>
+  <product>
+    <id>30</id>
+    <sku>OF-4008</sku>
+    <name>Acoustic Panel 6-pack</name>
+    <category>office</category>
+    <price>59.00</price>
+    <stock>225</stock>
+  </product>
+  <product>
+    <id>31</id>
+    <sku>EL-2099</sku>
+    <name>Returned Monitor (damaged)</name>
+    <category>electronics</category>
+    <price>99.00</price>
+    <stock>-3</stock>
+  </product>
+  <product>
+    <id>32</id>
+    <sku></sku>
+    <name>Unlabelled Pallet</name>
+    <category>bundles</category>
+    <price>250.00</price>
+    <stock>4</stock>
+  </product>
+</products>

@@ -39,6 +39,7 @@ export type Page =
   | 'templates'
   | 'editor'
   | 'executions'
+  | 'triggers'
   | 'pool'
   | 'storage'
   | 'lineage'
@@ -73,6 +74,7 @@ export const VALID_PAGES: Page[] = [
   'templates',
   'editor',
   'executions',
+  'triggers',
   'pool',
   'storage',
   'lineage',

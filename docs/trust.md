@@ -70,7 +70,7 @@ Every AI suggestion and every tool call is logged with a trace ID. You can repla
 |---|---|
 | Trace schema definition | `docs/ai-boundary-contract.md` section 8 |
 | Trace store implementation | `backend/revoluzen_flow/ai/trace_store.py` |
-| Trace UI panel | `frontend/src/components/pages/ActivityPage.tsx` (Insights → Activity: audit + agent-trace + execution timeline) |
+| Trace UI panel | `frontend/src/components/pages/ActivityPage.tsx` (Insights → Activity: each AI request, from the Copilot or another feature, with model, tokens, estimated cost and result; open a row for its steps) |
 | Cost indicator in agent response | inline in chat UI |
 | Architecture invariant: no tool call without an audit event | `backend/tests/architecture/test_invariants.py` |
 

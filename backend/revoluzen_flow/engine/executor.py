@@ -489,12 +489,17 @@ class WorkflowExecutor:
         # namespace, so there is nothing to protect the operator from and
         # skipping would only make the preview less faithful.
         preview_mode = bool(preview_mode) and sandbox_namespace is None
+        # A run that writes to real destinations reads everything. Capping is
+        # for runs that don't write; scheduled runs, backfills and Replay never
+        # asked for a full run, so they used to write partial data.
+        full_run = bool(full_run) or (not preview_mode and sandbox_namespace is None)
         ctx = ExecutionContext(
             conn=conn, data_dir=self.data_dir, full_run=full_run,
             app_state=self.app_state, run_id=run_id,
             preview_mode=preview_mode,
             sample_row_limit=sample_row_limit,
         )
+        ctx.sandboxed = sandbox_namespace is not None
         ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
         # Z33 (2026-05-23) — expose workflow id + scaffold metadata +
         # per-step params to nodes (so a sink can read its upstream
@@ -502,6 +507,7 @@ class WorkflowExecutor:
         # Test paths that build the context directly skip this and the
         # nodes fall back to default behavior.
         ctx.workflow_id = getattr(workflow, "id", None)
+        ctx._workflow_ref = workflow
         ctx.workflow_metadata = dict(getattr(workflow, "metadata", {}) or {})
         ctx.step_params = {s.id: dict(getattr(s, "params", {}) or {}) for s in workflow.steps}
 
@@ -780,7 +786,12 @@ class WorkflowExecutor:
             # whole run (sources AND sinks) has succeeded. A source that
             # advanced its cursor at read-time would skip rows whose sink then
             # failed — silent data loss. No-op unless a db_source ran.
-            self._commit_sync_cursors(ctx)
+            # Only for a run that really loaded something: a Sample (preview) or
+            # sandbox run reads a capped number of rows and writes nothing real,
+            # and its newest value would send the next real run past rows that
+            # were never loaded.
+            if not (getattr(ctx, "preview_mode", False) or getattr(ctx, "sandboxed", False)):
+                self._commit_sync_cursors(ctx)
 
         run_result.completed_at = datetime.now(timezone.utc)
         run_result.duration_ms = round(elapsed, 2)
@@ -834,7 +845,11 @@ class WorkflowExecutor:
             except Exception:  # noqa: BLE001 — never break run cleanup
                 logger.warning("steward ingestion failed for run=%s", run_id, exc_info=True)
 
-        self._maybe_verify_contract(workflow, run_result, run_id)
+        # A contract describes what reached the destination. A preview or
+        # sandbox run wrote nothing there, on capped rows, so judging it would
+        # raise false alerts and add a false receipt to the chain.
+        if not (ctx.preview_mode or ctx.sandboxed):
+            self._maybe_verify_contract(workflow, run_result, run_id)
 
         conn.close()
         return run_result
@@ -911,6 +926,8 @@ class WorkflowExecutor:
         point. Every OTHER failure in here is swallowed, because a gate
         that breaks runs through its own bugs is worse than no gate.
         """
+        if getattr(ctx, "preview_mode", False):
+            return  # nothing is about to be written
         try:
             from revoluzen_flow.contracts.precommit import (
                 PRECOMMIT_CHECKABLE, ContractBlockedWrite, check_precommit,
@@ -1053,10 +1070,16 @@ class WorkflowExecutor:
 
             from revoluzen_flow.contracts.service import verify_run
 
+            upstream: dict[str, list[str]] = {}
+            for edge in workflow.connections:
+                upstream.setdefault(edge.to_step, []).append(edge.from_step)
+
             receipt = verify_run(
                 contract,
                 run_result,
                 run_id=run_id,
+                upstream=upstream,
+                labels={s.id: s.label for s in workflow.steps if s.label},
                 # Chain onto this pipeline's previous receipt so the
                 # sequence can later be walked for tampering.
                 prev_hash=store.last_receipt_hash(workflow.id),
@@ -1259,7 +1282,8 @@ class WorkflowExecutor:
             return StepRunResult(step_id=step_id, status="error", error="Step not found")
 
         conn = _open_duckdb()
-        ctx = ExecutionContext(conn=conn, data_dir=self.data_dir, app_state=self.app_state)
+        # Not a preview: the target step runs for real and may write.
+        ctx = ExecutionContext(conn=conn, data_dir=self.data_dir, full_run=True, app_state=self.app_state)
         ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
         input_map = self._build_input_map(workflow)
 
@@ -1335,7 +1359,23 @@ class WorkflowExecutor:
 
         Sources (no upstream) execute themselves with preview_limit=0 so
         their own output schema is returned under ``self_schema``.
+
+        Runs in preview mode, as Test Node does. This is called just to fill the
+        column pickers when someone opens a step, so it must never have an effect
+        outside the run. It used to run the upstream steps for real: opening a step
+        downstream of a sink wrote that sink's file, table or upload every time.
         """
+        # The same declared defaults Test Node uses, so a ${param.x} upstream
+        # doesn't reach the SQL as literal text.
+        if getattr(workflow, "parameters", None):
+            try:
+                from revoluzen_flow.engine.parameters import resolve_workflow_parameters
+                workflow = resolve_workflow_parameters(workflow, {})
+            except Exception:
+                logger.warning(
+                    "get_step_input_schema: parameter resolution failed; using raw ${param} refs",
+                    exc_info=True,
+                )
         self._workflow_ref = workflow
         step = next((s for s in workflow.steps if s.id == step_id), None)
         if not step:
@@ -1347,6 +1387,7 @@ class WorkflowExecutor:
                 conn=conn,
                 data_dir=self.data_dir,
                 app_state=self.app_state,
+                preview_mode=True,
             )
             ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
             input_map = self._build_input_map(workflow)
@@ -1438,6 +1479,15 @@ class WorkflowExecutor:
             return
         if step.id in self._cached_step_ids:
             # We loaded this step from cache — no need to re-write the same bytes.
+            return
+        # The cache key is the step's config, not its rows. A capped result or
+        # a skipped side effect's placeholder would be reused as the real
+        # output by Resume and "Rerun from here", and written to destinations.
+        if (
+            not getattr(ctx, "full_run", False)
+            or getattr(ctx, "preview_mode", False)
+            or getattr(ctx, "sandboxed", False)
+        ):
             return
         rel = ctx._results.get(step.id)
         if rel is None:
@@ -1587,6 +1637,7 @@ class WorkflowExecutor:
                     schema_info=preview.get("schema_info", []),
                     duration_ms=round(elapsed, 2),
                     skipped_reason=self._preview_skip_reason(step, ctx),
+                    read_error=preview.get("read_error") or None,
                 )
             except Exception as e:  # noqa: BLE001 — we want to handle every failure
                 last_error = e

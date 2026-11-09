@@ -711,7 +711,9 @@ class ConnectionStore:
     ) -> tuple[list[str], list[dict], int] | None:
         import os
 
-        db_path = config.get("database") or config.get("file")
+        from .sqlite_path import sqlite_db_path
+
+        db_path = sqlite_db_path(config)
         if not db_path or not os.path.isfile(db_path):
             return None
 
@@ -736,7 +738,8 @@ class ConnectionStore:
     ) -> tuple[list[str], list[dict], int] | None:
         merged = {**config}
         if cred:
-            merged.update(cred)
+            from .credentials import apply_linked_credential
+            apply_linked_credential(merged, cred)
 
         host = merged.get("host")
         database = merged.get("database")
@@ -1021,7 +1024,8 @@ class ConnectionStore:
                     cred_store = app_state["credential_store"]
                     cred = cred_store.get_raw(connection.credential_id)
                     if cred and cred.config:
-                        config.update(cred.config)
+                        from .credentials import apply_linked_credential
+                        apply_linked_credential(config, cred.config)
                 except Exception:
                     pass
 

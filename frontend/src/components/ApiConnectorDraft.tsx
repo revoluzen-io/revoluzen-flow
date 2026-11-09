@@ -121,7 +121,7 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
         '/connectors/author/save', { manifest: result.runtime_manifest });
       if (generation.current !== current) return;
       setSaveState('saved');
-      setSaveMsg(`Saved “${saved.name}” as a Beta connector with ${saved.streams} stream(s). It is usable now — no restart.`);
+      setSaveMsg(`Saved “${saved.name}” as a Beta connector with ${saved.streams} stream(s). It is usable now — no restart. In a pipeline, add a SaaS Connector node from the Import group, and choose it there.`);
     } catch (e: any) {
       if (generation.current !== current) return;
       setSaveState('error');

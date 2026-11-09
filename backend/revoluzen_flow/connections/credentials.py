@@ -51,6 +51,23 @@ def _try_vault_put(vault_key: str, data: dict[str, Any]) -> bool:
         return False
 
 
+def apply_linked_credential(config: dict[str, Any], credential_config: dict[str, Any]) -> dict[str, Any]:
+    """Merge a connection's linked credential into its config, in place.
+
+    A ``credential_field_map`` says which connection field takes which
+    credential key, and only those are filled. Without one, every key in the
+    credential is merged under its own name.
+    """
+    field_map = config.get("credential_field_map")
+    if isinstance(field_map, dict):
+        for target_key, source_key in field_map.items():
+            if isinstance(target_key, str) and isinstance(source_key, str) and source_key in credential_config:
+                config[target_key] = credential_config[source_key]
+    else:
+        config.update(credential_config)
+    return config
+
+
 def resolve_credentials(connection: Any, override_config: dict[str, Any] | None = None) -> dict[str, Any]:
     """Return the merged credential dict for this connection.
 
@@ -86,15 +103,7 @@ def resolve_credentials(connection: Any, override_config: dict[str, Any] | None 
                 cred = cred_store.get_raw(cred_id)
                 if cred and getattr(cred, "config", None):
                     linked_credential_config = dict(cred.config)
-                    field_map = out.get("credential_field_map")
-                    if isinstance(field_map, dict):
-                        for target_key, source_key in field_map.items():
-                            if not isinstance(target_key, str) or not isinstance(source_key, str):
-                                continue
-                            if source_key in linked_credential_config:
-                                out[target_key] = linked_credential_config[source_key]
-                    else:
-                        out.update(linked_credential_config)
+                    apply_linked_credential(out, linked_credential_config)
                     # 2026-05-28 — mark the credential as used so the
                     # CredentialsPage "Last Used" column reflects actual
                     # pipeline activity, not just the date of the last

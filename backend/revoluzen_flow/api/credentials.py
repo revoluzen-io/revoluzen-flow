@@ -42,6 +42,15 @@ def get_store():
     return app_state["credential_store"]
 
 
+def _warn_if_expiring(credential: Credential) -> None:
+    """A credential saved with a close expiry date shouldn't wait for the next hourly check."""
+    if not credential.expires_at:
+        return
+    from revoluzen_flow.credentials.expiry import check_in_background
+    from revoluzen_flow.main import app_state
+    check_in_background(app_state)
+
+
 def _derive_username(cred_dict: dict) -> str | None:
     """Pull a display-friendly username out of the masked config so the
     credentials list can show it without the user drilling into the
@@ -49,7 +58,7 @@ def _derive_username(cred_dict: dict) -> str | None:
     cfg = cred_dict.get("config") or {}
     if not isinstance(cfg, dict):
         return None
-    for key in ("username", "user", "user_id", "client_id", "account", "access_key_id", "api_key"):
+    for key in ("username", "user", "user_id", "client_id", "account", "access_key_id"):
         v = cfg.get(key)
         if v and not str(v).startswith("***"):
             return str(v)[:64]
@@ -112,7 +121,7 @@ async def list_credentials(
     )
     # `rows` may be list[dict] (legacy) or list[Credential] (newer store).
     out = []
-    current_user = getattr(request.state, "user", None)
+    current_user = getattr(request.state, "user", None) or _user
     for row in rows or []:
         d = row if isinstance(row, dict) else row.model_dump(mode="json")
         out.append(_enrich_list_item(d, current_user))
@@ -129,7 +138,7 @@ async def create_credential(
 ):
     """Create a new credential in the caller's current workspace. Lead/admin only."""
     store = get_store()
-    current_user = getattr(request.state, "user", None)
+    current_user = getattr(request.state, "user", None) or _user
     creator = (
         getattr(current_user, "email", None) or
         getattr(current_user, "name", None)
@@ -149,6 +158,7 @@ async def create_credential(
         updated_by=creator,
     )
     created = store.create(credential)
+    _warn_if_expiring(created)
     result = created.model_dump(mode="json")
     result["config"] = store._mask_config(created.config)
     result["username"] = _derive_username(result)
@@ -183,6 +193,7 @@ async def update_credential(
     credential = store.update(credential_id, updates, workspace_id=workspace_id)
     if not credential:
         raise HTTPException(404, "Credential not found")
+    _warn_if_expiring(credential)
     result = credential.model_dump(mode="json")
     result["config"] = store._mask_config(credential.config)
     return result

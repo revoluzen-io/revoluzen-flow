@@ -218,12 +218,13 @@ def create_from_template(template_key: str) -> Workflow | None:
             type=StepType.DATA_QUALITY,
             label="Validate + DLQ Split",
             params={
-                "rules": [
-                    {"column": "employee_id", "rule": "not_null"},
-                    {"column": "employee_id", "rule": "unique"},
-                    {"column": "hire_date", "rule": "date_not_in_future"},
-                ],
-                "on_failure": "split_to_dlq",  # passing rows continue, failing → DLQ table
+                # The rules the node reads: {column, op, value?}. It has no
+                # unique-value or "not in the future" rule: uniqueness is a
+                # Deduplicate step ahead of the MERGE, a date bound a Filter.
+                "rules": [{"column": "employee_id", "op": "not_null"}],
+                # split: passing rows continue to staging; failing rows are kept
+                # in the run's variables (_dq_failures_<step id>) for a sink.
+                "mode": "split",
             },
             position=NodePosition(x=700, y=100),
         )

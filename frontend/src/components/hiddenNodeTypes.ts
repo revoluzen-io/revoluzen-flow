@@ -44,7 +44,9 @@ export const HIDDEN_TYPES: ReadonlySet<string> = new Set([
   // the designated way to branch a pipeline, so it belongs in the palette.
   'until_loop', 'filter_array', 'append_variable',
   'warehouse_sink', 'materialize',
-  'saas_source', 'saas_sink', 'saas_connector',
+  // 'saas_connector' stays visible: it's how a connector generated in the API
+  // Explorer, or a shipped SaaS one, gets used in a pipeline. Nothing else reads them.
+  'saas_source', 'saas_sink',
   'warehouse_source', 'jdbc_source', 'jdbc_sink',
   'cdc_source', 'openapi_source', 'vector_source',
   'warehouse_source_jdbc', 'warehouse_sink_jdbc',

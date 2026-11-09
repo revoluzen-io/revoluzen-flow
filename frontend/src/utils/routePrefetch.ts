@@ -51,6 +51,7 @@ const ROUTE_LOADERS: Partial<Record<Page, () => Promise<unknown>>> = {
   pipelines:     () => import('../components/pages/PipelinesPage'),
   templates:     () => import('../components/pages/TemplatesPage'),
   executions:    () => import('../components/pages/ExecutionsPage'),
+  triggers:      () => import('../components/pages/TriggersPage'),
   extraction:    () => import('../components/pages/ExtractionPage'),
   credentials:   () => import('../components/pages/CredentialsPage'),
   settings:      () => import('../components/pages/SettingsPage'),

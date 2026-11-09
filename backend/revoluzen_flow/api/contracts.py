@@ -25,7 +25,7 @@ def _safe_workspace_id(request: Request) -> str:
 
 def get_contract_store():
     from revoluzen_flow.main import app_state
-    return app_state["contract_store"]
+    return app_state["schema_contract_store"]
 
 
 def get_workflow_store():
@@ -148,7 +148,8 @@ async def check_drift(
 
     # Execute the step to get current schema
     from revoluzen_flow.engine.executor import WorkflowExecutor
-    executor = WorkflowExecutor(data_dir=get_data_dir())
+    from revoluzen_flow.main import app_state as _app_state
+    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
 
     try:
         result = executor.execute_step(v.workflow, contract.step_id, preview_limit=1)
@@ -185,16 +186,39 @@ async def check_drift(
     }
 
 
+def _steps_with_placeholder_output(wf) -> set[str]:
+    """Steps whose preview output is a side effect's placeholder row, directly
+    or through an upstream step. Sinks pass their input through, so they count
+    as real."""
+    from revoluzen_flow.ir.node_metadata import side_effect_class_for
+
+    found = {
+        s.id for s in wf.steps
+        if side_effect_class_for(s.type.value) in ("transforming", "terminal")
+    }
+    frontier = list(found)
+    while frontier:
+        current = frontier.pop()
+        for c in wf.connections:
+            if c.from_step == current and c.to_step not in found:
+                found.add(c.to_step)
+                frontier.append(c.to_step)
+    return found
+
+
 @router.post("/auto-create/{workflow_id}")
 async def auto_create_contracts(
     workflow_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Auto-create schema contracts from the last successful run
+    """Auto-create schema contracts from a preview run of the pipeline
     (scoped to caller's workspace).
 
-    Executes the entire workflow and captures each step's output schema
-    as a contract. Existing contracts for the same step are left intact.
+    Runs the workflow without its side effects and captures each step's
+    output schema as a contract. Existing contracts for the same step are
+    left intact. Steps with a skipped side effect that would change the
+    output, and everything downstream of them, get no contract: the preview
+    only has a placeholder row for them.
     """
     wf_store = get_workflow_store()
     v = wf_store.get(workflow_id, workspace_id=workspace_id)
@@ -206,11 +230,14 @@ async def auto_create_contracts(
 
     # Execute the workflow to get schemas
     from revoluzen_flow.engine.executor import WorkflowExecutor
-    executor = WorkflowExecutor(data_dir=get_data_dir())
+    from revoluzen_flow.main import app_state as _app_state
+    executor = WorkflowExecutor(data_dir=get_data_dir(), app_state=_app_state)
 
     try:
         from revoluzen_flow.security.execution_codes import mint_for_run
-        run_result = executor.execute_workflow(wf, preview_limit=1, execution_code=mint_for_run(wf))
+        run_result = executor.execute_workflow(
+            wf, preview_limit=1, execution_code=mint_for_run(wf), preview_mode=True,
+        )
     except Exception as e:
         import logging
         logging.getLogger(__name__).exception("Workflow execution failed")
@@ -222,8 +249,16 @@ async def auto_create_contracts(
 
     created = []
     skipped = []
+    placeholder_steps = _steps_with_placeholder_output(wf)
 
     for step in wf.steps:
+        if step.id in placeholder_steps:
+            skipped.append({
+                "step_id": step.id,
+                "reason": "Output depends on a side effect, which a preview does not run",
+            })
+            continue
+
         step_result = run_result.step_results.get(step.id)
         if not step_result or step_result.status != "success":
             skipped.append({

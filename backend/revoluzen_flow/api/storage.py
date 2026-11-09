@@ -658,7 +658,9 @@ def get_table_provenance(
     # ── Consumer pipelines (the "what breaks if I delete this?" set) ──
     try:
         full = compute_workspace_usage_cached(workspace_id)
-        consumers = full["tables"].get(table_id, [])
+        # The usage map holds every pipeline that touches the table. The one
+        # writing to it isn't a consumer.
+        consumers = [c for c in full["tables"].get(table_id, []) if c.get("role") != "sink"]
     except Exception:  # noqa: BLE001
         consumers = []
 

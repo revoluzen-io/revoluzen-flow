@@ -23,6 +23,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { askCopilot } from '../hooks/useAgentChatStore';
+import { useAnchoredPanel } from '../hooks/useAnchoredPanel';
 
 // ── Types matching backend/revoluzen_flow/steward/models.py ─────────────────
 type Severity = 'p1' | 'p2' | 'p3';
@@ -480,29 +481,10 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
   // Right-anchoring only ever works for a trigger near the right edge.
   // This clamps to the viewport instead: right-aligned to the trigger
   // where there is room, pushed back inside where there is not.
-  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
-  useEffect(() => {
-    if (!open) { setPanelPos(null); return; }
-    const measure = () => {
-      const r = rootRef.current?.getBoundingClientRect();
-      if (!r) return;
-      const GUTTER = 12;
-      const width = Math.min(640, window.innerWidth - GUTTER * 2);
-      const left = Math.max(
-        GUTTER,
-        Math.min(r.right - width, window.innerWidth - width - GUTTER),
-      );
-
-      setPanelPos({ top: r.bottom + 8, left, width });
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [open]);
+  // The measuring itself now lives in useAnchoredPanel, shared with the
+  // notification bell and the account menu — the same bug had to be
+  // fixed in all three, so there is one implementation of it.
+  const panelPos = useAnchoredPanel(open, rootRef, { width: 640 });
 
   const refreshFindings = useCallback(async () => {
     if (!signedIn) return;
@@ -1415,7 +1397,10 @@ export default function StewardBadge({ signedIn, isProd = false }: StewardBadgeP
                     </div>
                     <div className="mt-1 text-sm font-semibold text-slate-800">{f.title}</div>
                     <div className={`mt-0.5 text-xs text-slate-600 leading-relaxed whitespace-pre-line ${fExpanded ? '' : 'line-clamp-2'}`}>
-                      {f.body}
+                      {/* Detectors write **bold** in their bodies; show it as bold, not asterisks. */}
+                      {(f.body || '').split(/\*\*(.+?)\*\*/g).map((part, i) => (
+                        i % 2 ? <strong key={i} className="font-semibold text-slate-800">{part}</strong> : part
+                      ))}
                     </div>
                     {fLong && (
                       <button

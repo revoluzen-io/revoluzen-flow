@@ -23,6 +23,7 @@ import RuntimeLineagePanel from '../lineage/RuntimeLineagePanel';
 import StepIODrawer from './StepIODrawer';
 import StepGantt, { type GanttStep } from '../shared/StepGantt';
 import BackfillsPanel from './BackfillsPanel';
+import { triggerLabel } from '../../utils/triggerLabel';
 
 
 
@@ -222,6 +223,8 @@ interface Execution {
   environment?: 'dev' | 'prod';
   /** Full workflow IR captured at run start — powers "Open in Editor" / replay. */
   workflow_snapshot?: Record<string, any> | null;
+  /** Saved pipeline version this run executed. Absent on older runs. */
+  workflow_version?: number | null;
   /** Per-execution metadata bag. Compute usage (peak_memory_mb,
    * cpu_seconds), resolved parameter_values, and any feature flags
    * captured at run start live here. Optional — older runs predate it. */
@@ -733,6 +736,28 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
     setDetailLoading(false);
   };
 
+  // Resume finishes before it responds and creates a new run, so move the
+  // page to that run. The failed run it came from stays failed in history.
+  const resumeRun = async (exec: Execution) => {
+    setResumeLoading(true);
+    try {
+      const res = await api.resumeWorkflow(exec.workflow_id, exec.id);
+      if (res?.status === 'success') {
+        toast.success('Resume complete', 'Successful steps were loaded from their saved output.');
+      } else {
+        toast.error('Resumed run failed', 'See the new run for the step that failed.');
+      }
+      await loadData();
+      // Through the hash: the deep-link effect would otherwise reopen the
+      // failed run the URL still names.
+      if (res?.execution_id) window.location.hash = `executions/${res.execution_id}`;
+    } catch (err: any) {
+      toast.error('Resume failed', err?.message || 'The worker did not accept the resume.');
+    } finally {
+      setResumeLoading(false);
+    }
+  };
+
   // 2026-05-19 (P1 #5 of PAGE_BY_PAGE_AUDIT.md): live polling for a
   // running execution. Without this the detail pane of an active run was
   // a snapshot — the user had to click Refresh to see step progress. We
@@ -851,7 +876,8 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
       list = list.filter(e =>
         (e.workflow_name || e.workflow_id || '').toLowerCase().includes(q) ||
         (e.status || '').toLowerCase().includes(q) ||
-        (e.triggered_by || '').toLowerCase().includes(q)
+        (e.triggered_by || '').toLowerCase().includes(q) ||
+        triggerLabel(e.triggered_by).toLowerCase().includes(q)
       );
     }
     if (projectFilter) {
@@ -1251,6 +1277,9 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
                   label="Avg Elapsed"
                   value={formatDuration(currentStats.avg_duration_ms)}
+                  // The server averages successful runs only (the Dashboard's
+                  // Avg duration card is the same figure), so say so here.
+                  footer="successful runs only"
                 />
               </div>
 
@@ -1491,7 +1520,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                   status: e.status,
                   workflow: e.workflow_name || e.workflow_id,
                   env: e.environment || 'dev',
-                  trigger: e.triggered_by || 'manual',
+                  trigger: triggerLabel(e.triggered_by),
                   started: e.started_at,
                   completed: e.completed_at || '',
                   duration: e.duration_ms ? `${e.duration_ms}ms` : '',
@@ -1557,23 +1586,28 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                       {isVisible('trigger') && (
                         <td className="px-4 py-3 text-xs">
                           {(() => {
-                            // Map every backend trigger string to one of four buckets so
+                            // Map every backend trigger string to one of these buckets so
                             // the user can tell at a glance: manual run, scheduled run,
-                            // pre-publish test, or replay/api/websocket. The raw value
-                            // stays in the title attribute for power users.
+                            // pre-publish test, replay, or another application starting it
+                            // through a published endpoint (`api`). The raw value stays in
+                            // the title attribute for power users.
                             const raw = (exec.triggered_by || 'manual').toLowerCase();
                             const kind =
                               raw === 'schedule' ? 'schedule' :
                               raw === 'test' ? 'test' :
+                              raw === 'api' ? 'api' :
                               raw.startsWith('replay') ? 'replay' :
+                              raw.startsWith('resume') ? 'resume' :
                               raw === 'manual' ? 'manual' :
-                              'api';
-                            const styles: Record<string, { bg: string; text: string; label: string }> = {
-                              manual:   { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'Manual' },
-                              schedule: { bg: 'bg-purple-50',  text: 'text-purple-700',  label: 'Scheduled' },
-                              test:     { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Pre-publish test' },
-                              replay:   { bg: 'bg-amber-50',   text: 'text-amber-700',   label: 'Replay' },
-                              api:      { bg: 'bg-slate-100',  text: 'text-slate-700',   label: 'API / Webhook' },
+                              'other';
+                            const styles: Record<string, { bg: string; text: string }> = {
+                              manual:   { bg: 'bg-blue-50',    text: 'text-blue-700' },
+                              schedule: { bg: 'bg-purple-50',  text: 'text-purple-700' },
+                              test:     { bg: 'bg-emerald-50', text: 'text-emerald-700' },
+                              replay:   { bg: 'bg-amber-50',   text: 'text-amber-700' },
+                              resume:   { bg: 'bg-amber-50',   text: 'text-amber-700' },
+                              api:      { bg: 'bg-sky-50',     text: 'text-sky-700' },
+                              other:    { bg: 'bg-slate-100',  text: 'text-slate-700' },
                             };
                             const s = styles[kind];
                             return (
@@ -1581,7 +1615,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium text-xs ${s.bg} ${s.text}`}
                                 title={`Trigger: ${exec.triggered_by || 'manual'}`}
                               >
-                                {s.label}
+                                {triggerLabel(exec.triggered_by)}
                               </span>
                             );
                           })()}
@@ -1695,12 +1729,12 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                       animated dot for the 'running' state is built into
                       the shared pill, so the inline span wrapper is gone. */}
                   <StatusPill status={selectedExec.status || 'pending'} />
-                  {workflowDef?.version != null && (
+                  {(selectedExec.workflow_version != null || workflowDef?.version != null) && (
                     <span
                       className={`inline-flex items-center gap-1 text-xs font-mono font-bold px-2 py-0.5 rounded ${dark ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-slate-100 text-slate-600 border border-slate-200'}`}
-                      title={`Pipeline is currently at v${workflowDef.version}${workflowDef.deployed_version ? ` (deployed: v${workflowDef.deployed_version})` : ''}. This run's exact IR is preserved in the snapshot.`}
+                      title={`${selectedExec.workflow_version != null ? `This run used v${selectedExec.workflow_version}. ` : 'This run did not record its version. '}${workflowDef?.version != null ? `Pipeline is currently at v${workflowDef.version}${workflowDef.deployed_version ? ` (deployed: v${workflowDef.deployed_version})` : ''}. ` : ''}This run's exact IR is preserved in the snapshot.`}
                     >
-                      v{workflowDef.version}
+                      {selectedExec.workflow_version != null ? `v${selectedExec.workflow_version}` : `currently v${workflowDef?.version}`}
                     </span>
                   )}
                 </div>
@@ -1834,15 +1868,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                             confirmLabel: 'Resume',
                           });
                           if (!ok) return;
-                          setResumeLoading(true);
-                          try {
-                            const res = await api.resumeWorkflow(selectedExec.workflow_id, selectedExec.id);
-                            toast.success('Resume started', `Execution ${String(res?.execution_id || res?.id || '').slice(0, 8)} resumed from first failed step.`);
-                          } catch (err: any) {
-                            toast.error('Resume failed', err?.message || 'The worker did not accept the resume.');
-                          } finally {
-                            setResumeLoading(false);
-                          }
+                          await resumeRun(selectedExec);
                         }}
                         disabled={resumeLoading || !selectedExec.workflow_id}
                         title="Re-run starting from the first failed step. Skips successful steps using cached output."
@@ -1939,12 +1965,14 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
               {([
                 { label: 'Elapsed', value: formatDuration(selectedExec.duration_ms), mono: true },
                 { label: 'Started', value: formatTime(selectedExec.started_at) },
-                { label: 'Trigger', value: selectedExec.triggered_by || 'manual', cap: true },
+                { label: 'Trigger', value: triggerLabel(selectedExec.triggered_by) },
                 {
                   label: 'Pipeline version',
-                  value: workflowDef?.version != null
-                    ? `v${workflowDef.version}${selectedExec.workflow_snapshot ? '' : ' (no snapshot)'}`
-                    : selectedExec.workflow_snapshot ? 'snapshot only' : '—',
+                  value: selectedExec.workflow_version != null
+                    ? `v${selectedExec.workflow_version}`
+                    : workflowDef?.version != null
+                      ? `Not recorded (currently v${workflowDef.version})`
+                      : selectedExec.workflow_snapshot ? 'snapshot only' : '—',
                   mono: true,
                 },
                 {
@@ -2237,17 +2265,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                           <button
                             type="button"
                             disabled={resumeLoading || !selectedExec.id || !selectedExec.workflow_id}
-                            onClick={async () => {
-                              setResumeLoading(true);
-                              try {
-                                await api.resumeWorkflow(selectedExec.workflow_id, selectedExec.id);
-                                toast.success('Resume started — successful steps loaded from snapshot');
-                              } catch (e) {
-                                toast.error(`Resume failed: ${e instanceof Error ? e.message : String(e)}`);
-                              } finally {
-                                setResumeLoading(false);
-                              }
-                            }}
+                            onClick={() => resumeRun(selectedExec)}
                             className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${
                               dark
                                 ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 disabled:opacity-50'

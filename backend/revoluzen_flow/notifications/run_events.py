@@ -68,13 +68,16 @@ def emit_run_notification(
     if notification_store is None or user_store is None:
         return
 
+    # Read on the bell, where the other pages show this trigger as API too.
+    trigger_word = "API" if triggered_by == "api" else triggered_by
+
     if s == "success":
         ntype = "run_succeeded"
         title = f"{workflow_name or 'Pipeline'} succeeded"
         if duration_ms:
-            message = f"Completed in {duration_ms / 1000:.1f}s ({triggered_by})."
+            message = f"Completed in {duration_ms / 1000:.1f}s ({trigger_word})."
         else:
-            message = f"Completed via {triggered_by} run."
+            message = f"Completed via {trigger_word} run."
     else:
         ntype = "run_failed"
         title = f"{workflow_name or 'Pipeline'} failed"
@@ -85,7 +88,7 @@ def emit_run_notification(
             short = (error_message or "").strip().splitlines()[0][:160]
             if short:
                 bits.append(short)
-        message = " — ".join(bits) if bits else f"Failed during {triggered_by} run."
+        message = " — ".join(bits) if bits else f"Failed during {trigger_word} run."
 
     user_ids = list(_user_ids_for_workspace(user_store, workspace_id))
     if not user_ids:

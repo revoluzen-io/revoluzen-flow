@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any, TYPE_CHECKING
 
@@ -59,6 +62,47 @@ from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
 
 logger = logging.getLogger(__name__)
+
+_table_locks: dict[str, threading.Lock] = {}
+_table_locks_guard = threading.Lock()
+
+
+def _table_write_lock(table_dir: str) -> threading.Lock:
+    """The lock for one managed table. Serialises writers in this process."""
+    key = os.path.normcase(os.path.abspath(table_dir))
+    with _table_locks_guard:
+        return _table_locks.setdefault(key, threading.Lock())
+
+
+def _publish_as_only_part(ctx: ExecutionContext, table_dir: str, query: str) -> None:
+    """Write ``query`` to a staging file, then make it the table's only part.
+
+    The staging name is outside the ``part-*`` glob, so nothing reads it
+    until the rename. On Windows the rename fails while a reader still has
+    part-000 open, so it retries briefly before giving up.
+    """
+    staging = os.path.join(table_dir, f"staging-{uuid.uuid4().hex}.parquet")
+    final = os.path.join(table_dir, "part-000.parquet")
+    try:
+        ctx.conn.sql(f"COPY ({query}) TO '{staging.replace(chr(92), '/')}' (FORMAT PARQUET)")
+        for attempt in range(10):
+            try:
+                os.replace(staging, final)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.2)
+    finally:
+        if os.path.exists(staging):
+            os.remove(staging)
+
+    for fname in os.listdir(table_dir):
+        if fname.startswith("part-") and fname.endswith(".parquet") and fname != "part-000.parquet":
+            try:
+                os.remove(os.path.join(table_dir, fname))
+            except OSError as exc:
+                logger.warning("could not remove old part %s: %s", fname, exc)
 
 
 def _columns_from_storage_rows(rows) -> list[dict[str, Any]]:
@@ -349,6 +393,29 @@ class LocalTableSinkNode(BaseNode):
         paths = workspace_paths(_data_dir(ctx), workspace_id).ensure()
         table_dir = paths.table_dir(schema_name, table_name)
 
+        # One writer per table, from the schema check through the metadata
+        # refresh. Two pipelines writing the same table used to interleave:
+        # one counted rows while the other replaced the file, and the failed
+        # count was stored as 0 rows.
+        with _table_write_lock(table_dir):
+            return self._write(
+                ctx, upstream, store, paths, workspace_id,
+                schema_name, table_name, table_dir, mode, merge_on,
+            )
+
+    def _write(
+        self,
+        ctx: ExecutionContext,
+        upstream: "duckdb.DuckDBPyRelation",
+        store: DataStore,
+        paths,
+        workspace_id: str,
+        schema_name: str,
+        table_name: str,
+        table_dir: str,
+        mode: str,
+        merge_on: list[str],
+    ) -> "duckdb.DuckDBPyRelation":
         # ── Schema-policy enforcement (2026-05-27) ────────────────────
         # The policy decision is computed BEFORE we touch the filesystem
         # so a "strict" rejection produces zero side-effects — no part
@@ -442,15 +509,9 @@ class LocalTableSinkNode(BaseNode):
     # ── Mode implementations ──────────────────────────────────────────────
 
     def _mode_replace(self, ctx: ExecutionContext, table_dir: str) -> None:
-        # Drop all existing part-*.parquet, then write part-000.
-        for fname in os.listdir(table_dir):
-            if fname.startswith("part-") and fname.endswith(".parquet"):
-                try:
-                    os.remove(os.path.join(table_dir, fname))
-                except OSError as exc:
-                    logger.warning("replace mode: could not remove %s: %s", fname, exc)
-        out = os.path.join(table_dir, "part-000.parquet").replace("\\", "/")
-        ctx.conn.sql(f"COPY (SELECT * FROM _lt_sink_input) TO '{out}' (FORMAT PARQUET)")
+        # Write the new data first, then swap it in, so a failed write leaves
+        # the old table intact and readers never see a half-written part.
+        _publish_as_only_part(ctx, table_dir, "SELECT * FROM _lt_sink_input")
 
     def _mode_append(self, ctx: ExecutionContext, table_dir: str) -> None:
         # New part-{utc-timestamp}.parquet alongside existing.
@@ -505,17 +566,7 @@ class LocalTableSinkNode(BaseNode):
             f"WHERE NOT EXISTS (SELECT 1 FROM _lt_sink_input i WHERE {key_match}) "
             f"UNION ALL SELECT * FROM _lt_sink_input"
         )
-        # Write to a staging part, then rotate.
-        staging = os.path.join(table_dir, "part-merge-staging.parquet").replace("\\", "/")
-        ctx.conn.sql(f"COPY ({merged}) TO '{staging}' (FORMAT PARQUET)")
-        # Drop existing parts; rename staging → part-000.
-        for fp in existing_parts:
-            try:
-                os.remove(fp)
-            except OSError as exc:
-                logger.warning("merge mode: could not remove %s: %s", fp, exc)
-        final = os.path.join(table_dir, "part-000.parquet")
-        os.replace(staging, final)
+        _publish_as_only_part(ctx, table_dir, merged)
         try:
             ctx.conn.execute("DROP VIEW IF EXISTS _lt_existing")
         except Exception:
@@ -548,8 +599,9 @@ class LocalTableSinkNode(BaseNode):
                 f"SELECT COUNT(*) FROM read_parquet('{glob}', union_by_name=true)"
             ))
         except Exception as exc:  # noqa: BLE001
+            # None, not 0: "could not count" must not read as an empty table.
             logger.warning("metadata refresh: row count failed for %s: %s", table_dir, exc)
-            row_count = 0
+            row_count = None
         size_bytes = sum(
             os.path.getsize(os.path.join(table_dir, f)) for f in parts
         )
@@ -612,8 +664,10 @@ class LocalTableSinkNode(BaseNode):
 
         existing = store.find_table_by_name(workspace_id, schema_name, table_name)
         if existing:
-            existing.row_count = int(row_count)
-            existing.column_count = len(columns)
+            if row_count is not None:
+                existing.row_count = int(row_count)
+            if columns:
+                existing.column_count = len(columns)
             existing.size_bytes = int(size_bytes)
             existing.part_count = len(parts)
             existing.path = rel_dir
@@ -633,7 +687,7 @@ class LocalTableSinkNode(BaseNode):
                 schema_name=schema_name,
                 name=table_name,
                 path=rel_dir,
-                row_count=int(row_count),
+                row_count=int(row_count or 0),
                 column_count=len(columns),
                 size_bytes=int(size_bytes),
                 part_count=len(parts),
@@ -644,6 +698,8 @@ class LocalTableSinkNode(BaseNode):
             store.save_table(table)
             table_id = table.id
 
+        if not columns:
+            return
         store.save_columns(
             [
                 StorageColumn(

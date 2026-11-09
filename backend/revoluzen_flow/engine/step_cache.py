@@ -228,6 +228,9 @@ class StepCache:
                 "parquet_path": os.path.relpath(path, self.data_dir).replace("\\", "/"),
                 "row_count": int(row_count),
                 "cached_at": datetime.now(timezone.utc).isoformat(),
+                # Only uncapped output is cached now. Older entries have no
+                # marker and may hold sample rows, so `hit` ignores them.
+                "complete": True,
             }
             self._save_manifest(manifest)
         return path
@@ -241,7 +244,7 @@ class StepCache:
         with self._lock:
             manifest = self.load_manifest()
         entry = manifest.get(step_id)
-        if not entry:
+        if not entry or not entry.get("complete"):
             return None
         if entry.get("effective_hash") != expected_effective_hash:
             return None
@@ -301,7 +304,7 @@ class StepCache:
                     "cached": False, "fresh": False,
                 })
                 continue
-            fresh = entry.get("effective_hash") == effective.get(s.id)
+            fresh = bool(entry.get("complete")) and entry.get("effective_hash") == effective.get(s.id)
             steps.append({
                 "step_id": s.id,
                 "label": s.label or s.type.value,

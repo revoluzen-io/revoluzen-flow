@@ -492,7 +492,7 @@ async def api_post_run_summary(execution_id: str, request: Request):
 
     try:
         from revoluzen_flow.main import app_state  # type: ignore
-        log_store = app_state.get("execution_log")
+        log_store = app_state.get("execution_log_store")
     except Exception:
         log_store = None
 
@@ -630,7 +630,7 @@ class MetricsInsightResponse(BaseModel):
 def _gather_recent_executions(workspace_id: str | None, limit: int = 50):
     try:
         from revoluzen_flow.main import app_state  # type: ignore
-        log_store = app_state.get("execution_log")
+        log_store = app_state.get("execution_log_store")
     except Exception:
         return []
     if log_store is None:
@@ -1972,7 +1972,7 @@ def api_pre_run(workflow_id: str, request: Request, recent_n: int = 10) -> PreRu
     workspace_id = current_workspace_id(request)
     try:
         from revoluzen_flow.main import app_state  # type: ignore
-        log_store = app_state.get("execution_log")
+        log_store = app_state.get("execution_log_store")
     except Exception:
         log_store = None
 
@@ -2379,6 +2379,7 @@ async def page_assist(req: PageAssistRequest):
             return {
                 "message": (
                     "Credential health check:\n"
+                    "- Set an expiry date on each credential: administrators are warned on the bell and by email a week ahead, a day ahead and when it expires\n"
                     "- API tokens: check provider dashboard for expiry dates\n"
                     "- OAuth tokens: ensure refresh tokens are still valid\n"
                     "- Database passwords: if your org rotates every 90 days, mark rotation dates\n"

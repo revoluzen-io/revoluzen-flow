@@ -33,6 +33,7 @@ const CodeEditorPanel = lazy(() => import('./components/CodeEditorPanel'));
 const PipelinesPage = lazy(() => import('./components/pages/PipelinesPage'));
 const TemplatesPage = lazy(() => import('./components/pages/TemplatesPage'));
 const ExecutionsPage = lazy(() => import('./components/pages/ExecutionsPage'));
+const TriggersPage = lazy(() => import('./components/pages/TriggersPage'));
 const ExtractionPage = lazy(() => import('./components/pages/ExtractionPage'));
 const CredentialsPage = lazy(() => import('./components/pages/CredentialsPage'));
 const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
@@ -458,6 +459,7 @@ export default function App() {
       pipelines: 'pipelines',
       executions: 'executions',
       logs: 'executions',
+      triggers: 'triggers',
       connections: 'connections',
       credentials: 'credentials',
       dashboard: 'dashboard',
@@ -561,7 +563,7 @@ export default function App() {
           cancelLabel: 'Discard & log out',
         });
         if (choice) {
-          try { await ensureWorkflow(); } catch { /* still log out even if save failed */ }
+          try { await ensureWorkflow({ allowCreate: true }); } catch { /* still log out even if save failed */ }
         }
       }
     } catch {
@@ -681,9 +683,9 @@ export default function App() {
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        // Toolbar saves in the editor. Saving here as well wrote every Ctrl+S
+        // twice, adding two pipeline versions.
         e.preventDefault();
-        const { workflowId, ensureWorkflow } = useWorkflowStore.getState();
-        if (workflowId) ensureWorkflow();
       }
       if (e.key === 'Escape') {
         const store = useWorkflowStore.getState();
@@ -1134,8 +1136,8 @@ export default function App() {
                 <span className="text-xs font-medium text-violet-800">
                   <strong>Published pipeline.</strong> Auto-save is suspended so live runs aren't broken by exploratory edits.
                   {editorIsDirty
-                    ? ' You have unsaved changes — click Save to commit them as a new draft (the published version stays untouched until you Publish again).'
-                    : ' Click Save to commit any edits as a new draft.'}
+                    ? ' You have unsaved changes. Test and Run use them as they are; click Save when they are ready, and the next scheduled run uses them.'
+                    : ' Scheduled runs use the latest version you Save.'}
                 </span>
               </div>
             )}
@@ -1194,6 +1196,7 @@ export default function App() {
         {page === 'pipelines' && <PipelinesPage onOpenEditor={() => navigate('editor')} projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
         {page === 'templates' && <TemplatesPage onOpenEditor={() => navigate('editor')} environment={environment} tier={tier} />}
         {page === 'executions' && <ExecutionsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
+        {page === 'triggers' && <TriggersPage environment={environment} tier={tier} />}
         {/* Schedules removed — scheduling is pipeline-level via Quick Schedule */}
         {/* AlertsPage removed — alerts are pipeline-level, history in Notifications */}
         {page === 'credentials' && <CredentialsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}

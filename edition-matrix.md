@@ -23,7 +23,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Pipeline canvas (drag-drop) | ✅ | ✅ |
-| 44 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 39 curated in `ModulesPanel.tsx` plus 5 reconciled in from the backend registry. The registry itself holds 105 `StepType` entries; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
+| 45 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 40 curated in `modulesPanelData.ts` plus 5 reconciled in from the backend registry. The registry itself holds 105 `StepType` entries; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
 | 66 connectors visible by default (Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 80 declared types minus 14 marked roadmap. Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "66 connectors", not "66 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 66 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
 | Expression engine (`$json`, `$now`, `$('Node')`) | ✅ | ✅ |
 | SQL Transform (DuckDB-backed) | ✅ | ✅ |
@@ -109,6 +109,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Sandbox isolated dry-run before promotion | — | ✅ |
 | Notifications: in-app + email + Slack + Discord + generic webhook | ✅ | ✅ |
 | Notifications: long-running threshold + schedule miss detection (per-pipeline) | ✅ | ✅ |
+| Notifications: credential expiry warnings on the bell and by email, a week ahead, a day ahead and on expiry | ✅ | ✅ |
 | Notifications: browser desktop alerts | ✅ | ✅ |
 | Notifications: quiet hours (suppress non-critical during off-hours) | — | ✅ |
 | Notifications: debounce (collapse repeated alerts within window) | — | ✅ |
@@ -134,14 +135,14 @@ These are the inline AI helpers that augment specific UI moments (SQL helper, pr
 
 ## AI — agent & Copilot
 
-The agentic Copilot and its 30 tools all ship in OSS. Plus adds organizational guardrails.
+The agentic Copilot and its 32 tools all ship in OSS. Plus adds organizational guardrails.
 
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Copilot dock (resizable, page-aware, slash commands) | ✅ | ✅ |
-| 30 tools (22 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), plus 2 opt-in web tools registered only when the operator enables web access — full list in `docs/product_facts/10_ai_copilot.md`; source of truth is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` | ✅ | ✅ |
+| 32 tools (24 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), plus 2 opt-in web tools registered only when the operator enables web access — full list in `docs/product_facts/10_ai_copilot.md`; source of truth is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` | ✅ | ✅ |
 | Fast-lane router (rule-based; sub-1 s answers for the 14 most-common questions) | ✅ | ✅ |
-| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 30 tools (Layer 3) | ✅ | ✅ |
+| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 32 tools (Layer 3) | ✅ | ✅ |
 | Provider-aware wall-clock cap (300 s local, 120 s cloud) + Stop button | ✅ | ✅ |
 | Agent loop with bounded iterations + wall-clock cap | ✅ | ✅ |
 | Tool-tier RBAC for the agent (4 roles: viewer / developer / admin / super_admin) | ✅ | ✅ |
@@ -150,7 +151,7 @@ The agentic Copilot and its 30 tools all ship in OSS. Plus adds organizational g
 | Dry-run-by-default for new write tools (3-success threshold to unlock live) | ✅ | ✅ |
 | Confirmation card for every write | ✅ | ✅ |
 | Trace store (every run persisted with replay-safe step records) | ✅ | ✅ + 1-year retention + export |
-| Activity timeline page (audit + agent + execution feed) | ✅ | ✅ + cross-workspace view |
+| AI activity page (each AI request, from the Copilot or another feature: model, tokens, estimated cost, failures) | ✅ | ✅ + cross-workspace view |
 | Prompt signing (HMAC system prompt integrity) | ✅ | ✅ |
 | Llama-Guard / safety classifier on every turn | — | ✅ |
 | Cross-session conversational memory (managed context, deletable) | — | ✅ |
@@ -221,7 +222,7 @@ A single Sidebar entry "**Insights**" replaces three previously-scattered entrie
 
 | Subtab | OSS | Plus extension |
 |---|:-:|:-:|
-| **Activity** — audit + agent-trace + execution timeline (compact KPI strip + 5-col table) | ✅ | ✅ + cross-workspace view, retention controls |
+| **Activity** — what the AI did: each AI request (the Copilot's, or another feature's such as Editor drafting or SQL help) with the model, tokens, estimated cost and failures (4 cards + table). Pipeline runs stay on Workflows → Executions | ✅ | ✅ + cross-workspace view, retention controls |
 | **Trust** — security posture, "what we never do" pillars, kill-switch instructions | ✅ | ✅ (Revoluzen SOC 2 report planned, not yet available) |
 | **Reports** — one-shot installation report (PDF/MD download) | ✅ | ✅ + **custom report builder + scheduler** (pick metrics + grouping + filters → save as template → schedule daily/weekly/monthly → email to distribution list) |
 | **AI Provider** — per-user provider config, model browser, OpenRouter free-tier filter | ✅ per-user | ✅ + workspace-wide admin-managed config + monthly_budget_usd + allow_user_override toggle |
@@ -310,10 +311,10 @@ another document rather than re-derived. Re-derive them:
 
 | Count | Source of truth |
 |---|---|
-| Node types (44 / 6 categories) | `MODULES` in `frontend/src/components/ModulesPanel.tsx`, plus backend types not in `HIDDEN_TYPES` (`frontend/src/components/hiddenNodeTypes.ts`) |
+| Node types (45 / 6 categories) | `MODULES` in `frontend/src/components/modulesPanelData.ts`, plus backend types not in `HIDDEN_TYPES` (`frontend/src/components/hiddenNodeTypes.ts`) |
 | `StepType` registry (105) | `GET /api/node-types` |
 | Connectors (66) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
-| Agent tools (30) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
+| Agent tools (32) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
 | Templates (27) | `frontend/src/templates/catalog.ts` |
 
 **2026-10-28 review:** re-derived every count against the running build.

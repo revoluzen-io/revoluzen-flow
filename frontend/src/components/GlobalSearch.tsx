@@ -30,6 +30,7 @@ const PAGES: SearchItem[] = [
   { id: 'p-connections', label: 'Connections', category: 'pages', icon: 'plug', page: 'connections' },
   { id: 'p-credentials', label: 'Credentials', category: 'pages', icon: 'key', page: 'credentials' },
   { id: 'p-executions', label: 'Executions', category: 'pages', icon: 'play-circle', page: 'executions' },
+  { id: 'p-triggers', label: 'Triggers', category: 'pages', icon: 'play', page: 'triggers' },
   { id: 'p-dashboard', label: 'Dashboard', category: 'pages', icon: 'layout', page: 'dashboard' },
   { id: 'p-notifications', label: 'Notifications', category: 'pages', icon: 'bell', page: 'notifications' },
   { id: 'p-settings', label: 'Settings', category: 'pages', icon: 'settings', page: 'settings' },

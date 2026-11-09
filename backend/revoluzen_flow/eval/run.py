@@ -86,10 +86,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{r.category:<22} {r.case:<32} {r.score:>6.2f} {r.elapsed_ms:>6}ms {status:>8}")
 
     print("-" * 80)
-    total = len(results)
-    passed = sum(1 for r in results if r.passed)
-    avg = sum(r.score for r in results) / max(total, 1)
+    # A self-graded case judges a response this harness composed, so it can
+    # only pass. Counting it inflates every number above it, and the number
+    # above it is published on /trust. Report it, never count it.
+    measured = [r for r in results if not r.self_graded]
+    self_graded = [r for r in results if r.self_graded]
+    total = len(measured)
+    passed = sum(1 for r in measured if r.passed)
+    avg = sum(r.score for r in measured) / max(total, 1)
     print(f"  {passed}/{total} passed  ·  avg score {avg:.2f}")
+    if self_graded:
+        names = ", ".join(sorted(r.case for r in self_graded))
+        print(
+            f"  {len(self_graded)} self-graded case(s) NOT counted: {names}\n"
+            f"  (the harness composes the answer it then judges — see "
+            f"EvalCase.self_graded)"
+        )
 
     if save_to:
         print(f"\n  Report: {save_to}")
@@ -102,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
         data_dir = Path(os.environ.get("REVOLUZEN_FLOW_DATA_DIR", "data"))
         eval_dir = data_dir / "eval"
         eval_dir.mkdir(parents=True, exist_ok=True)
+        # Everything published here counts measured cases only. The
+        # self-graded ones are declared alongside so a reader of /trust can
+        # see what was excluded and why, rather than finding a rate that
+        # silently included cases the harness wrote the answers for.
         summary = {
             "ran": True,
             "ran_at": datetime.now(timezone.utc).isoformat(),
@@ -109,13 +125,22 @@ def main(argv: list[str] | None = None) -> int:
             "passed": passed,
             "pass_rate": round(passed / max(total, 1), 4),
             "avg_score": round(avg, 4),
+            "self_graded_excluded": len(self_graded),
+            "self_graded_cases": sorted(r.case for r in self_graded),
+            "self_graded_note": (
+                "Cases where this harness composes the response it then "
+                "judges. They cannot fail, so they are excluded from "
+                "total, passed, pass_rate and avg_score."
+            ),
             "by_category": {
                 cat: {
-                    "total": len(items),
-                    "passed": sum(1 for r in items if r.passed),
+                    "total": len([r for r in items if not r.self_graded]),
+                    "passed": sum(1 for r in items if r.passed and not r.self_graded),
                     "avg_score": round(
-                        sum(r.score for r in items) / max(len(items), 1), 4,
+                        sum(r.score for r in items if not r.self_graded)
+                        / max(len([r for r in items if not r.self_graded]), 1), 4,
                     ),
+                    "self_graded_excluded": len([r for r in items if r.self_graded]),
                 }
                 for cat, items in by_cat.items()
             },
@@ -141,7 +166,13 @@ def main(argv: list[str] | None = None) -> int:
     else:
         ok = overall_rate >= args.min_pass_rate
         if ok and args.min_category_pass_rate > 0.0:
-            for cat, items in by_cat.items():
+            for cat, all_items in by_cat.items():
+                # Measured cases only, for the same reason the overall rate
+                # excludes them: a self-graded case always passes and would
+                # lift a category over its gate on its own.
+                items = [r for r in all_items if not r.self_graded]
+                if not items:
+                    continue
                 cat_passed = sum(1 for r in items if r.passed)
                 cat_rate = cat_passed / max(len(items), 1)
                 if cat_rate < args.min_category_pass_rate:

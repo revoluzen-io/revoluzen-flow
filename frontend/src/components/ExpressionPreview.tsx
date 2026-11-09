@@ -84,7 +84,12 @@ export default function ExpressionPreview({ value }: { value: string }) {
           )}
         </span>
       )}
-      {state.status === 'error' && <span className="text-amber-600">⚠ {state.error}</span>}
+      {/* $vars only exists during a run, so having no value yet isn't a fault. */}
+      {state.status === 'error' && (
+        value.includes('$vars')
+          ? <span className="text-slate-500">Filled in during the run</span>
+          : <span className="text-amber-600">⚠ {state.error}</span>
+      )}
     </div>
   );
 }

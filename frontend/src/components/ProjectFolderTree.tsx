@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '../api/client';
 import { toast } from './Toast';
-import { uiConfirm, uiPrompt } from '../ui/dialog';
+import { uiAlert, uiConfirm, uiPrompt } from '../ui/dialog';
+import { runFolderDelete } from '../utils/folderDelete';
 
 interface ProjectNode {
   id: string;
@@ -114,6 +115,10 @@ interface Props {
   // handleExport, which owns the API call + blob download + toast. Same
   // per-project delegation shape as onArchive.
   onExport?: (projectId: string, projectName: string) => void;
+  // Edit a project's name, description, colour, icon and governance details.
+  // Wired from ProjectsPage's openEdit, which owns the form, the update call
+  // and the toast. Same per-project delegation shape as onArchive.
+  onEdit?: (projectId: string, projectName: string) => void;
 }
 
 const UNASSIGNED_ID = '__unassigned__';
@@ -170,6 +175,7 @@ export default function ProjectFolderTree({
   onTogglePin,
   onArchive,
   onExport,
+  onEdit,
 }: Props) {
   const [tree, setTree] = useState<ProjectNode[]>([]);
   const [allWorkflows, setAllWorkflows] = useState<WorkflowItem[]>([]);
@@ -277,23 +283,23 @@ export default function ProjectFolderTree({
     }
   }, [folderFilter, folderFilterProjectId, loadFolders]);
 
-  const createFolder = useCallback(async (projectId: string, parent: FolderNode | null = null) => {
+  // Folders are one level deep: a project holds folders and a folder holds
+  // pipelines. (There used to be a "+ Sub-folder" button too; the server has
+  // always refused it, "Sub-folders are not supported", so it is gone.)
+  const createFolder = useCallback(async (projectId: string) => {
     const name = await uiPrompt({
-      title: parent ? `New sub-folder in "${parent.name}"` : 'New folder',
-      message: parent
-        ? 'Sub-folders nest inside an existing folder for finer grouping.'
-        : 'Folders group pipelines inside a project. Typical buckets: Ingestion, Transforms, Reports, Archive.',
-      placeholder: parent ? `e.g. ${parent.name} / Phase 1` : 'e.g. Ingestion, Reports, Archive',
-      confirmLabel: parent ? 'Create sub-folder' : 'Create folder',
+      title: 'New folder',
+      message: 'Folders group pipelines inside a project. Typical buckets: Ingestion, Transforms, Reports, Archive.',
+      placeholder: 'e.g. Ingestion, Reports, Archive',
+      confirmLabel: 'Create folder',
     });
     if (!name || !name.trim()) return;
     try {
       await api.createFolder({
         name: name.trim(),
         project_id: projectId,
-        parent_folder_id: parent?.id ?? null,
       });
-      toast.success(parent ? 'Sub-folder created' : 'Folder created', name.trim());
+      toast.success('Folder created', name.trim());
       // Refetch folders for this project + workflows (count may have shifted).
       setFoldersByProject(prev => { const next = { ...prev }; delete next[projectId]; return next; });
       await loadFolders(projectId);
@@ -302,26 +308,21 @@ export default function ProjectFolderTree({
     }
   }, [loadFolders]);
 
+  // Asks the server what is inside the folder, says so in the confirm, and sends
+  // `force` when there are pipelines: they go to the Bin, where they can be
+  // restored. (The old confirm promised "permanently deleted" but sent no mode,
+  // so the server refused every folder that held a pipeline.)
   const deleteFolder = useCallback(async (folder: FolderNode) => {
-    const confirmed = await uiConfirm({
-      title: `Delete folder "${folder.name}"?`,
-      message: 'Every pipeline inside this folder will be permanently deleted. This cannot be undone.',
-      danger: true,
-      confirmLabel: 'Delete folder + pipelines',
+    const deleted = await runFolderDelete(folder, {
+      previewDelete: api.previewFolderDelete,
+      deleteFolder: api.deleteFolder,
+      confirm: uiConfirm,
+      notify: uiAlert,
+      toast,
     });
-    if (!confirmed) return;
-    try {
-      const result: any = await api.deleteFolder(folder.id);
-      const removed = result?.deleted_workflow_count || 0;
-      toast.success(
-        'Folder deleted',
-        removed === 0 ? folder.name : `Removed "${folder.name}" and ${removed} pipeline${removed === 1 ? '' : 's'}`,
-      );
-      setFoldersByProject(prev => { const next = { ...prev }; delete next[folder.project_id]; return next; });
-      await Promise.all([loadFolders(folder.project_id), reload()]);
-    } catch (err: any) {
-      toast.error('Failed', err.message);
-    }
+    if (!deleted) return;
+    setFoldersByProject(prev => { const next = { ...prev }; delete next[folder.project_id]; return next; });
+    await Promise.all([loadFolders(folder.project_id), reload()]);
   }, [loadFolders, reload]);
 
   // Flatten the visible project ids so we can detect orphan pipelines —
@@ -452,13 +453,14 @@ export default function ProjectFolderTree({
         onToggle={() => toggleExpand(project.id)}
         onOpen={() => onSelectProject(project.id, project.name)}
         onSelectPipeline={onSelectPipeline}
-        onCreateFolder={(parent) => createFolder(project.id, parent ?? null)}
+        onCreateFolder={() => createFolder(project.id)}
         onDeleteFolder={deleteFolder}
         canEdit={canEdit}
         pinned={pinnedIds?.has(project.id) ?? false}
         onTogglePin={onTogglePin ? () => onTogglePin(project.id) : undefined}
         onArchive={onArchive ? () => onArchive(project.id, project.name) : undefined}
         onExport={onExport ? () => onExport(project.id, project.name) : undefined}
+        onEdit={onEdit ? () => onEdit(project.id, project.name) : undefined}
         folderExpanded={folderExpanded}
         onToggleFolder={toggleFolderExpand}
         folderFilter={folderFilter}
@@ -524,7 +526,7 @@ interface CardProps {
   onToggle: () => void;
   onOpen: () => void;
   onSelectPipeline?: (id: string, name?: string) => void;
-  onCreateFolder: (parent?: FolderNode | null) => void;
+  onCreateFolder: () => void;
   onDeleteFolder: (folder: FolderNode) => void;
   canEdit: boolean;
   unassigned?: boolean;
@@ -534,6 +536,8 @@ interface CardProps {
   onArchive?: () => void;
   // Export this project as a JSON bundle — see Props.onExport.
   onExport?: () => void;
+  // Open the Edit Project dialog — see Props.onEdit.
+  onEdit?: () => void;
   folderExpanded?: Set<string>;
   onToggleFolder?: (folderId: string) => void;
   // 2026-05-21: folder-scope filter shared with the parent page. The card
@@ -547,7 +551,7 @@ function ProjectCard({
   project, workflows, folders, expanded,
   onToggle, onOpen, onSelectPipeline,
   onCreateFolder, onDeleteFolder, canEdit, unassigned,
-  pinned, onTogglePin, onArchive, onExport,
+  pinned, onTogglePin, onArchive, onExport, onEdit,
   folderExpanded, onToggleFolder,
   folderFilter, onFolderFilterChange,
 }: CardProps) {
@@ -691,10 +695,6 @@ function ProjectCard({
               )}
               {canEdit && !unassigned && (
                 <button
-                  // onCreateFolder takes an optional parent FolderNode; a
-                  // bare click on this top-level "Add folder" button
-                  // means "no parent" (root of this project). Wrap so
-                  // React's MouseEvent doesn't shadow the parent arg.
                   onClick={() => onCreateFolder()}
                   title={`Add a folder inside "${project.name}".`}
                   className="text-sm font-medium text-slate-600 hover:text-slate-900 px-2 py-1 rounded hover:bg-slate-100 flex items-center gap-1"
@@ -705,6 +705,24 @@ function ProjectCard({
                     <line x1="9" y1="14" x2="15" y2="14" />
                   </svg>
                   Folder
+                </button>
+              )}
+              {/* Edit Project — name, description, colour, icon and governance
+                  details. Wired from ProjectsPage's `openEdit`; the update
+                  endpoint is admin-only, so this shares the Folder and
+                  Archive buttons' canEdit gate. Hidden on the Unassigned
+                  bucket because it isn't a real project. */}
+              {canEdit && !unassigned && onEdit && (
+                <button
+                  onClick={onEdit}
+                  title={`Edit "${project.name}" — name, description, colour, icon and details`}
+                  aria-label={`Edit project ${project.name}`}
+                  className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
+                  </svg>
                 </button>
               )}
               {/* Export Project — download a JSON bundle of the project.
@@ -727,12 +745,14 @@ function ProjectCard({
               )}
               {/* 2026-05-19 (OSS-7 of PAGE_BY_PAGE_AUDIT.md) — Archive
                   action. Wired from ProjectsPage's `handleArchive`, which
-                  owns the confirm + retention copy + toast. Hidden on the
-                  Unassigned bucket because it isn't a real project. */}
+                  owns the toast. Nothing deletes an archived project
+                  automatically: it stays until someone restores or deletes
+                  it. Hidden on the Unassigned bucket because it isn't a
+                  real project. */}
               {canEdit && !unassigned && onArchive && (
                 <button
                   onClick={onArchive}
-                  title={`Archive "${project.name}" (move to Archived for 30 days, then auto-delete)`}
+                  title={`Archive "${project.name}" (moves it to Archived until you restore or delete it)`}
                   aria-label={`Archive project ${project.name}`}
                   className="w-7 h-7 rounded flex items-center justify-center text-slate-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
                 >
@@ -774,7 +794,6 @@ function ProjectCard({
                       workflows={workflows}
                       canEdit={canEdit}
                       onDelete={onDeleteFolder}
-                      onCreateSubfolder={onCreateFolder}
                       onSelectPipeline={onSelectPipeline}
                       expandedFolders={folderExpanded}
                       onToggleFolder={onToggleFolder}
@@ -819,7 +838,6 @@ interface FolderSectionProps {
   workflows: WorkflowItem[];
   canEdit: boolean;
   onDelete: (folder: FolderNode) => void;
-  onCreateSubfolder: (parent: FolderNode) => void;
   onSelectPipeline?: (id: string, name?: string) => void;
   expandedFolders?: Set<string>;
   onToggleFolder?: (folderId: string) => void;
@@ -832,7 +850,7 @@ interface FolderSectionProps {
 
 function FolderSection({
   node, depth, workflows, canEdit,
-  onDelete, onCreateSubfolder, onSelectPipeline,
+  onDelete, onSelectPipeline,
   expandedFolders, onToggleFolder,
   folderFilter, onFolderFilterChange,
 }: FolderSectionProps) {
@@ -942,9 +960,9 @@ function FolderSection({
             </span>
           )}
         </div>
-        {/* Action group — split into read-only (Filter) + mutating (Sub-folder, Delete).
+        {/* Action group — split into read-only (Filter) + mutating (Delete).
             Filter shows regardless of canEdit since it's a view-only action,
-            the others gate on edit permission as before. */}
+            Delete gates on edit permission as before. */}
         <div className="ml-auto flex items-center gap-1 opacity-0 group-hover/folder:opacity-100 transition-opacity">
           {/* 2026-05-21: per-folder shortcut into the page-level folder filter. */}
           {onFolderFilterChange && folderFilter !== folder.id && (
@@ -961,22 +979,11 @@ function FolderSection({
           )}
           {canEdit && (
             <>
-              {/* OSS limits folder nesting to one level (see backend/revoluzen_flow/api/folders.py).
-                  Only show the "+ Sub-folder" affordance on top-level folders;
-                  showing it on an already-nested folder promises an action the
-                  backend will reject with "Sub-folders are not supported" toast. */}
-              {!folder.parent_folder_id && (
-                <button
-                  onClick={() => onCreateSubfolder(folder)}
-                  title={`Add a sub-folder inside "${folder.name}".`}
-                  className="text-sm text-slate-500 hover:text-indigo-600 px-2 py-1 rounded hover:bg-indigo-50"
-                >
-                  + Sub-folder
-                </button>
-              )}
+              {/* No "+ Sub-folder" here: folders are one level deep, and the
+                  server refuses a parent folder (see api/folders.py). */}
               <button
                 onClick={() => onDelete(folder)}
-                title="Delete this folder and every pipeline inside it. This cannot be undone."
+                title="Delete this folder. Pipelines inside it are moved to the Bin, where they can be restored."
                 className="tap-24 text-sm text-slate-500 hover:text-red-600 px-2 py-1 rounded hover:bg-red-50"
               >
                 Delete
@@ -1000,7 +1007,6 @@ function FolderSection({
           workflows={workflows}
           canEdit={canEdit}
           onDelete={onDelete}
-          onCreateSubfolder={onCreateSubfolder}
           onSelectPipeline={onSelectPipeline}
           expandedFolders={expandedFolders}
           onToggleFolder={onToggleFolder}

@@ -14,6 +14,8 @@ Scope discipline:
   - Tool calls are NOT cached. If the LLM returned tool_uses, the cache is
     bypassed because tool execution is side-effectful and runs need fresh
     audit trails.
+  - Only a conversation's first message is cached. Once it holds tool results
+    or earlier turns, the cache is neither read nor written.
   - The cache is in-process LRU + TTL — survives nothing except the current
     Python process. Designed for "same user asks same thing twice in a
     debugging session" not "global content delivery."
@@ -199,8 +201,11 @@ async def cached_call(
     # Bypass the cache when:
     #   - it's globally disabled, OR
     #   - the caller is streaming tokens (cache would replay one shot,
-    #     violating the streaming UX contract).
-    if _is_disabled() or on_token is not None:
+    #     violating the streaming UX contract), OR
+    #   - the conversation is past its first message. The key only sees the
+    #     last user text, so tool results and earlier turns would not reach
+    #     it and different runs would share one answer.
+    if _is_disabled() or on_token is not None or len(messages) > 1:
         if on_token is not None:
             return await llm_call(
                 system=system, messages=messages, tools=tools, on_token=on_token,

@@ -37,6 +37,7 @@ SOURCE = pathlib.Path(
 # the canvas Run/Sample route that shares their machinery.
 RUN_AGAIN_ENDPOINTS = [
     "run_workflow",            # Re-run
+    "run_saved_workflow",      # the run itself, shared with published endpoints
     "resume_workflow",         # Resume from failed
     "replay_execution",        # Replay
     "run_workflow_ephemeral",  # canvas Run / Sample
@@ -128,16 +129,20 @@ def test_no_undefined_names_in_the_execution_api():
     assert not findings, "undefined names in the execution API:\n" + "\n".join(findings)
 
 
-@pytest.mark.parametrize("endpoint", ["run_workflow", "resume_workflow", "replay_execution"])
+@pytest.mark.parametrize(
+    "endpoint", ["run_workflow", "run_saved_workflow", "resume_workflow", "replay_execution"],
+)
 def test_run_again_endpoints_are_admitted_through_the_pool(endpoint):
     """Each must gate on the pool, not run unmetered.
 
-    Re-run and Replay call `_admit`. Resume delegates to the executor
-    through a path that is already inside an admitted run, so it is
-    exempt — asserted explicitly so an accidental change is visible
-    rather than silently un-gating a run path.
+    Replay and the shared `run_saved_workflow` call `_admit`. Re-run goes
+    through that shared function, and Resume through `run_workflow`.
     """
     src = ast.unparse(_function(endpoint))
     if endpoint == "resume_workflow":
-        pytest.skip("resume delegates to an already-admitted execution path")
+        assert "run_workflow(" in src, "resume no longer goes through run_workflow"
+        return
+    if endpoint == "run_workflow":
+        assert "run_saved_workflow(" in src, "Re-run no longer goes through the shared run path"
+        return
     assert "_admit(" in src, f"{endpoint} executes without pool admission"

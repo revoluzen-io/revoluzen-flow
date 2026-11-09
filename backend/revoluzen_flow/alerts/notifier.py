@@ -577,6 +577,8 @@ class NotificationService:
         # readable end-to-end ('Schedule "daily-sync"').
         if triggered_by == "schedule" and schedule_name:
             trigger_str = f'Schedule "{schedule_name}"'
+        elif triggered_by == "api":
+            trigger_str = "API"
         elif triggered_by:
             trigger_str = triggered_by.replace("_", " ").title()
         else:

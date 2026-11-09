@@ -14,6 +14,7 @@ without needing connector-specific code:
 
 from __future__ import annotations
 
+import re
 from typing import Any, TYPE_CHECKING
 
 # Stage 2.5b: duckdb only used for return-type annotations on node
@@ -93,24 +94,113 @@ def _lit_list(values: Any) -> str:
     return ", ".join(_lit(v) for v in values)
 
 
+_ONE_VALUE_OPS = ("eq", "ne", "gt", "lt", "gte", "lte")
+_LIST_OPS = ("in", "not_in")
+_LENGTH_OPS = ("min_length", "max_length")
+
+
+def _is_container(v: Any) -> bool:
+    return isinstance(v, (list, tuple, dict))
+
+
+def _is_blank(v: Any) -> bool:
+    return v is None or (isinstance(v, str) and v.strip() == "")
+
+
+def _is_whole_number(v: Any) -> bool:
+    if isinstance(v, bool):
+        return False
+    if isinstance(v, int):
+        return v >= 0
+    if isinstance(v, float):
+        return v.is_integer() and v >= 0
+    if isinstance(v, str):
+        return re.fullmatch(r"[0-9]+", v.strip()) is not None
+    return False
+
+
+def _value_problem(op: str, v: Any) -> str | None:
+    """What is wrong with a rule's value for this op, or None when the op can use it."""
+    if op in _ONE_VALUE_OPS:
+        if v is None:
+            return "needs a value to compare with (use is_null to look for an empty value)"
+        if _is_container(v):
+            return "needs one value, not a list"
+    elif op in _LIST_OPS:
+        if isinstance(v, (list, tuple)):
+            if not v:
+                return "needs at least one value in its list"
+            if any(x is None or _is_container(x) for x in v):
+                return "has an empty or nested entry in its list"
+        elif _is_blank(v) or _is_container(v):
+            return "needs at least one value in its list"
+    elif op == "between":
+        if not isinstance(v, (list, tuple)) or len(v) != 2 or any(_is_blank(x) or _is_container(x) for x in v):
+            return "needs a low and a high limit, like [10, 100]"
+    elif op == "regex":
+        if not isinstance(v, str) or v == "":
+            return "needs a pattern, written as text"
+    elif op in _LENGTH_OPS:
+        if not _is_whole_number(v):
+            return "needs a whole number of characters (0 or more)"
+    return None
+
+
+def dq_rule_problems(rules: Any) -> list[str]:
+    """What stops the step from running its rules, one line per rule; empty when
+    every rule can run.
+
+    A rule can run when it has a column, a check the step has (no `op` reads as
+    `not_null`) and, for the checks that take one, a value of the shape that check
+    reads: one value for eq / ne / gt / lt / gte / lte, a list for in / not_in,
+    [low, high] for between, a pattern for regex, a whole number for min_length /
+    max_length. Such a rule used to compile to TRUE and pass every row without a
+    word. The editor's check (utils/dataQualityRules.ts) is held to the same table
+    of cases, frontend/src/__tests__/fixtures/dqRuleCases.json.
+    """
+    if not rules:
+        return []
+    if not isinstance(rules, (list, tuple)):
+        return ["rules must be a list of rules, each like {column, op, value}"]
+    problems: list[str] = []
+    for number, rule in enumerate(rules, 1):
+        if not isinstance(rule, dict):
+            problems.append(f"rule {number} is not a rule (each should look like {{column, op, value}})")
+            continue
+        column = rule.get("column")
+        op = rule.get("op") or "not_null"
+        has_column = isinstance(column, str) and column.strip() != ""
+        label = " ".join(part for part in (column.strip() if has_column else "", str(op)) if part)
+        issues: list[str] = []
+        if not has_column:
+            issues.append("no column chosen")
+        if not isinstance(op, str) or op not in _DQ_OPS:
+            issues.append(f'"{op}" is not one of the checks ({", ".join(_DQ_OPS)})')
+        else:
+            value_problem = _value_problem(op, rule.get("value"))
+            if value_problem:
+                issues.append(value_problem)
+        if issues:
+            problems.append(f"rule {number} ({label}): " + "; ".join(issues))
+    return problems
+
+
 def _build_rule_sql(rule: dict) -> str:
-    op = rule.get("op", "not_null")
-    col = rule.get("column", "")
-    val = rule.get("value")
-    if not col:
-        return "TRUE"
-    builder = _DQ_OPS.get(op)
-    if not builder:
-        return "TRUE"
-    try:
-        return builder(col, val)
-    except Exception:
-        return "TRUE"
+    # dq_rule_problems has already refused a rule that cannot run, so there is no
+    # silent fallback here: a failure to build raises instead of passing every row.
+    op = rule.get("op") or "not_null"
+    return _DQ_OPS[op](rule["column"], rule.get("value"))
 
 
 @register(StepType.DATA_QUALITY)
 class DataQualityNode(BaseNode):
     """Validate rows against a list of declarative rules.
+
+    A row passes when every rule is true. A rule that gives no answer for the
+    row (NULL, e.g. a NULL `amount` under `between`) counts as failed, in every
+    mode below. A rule the step cannot use (no column, a check it does not have,
+    a value it cannot read) is not a failed row but a stopped run: the step
+    raises before it checks any row (see `dq_rule_problems`).
 
     Modes:
       - "drop"      → silently drop failed rows
@@ -139,6 +229,16 @@ class DataQualityNode(BaseNode):
         include_score = self.params.get("include_score", False)
         include_profile = self.params.get("include_profile", False)
 
+        # A rule the step cannot use stops the run before any row is checked. It
+        # used to compile to TRUE, which passed every row and said nothing.
+        problems = dq_rule_problems(rules)
+        if problems:
+            raise ValueError(
+                "Data Quality: no rows were checked because a rule cannot be used. "
+                + "; ".join(problems)
+                + ". Fix the rule in the step's settings."
+            )
+
         dq_input = ctx.register_scoped("__dq_input", source)
 
         # ── Column profiling (logged, not in output) ──
@@ -163,7 +263,14 @@ class DataQualityNode(BaseNode):
             return source
 
         clauses = [f"({_build_rule_sql(r)})" for r in rules]
-        passed_expr = " AND ".join(clauses) if clauses else "TRUE"
+        # A rule that evaluates to NULL (a NULL amount under between / gt / eq /
+        # regex ...) is a failed row in every mode. SQL leaves such a row neither
+        # true nor false, and each mode used to read that its own way: drop and
+        # reject dropped / rejected it, tag left __dq_passed NULL, and fail
+        # (`WHERE NOT (...)`) did not count it, so the run passed. COALESCE once
+        # here and the five modes, the threshold, the score and the split
+        # failures list all see the same TRUE / FALSE.
+        passed_expr = f"COALESCE({' AND '.join(clauses)}, FALSE)" if clauses else "TRUE"
 
         # ── Quality threshold check ──
         if threshold > 0:
@@ -253,7 +360,12 @@ class DataQualityNode(BaseNode):
                 "ops": list(_DQ_OPS.keys()),
                 "description": (
                     "Operators: not_null, is_null, eq, ne, gt, lt, gte, lte, "
-                    "in, not_in, regex, between, min_length, max_length."
+                    "in, not_in, regex, between, min_length, max_length. "
+                    "between takes [low, high]; in / not_in take a list. "
+                    "A rule that gives no answer for a row (a NULL value "
+                    "under a comparison) counts as failed. A rule the step "
+                    "cannot use (no column, a value it cannot read) stops the "
+                    "run with a message naming the rule."
                 ),
             },
             {

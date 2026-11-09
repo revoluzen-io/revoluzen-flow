@@ -40,6 +40,8 @@ to the host can read it.
 
 OSS Free: the operator. Plus: Workspace Admin or Super Admin.
 
+Deleting moves the pipeline to the Bin. Whoever can delete (Developer role and above) can also restore it from the Bin, or delete it from the Bin for good; emptying the whole Bin takes an Admin.
+
 ### Who is logged in as?
 
 Top-right user menu shows the user. Or chat fast lane: `who am I`.

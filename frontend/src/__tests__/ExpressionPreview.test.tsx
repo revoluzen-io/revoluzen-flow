@@ -56,4 +56,11 @@ describe('ExpressionPreview', () => {
     render(<ExpressionPreview value="{{ $json.x }}" />);
     await waitFor(() => expect(screen.getByText(/no field 'x'/)).toBeInTheDocument(), { timeout: 2000 });
   });
+
+  it('does not call a variable that only exists during a run a fault', async () => {
+    previewExpression.mockResolvedValueOnce({ ok: false, error: "no field 'day' on item" } as any);
+    render(<ExpressionPreview value="{{ $vars.day }}" />);
+    await waitFor(() => expect(screen.getByText('Filled in during the run')).toBeInTheDocument(), { timeout: 2000 });
+    expect(screen.queryByText(/no field/)).not.toBeInTheDocument();
+  });
 });

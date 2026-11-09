@@ -1,0 +1,401 @@
+order_id,customer_id,order_date,country,sku,product,quantity,unit_price,status
+1018,71,2026-01-31,US,EL-2009,Label Printer,6,95.00,delivered
+1022,46,2026-01-31,IN,BN-3002,Workshop Essentials Bundle,11,449.00,delivered
+1156,61,2026-01-31,EG,BN-3004,Field Technician Bundle,3,519.00,delivered
+1185,35,2026-01-31,GB,EL-2009,Label Printer,4,95.00,shipped
+1233,8,2026-01-31,DE,EL-2002,27in 4K Monitor,2,349.00,delivered
+1259,104,2026-01-31,NL,OF-4006,Filing Cabinet 3-drawer,1,149.00,delivered
+1365,95,2026-01-31,JP,OF-4002,Sit-Stand Desk,2,459.00,shipped
+1398,6,2026-01-31,DE,OF-4004,Desk Lamp LED,1,34.00,delivered
+1119,78,2026-02-01,DE,BN-3002,Workshop Essentials Bundle,5,449.00,shipped
+1183,29,2026-02-01,SE,EL-2002,27in 4K Monitor,3,349.00,delivered
+1192,75,2026-02-01,US,OF-4002,Sit-Stand Desk,4,459.00,delivered
+1209,37,2026-02-01,AU,BN-3004,Field Technician Bundle,1,519.00,delivered
+1251,114,2026-02-01,US,TL-1007,Workbench Vise,2,112.00,delivered
+1296,79,2026-02-01,AU,BN-3004,Field Technician Bundle,6,519.00,delivered
+1313,12,2026-02-01,DE,TL-1003,Socket Set 120pc,4,89.50,delivered
+1319,97,2026-02-01,GB,OF-4001,Ergonomic Chair,2,279.00,delivered
+1206,106,2026-02-02,MX,EL-2004,Wireless Mouse,4,49.00,delivered
+1210,8,2026-02-02,DE,OF-4003,Monitor Arm Dual,1,89.00,delivered
+1253,3,2026-02-02,CA,OF-4006,Filing Cabinet 3-drawer,3,149.00,delivered
+1326,86,2026-02-02,GB,TL-1005,Torque Wrench,1,64.00,delivered
+1050,29,2026-02-03,AU,OF-4008,Acoustic Panel 6-pack,1,59.00,shipped
+1054,94,2026-02-03,NG,EL-2005,Noise-Cancelling Headset,4,229.00,delivered
+1080,49,2026-02-03,US,OF-4002,Sit-Stand Desk,1,459.00,processing
+1122,64,2026-02-03,KR,EL-2007,Portable SSD 2TB,3,179.00,delivered
+1126,42,2026-02-03,ZA,EL-2002,27in 4K Monitor,6,349.00,processing
+1263,84,2026-02-03,BR,TL-1003,Socket Set 120pc,3,89.50,processing
+1346,112,2026-02-03,JP,TL-1003,Socket Set 120pc,1,89.50,shipped
+1372,104,2026-02-03,DE,TL-1003,Socket Set 120pc,4,89.50,delivered
+1068,18,2026-02-04,CN,EL-2006,1080p Webcam,1,79.00,delivered
+1304,19,2026-02-04,DE,EL-2001,USB-C Dock 12-in-1,7,189.00,delivered
+1336,26,2026-02-04,US,OF-4007,Paper Shredder,11,84.00,delivered
+1399,101,2026-02-04,US,BN-3001,Home Office Starter Bundle,1,399.00,delivered
+1028,68,2026-02-05,BR,EL-2001,USB-C Dock 12-in-1,3,189.00,delivered
+1165,83,2026-02-05,US,EL-2006,1080p Webcam,8,79.00,delivered
+1167,98,2026-02-05,AU,TL-1003,Socket Set 120pc,3,89.50,processing
+1187,82,2026-02-05,SG,OF-4007,Paper Shredder,2,84.00,delivered
+1358,48,2026-02-05,NL,BN-3001,Home Office Starter Bundle,3,399.00,delivered
+1016,33,2026-02-06,BR,EL-2003,Mechanical Keyboard,1,119.00,delivered
+1049,65,2026-02-06,AE,BN-3003,Streaming Kit Bundle,3,329.00,shipped
+1060,81,2026-02-06,SG,BN-3001,Home Office Starter Bundle,3,399.00,shipped
+1111,53,2026-02-06,PL,EL-2001,USB-C Dock 12-in-1,1,189.00,processing
+1112,36,2026-02-06,US,EL-2003,Mechanical Keyboard,2,119.00,delivered
+1158,18,2026-02-06,CN,TL-1008,Oscillating Multi-Tool,5,139.00,delivered
+1227,48,2026-02-06,NL,TL-1004,Laser Level,2,74.99,delivered
+1229,12,2026-02-06,ES,OF-4007,Paper Shredder,2,84.00,delivered
+1238,36,2026-02-06,US,EL-2010,Thermal Receipt Printer,3,215.00,delivered
+1288,40,2026-02-06,AE,OF-4005,Whiteboard 120x90,7,69.00,delivered
+1298,111,2026-02-06,SG,EL-2003,Mechanical Keyboard,5,119.00,delivered
+1309,48,2026-02-06,AU,TL-1002,Impact Driver Kit,5,159.00,delivered
+1316,80,2026-02-06,IN,OF-4007,Paper Shredder,2,84.00,delivered
+1373,16,2026-02-06,DE,OF-4007,Paper Shredder,3,84.00,delivered
+1381,32,2026-02-06,MX,OF-4004,Desk Lamp LED,7,34.00,delivered
+1104,68,2026-02-07,BR,TL-1008,Oscillating Multi-Tool,1,139.00,cancelled
+1202,85,2026-02-07,FR,BN-3002,Workshop Essentials Bundle,2,449.00,delivered
+1273,70,2026-02-07,US,OF-4003,Monitor Arm Dual,1,89.00,processing
+1350,29,2026-02-07,SE,EL-2007,Portable SSD 2TB,9,179.00,delivered
+1374,96,2026-02-07,IN,EL-2007,Portable SSD 2TB,4,179.00,delivered
+1032,27,2026-02-08,GB,EL-2010,Thermal Receipt Printer,3,215.00,shipped
+1040,56,2026-02-08,CA,TL-1001,Cordless Drill 18V,7,129.00,delivered
+1052,100,2026-02-08,SG,TL-1003,Socket Set 120pc,3,89.50,delivered
+1181,5,2026-02-08,FR,OF-4001,Ergonomic Chair,3,279.00,delivered
+1281,99,2026-02-08,AU,EL-2003,Mechanical Keyboard,3,119.00,shipped
+1300,49,2026-02-08,US,TL-1002,Impact Driver Kit,1,159.00,delivered
+1315,21,2026-02-08,GB,TL-1006,Angle Grinder,1,98.00,delivered
+1323,7,2026-02-08,GB,EL-2009,Label Printer,6,95.00,delivered
+1324,41,2026-02-08,US,OF-4007,Paper Shredder,3,84.00,delivered
+1388,63,2026-02-08,AU,EL-2008,Smart Power Strip,3,39.00,delivered
+1043,16,2026-02-09,DE,TL-1006,Angle Grinder,1,98.00,delivered
+1063,95,2026-02-09,JP,EL-2005,Noise-Cancelling Headset,2,229.00,delivered
+1134,118,2026-02-09,US,EL-2009,Label Printer,1,95.00,delivered
+1258,5,2026-02-09,FR,BN-3004,Field Technician Bundle,9,519.00,delivered
+1347,34,2026-02-09,CA,EL-2009,Label Printer,7,95.00,delivered
+1378,90,2026-02-09,IN,EL-2006,1080p Webcam,2,79.00,delivered
+1041,95,2026-02-10,JP,TL-1006,Angle Grinder,2,98.00,shipped
+1092,20,2026-02-10,IN,EL-2004,Wireless Mouse,3,49.00,shipped
+1147,79,2026-02-10,AU,EL-2002,27in 4K Monitor,1,349.00,delivered
+1011,55,2026-02-11,JP,EL-2006,1080p Webcam,6,79.00,shipped
+1037,96,2026-02-11,NL,EL-2007,Portable SSD 2TB,1,179.00,delivered
+1114,54,2026-02-11,SE,BN-3002,Workshop Essentials Bundle,5,449.00,shipped
+1190,44,2026-02-11,CA,EL-2009,Label Printer,8,95.00,delivered
+1290,28,2026-02-11,CA,OF-4006,Filing Cabinet 3-drawer,1,149.00,delivered
+1311,14,2026-02-11,GB,EL-2006,1080p Webcam,1,79.00,delivered
+1331,95,2026-02-11,JP,TL-1008,Oscillating Multi-Tool,2,139.00,cancelled
+1375,40,2026-02-11,AE,EL-2001,USB-C Dock 12-in-1,2,189.00,delivered
+1129,87,2026-02-12,BR,BN-3003,Streaming Kit Bundle,1,329.00,shipped
+1130,14,2026-02-12,GB,EL-2005,Noise-Cancelling Headset,1,229.00,processing
+1193,3,2026-02-12,CA,OF-4002,Sit-Stand Desk,3,459.00,shipped
+1198,82,2026-02-12,ZA,EL-2002,27in 4K Monitor,2,349.00,delivered
+1215,118,2026-02-12,BR,EL-2002,27in 4K Monitor,7,349.00,processing
+1257,12,2026-02-12,DE,OF-4007,Paper Shredder,4,84.00,delivered
+1268,28,2026-02-12,CA,TL-1005,Torque Wrench,4,64.00,delivered
+1274,55,2026-02-12,JP,TL-1004,Laser Level,1,74.99,delivered
+1280,51,2026-02-12,US,OF-4008,Acoustic Panel 6-pack,1,59.00,delivered
+1287,86,2026-02-12,GB,OF-4001,Ergonomic Chair,1,279.00,delivered
+1366,5,2026-02-12,FR,BN-3002,Workshop Essentials Bundle,11,449.00,delivered
+1047,77,2026-02-13,US,EL-2010,Thermal Receipt Printer,3,215.00,delivered
+1077,70,2026-02-13,US,EL-2002,27in 4K Monitor,2,349.00,delivered
+1301,12,2026-02-13,DE,EL-2004,Wireless Mouse,5,49.00,shipped
+1334,24,2026-02-13,FR,BN-3001,Home Office Starter Bundle,6,399.00,delivered
+1351,1,2026-02-13,AE,BN-3002,Workshop Essentials Bundle,2,449.00,shipped
+1042,24,2026-02-14,FR,OF-4002,Sit-Stand Desk,1,459.00,processing
+1065,61,2026-02-14,EG,OF-4001,Ergonomic Chair,1,279.00,delivered
+1093,11,2026-02-14,JP,EL-2002,27in 4K Monitor,2,349.00,shipped
+1390,62,2026-02-14,DE,OF-4004,Desk Lamp LED,5,34.00,shipped
+1048,91,2026-02-15,CA,EL-2001,USB-C Dock 12-in-1,4,189.00,delivered
+1078,19,2026-02-15,DE,BN-3002,Workshop Essentials Bundle,3,449.00,delivered
+1150,53,2026-02-15,GB,TL-1004,Laser Level,11,74.99,delivered
+1363,39,2026-02-15,GB,EL-2008,Smart Power Strip,2,39.00,delivered
+1020,49,2026-02-16,DE,BN-3003,Streaming Kit Bundle,5,329.00,delivered
+1102,24,2026-02-16,FR,EL-2001,USB-C Dock 12-in-1,1,189.00,cancelled
+1105,97,2026-02-16,GB,BN-3002,Workshop Essentials Bundle,4,449.00,processing
+1191,38,2026-02-16,GB,EL-2001,USB-C Dock 12-in-1,1,189.00,delivered
+1228,64,2026-02-16,FR,EL-2002,27in 4K Monitor,2,349.00,processing
+1248,26,2026-02-16,US,EL-2007,Portable SSD 2TB,1,179.00,delivered
+1252,106,2026-02-16,GB,EL-2010,Thermal Receipt Printer,3,215.00,delivered
+1285,86,2026-02-16,GB,OF-4007,Paper Shredder,1,84.00,cancelled
+1140,33,2026-02-17,BR,TL-1008,Oscillating Multi-Tool,7,139.00,delivered
+1173,120,2026-02-17,IN,OF-4003,Monitor Arm Dual,1,89.00,cancelled
+1012,14,2026-02-18,GB,TL-1001,Cordless Drill 18V,3,129.00,delivered
+1031,58,2026-02-18,DE,TL-1003,Socket Set 120pc,2,89.50,shipped
+1113,8,2026-02-18,DE,TL-1003,Socket Set 120pc,10,89.50,shipped
+1125,84,2026-02-18,BR,OF-4003,Monitor Arm Dual,2,89.00,delivered
+1143,80,2026-02-18,IN,OF-4006,Filing Cabinet 3-drawer,4,149.00,delivered
+1224,11,2026-02-18,CN,BN-3001,Home Office Starter Bundle,3,399.00,processing
+1235,53,2026-02-18,GB,OF-4007,Paper Shredder,6,84.00,cancelled
+1264,52,2026-02-18,AU,TL-1003,Socket Set 120pc,1,89.50,shipped
+1291,95,2026-02-18,SG,TL-1003,Socket Set 120pc,2,89.50,shipped
+1361,98,2026-02-18,FR,OF-4006,Filing Cabinet 3-drawer,2,149.00,delivered
+1379,65,2026-02-18,AE,TL-1005,Torque Wrench,5,64.00,delivered
+1294,29,2026-02-19,FR,EL-2010,Thermal Receipt Printer,1,215.00,processing
+1344,29,2026-02-19,SE,EL-2006,1080p Webcam,10,79.00,cancelled
+1033,63,2026-02-20,AU,EL-2006,1080p Webcam,1,79.00,delivered
+1090,102,2026-02-20,US,EL-2005,Noise-Cancelling Headset,1,229.00,delivered
+1091,74,2026-02-20,US,TL-1003,Socket Set 120pc,5,89.50,delivered
+1133,55,2026-02-20,JP,TL-1001,Cordless Drill 18V,2,129.00,delivered
+1153,45,2026-02-20,SG,TL-1005,Torque Wrench,3,64.00,cancelled
+1217,31,2026-02-20,US,EL-2002,27in 4K Monitor,9,349.00,shipped
+1230,14,2026-02-20,GB,EL-2008,Smart Power Strip,1,39.00,delivered
+1243,8,2026-02-20,DE,BN-3003,Streaming Kit Bundle,1,329.00,processing
+1362,95,2026-02-20,JP,OF-4005,Whiteboard 120x90,4,69.00,cancelled
+1394,37,2026-02-20,DE,OF-4006,Filing Cabinet 3-drawer,4,149.00,delivered
+1170,86,2026-02-21,GB,OF-4003,Monitor Arm Dual,1,89.00,delivered
+1214,118,2026-02-21,BR,EL-2009,Label Printer,5,95.00,delivered
+1279,28,2026-02-21,CA,TL-1008,Oscillating Multi-Tool,2,139.00,delivered
+1321,35,2026-02-21,US,TL-1001,Cordless Drill 18V,2,129.00,delivered
+1333,102,2026-02-21,US,EL-2006,1080p Webcam,1,79.00,shipped
+1337,9,2026-02-21,US,OF-4005,Whiteboard 120x90,2,69.00,processing
+1095,120,2026-02-22,IN,TL-1003,Socket Set 120pc,8,89.50,delivered
+1178,71,2026-02-22,US,OF-4004,Desk Lamp LED,3,34.00,delivered
+1194,111,2026-02-22,SG,BN-3002,Workshop Essentials Bundle,3,449.00,shipped
+1305,9,2026-02-22,US,TL-1001,Cordless Drill 18V,3,129.00,delivered
+1097,10,2026-02-23,IE,BN-3002,Workshop Essentials Bundle,1,449.00,delivered
+1127,116,2026-02-23,CN,EL-2004,Wireless Mouse,4,49.00,cancelled
+1154,112,2026-02-23,JP,BN-3002,Workshop Essentials Bundle,2,449.00,delivered
+1276,2,2026-02-23,US,TL-1008,Oscillating Multi-Tool,4,139.00,delivered
+1339,8,2026-02-23,DE,EL-2006,1080p Webcam,2,79.00,delivered
+1013,61,2026-02-24,SG,OF-4008,Acoustic Panel 6-pack,1,59.00,delivered
+1019,17,2026-02-24,NG,EL-2008,Smart Power Strip,3,39.00,processing
+1107,9,2026-02-24,US,TL-1008,Oscillating Multi-Tool,1,139.00,shipped
+1249,31,2026-02-24,US,OF-4005,Whiteboard 120x90,3,69.00,delivered
+1328,72,2026-02-24,FR,EL-2008,Smart Power Strip,1,39.00,delivered
+1348,97,2026-02-24,GB,TL-1008,Oscillating Multi-Tool,1,139.00,cancelled
+1360,70,2026-02-24,US,EL-2005,Noise-Cancelling Headset,3,229.00,delivered
+1386,76,2026-02-24,BR,OF-4006,Filing Cabinet 3-drawer,3,149.00,delivered
+1219,9,2026-02-25,US,EL-2009,Label Printer,2,95.00,delivered
+1340,84,2026-02-25,BR,EL-2002,27in 4K Monitor,1,349.00,delivered
+1370,92,2026-02-25,SG,TL-1003,Socket Set 120pc,2,89.50,delivered
+1396,49,2026-02-25,US,OF-4008,Acoustic Panel 6-pack,2,59.00,processing
+1025,64,2026-02-26,FR,EL-2010,Thermal Receipt Printer,4,215.00,delivered
+1027,29,2026-02-26,US,EL-2003,Mechanical Keyboard,7,119.00,delivered
+1221,91,2026-02-26,IN,TL-1006,Angle Grinder,5,98.00,delivered
+1232,95,2026-02-26,JP,TL-1008,Oscillating Multi-Tool,1,139.00,delivered
+1335,92,2026-02-26,SG,OF-4004,Desk Lamp LED,6,34.00,delivered
+1006,21,2026-02-27,GB,OF-4001,Ergonomic Chair,1,279.00,shipped
+1089,116,2026-02-27,CN,EL-2007,Portable SSD 2TB,3,179.00,delivered
+1149,56,2026-02-27,CA,TL-1008,Oscillating Multi-Tool,2,139.00,delivered
+1208,11,2026-02-27,JP,EL-2008,Smart Power Strip,1,39.00,delivered
+1242,8,2026-02-27,DE,EL-2007,Portable SSD 2TB,2,179.00,delivered
+1286,2,2026-02-27,AE,OF-4002,Sit-Stand Desk,12,459.00,shipped
+1146,87,2026-02-28,CA,OF-4001,Ergonomic Chair,4,279.00,delivered
+1247,83,2026-02-28,FR,EL-2001,USB-C Dock 12-in-1,2,189.00,delivered
+1356,115,2026-02-28,SE,EL-2001,USB-C Dock 12-in-1,11,189.00,delivered
+1017,70,2026-03-01,US,EL-2009,Label Printer,2,95.00,delivered
+1034,24,2026-03-01,FR,OF-4006,Filing Cabinet 3-drawer,2,149.00,delivered
+1035,97,2026-03-01,GB,OF-4005,Whiteboard 120x90,3,69.00,delivered
+1155,48,2026-03-01,GB,OF-4003,Monitor Arm Dual,3,89.00,delivered
+1163,118,2026-03-01,CA,BN-3001,Home Office Starter Bundle,5,399.00,delivered
+1203,40,2026-03-01,AE,TL-1007,Workbench Vise,7,112.00,delivered
+1204,102,2026-03-01,US,TL-1007,Workbench Vise,1,112.00,delivered
+1137,104,2026-03-02,CN,OF-4004,Desk Lamp LED,1,34.00,delivered
+1246,68,2026-03-02,BR,EL-2003,Mechanical Keyboard,2,119.00,processing
+1254,105,2026-03-02,US,EL-2007,Portable SSD 2TB,4,179.00,delivered
+1299,47,2026-03-02,GB,BN-3001,Home Office Starter Bundle,3,399.00,delivered
+1387,105,2026-03-02,US,OF-4004,Desk Lamp LED,5,34.00,shipped
+1103,107,2026-03-03,KR,EL-2002,27in 4K Monitor,1,349.00,delivered
+1123,78,2026-03-03,DE,OF-4004,Desk Lamp LED,1,34.00,shipped
+1145,11,2026-03-03,IE,BN-3004,Field Technician Bundle,1,519.00,delivered
+1159,66,2026-03-03,IT,OF-4007,Paper Shredder,10,84.00,delivered
+1234,19,2026-03-03,DE,TL-1003,Socket Set 120pc,3,89.50,delivered
+1275,39,2026-03-03,GB,EL-2007,Portable SSD 2TB,5,179.00,delivered
+1380,74,2026-03-03,US,BN-3003,Streaming Kit Bundle,1,329.00,delivered
+1023,41,2026-03-04,US,TL-1003,Socket Set 120pc,5,89.50,delivered
+1046,116,2026-03-04,CN,EL-2005,Noise-Cancelling Headset,1,229.00,delivered
+1184,89,2026-03-04,US,TL-1007,Workbench Vise,1,112.00,delivered
+1189,11,2026-03-04,JP,EL-2007,Portable SSD 2TB,3,179.00,delivered
+1195,61,2026-03-04,EG,TL-1004,Laser Level,8,74.99,delivered
+1322,59,2026-03-04,NL,EL-2008,Smart Power Strip,4,39.00,delivered
+1383,87,2026-03-04,BR,EL-2001,USB-C Dock 12-in-1,3,189.00,delivered
+1010,57,2026-03-05,US,TL-1007,Workbench Vise,7,112.00,processing
+1152,83,2026-03-05,US,OF-4008,Acoustic Panel 6-pack,3,59.00,shipped
+1160,72,2026-03-05,DE,EL-2001,USB-C Dock 12-in-1,8,189.00,delivered
+1174,60,2026-03-05,BR,OF-4005,Whiteboard 120x90,1,69.00,shipped
+1199,42,2026-03-05,ZA,EL-2002,27in 4K Monitor,4,349.00,delivered
+1226,35,2026-03-05,GB,EL-2010,Thermal Receipt Printer,9,215.00,delivered
+1312,69,2026-03-05,NG,EL-2009,Label Printer,2,95.00,delivered
+1369,92,2026-03-05,SG,BN-3002,Workshop Essentials Bundle,1,449.00,delivered
+1384,39,2026-03-05,GB,EL-2010,Thermal Receipt Printer,2,215.00,cancelled
+1007,90,2026-03-06,IN,TL-1003,Socket Set 120pc,3,89.50,shipped
+1051,98,2026-03-06,FR,OF-4008,Acoustic Panel 6-pack,3,59.00,delivered
+1064,59,2026-03-06,CA,OF-4002,Sit-Stand Desk,1,459.00,delivered
+1088,108,2026-03-06,SE,BN-3001,Home Office Starter Bundle,1,399.00,delivered
+1180,11,2026-03-06,JP,OF-4001,Ergonomic Chair,3,279.00,shipped
+1260,52,2026-03-06,AU,TL-1006,Angle Grinder,4,98.00,delivered
+1266,113,2026-03-06,US,BN-3004,Field Technician Bundle,1,519.00,shipped
+1289,51,2026-03-06,US,EL-2004,Wireless Mouse,5,49.00,delivered
+1024,16,2026-03-07,DE,OF-4003,Monitor Arm Dual,1,89.00,delivered
+1044,86,2026-03-07,GB,EL-2009,Label Printer,1,95.00,delivered
+1087,9,2026-03-07,US,BN-3002,Workshop Essentials Bundle,2,449.00,delivered
+1138,11,2026-03-07,JP,BN-3002,Workshop Essentials Bundle,6,449.00,delivered
+1164,76,2026-03-07,BR,TL-1007,Workbench Vise,1,112.00,delivered
+1197,50,2026-03-07,PL,EL-2004,Wireless Mouse,8,49.00,shipped
+1338,68,2026-03-07,BR,TL-1006,Angle Grinder,4,98.00,delivered
+1036,25,2026-03-08,US,TL-1002,Impact Driver Kit,1,159.00,delivered
+1066,17,2026-03-08,NG,OF-4004,Desk Lamp LED,1,34.00,delivered
+1079,54,2026-03-08,SE,OF-4007,Paper Shredder,2,84.00,delivered
+1121,91,2026-03-08,FR,TL-1005,Torque Wrench,3,64.00,delivered
+1186,19,2026-03-08,BR,TL-1003,Socket Set 120pc,1,89.50,shipped
+1269,58,2026-03-08,DE,OF-4008,Acoustic Panel 6-pack,1,59.00,shipped
+1341,65,2026-03-08,AE,EL-2010,Thermal Receipt Printer,2,215.00,processing
+1106,14,2026-03-09,AU,TL-1003,Socket Set 120pc,2,89.50,shipped
+1120,88,2026-03-09,GB,BN-3001,Home Office Starter Bundle,3,399.00,delivered
+1139,99,2026-03-09,AU,OF-4008,Acoustic Panel 6-pack,1,59.00,delivered
+1003,82,2026-03-10,IE,TL-1005,Torque Wrench,5,64.00,delivered
+1004,27,2026-03-10,GB,BN-3004,Field Technician Bundle,1,519.00,delivered
+1029,44,2026-03-10,MX,TL-1007,Workbench Vise,1,112.00,processing
+1108,82,2026-03-10,IE,OF-4002,Sit-Stand Desk,4,459.00,shipped
+1157,120,2026-03-10,GB,EL-2005,Noise-Cancelling Headset,4,229.00,delivered
+1169,95,2026-03-10,JP,OF-4006,Filing Cabinet 3-drawer,1,149.00,shipped
+1177,23,2026-03-10,GB,EL-2009,Label Printer,1,95.00,delivered
+1211,70,2026-03-10,US,BN-3002,Workshop Essentials Bundle,9,449.00,cancelled
+1241,14,2026-03-10,GB,TL-1005,Torque Wrench,4,64.00,delivered
+1376,7,2026-03-10,GB,TL-1008,Oscillating Multi-Tool,1,139.00,delivered
+1045,99,2026-03-11,AU,OF-4002,Sit-Stand Desk,1,459.00,processing
+1099,75,2026-03-11,US,EL-2009,Label Printer,1,95.00,delivered
+1101,73,2026-03-11,KR,BN-3001,Home Office Starter Bundle,1,399.00,delivered
+1176,5,2026-03-11,FR,TL-1008,Oscillating Multi-Tool,4,139.00,processing
+1205,113,2026-03-11,US,TL-1003,Socket Set 120pc,9,89.50,delivered
+1218,43,2026-03-11,CN,EL-2004,Wireless Mouse,1,49.00,delivered
+1342,73,2026-03-11,KR,EL-2007,Portable SSD 2TB,2,179.00,delivered
+1364,71,2026-03-11,US,TL-1005,Torque Wrench,12,64.00,delivered
+1058,18,2026-03-12,CN,EL-2005,Noise-Cancelling Headset,4,229.00,shipped
+1061,58,2026-03-12,DE,EL-2001,USB-C Dock 12-in-1,2,189.00,delivered
+1062,57,2026-03-12,US,EL-2003,Mechanical Keyboard,2,119.00,delivered
+1124,103,2026-03-12,MX,EL-2002,27in 4K Monitor,2,349.00,processing
+1283,65,2026-03-12,AE,EL-2007,Portable SSD 2TB,6,179.00,shipped
+1284,21,2026-03-12,GB,OF-4006,Filing Cabinet 3-drawer,1,149.00,delivered
+1297,55,2026-03-12,JP,TL-1007,Workbench Vise,8,112.00,delivered
+1332,57,2026-03-12,US,BN-3001,Home Office Starter Bundle,1,399.00,delivered
+1055,97,2026-03-13,GB,EL-2002,27in 4K Monitor,2,349.00,delivered
+1161,17,2026-03-13,NG,EL-2003,Mechanical Keyboard,8,119.00,cancelled
+1222,58,2026-03-13,DE,EL-2009,Label Printer,9,95.00,delivered
+1244,115,2026-03-13,US,BN-3004,Field Technician Bundle,4,519.00,delivered
+1256,109,2026-03-13,ZA,BN-3001,Home Office Starter Bundle,5,399.00,delivered
+1318,100,2026-03-13,ES,OF-4007,Paper Shredder,1,84.00,processing
+1389,65,2026-03-13,AE,TL-1002,Impact Driver Kit,5,159.00,delivered
+1009,37,2026-03-14,US,OF-4008,Acoustic Panel 6-pack,1,59.00,shipped
+1056,81,2026-03-14,SG,TL-1004,Laser Level,6,74.99,shipped
+1070,43,2026-03-14,IT,TL-1002,Impact Driver Kit,2,159.00,shipped
+1171,51,2026-03-14,US,OF-4005,Whiteboard 120x90,9,69.00,shipped
+1237,33,2026-03-14,BR,BN-3003,Streaming Kit Bundle,1,329.00,delivered
+1330,94,2026-03-14,NG,TL-1001,Cordless Drill 18V,1,129.00,processing
+1393,76,2026-03-14,BR,OF-4003,Monitor Arm Dual,1,89.00,delivered
+1400,88,2026-03-14,ES,OF-4002,Sit-Stand Desk,4,459.00,delivered
+1014,101,2026-03-15,CA,TL-1004,Laser Level,6,74.99,shipped
+1096,107,2026-03-15,GB,TL-1006,Angle Grinder,3,98.00,delivered
+1148,43,2026-03-15,IT,EL-2010,Thermal Receipt Printer,2,215.00,delivered
+1278,115,2026-03-15,SE,EL-2006,1080p Webcam,3,79.00,shipped
+1236,40,2026-03-16,AE,TL-1006,Angle Grinder,1,98.00,shipped
+1293,71,2026-03-16,US,OF-4001,Ergonomic Chair,4,279.00,delivered
+1359,44,2026-03-16,US,BN-3001,Home Office Starter Bundle,1,399.00,delivered
+1392,108,2026-03-16,SE,BN-3001,Home Office Starter Bundle,8,399.00,shipped
+1069,83,2026-03-17,US,OF-4004,Desk Lamp LED,7,34.00,delivered
+1076,102,2026-03-17,US,EL-2001,USB-C Dock 12-in-1,4,189.00,delivered
+1081,77,2026-03-17,US,TL-1008,Oscillating Multi-Tool,2,139.00,delivered
+1144,73,2026-03-17,KR,BN-3004,Field Technician Bundle,1,519.00,delivered
+1207,107,2026-03-17,KR,BN-3004,Field Technician Bundle,1,519.00,delivered
+1213,25,2026-03-17,US,TL-1004,Laser Level,7,74.99,delivered
+1220,35,2026-03-17,GB,EL-2005,Noise-Cancelling Headset,11,229.00,shipped
+1325,33,2026-03-17,BR,BN-3004,Field Technician Bundle,3,519.00,delivered
+1377,44,2026-03-17,MX,EL-2007,Portable SSD 2TB,6,179.00,delivered
+1397,3,2026-03-17,CA,OF-4001,Ergonomic Chair,4,279.00,shipped
+1002,37,2026-03-18,US,OF-4006,Filing Cabinet 3-drawer,1,149.00,shipped
+1021,62,2026-03-18,DE,OF-4005,Whiteboard 120x90,1,69.00,delivered
+1030,101,2026-03-18,CA,TL-1007,Workbench Vise,7,112.00,delivered
+1072,29,2026-03-18,SE,TL-1003,Socket Set 120pc,3,89.50,delivered
+1094,60,2026-03-18,BR,OF-4008,Acoustic Panel 6-pack,1,59.00,delivered
+1135,26,2026-03-18,US,OF-4003,Monitor Arm Dual,2,89.00,processing
+1201,51,2026-03-18,US,TL-1004,Laser Level,3,74.99,delivered
+1271,117,2026-03-18,ZA,EL-2005,Noise-Cancelling Headset,3,229.00,delivered
+1354,59,2026-03-18,NL,TL-1003,Socket Set 120pc,5,89.50,cancelled
+1074,95,2026-03-19,JP,EL-2005,Noise-Cancelling Headset,3,229.00,delivered
+1109,112,2026-03-19,JP,EL-2010,Thermal Receipt Printer,8,215.00,shipped
+1117,66,2026-03-19,IT,EL-2001,USB-C Dock 12-in-1,1,189.00,processing
+1162,96,2026-03-19,NL,BN-3003,Streaming Kit Bundle,12,329.00,shipped
+1188,105,2026-03-19,US,TL-1003,Socket Set 120pc,7,89.50,shipped
+1391,6,2026-03-19,DE,OF-4006,Filing Cabinet 3-drawer,2,149.00,delivered
+1196,112,2026-03-20,US,EL-2003,Mechanical Keyboard,1,119.00,delivered
+1245,103,2026-03-20,BR,OF-4007,Paper Shredder,2,84.00,delivered
+1349,105,2026-03-20,US,OF-4006,Filing Cabinet 3-drawer,5,149.00,delivered
+1038,30,2026-03-21,NG,BN-3002,Workshop Essentials Bundle,1,449.00,delivered
+1118,11,2026-03-21,JP,TL-1007,Workbench Vise,1,112.00,shipped
+1128,114,2026-03-21,US,TL-1007,Workbench Vise,2,112.00,delivered
+1151,64,2026-03-21,FR,TL-1005,Torque Wrench,2,64.00,processing
+1216,105,2026-03-21,US,TL-1002,Impact Driver Kit,1,159.00,delivered
+1239,7,2026-03-21,GB,TL-1004,Laser Level,1,74.99,delivered
+1261,103,2026-03-21,BR,TL-1008,Oscillating Multi-Tool,2,139.00,delivered
+1292,27,2026-03-21,GB,EL-2001,USB-C Dock 12-in-1,1,189.00,delivered
+1295,115,2026-03-21,SE,TL-1004,Laser Level,6,74.99,delivered
+1367,93,2026-03-21,MX,BN-3004,Field Technician Bundle,3,519.00,processing
+1039,90,2026-03-22,IN,OF-4006,Filing Cabinet 3-drawer,1,149.00,delivered
+1073,78,2026-03-22,DE,EL-2005,Noise-Cancelling Headset,1,229.00,delivered
+1075,28,2026-03-22,US,TL-1004,Laser Level,9,74.99,delivered
+1142,58,2026-03-22,JP,TL-1002,Impact Driver Kit,1,159.00,delivered
+1179,6,2026-03-22,DE,EL-2008,Smart Power Strip,3,39.00,delivered
+1200,116,2026-03-22,SE,OF-4008,Acoustic Panel 6-pack,3,59.00,delivered
+1212,72,2026-03-22,DE,BN-3004,Field Technician Bundle,6,519.00,shipped
+1310,72,2026-03-22,DE,TL-1008,Oscillating Multi-Tool,4,139.00,delivered
+1317,28,2026-03-22,CA,BN-3001,Home Office Starter Bundle,3,399.00,delivered
+1057,28,2026-03-23,CA,EL-2001,USB-C Dock 12-in-1,4,189.00,shipped
+1071,20,2026-03-23,IN,OF-4006,Filing Cabinet 3-drawer,9,149.00,delivered
+1084,38,2026-03-23,GB,OF-4002,Sit-Stand Desk,6,459.00,delivered
+1308,101,2026-03-23,CA,BN-3004,Field Technician Bundle,1,519.00,delivered
+1320,79,2026-03-23,US,EL-2006,1080p Webcam,2,79.00,cancelled
+1345,95,2026-03-23,JP,TL-1006,Angle Grinder,6,98.00,delivered
+1059,120,2026-03-24,IN,OF-4007,Paper Shredder,1,84.00,delivered
+1136,28,2026-03-24,CA,EL-2007,Portable SSD 2TB,2,179.00,shipped
+1141,34,2026-03-24,CA,EL-2002,27in 4K Monitor,8,349.00,delivered
+1231,63,2026-03-24,ES,OF-4008,Acoustic Panel 6-pack,2,59.00,delivered
+1277,48,2026-03-24,NL,TL-1006,Angle Grinder,2,98.00,delivered
+1303,113,2026-03-24,US,BN-3003,Streaming Kit Bundle,1,329.00,processing
+1343,109,2026-03-24,AE,BN-3003,Streaming Kit Bundle,2,329.00,delivered
+1382,36,2026-03-24,US,TL-1001,Cordless Drill 18V,1,129.00,delivered
+1085,88,2026-03-25,GB,TL-1004,Laser Level,3,74.99,processing
+1098,42,2026-03-25,ZA,OF-4005,Whiteboard 120x90,5,69.00,delivered
+1100,43,2026-03-25,IT,TL-1008,Oscillating Multi-Tool,5,139.00,shipped
+1131,5,2026-03-25,FR,TL-1002,Impact Driver Kit,6,159.00,shipped
+1172,112,2026-03-25,US,OF-4006,Filing Cabinet 3-drawer,1,149.00,shipped
+1265,76,2026-03-25,BR,OF-4005,Whiteboard 120x90,2,69.00,delivered
+1270,77,2026-03-25,US,BN-3003,Streaming Kit Bundle,2,329.00,delivered
+1302,39,2026-03-25,MX,EL-2010,Thermal Receipt Printer,3,215.00,shipped
+1306,1,2026-03-25,AE,EL-2010,Thermal Receipt Printer,1,215.00,delivered
+1327,69,2026-03-25,BR,TL-1003,Socket Set 120pc,4,89.50,delivered
+1116,5,2026-03-26,FR,EL-2002,27in 4K Monitor,1,349.00,delivered
+1132,5,2026-03-26,FR,TL-1007,Workbench Vise,1,112.00,delivered
+1223,19,2026-03-26,DE,OF-4003,Monitor Arm Dual,8,89.00,delivered
+1001,6,2026-03-27,DE,OF-4007,Paper Shredder,1,84.00,cancelled
+1026,2,2026-03-27,US,OF-4006,Filing Cabinet 3-drawer,6,149.00,shipped
+1067,47,2026-03-27,GB,EL-2006,1080p Webcam,3,79.00,delivered
+1110,71,2026-03-27,US,EL-2002,27in 4K Monitor,3,349.00,delivered
+1115,70,2026-03-27,US,TL-1005,Torque Wrench,2,64.00,delivered
+1166,110,2026-03-27,DE,TL-1007,Workbench Vise,2,112.00,processing
+1225,77,2026-03-27,US,OF-4002,Sit-Stand Desk,3,459.00,delivered
+1267,2,2026-03-27,US,TL-1003,Socket Set 120pc,1,89.50,shipped
+1329,113,2026-03-27,US,TL-1002,Impact Driver Kit,5,159.00,delivered
+1357,40,2026-03-27,MX,OF-4002,Sit-Stand Desk,4,459.00,delivered
+1368,7,2026-03-27,GB,OF-4007,Paper Shredder,9,84.00,delivered
+1083,33,2026-03-28,BR,OF-4001,Ergonomic Chair,2,279.00,delivered
+1086,108,2026-03-28,SE,TL-1008,Oscillating Multi-Tool,2,139.00,shipped
+1352,1,2026-03-28,AE,OF-4003,Monitor Arm Dual,1,89.00,delivered
+1355,104,2026-03-28,AE,TL-1002,Impact Driver Kit,7,159.00,delivered
+1385,53,2026-03-28,PL,TL-1004,Laser Level,5,74.99,delivered
+1005,80,2026-03-29,IN,TL-1004,Laser Level,2,74.99,delivered
+1250,46,2026-03-29,IN,OF-4007,Paper Shredder,2,84.00,delivered
+1272,19,2026-03-29,DE,EL-2006,1080p Webcam,1,79.00,cancelled
+1307,82,2026-03-29,IE,TL-1005,Torque Wrench,1,64.00,delivered
+1008,24,2026-03-30,FR,TL-1002,Impact Driver Kit,1,159.00,delivered
+1053,100,2026-03-30,PL,TL-1005,Torque Wrench,3,64.00,processing
+1082,26,2026-03-30,US,TL-1003,Socket Set 120pc,2,89.50,delivered
+1255,70,2026-03-30,US,BN-3001,Home Office Starter Bundle,3,399.00,delivered
+1314,112,2026-03-30,JP,TL-1004,Laser Level,1,74.99,delivered
+1353,94,2026-03-30,NG,OF-4002,Sit-Stand Desk,2,459.00,delivered
+1371,87,2026-03-30,BR,BN-3001,Home Office Starter Bundle,3,399.00,shipped
+1015,118,2026-03-31,BR,EL-2008,Smart Power Strip,3,39.00,processing
+1168,39,2026-03-31,GB,EL-2006,1080p Webcam,3,79.00,shipped
+1175,107,2026-03-31,KR,TL-1004,Laser Level,6,74.99,delivered
+1182,10,2026-03-31,IE,OF-4006,Filing Cabinet 3-drawer,2,149.00,delivered
+1240,78,2026-03-31,DE,OF-4006,Filing Cabinet 3-drawer,2,149.00,delivered
+1262,25,2026-03-31,US,EL-2004,Wireless Mouse,4,49.00,shipped
+1282,105,2026-03-31,DE,EL-2008,Smart Power Strip,4,39.00,shipped
+1395,108,2026-03-31,SE,EL-2008,Smart Power Strip,2,39.00,delivered

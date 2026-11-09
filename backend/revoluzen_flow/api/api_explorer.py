@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import http.client
 import ipaddress
 import json
@@ -157,7 +158,11 @@ def inspect_request(req: InspectRequest):
             remaining = 15 - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError()
-            sock.settimeout(remaining)
+            # http.client closes this object as soon as a server says
+            # "Connection: close". The response still reads through its own
+            # handle, with the timeout set above, so that isn't a failure.
+            with contextlib.suppress(OSError):
+                sock.settimeout(remaining)
             chunk = response.read1(min(16384, LIMIT + 1 - len(raw)))
             if not chunk:
                 break

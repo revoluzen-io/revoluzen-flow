@@ -2,8 +2,8 @@
  * EditorContextBar — the small "Project | Pipeline Name" ribbon that
  * sits at the top of the canvas column in the Editor.
  *
- * Mounted inside the canvas-column flex-col (between the chat panel on
- * the left and the modules panel on the right) so the bar's width
+ * Mounted inside the canvas-column flex-col (between the node panel on
+ * the left and the Copilot chat panel on the right) so the bar's width
  * tracks the canvas — resize either side panel and the ribbon resizes
  * with it. Previously this lived inside Toolbar.tsx and spanned the
  * full window, which covered the side panels.
@@ -22,6 +22,7 @@ import { validateWorkflow } from '../utils/validateWorkflow';
 export default function EditorContextBar({ embedded = false }: { embedded?: boolean } = {}) {
   const dark = useDarkMode();
   const workflowName = useWorkflowStore((s) => s.workflowName);
+  const pastRunId = useWorkflowStore((s) => s.pastRunId);
   const setWorkflowName = useWorkflowStore((s) => s.setWorkflowName);
   const editorSurface = useWorkflowStore((s) => s.editorSurface);
   const workflowId = useWorkflowStore((s) => s.workflowId);
@@ -408,6 +409,14 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
               <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
             </svg>
           </button>
+        )}
+        {pastRunId && (
+          <span
+            className={`ml-2 shrink-0 text-xs font-medium px-2 py-0.5 rounded ${dark ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700'}`}
+            title="This canvas shows the pipeline as it was in this run. Run and Test use it without saving. Save replaces the current pipeline with it."
+          >
+            Past run {pastRunId.slice(0, 8)}
+          </span>
         )}
       </div>
 

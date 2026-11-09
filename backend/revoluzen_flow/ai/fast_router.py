@@ -38,6 +38,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from revoluzen_flow.ai.tls import ai_ssl_context
 from revoluzen_flow.ai.tools.base import ToolContext
 from revoluzen_flow.ai.direct_actions import (
     direct_cancel_execution,
@@ -904,6 +905,33 @@ async def _llm_explain_failure(
     if heuristic_suggestion:
         user_msg += f"\nHeuristic suggestion already shown to user:\n{heuristic_suggestion[:300]}"
 
+    # This is a model call inside the Copilot's answer. Insights → Activity
+    # counts it under the Copilot, with its tokens, whether or not it worked.
+    import time as _time
+    t0 = _time.monotonic()
+    body: dict[str, Any] = {}
+
+    def _recorded(text: str | None, data: Any, sent: dict[str, Any], error: str | None = None) -> str | None:
+        if sent:
+            try:
+                from revoluzen_flow.ai.usage_sources import record_ai_call, tokens_from_reply
+                tokens_in, tokens_out = tokens_from_reply(data)
+                record_ai_call(
+                    source="copilot.explain_failure",
+                    user_id=ctx.user_id,
+                    workspace_id=ctx.workspace_id or ctx.tenant_id,
+                    provider=provider,
+                    model=sent.get("model") or model,
+                    latency_ms=int((_time.monotonic() - t0) * 1000),
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    success=bool(text),
+                    error=error,
+                )
+            except Exception:  # noqa: BLE001 — recording never blocks the answer
+                pass
+        return text or None
+
     try:
         import asyncio
         import httpx
@@ -927,7 +955,7 @@ async def _llm_explain_failure(
                 r.raise_for_status()
                 data = r.json()
                 text = ((data.get("message") or {}).get("content") or "").strip()
-                return text or None
+                return _recorded(text, data, body)
 
         if provider == "claude":
             url = "https://api.anthropic.com/v1/messages"
@@ -942,7 +970,7 @@ async def _llm_explain_failure(
                 "system": system,
                 "messages": [{"role": "user", "content": user_msg}],
             }
-            async with httpx.AsyncClient(timeout=timeout_s) as client:
+            async with httpx.AsyncClient(timeout=timeout_s, verify=ai_ssl_context()) as client:
                 r = await client.post(url, json=body, headers=headers)
                 r.raise_for_status()
                 data = r.json()
@@ -950,7 +978,7 @@ async def _llm_explain_failure(
                 text = "".join(
                     b.get("text", "") for b in blocks if b.get("type") == "text"
                 ).strip()
-                return text or None
+                return _recorded(text, data, body)
 
         if provider in ("openai", "openrouter"):
             base = base_url or (
@@ -972,18 +1000,18 @@ async def _llm_explain_failure(
                     {"role": "user", "content": user_msg},
                 ],
             }
-            async with httpx.AsyncClient(timeout=timeout_s) as client:
+            async with httpx.AsyncClient(timeout=timeout_s, verify=ai_ssl_context()) as client:
                 r = await client.post(url, json=body, headers=headers)
                 r.raise_for_status()
                 data = r.json()
                 choices = data.get("choices") or []
                 if choices:
                     text = ((choices[0].get("message") or {}).get("content") or "").strip()
-                    return text or None
-                return None
+                    return _recorded(text, data, body)
+                return _recorded(None, data, body, "The reply had no answer.")
     except (httpx.HTTPError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
         logger.debug("LLM failure-explain skipped: %s", exc)
-        return None
+        return _recorded(None, None, body, f"{type(exc).__name__}: {exc}")
 
     return None
 
@@ -1692,6 +1720,7 @@ async def _render_what_tier(prompt: str, ctx: ToolContext) -> str:
 
 _NAV_PAGES: tuple[tuple[tuple[str, ...], str, str], ...] = (
     # (keywords, page_id, label)
+    (("trigger", "api key", "endpoint"), "triggers", "Triggers"),
     (("pipeline", "workflow"), "workflows", "Workflows"),
     (("execution", "run", "logs"), "executions", "Executions"),
     (("connection",), "connections", "Connections"),
@@ -2079,8 +2108,8 @@ _INTENTS: tuple[FastIntent, ...] = (
             "go to ", "go back",
             "take me to ", "take me back",
             "open pipelines", "open executions", "open connections",
-            "open dashboard", "open logs", "open settings",
-            "open the dashboard", "open the executions",
+            "open dashboard", "open logs", "open settings", "open triggers",
+            "open the dashboard", "open the executions", "open the triggers",
             "show pipelines page", "show connections page",
             "show executions page", "show dashboard",
             "navigate to ", "navigate back",
@@ -2500,10 +2529,11 @@ _INTENTS: tuple[FastIntent, ...] = (
             "1. Open the **Editor** from the top nav.\n"
             "2. Pick a starting point — either *Start with a Template* "
             "(Simple ETL / Dedup / Aggregation / Data Quality), drag nodes "
-            "from the right-hand panel onto the canvas, or describe what you "
+            "from the node panel on the left onto the canvas, or describe what you "
             "want in plain English in the chat box.\n"
-            "3. Click any node to open its config panel — set the file path "
-            "for a CSV Source, the SQL for a Transform, the table for a Sink.\n"
+            "3. Double-click a node to open its config panel along the bottom of "
+            "the editor — set the file path for a CSV Source, the SQL for a "
+            "Transform, the table for a Sink.\n"
             "4. Connect nodes by dragging from the bottom handle of one to the "
             "top handle of the next.\n"
             "5. Hit **Run All** in the toolbar to execute the whole pipeline, "
@@ -2597,7 +2627,7 @@ _INTENTS: tuple[FastIntent, ...] = (
             "- Credentials encrypted at rest (Fernet)\n"
             "- AI Copilot with local Ollama (default) or cloud opt-in\n"
             "- Eval harness (29 test cases across 5 categories)\n"
-            "- Activity timeline + trace store + cert matrix\n\n"
+            "- AI activity (each AI request, its tokens and cost) + trace store + cert matrix\n\n"
             "Revoluzen Flow Enterprise adds RBAC, PROD environment, two-gate approvals, SSO, "
             "audit log retention, and Vault credential references.\n\n"
             "Full changelog: `/docs/changelog.md` or **Help → Documentation**."
@@ -2618,10 +2648,15 @@ _INTENTS: tuple[FastIntent, ...] = (
             "2. **Workflows** — list of pipelines. Click one to open the editor.\n"
             "3. **Editor** — drag nodes onto the canvas, connect them, configure.\n"
             "4. **Executions** — every run's history, logs, and step traces.\n"
-            "5. **Connections** — saved data sources/sinks (Postgres, S3, etc.).\n"
-            "6. **Credentials** — encrypted secrets referenced by connections.\n"
-            "7. **Schedules** — cron-style automation for pipelines.\n"
-            "8. **Insights** — Copilot settings, activity, trust posture.\n\n"
+            "5. **Triggers** — let another application start a pipeline, with "
+            "an endpoint and an API key.\n"
+            "6. **Connections** — saved data sources/sinks (Postgres, S3, etc.).\n"
+            "7. **Credentials** — encrypted secrets that connections reuse. "
+            "Give one an expiry date and administrators are warned before it lapses.\n"
+            "8. **Schedules** — cron-style automation, set from the Schedule "
+            "button in the Editor toolbar.\n"
+            "9. **Insights** — the AI provider, AI activity (what the AI did "
+            "and what it cost), reports, and the API Explorer.\n\n"
             "Most flows: create a Connection → drop a Source/Sink node → "
             "wire it up → Run All. Hit **Help** anytime for the full docs."
         ),
@@ -2668,8 +2703,8 @@ _INTENTS: tuple[FastIntent, ...] = (
         static_answer=(
             "Yep — alerts are how you get told when something happens. The "
             "flow:\n\n"
-            "Open the **Alerts** page → **+ New Rule** → pick a pipeline "
-            "(or *any* for a global rule) → pick a trigger:\n"
+            "Open your pipeline in the **Editor** → click **Alert** in the "
+            "toolbar → pick a trigger:\n"
             "- **ON_FAILURE** — a run errored\n"
             "- **ON_SUCCESS** — a run finished cleanly\n"
             "- **ON_LONG_RUNNING** — a run is dragging past N minutes\n"
@@ -2820,22 +2855,24 @@ _INTENTS: tuple[FastIntent, ...] = (
             "is my credential expired", "credential expired",
         ),
         static_answer=(
-            "Straight answer: OSS Free doesn't proactively detect "
-            "expiry. Credentials are encrypted at rest (Fernet AES-128) "
-            "and used until you rotate them — there's no built-in TTL.\n\n"
-            "How you'll *find out* a credential expired in OSS:\n"
+            "Give a credential an **expiry date** on the Credentials page "
+            "and Revoluzen Flow warns administrators on the notification "
+            "bell and by email: a week ahead, a day ahead, and when it "
+            "expires, once each. The check runs every hour. Email needs "
+            "SMTP set up in Settings → Notifications. To turn the warnings "
+            "off, use **Credential expiry warnings** on the same tab.\n\n"
+            "The date is one you enter. Revoluzen Flow doesn't ask the "
+            "provider when a key really lapses, and it keeps using a "
+            "credential until you change it. A credential with no date gets "
+            "no warning, so you'd find out from a run:\n"
             "1. **Test it** — Connections page → Test, or ask the "
             "Copilot. You'll see `auth_failed` immediately.\n"
             "2. **Wait for a run** — the next pipeline using it will "
             "fail its first source step with `auth_failed`. An "
-            "`ON_FAILURE` alert rule emails/Slacks you right away.\n"
-            "3. **Update manually** — Credentials page → edit → save → "
-            "re-test affected connections.\n\n"
-            "If you want this proactive, that's where Revoluzen Flow Enterprise earns its "
-            "keep: **Vault references** mean Revoluzen Flow only holds a pointer; "
-            "your vault does the rotation.\n\n"
-            "Pragmatic OSS workaround: schedule a daily test-connection "
-            "pipeline + ON_FAILURE alert. Catches expiry within 24 h."
+            "`ON_FAILURE` alert rule tells you right away.\n\n"
+            "To renew: Credentials page → edit → save. Every connection "
+            "that uses it picks up the new value, and a new expiry date "
+            "starts the warnings again."
             + _ask_chips(
                 ("How to store credentials?", "how to store credentials"),
                 ("How to set up alerts?", "how to set up alert"),
@@ -3208,7 +3245,7 @@ _INTENTS: tuple[FastIntent, ...] = (
             "- DEV environment with Run, Validate, Activate / Deactivate\n"
             "- Encrypted credentials (Fernet AES-128)\n"
             "- AI Copilot with local Ollama (default) or cloud opt-in\n"
-            "- Trace store, activity timeline, eval harness\n\n"
+            "- Trace store, AI activity (AI requests, tokens, cost), eval harness\n\n"
             "**Revoluzen Flow Enterprise** adds (for teams):\n"
             "- PROD environment + DEV→PROD promotion with two-gate approval\n"
             "- Workspace RBAC (Super Admin → Viewer)\n"
@@ -3268,18 +3305,18 @@ _INTENTS: tuple[FastIntent, ...] = (
             "who founded", "who made this product",
         ),
         static_answer=(
-            "Revoluzen Flow logs every change to pipelines / connections / "
-            "credentials / schedules. Three ways to inspect:\n\n"
-            "**UI** — **Insights → Activity** tab. Filter by entity, "
-            "action (create / update / delete), user, or date range.\n\n"
-            "**Chat** — ask the Copilot *\"recent changes to pipeline X\"*. "
-            "Runs `recall_history` against the audit + execution index "
-            "and returns the matching rows.\n\n"
-            "**API** — `GET /api/audit/log?entity_id=<id>` returns the raw "
-            "rows. Each row carries: `user_id`, `user_email`, `timestamp`, "
-            "`action`, `entity_type`, `entity_id`, `source_ip`, `status`.\n\n"
-            "Revoluzen Flow Enterprise adds retention policy, sigstore-signed exports, and "
-            "SIEM-compatible formats."
+            "What this edition keeps:\n\n"
+            "**Pipeline changes** — every save that changes a pipeline adds "
+            "a version, with who saved it and when. On **Pipelines**, open "
+            "the pipeline's **⋯** menu and choose **Version history**; "
+            "**Compare** shows what a version added or removed.\n\n"
+            "**Runs** — **Workflows → Executions** lists every run and what "
+            "started it.\n\n"
+            "**AI** — **Insights → Activity** lists each AI request. It does "
+            "not list changes people made.\n\n"
+            "A searchable audit log of everyone's changes, with retention, "
+            "signed exports and SIEM formats, is part of Revoluzen Flow "
+            "Enterprise."
         ),
     ),
     FastIntent(
@@ -3657,6 +3694,12 @@ _DIAGNOSTIC_QUESTION_PREFIXES: tuple[str, ...] = (
     "compare ", "show the diff", "what changed",
 )
 
+_OWN_PIPELINE_REFERENCES: tuple[str, ...] = (
+    "this pipeline", "this canvas", "this workflow",
+    "my pipeline", "my canvas", "my workflow",
+    "current pipeline", "current canvas",
+)
+
 
 def _try_atlas_match(prompt: str) -> FastLaneResult | None:
     """Score the prompt against the Revoluzen Flow atlas (pages, glossary,
@@ -3698,6 +3741,10 @@ def _try_atlas_match(prompt: str) -> FastLaneResult | None:
     # static Fail-node definition. Skip atlas so hybrid / agent loop
     # gets to analyze the actual failure.
     if any(p_lower.startswith(prefix) for prefix in _DIAGNOSTIC_QUESTION_PREFIXES):
+        return None
+    # A question about the user's own pipeline needs its live state, not the
+    # static definition of a word it happens to contain ("pipeline", "node").
+    if any(ref in p_lower for ref in _OWN_PIPELINE_REFERENCES):
         return None
     # Task-goal guard (2026-06-15) — a prompt stating a concrete data goal
     # ("I need lookup from a SQL Server table", "load from s3") must reach

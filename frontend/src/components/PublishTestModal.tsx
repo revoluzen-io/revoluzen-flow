@@ -19,7 +19,7 @@ import { navigateTo } from '../router';
 
 interface StepLog {
   step_id: string;
-  step_label?: string;
+  step_name?: string;
   status: string;
   rows_processed?: number;
   duration_ms?: number;
@@ -215,7 +215,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                 <span className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin shrink-0" />
                 <div>
                   <div className="text-sm font-semibold text-blue-700">Running end-to-end test…</div>
-                  <div className="text-xs text-blue-600">Executing every step against real connections.</div>
+                  <div className="text-xs text-blue-600">Running every step on a sample. Nothing is written to your destinations.</div>
                 </div>
               </div>
             )}
@@ -229,7 +229,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                     All {summary?.steps_passed ?? stepLogs.length} step{(summary?.steps_passed ?? stepLogs.length) === 1 ? '' : 's'} passed
                   </div>
                   <div className="text-xs text-emerald-600">
-                    Total {summary?.duration_ms ? Math.round(summary.duration_ms) : '—'} ms · ready to publish.
+                    Total {summary?.duration_ms ? Math.round(summary.duration_ms) : '—'} ms on a sample, with writes skipped · ready to publish.
                   </div>
                 </div>
               </div>
@@ -345,7 +345,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="font-semibold text-slate-700 truncate">
-                            {s.step_label || s.step_id}
+                            {s.step_name || s.step_id}
                             <span className="ml-2 text-xs font-normal text-slate-500">{s.step_id}</span>
                           </div>
                           <div className="text-xs text-slate-500 mt-0.5">

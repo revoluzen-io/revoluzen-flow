@@ -83,7 +83,7 @@ The canvas section covers the editor architecture: ReactFlow integration, the wo
 | | `send_email` | Send Email | 1 | SMTP with HTML / per-row / CC/BCC |
 | | `slack_notify` | Slack Notify | 1 | Webhook message with `{column}` placeholders |
 | | `copy_data` | Copy Data | 0–1 | DB→DB or upstream→DB with mapping + staging |
-| | `delete_data` | Delete Data | 1 | Drop rows OR delete files |
+| | `delete_data` | Delete Data | 1 | Drop rows that match a condition (changes the data passing through only; use File System to delete files) |
 | | `get_metadata` | Get Metadata | 1 | Per-column stats (null %, distinct, min/max) |
 | | `file_system` | File System | 0–1 | Local copy/move/rename/delete |
 | | `execute_sql_task` | Execute SQL | 0–1 | DDL/DML against a DB connection |
@@ -910,11 +910,11 @@ Supports column mapping (auto/explicit), table actions (none/create/truncate/rec
 
 ## delete_data — Delete Data
 
-**Arity:** 1 · **Behavior:** Removes rows matching a SQL condition (inverse of filter), OR deletes files from disk (files mode with wildcard + recursive options).
+**Arity:** 1 · **Behavior:** Removes the rows that match a SQL condition from the data passing through (inverse of filter). It deletes nothing in a database or in storage: to delete files use `file_system`, and to run a `DELETE` statement in a database use `execute_sql_task`. There used to be a `files` target (`target_kind`, `target_path`, `wildcard`, `recursive`); it was never implemented, so it is no longer offered. A step saved with `target_kind=files` fails when run, and the config panel offers "Switch to deleting rows".
 
-**Fields (Source tab):** `target_kind` (`rows`/`files`, required), `condition` (expression — for rows), `target_path` (text — for files), `wildcard` (text — for files), `recursive` (bool, default true — for files).
-**Settings tab:** `max_concurrent` (number, default 1).
-**Logging tab:** `enable_logging` (bool, default false), `log_path` (text).
+**Fields (Source tab):** `condition` (expression).
+**Settings tab:** `max_concurrent` (number, default 1; not used).
+**Logging tab:** `enable_logging` (bool, default false; not used), `log_path` (text; not used).
 
 ## get_metadata — Get Metadata
 
@@ -925,7 +925,7 @@ Supports column mapping (auto/explicit), table actions (none/create/truncate/rec
 
 ## file_system — File System
 
-**Arity:** 0–1 · **Behavior:** Local filesystem ops. Returns a relation with `operation` / `source` / `destination` / `status` / `error` columns.
+**Arity:** 0–1 · **Behavior:** Local filesystem ops. A relative path means inside the data folder, and missing destination folders are created. Returns a relation with `operation` / `source` / `destination` / `status` / `error` columns.
 
 **Fields:** `operation` (select, required) — `copy_file` / `move_file` / `rename_file` / `delete_file` / `copy_directory` / `move_directory` / `delete_directory` / `create_directory`; `source` (text, required); `destination` (text — required for copy/move/rename); `overwrite` (bool, default false); `recursive` (bool, default true); `continue_on_error` (bool, default false).
 
@@ -1287,7 +1287,7 @@ All sinks return the input relation unchanged so downstream nodes can chain off 
 | `send_email` | 1 (`{column}` placeholders in subject/body resolve against first row in bulk mode, per-row in per-row mode) | passthrough | Sends SMTP email |
 | `slack_notify` | 1 (`{column}` placeholders resolve against first row) | passthrough | POSTs to Slack webhook |
 | `copy_data` | 0 or 1 (depends on configuration shape — see §7 Copy Data) | Returns the written relation so downstream can chain off the copied data | Writes to `sink_connection` table (with optional staging + pre/post SQL) |
-| `delete_data` | 1 (`condition` cols must exist for `target_kind=rows`) | `rows` mode: passthrough minus matching rows. `files` mode: one row per delete attempt with `path`, `status`, `error` cols. | `rows` is pure transform; `files` deletes from disk |
+| `delete_data` | 1 (the `condition` columns must exist) | Passthrough minus the matching rows. | None: a pure transform (a saved `target_kind=files` fails when run) |
 | `get_metadata` | 1 (`upstream` mode) or 0 (`file`/`directory` modes) | One row per column with `name`, `type`, `nullable`, `null_count`, `distinct_count`, `min_value`, `max_value`, `row_count` (cols controlled by `fields` + `include_*` flags) | none (`upstream`); file stat (`file`/`directory`) |
 | `file_system` | 0 or 1 | One row per operation with `operation`, `source`, `destination`, `status`, `error` cols | Performs the filesystem op (copy/move/delete) |
 | `execute_sql_task` | 0 or 1 (`{column}` placeholders resolve against first row) | `return_mode=rowcount`: single row `{rows_affected: INT}`. `return_mode=full`: the actual result set. | Executes arbitrary SQL on the chosen connection |
@@ -1310,7 +1310,7 @@ All sinks return the input relation unchanged so downstream nodes can chain off 
 - **Metadata columns.** Three nodes intentionally inject metadata columns into the output:
   - `foreach_loop` → `_batch_index`, `_batch_total`
   - `conditional_split` → `_split_output`
-  - `data_quality` (tag/split modes) → `__dq_passed`, optionally `__dq_score`
+  - `data_quality` → `__dq_passed` (tag mode), `__dq_score` (when Add Quality Score Column is on, in any mode) and `_split_output` (reject mode; the executor strips it from the rows that leave by the Pass and Reject outputs). drop, fail and split add no column.
   - `llm_guardrail` (tag mode) → `__guardrail_flags`
   - `validate` → `is_valid`
   - Kafka source → `_kafka_offset`, `_kafka_partition`, `_kafka_topic`
@@ -1370,7 +1370,7 @@ Three tiers via `schemaStabilityFor(stepType) → 'static' | 'inference' | 'dyna
 
 ## A5 — Loop / split metadata leaking into a sink (validator warning)
 
-`validateWorkflow.ts` walks ancestors of every pass-through sink. If ANY ancestor is in `METADATA_PRODUCERS` (`foreach_loop`, `conditional_split`, `data_quality`, `validate`, `llm_guardrail`, `kafka_source`, `set_variable`), it emits a warning telling the user to drop the metadata columns via a `rename` or `select` step before the sink — otherwise engine-internal columns land in their output table.
+`validateWorkflow.ts` walks ancestors of every pass-through sink. `METADATA_PRODUCERS` maps each step type that can add internal columns (`foreach_loop`, `conditional_split`, `data_quality`, `validate`, `llm_guardrail`, `kafka_source`) to the columns it adds with its current settings, an empty list meaning none. If ANY ancestor adds some, the sink gets a warning that names those columns and tells the user to drop them via a `rename` or `select` step before the sink — otherwise engine-internal columns land in their output table. `data_quality` is the one that depends on its settings: tag mode adds `__dq_passed`, Add Quality Score Column adds `__dq_score`, and reject mode adds `_split_output` unless the rows leave by its Pass or Reject output (the edge's `sourceHandle`); drop, fail and split add nothing, so a Data Quality step in those modes does not trigger the warning.
 
 ## A6 — Sample is a preview, enforced in the engine
 
@@ -1414,7 +1414,7 @@ normally — the point is to see real transformed data without writing it.
 - `email_sink` / `send_email` → "Sends an email…"
 - `slack_notify` → "Posts to a Slack channel"
 - `http_request` → "Calls an external API"
-- `delete_data` → "Deletes rows or files"
+- `delete_data` → "Drops matching rows"
 - `execute_sql_task` → "Runs SQL on a database"
 - `execute_pipeline` → "Runs another pipeline"
 - (one per side-effect stepType — full map in `SIDE_EFFECT_LABEL`)

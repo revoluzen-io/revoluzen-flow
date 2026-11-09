@@ -12,6 +12,77 @@ follows the compatibility rules documented there.
 
 ### Added
 
+- **The Bin for deleted pipelines.** Deleting a pipeline now moves it to the Bin
+  tab on the Pipelines page instead of removing it. It keeps its saved versions
+  and stays for 30 days (`REVOLUZEN_FLOW_BIN_RETENTION_DAYS`; `0` means never
+  removed automatically), then a daily job removes it for good. The Bin lives on
+  the server, so everyone in the workspace sees the same list, and the tab reads
+  it again each time it is opened: a pipeline someone else deleted or restored in
+  the meantime shows without reloading the page.
+
+  **Restore** brings a pipeline back as a draft, never published, with its
+  schedules back but paused. A name taken in the meantime gets a "(2)" suffix, and
+  a project or folder that is gone is replaced by Default or the project root; the
+  toast says which. **Delete forever** removes one at once, and admins can
+  **Empty Bin**. Deleting, restoring and removing need the Developer role, and
+  emptying needs Admin. Deleting a folder together with its pipelines goes to the
+  Bin too.
+
+  The API gains `GET /api/workflows/bin`, `POST /api/workflows/bin/{id}/restore`,
+  `DELETE /api/workflows/bin/{id}` and `DELETE /api/workflows/bin`.
+  `DELETE /api/workflows/{id}` now answers `{"deleted": true, "binned": true, ...}`,
+  and `?permanent=true` skips the Bin for scripts that must leave no copy (the app
+  has no button for it). Delete, restore and purge are recorded in the audit log.
+  A CDC pipeline gets new replication slots on restore and does not replay changes
+  made to its source while it was in the Bin.
+
+- **Triggers page.** Workflows → Triggers lets another application start a
+  pipeline and pass it values: endpoints, API keys, and a ready-to-use command.
+  The runs appear on Executions with the trigger API, and the inventory report
+  lists endpoints and masked keys.
+
+- **Credential expiry warnings.** Give a credential an expiry date and
+  administrators are warned on the bell and by email a week ahead, a day ahead
+  and when it expires. Settings → Notifications → Credential expiry warnings
+  turns them off.
+
+- **Saved credentials fill a connection's fields.** Pick one under Saved
+  credential and the fields it holds fill themselves. A SaaS Connector step takes
+  a saved credential too.
+
+- **The Copilot asks before drafting.** It asks where the data comes from and
+  where it goes, from the workspace's real connections, files and tables, and a
+  missing connection can be created in the chat.
+
+- **`inspect_step_columns` Copilot tool.** Lists the columns a step receives, as
+  names and types only, so the agent can fix a renamed column instead of
+  guessing from an error message. It refuses if an upstream step could have a
+  side effect. The agent also gets guidance on repairing pipelines: draft instead
+  of describing, never guess a column, and leave a failing check in place.
+
+- **Chained pipeline drafts.** `modify_pipeline_step` takes a `draft_id` to build
+  on an earlier edit, so a fix can span several steps. The editor now tells the
+  agent every step's id, which it needs to edit more than the selected step.
+
+- **Repair evaluation for the Copilot.** `python -m revoluzen_flow.eval.repair`
+  runs broken pipelines through the real agent loop, then runs each draft on the
+  real engine against held-out data and answers computed in plain Python. It
+  scores repairs, whether failing checks were left alone, honest refusals and
+  false claims. CI gates the scripted ideal assistant at 100% and replays
+  recorded models. See `docs/repair-evaluation.md`.
+
+- **The Copilot refuses to guess when repairing a pipeline.** An edit that
+  picks between columns, invents a replacement for one that is gone, or points a
+  source at something nobody named is refused until the person says which one.
+  Edits in one request now build on each other, a repair gets ten steps and must
+  end with an answer, and a refusal reaches the model whole. A draft test now
+  fails on a value that only breaks when rows are read.
+
+- **The Copilot repairs from column names and types only.** It cannot see row
+  values, and an edit that writes a label, number or date nobody gave is refused.
+  A draft test's verdict is now `runs` rather than `passed`, and `output_checked`
+  says whether anything looked at the output.
+
 - **More than one instance is now safe to run.** Two additions, together:
 
   `REVOLUZEN_FLOW_ENABLE_SCHEDULER=0` makes a node API-only — it serves
@@ -122,6 +193,55 @@ follows the compatibility rules documented there.
 
 ### Fixed
 
+- **A folder that held pipelines could not be deleted.** The confirm said its
+  pipelines would be "permanently deleted", but the screen sent no mode and the
+  server will not guess what to do with them (409), so the user only saw a failure.
+  The screen now asks the server what is inside, says how many pipelines will be
+  moved to the Bin and how to get them back (they return to the project's top
+  level, since the folder is gone), and sends `force`. An empty folder deletes as
+  before.
+
+- **Creating a pipeline in a folder never checked the folder.** The check passed
+  an argument the folder store does not take, and its error was swallowed, so a
+  pipeline could be created in a folder that does not exist or belongs to another
+  project. It now answers 404 (400 for another project's folder).
+
+- **Anyone signed in could delete a folder and the pipelines in it.** Deleting a
+  pipeline takes the Developer role, but `DELETE /api/folders/{id}?force=true` only
+  asked for a signed-in user, so an analyst or viewer could send every pipeline in
+  a folder to the Bin (before the Bin, delete them). It takes the Developer role
+  now. Creating and renaming folders, and moving pipelines between them, still ask
+  only for a signed-in user.
+
+- **A "+ Sub-folder" button that always failed.** Every folder row on the Projects
+  page offered it, but folders are one level deep and the server has always refused
+  a parent folder ("Sub-folders are not supported"), so it only produced an error.
+  The button is gone. "+ Folder" on a project is unchanged, and a folder nested in
+  older data is still shown.
+
+- **Deleting a folder could send published pipelines to the Bin.** The row menu
+  offers Delete only for a draft, failed or archived pipeline, because a published
+  one has to be revoked first, but deleting the folder around it never looked at
+  status. A folder with a published pipeline in it now refuses to be deleted: the
+  screen names the pipelines to revoke before it asks anything, and
+  `DELETE /api/folders/{id}?force=true` answers 409 (`published_pipelines_in_folder`)
+  without deleting the drafts either. `move_to_root=true`, which keeps the
+  pipelines, is not affected.
+
+- **The Copilot could return another pipeline's draft.** The idempotency key
+  ignored which pipeline was open, so the same edit on a second pipeline returned
+  the first pipeline's draft for 24 hours. The key now covers the workspace,
+  environment and selection, and draft tools are never served from the cache.
+
+- **The write-tool dry-run gate never unlocked.** It forced dry runs until a user
+  had 3 successes but counted only live ones. Forced dry runs now count, their
+  stub results are no longer cached, and draft-only tools skip the gate for named
+  users, because a dry run only replaced a useful draft with a stub.
+
+- **Local models could not edit a failing pipeline.** A request mentioning a
+  failure filled the eight-tool cap, leaving out the edit tool. The editor's
+  repair tools now always keep their slots.
+
 - **Execute SQL on MySQL silently discarded writes.** `pymysql` connects with
   `autocommit=False` and the branch never committed, so an `INSERT` or
   `UPDATE` was rolled back when the connection closed — while the cursor
@@ -131,6 +251,188 @@ follows the compatibility rules documented there.
   genuinely differ: psycopg2 commits on context-manager exit, pymysql and
   pyodbc need an explicit commit, Snowflake autocommits, and BigQuery and
   Databricks have no interactive transaction to commit.
+
+- **Six screens said one thing and the product did another.**
+  - Projects: a project card now has an edit (pencil) button. The Edit Project
+    dialog existed but nothing opened it, so a project's name, description,
+    colour and icon could never be changed.
+  - Dashboard, Avg duration: it now averages successful runs only, as its note
+    says. It used to average every finished run, failed ones included. The
+    Executions page's Avg Elapsed card reads the same figure and now says so.
+  - Dashboard, Pipeline status: the ring mixed run counts with a pipeline total.
+    It is now Run outcome mix and counts runs only; the slices add up to the run
+    count in the middle.
+  - Dashboard, empty state: a workspace with only hand-started runs read "no
+    runs yet". The Run volume chart, the ring and the greeting now count every
+    run; the Success rate card stays automated-only.
+  - Account: the subtitle no longer promises a list of active sessions.
+  - Help: Node Reference lists the 45 nodes in the editor's node panel rather
+    than 91 entries, says the panel is on the left, and says Delete Data removes
+    rows only. A test holds the list to the palette.
+
+- **Six more screens said one thing and the product did another.**
+  - Pipelines: the Bin tab and its "moved to Bin, auto-removed after 30 days"
+    wording described a list kept in one browser while the server deleted the
+    pipeline for good. The Bin is now real and on the server (see **The Bin**
+    under Added). An archived pipeline also has a **Restore** button now (the
+    endpoint existed; no screen called it).
+  - Projects: the Archive button's tooltip no longer promises deletion after 30
+    days. Nothing deletes an archived project automatically.
+  - Delete Data: the settings no longer offer a "files" target, which was never
+    implemented and failed when the pipeline ran. A step saved with it still fails,
+    and its settings offer "Switch to deleting rows". File cleanup is the File
+    System node.
+  - Help: the connector strip counts the 66 connectors you can set up, not the 102
+    types the catalog registers, and tallies the certification mix over those 66.
+  - The Copilot's first-pipeline answer says the node panel is on the left and that
+    a node's settings open on double-click, along the bottom of the editor.
+  - Canvas tooltips now exist for Delete Data, File System, Execute SQL, Data
+    Profile and SaaS Connector, and the Data Quality tooltip no longer lists a
+    "unique" rule the node does not have. `docs/nodes.md` lists the 45 nodes.
+
+- **The built-in templates' Data Quality steps checked nothing.** Eleven steps in
+  nine templates used setting names the Data Quality node does not read (`type`,
+  `columns`, `check`, `min`, `max`, `on_fail`, `on_failure`), and a rule the node
+  cannot read lets every row through. "Drop empty rows" kept the empty rows, steps
+  meant to fail the run never failed it, and a range or pattern check only tested
+  for a missing value. Every step now uses the node's own rules and On Failure
+  modes, and a test runs each one on data with a bad row.
+  - The node has no unique-value rule, so the steps that asked for one now check
+    what the node can: SharePoint → Managed Table fails the run when an id is
+    missing, and Daily sync drops rows with no id. CSV cleanup keeps its
+    Deduplicate step, which is what removes duplicate keys.
+  - Data quality + dead-letter queue sent rows to a Switch Case step that cannot
+    read the settings the template gave it, so the run failed there. Passing rows
+    now leave the Data Quality step by its Pass output to the clean table and
+    failing rows by its Reject output to the dead-letter table. The description no
+    longer promises a failure reason; the node does not record one.
+  - Medallion: the Silver step now drops rows that fail its rules. It was set to
+    mark them, which let them into Silver and the Gold totals; Bronze still keeps
+    every raw row.
+  - Inmon 3NF: the two key checks are named for what they do (the key columns are
+    filled in) instead of "PK" and "FK", and the description no longer says it
+    validates referential integrity.
+
+- **The rest of the built-in templates did not use the settings their steps read.**
+  Besides the Data Quality steps, 92 steps in all 27 templates were given setting
+  names their node ignores, left out one it requires, or used a step or connector
+  the app no longer has. The editor refused to run them ("Missing required field"),
+  or a step quietly did something else. Every step now uses its node's own settings,
+  and tests hold each one to the node's list of settings and run each template on
+  small data with a bad row.
+  - First pipeline, the demo that promises real output on a fresh install, stopped
+    at its Derived Column step, which wants a list of columns where the template
+    gave it a SQL query. It runs now, as do the 19 other steps set up the same way.
+  - Managed Table steps (eight templates) used `schema` and `name`, which the node
+    does not read, so Run was refused with "Missing required field: table_name".
+  - Aggregate, Join and Union steps used `aggregations`, `left_key` / `right_key`
+    and `distinct` where the nodes read `functions`, `join_key` and `mode`, so a Join
+    stopped with "at least one join key is required". Two Aggregate steps grouped by
+    an expression, which the node reads as a column name; the day (DB →
+    Warehouse) and the month (Medallion) are now worked out in an earlier step.
+  - Database destinations asked for `upsert` with `key_columns`; the node's mode is
+    merge, on `merge_on`. Incremental database sources wrote `:last_run`, which
+    nothing fills in; they now use the source's incremental setting (a sync mode and
+    a watermark column). REST steps set `method`, `auth_type`, a pagination object
+    and a URL, none of which the node reads from a template; they now set the path
+    to add to the saved connection and the node's own cursor settings, and an
+    incremental REST step carries its cursor in the path. Oracle Fusion → Managed
+    Table named a connector that does not exist (Oracle Fusion is a kind of saved
+    connection, used with the REST source), and SharePoint → Managed Table now uses
+    the SharePoint source.
+  - Fan-out by region and AI classify + conditional route used the retired Switch
+    Case step; they use Switch now, one branch per case. AI classify had no labels
+    with example phrases, which the Semantic Router needs, and its description now
+    says that the built-in hash provider is a demo (it only matches an example
+    phrase word for word) and a real embedding provider should be chosen. Its Spam
+    archive wrote a CSV that every run overwrote; it is a Managed Table in append
+    mode.
+  - Medallion, Kimball, Data Vault and One Big Table wrote to a Warehouse
+    destination, which needs a database connection that a Parquet path cannot give.
+    They write to Managed Tables now, so they run with nothing to pick: Bronze and
+    the facts append, Silver and the Data Vault tables merge by key, the rest
+    replace. Medallion gained an "Add month" step for its Gold roll-up.
+  - A webhook cannot hand a pipeline rows: the request body becomes the pipeline's
+    parameters. Webhook → Flatten → Managed Table and Webhook → enrich → DB
+    started from a Source and a trigger node that do not exist. They now declare an
+    `event_id` parameter and fetch that event from the sender's API; the enrich
+    template reads its users from a second Source, which makes five nodes. Templates
+    can declare parameters.
+  - Pipeline failure → Slack alert had a SQL step with nothing feeding it; it now
+    reads the latest runs from the Executions API. Scheduled alert tested a
+    `row_count` column that does not exist; it now tests each job's failure count.
+    Slack messages use `{column}`; `{{column}}` came out with stray braces.
+  - Smaller: `has_header` is `header` on eight CSV sources; Lookup's Return Columns
+    is a list; Dedupe by ID keeps the newest row; Trim whitespace names columns the
+    sample orders.csv has; CSV cleanup no longer promises a trim step; the Data Vault
+    Dedupe steps set an Order By; the editor's own Aggregation starter asked for
+    `aggregations` where Aggregate reads `functions`; the Oracle BIP → SQL Server
+    scaffold's Data Quality step uses the node's rules.
+  - The pipeline check no longer warns that a Switch adds `_split_output` to a
+    destination when its rows leave by one of its named outputs, which strip it.
+    Scheduled alert and AI classify say what Slack Notify does: one message per run,
+    from the first row that reaches it, sent even when no row does.
+
+- **Incremental database sources read every row on every run.** A source set to
+  incremental is meant to save the newest value it read and ask only for rows after
+  it the next time. The save looked for its working table under the wrong name,
+  failed without a word, and nothing was ever stored, so every scheduled run read and
+  loaded the whole table again and "Last cursor" in the source's settings stayed
+  empty. The value now comes from the rows the run loaded. It is saved only for a
+  run that succeeds and really loads rows: a Sample run, which reads a capped number
+  of rows and writes nothing, no longer moves it (once the save worked, it would
+  have sent the next real run past rows that were never loaded), and a warning is
+  logged when the cursor column is not in the result. A test runs the source twice
+  against a SQLite file with the real cursor store.
+- **The editor refused to run a pipeline whose database source used a SQL query.**
+  Once a saved connection was picked, the pipeline check asked every database source
+  for a table ("Missing required field: table"), even in the default SQL Query mode
+  and with the query filled in, so Run stayed blocked however the source was set up.
+  The check read a setting that no panel writes any more. It now follows the source's
+  Mode, as the node does: a query source needs its query, a table source its table, a
+  stored-procedure source its procedure, and a database or warehouse destination its
+  table. Every database template can be run from the editor once its connection is
+  picked, and a test loads each of the 27 templates, picks their connections and Slack
+  webhook the way a user does, and expects no error.
+- **Data Quality: three fixes in the node and its settings.**
+  - A row a check could not answer passed when the step was set to fail the run. A
+    missing amount under "between", "greater than", "equals" or "matches a pattern"
+    gives no answer. The node dropped such a row or sent it to Reject, but in Fail
+    mode it counted the row as good, so the run went through, and in Tag mode it left
+    the mark empty. Every mode now treats the row as failed: Fail stops the run, Tag
+    marks it false, and Split keeps it with the failures.
+  - The settings could not set up a "between", "in" or "not in" check. They had one
+    text box that saved what you typed as plain text, so "10,100" or "a,b" matched
+    nothing and every row was dropped. "Between" now has a low and a high box, "in"
+    and "not in" take a comma-separated list, and a number you type is saved as a
+    number (a column known to hold text keeps it as text). A check that was saved the
+    old way shows a note asking you to type it again.
+  - The pipeline check warned that any Data Quality step before a destination
+    "injects internal metadata columns". Only Tag mode (`__dq_passed`), the quality
+    score option (`__dq_score`) and Reject mode, when the rows do not leave by its
+    Pass or Reject output, add columns. The warning now appears only then and names
+    the columns.
+
+- **A Data Quality rule the step could not use let every row through, silently.**
+  A rule with no column, a check the step does not have, or a value it cannot read
+  (a "between" without both limits, an empty "in" list, a pattern that is not text,
+  a length that is not a whole number) was treated as true for every row. The step
+  now stops the run before it checks any row, and the error names each rule by its
+  number, its column and what it needs. A pipeline saved from the old templates,
+  whose checks used setting names the step never read, now stops with "no column
+  chosen" instead of passing every row. The editor says the same before Run: the
+  pipeline check lists such a rule as an error, and a low limit above the high one
+  as a warning.
+
+- **The editor now warns about Data Quality settings the step ignores.** A rule is
+  read as a column, a check and a value, and nothing else; the step reads only
+  its rules, On Failure, pass-rate threshold, score and profiling settings. The old
+  templates wrote more than that, and the step ignored it without a word: a rule
+  written as `check: between` with `min` and `max` ran as a plain "not empty", and
+  an `on_failure` setting left the step dropping rows instead of failing the run.
+  The pipeline check now lists each such key as a warning, saying what the rule or
+  step does as written. In the step's settings the same keys show under the rule
+  (or under On Failure) with a Remove button.
 
 ### Changed
 

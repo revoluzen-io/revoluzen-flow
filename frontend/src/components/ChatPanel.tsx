@@ -371,7 +371,7 @@ function getActionsForMessage(content: string, nodes: any[]): Array<{ text: stri
    Main ChatPanel Component
    ====================================================================== */
 
-// User-resizable panel — same pattern as ModulesPanel on the right.
+// User-resizable panel — same pattern as the node panel (ModulesPanel) on the left.
 // Width persists across reloads via localStorage. Min/max keep the chat
 // usable (too narrow → wrapped messages; too wide → eats the canvas).
 const CHAT_PANEL_WIDTH_KEY = 'revoluzen-flow.chatPanelWidth';
@@ -391,7 +391,7 @@ function loadChatPanelWidth(): number {
 
 export default function ChatPanel() {
   const dark = useDarkMode();
-  const { chatMessages, chatOpen, setChatOpen, sendChat, useTemplate, loadWorkflow, nodes, edges } = useWorkflowStore();
+  const { chatMessages, chatOpen, setChatOpen, sendChat, applyChatDraft, discardChatDraft, useTemplate, loadWorkflow, nodes, edges } = useWorkflowStore();
   // The FloatingAgentWidget is hidden on the editor page (see App.tsx),
   // so `askCopilot(prompt)` from places like HeroPromptCard / ConfigPanel
   // / TransformHelper would otherwise push into a void. We subscribe to
@@ -399,7 +399,7 @@ export default function ChatPanel() {
   // Copilot lands in THIS panel's input box on the editor page. The
   // AgentChatPanel uses the same hook elsewhere; since it isn't mounted
   // on the editor, there's no double-consumer conflict.
-  const { pendingInput, clearPendingInput } = useAgentChatStore();
+  const { pendingInput, pendingSend, clearPendingInput } = useAgentChatStore();
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
@@ -410,8 +410,9 @@ export default function ChatPanel() {
   const [deepMode, setDeepMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Panel width + drag-to-resize. Handle on the RIGHT edge (chat is the
-  // left panel, so dragging the right edge LEFT/RIGHT shrinks/grows it).
+  // Panel width + drag-to-resize. The chat is the RIGHT-hand panel, so its
+  // handle is on its LEFT edge: dragging it LEFT grows the panel and RIGHT
+  // shrinks it.
   const [panelWidth, setPanelWidth] = useState<number>(loadChatPanelWidth);
   const dragStateRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -476,16 +477,22 @@ export default function ChatPanel() {
   // clear the pending state so the next deep-link round-trips cleanly.
   useEffect(() => {
     if (!pendingInput) return;
-    setInput(pendingInput);
     if (!chatOpen) setChatOpen(true);
     clearPendingInput();
+    if (pendingSend) {
+      setSending(true);
+      void sendChat(pendingInput).finally(() => setSending(false));
+      return;
+    }
+    setInput(pendingInput);
     // Scroll the chat into view + focus the input so the user can
     // tweak before sending. Slight delay so the panel-open transition
     // settles first.
     setTimeout(() => {
       try { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); } catch {}
     }, 100);
-  }, [pendingInput, chatOpen, setChatOpen, clearPendingInput]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingInput, pendingSend, chatOpen, setChatOpen, clearPendingInput]);
 
   // ── Guided Builder state (graph-based) ──
   const [guided, setGuided] = useState<GuidedState>({ ...GUIDED_INITIAL });
@@ -1194,26 +1201,33 @@ export default function ChatPanel() {
           // structured clarification, render <ClarifyCard /> instead
           // of the plain markdown. Only on the LATEST assistant
           // message so prior cards in history aren't re-interactive.
-          const clarify = (msg as any).clarification;
-          if (
-            !isUser
-            && isLastAssistant
-            && clarify
-            && Array.isArray(clarify.questions)
-            && clarify.questions.length > 0
-          ) {
+          const clarify = msg.clarification;
+          if (!isUser && clarify && Array.isArray(clarify.questions) && clarify.questions.length > 0) {
+            if (isLastAssistant) {
+              return (
+                <div key={i} className="ml-8">
+                  <ClarifyCard
+                    payload={clarify}
+                    busy={sending}
+                    onSubmit={(answerText, choices) => {
+                      // The sentence goes in the transcript; the choices go to
+                      // the planner with it, as ids and names.
+                      setSending(true);
+                      void sendChat(answerText, { choices }).finally(() => setSending(false));
+                    }}
+                  />
+                </div>
+              );
+            }
+            // Answered: the answer sits right below, so the options needn't stay.
             return (
-              <div key={i} className="ml-8">
-                <ClarifyCard
-                  payload={clarify}
-                  onSubmit={(answerText) => {
-                    // Send the assembled answer string as a normal
-                    // chat message. The backend's clarify_to_template
-                    // bridge will parse it, match a template, and
-                    // populate placeholders.
-                    sendChat(answerText);
-                  }}
-                />
+              <div key={i} className="flex gap-2 justify-start">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
+                </div>
+                <div className="max-w-[85%] px-3.5 py-2.5 text-sm leading-relaxed bg-slate-50 text-slate-600 rounded-2xl rounded-bl-md border border-slate-200">
+                  {clarify.detected_intent}. I asked a few quick questions first.
+                </div>
               </div>
             );
           }
@@ -1275,6 +1289,38 @@ export default function ChatPanel() {
                       </span>
                     );
                   })}
+                </div>
+              )}
+              {!isUser && msg.draft && (
+                <div data-testid="chat-draft-card" className="ml-8 mt-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                  <div className="text-xs font-semibold text-slate-700">
+                    {msg.draft.workflow.name} · {msg.draft.workflow.steps.length} steps
+                  </div>
+                  <ol className="mt-2 space-y-1">
+                    {msg.draft.workflow.steps.map((step: any, n: number) => (
+                      <li key={step.id} className="flex items-baseline gap-2 text-xs text-slate-600">
+                        <span className="w-4 shrink-0 text-right text-slate-400">{n + 1}</span>
+                        <span className="min-w-0 flex-1 truncate">{step.label}</span>
+                        <span className="shrink-0 font-mono text-[10px] text-slate-400">{step.type}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  {msg.draft.status === 'pending' ? (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={() => applyChatDraft(i)}
+                        className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                      >Apply to canvas</button>
+                      <button
+                        onClick={() => discardChatDraft(i)}
+                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                      >Discard</button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 text-xs font-medium text-slate-500">
+                      {msg.draft.status === 'applied' ? 'Applied to canvas' : 'Discarded'}
+                    </div>
+                  )}
                 </div>
               )}
               {actions.length > 0 && (

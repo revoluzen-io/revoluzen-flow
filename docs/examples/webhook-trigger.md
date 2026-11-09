@@ -14,51 +14,62 @@ POST /api/published/orders-webhook          (external system, with an API key)
   → the pipeline executes; rows land in a managed table
 ```
 
-The body-to-pipeline binding is verified: a body of
-`{"order_id":"ORD-1001","customer":"Acme Corp","amount":1500}` resolves the
-source query to `SELECT 'ORD-1001' AS order_id, 'Acme Corp' AS customer,
-CAST(1500.0 AS DOUBLE) AS amount, ...` and the run returns `status: success`.
+The body-to-pipeline binding is covered by a test that runs this exact file: a
+body of `{"country":"US","min_quantity":2}` resolves the filter to
+`country = 'US' AND quantity >= 2`, and the run returns `status: success`.
 
 ---
 
 ## 1. The pipeline
 
-Two nodes: a **DB Source** in inline-SQL mode (no connection → runs on the
-built-in in-memory DuckDB engine) turns the webhook body into a row and does
-the light transform; a **Local Table Sink** appends it to a managed table.
+Three nodes: a **Source** reads the sample orders file, a **Filter** keeps the
+rows the caller asked for, and a **Local Table Sink** writes them to a managed
+table. It needs no connection, because the file ships with the repository.
 
 Save this as `webhook-order-pipeline.json` and import it (Pipelines →
-Import), or build the two nodes in the editor and copy the params.
+Import), or build the three nodes in the editor and copy the params.
 
 ```json
 {
   "id": "webhook-order-demo",
-  "name": "Webhook: Order Event → Managed Table",
+  "name": "Webhook: Orders for one country → Managed Table",
   "description": "Fired by POST /api/published/orders-webhook; the JSON body binds to ${param.*}.",
   "parameters": [
-    { "name": "order_id", "type": "string", "required": true },
-    { "name": "customer", "type": "string", "required": true },
-    { "name": "amount",   "type": "float",  "default": 0 }
+    { "name": "country", "type": "string", "required": true, "description": "Two-letter country code to keep" },
+    { "name": "min_quantity", "type": "int", "default": 1, "description": "Smallest order quantity to keep" }
   ],
   "steps": [
     {
       "id": "src",
-      "type": "db_source",
-      "label": "Webhook payload → row",
+      "type": "source",
+      "label": "Orders file",
       "params": {
-        "source_mode": "query",
-        "query": "SELECT '${param.order_id}' AS order_id, '${param.customer}' AS customer, CAST(${param.amount} AS DOUBLE) AS amount, CASE WHEN ${param.amount} >= 1000 THEN 'high' ELSE 'standard' END AS tier, now() AS received_at"
+        "connector_type": "csv",
+        "file_path": "samples/free-api-pipelines/data/orders.csv",
+        "format": "csv",
+        "delimiter": ",",
+        "header": true
+      }
+    },
+    {
+      "id": "flt",
+      "type": "filter",
+      "label": "Keep one country",
+      "params": {
+        "mode": "expression",
+        "condition": "country = '${param.country}' AND quantity >= ${param.min_quantity}"
       }
     },
     {
       "id": "sink",
       "type": "local_table_sink",
-      "label": "Append to webhook_orders",
-      "params": { "schema_name": "default", "table_name": "webhook_orders", "mode": "append" }
+      "label": "Replace webhook_orders",
+      "params": { "schema_name": "default", "table_name": "webhook_orders", "mode": "replace" }
     }
   ],
   "connections": [
-    { "from_step": "src", "to_step": "sink" }
+    { "from_step": "src", "to_step": "flt" },
+    { "from_step": "flt", "to_step": "sink" }
   ]
 }
 ```
@@ -66,15 +77,19 @@ Import), or build the two nodes in the editor and copy the params.
 > **Parameters** are the contract with the webhook. Each `${param.name}` in a
 > node's config is replaced at run time by the matching key from the JSON body
 > (or its `default` if absent). Types are coerced: `string` / `int` / `float`
-> / `bool` / `json`. A `required` parameter that's missing fails the run
-> loudly. Defaults may also use system placeholders: `${utcnow}`,
-> `${utcnow:%Y-%m-%d}`, `${run_id}`.
+> / `bool` / `json`. An unknown key, a `required` parameter that's missing or a
+> value of the wrong type gets a `400` naming it, and nothing runs. Defaults may
+> also use system placeholders: `${utcnow}`, `${utcnow:%Y-%m-%d}`, `${run_id}`.
 
 ---
 
-## 2. Create an API key
+## 2. Publish the pipeline and create an API key
 
-The gateway endpoints below need your session token (`Authorization: Bearer
+The quickest way is the **Workflows → Triggers** page: **New endpoint**, pick
+the pipeline, set the path to `orders-webhook`, then **New API key**. The page
+gives you the finished command under **Ready-to-use command**.
+
+To script it instead, these calls need your session token (`Authorization: Bearer
 <token>` — grab it from the browser DevTools → Application → Local Storage →
 `revoluzen_flow_token`, or from the login API). Assume the server is on the default
 `http://127.0.0.1:8001`.
@@ -86,12 +101,8 @@ curl -sX POST http://127.0.0.1:8001/api/gateway/keys \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"orders-webhook","scopes":["execute"],"rate_limit_rpm":120}'
-# → {"id":"...", "key":"fpk_live_...", ...}   ← copy `key`; it is shown once
-```
+# → {"id":"...", "api_key":"fpk_...", ...}   ← copy `api_key`; it is shown once
 
-## 3. Publish the pipeline at a path
-
-```bash
 curl -sX POST http://127.0.0.1:8001/api/gateway/endpoints \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -100,31 +111,47 @@ curl -sX POST http://127.0.0.1:8001/api/gateway/endpoints \
         "path": "orders-webhook",
         "method": "POST",
         "require_api_key": true,
-        "rate_limit_rpm": 120,
-        "timeout_seconds": 60
+        "rate_limit_rpm": 120
       }'
 ```
 
 The pipeline is now live at `POST /api/published/orders-webhook`.
 
-## 4. Fire the webhook
+## 3. Fire the webhook
 
 This is the only call the **external system** makes — it needs just the API
 key (no user login):
 
 ```bash
-APIKEY="fpk_live_..."   # from step 2
+APIKEY="fpk_..."   # from step 2
 
 curl -sX POST http://127.0.0.1:8001/api/published/orders-webhook \
   -H "X-API-Key: $APIKEY" \
   -H "Content-Type: application/json" \
-  -d '{"order_id":"ORD-1001","customer":"Acme Corp","amount":1500}'
-# → {"status":"success","endpoint":"/orders-webhook","workflow_id":"webhook-order-demo","result":{...}}
+  -d '{"country":"US","min_quantity":2}'
 ```
 
-Each call appends one row to the `webhook_orders` managed table (see the
-**Storage** page). The API key can also be passed as `?api_key=...` if a header
-is inconvenient for the caller.
+The call waits for the run to finish and answers with the outcome, never the data:
+
+```json
+{
+  "status": "success",
+  "execution_id": "3a2f2b088479",
+  "pipeline_id": "webhook-order-demo",
+  "parameter_values": { "country": "US", "min_quantity": 2 },
+  "duration_ms": 180.4,
+  "steps": [
+    { "step_id": "src", "name": "Orders file", "status": "success", "row_count": 400 },
+    { "step_id": "flt", "name": "Keep one country", "status": "success", "row_count": 57 },
+    { "step_id": "sink", "name": "Replace webhook_orders", "status": "success", "row_count": 57 }
+  ]
+}
+```
+
+Each call replaces the `webhook_orders` managed table (see the **Storage** page),
+and the run appears on the **Executions** page with the trigger **API**. On a
+local install the API key can also be passed as `?api_key=...` if a header is
+inconvenient for the caller. A server install accepts the header only.
 
 ---
 
@@ -146,11 +173,11 @@ two triggers:
   per-key `rate_limit_rpm` and an `ip_allowlist`. Because parameter values are
   substituted as text, treat a webhook whose caller you don't control as
   untrusted input — prefer typed parameters (`int`/`float`/`bool`) and avoid
-  interpolating free-text straight into raw SQL; the DB Source already blocks
-  `;` and validates identifiers, but validate business fields yourself.
-- **Idempotency:** if the caller may retry, add an idempotency key on the sink
-  or use `mode: "merge"` with `merge_on: ["order_id"]` so repeats upsert
-  instead of duplicating.
+  interpolating free-text straight into SQL, as this example's `country` does.
+  An endpoint with no key is refused if its pipeline does that. The DB Source
+  also blocks `;` and validates identifiers, but validate business fields yourself.
+- **Idempotency:** if the caller may retry, use `mode: "merge"` with
+  `merge_on: ["order_id"]` on the sink so repeats upsert instead of duplicating.
 - **Persisting elsewhere:** swap `local_table_sink` for `db_sink`, `s3_sink`,
   `api_sink`, etc. to land the event in your warehouse/lake instead of a
   managed table.

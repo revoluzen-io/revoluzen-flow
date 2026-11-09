@@ -159,6 +159,30 @@ class AlertInventory:
 
 
 @dataclass
+class TriggerEndpointInventory:
+    """A web address on the Triggers page that starts one pipeline."""
+    id: str
+    path: str
+    workflow_id: str
+    workflow_name: str
+    require_api_key: bool
+    enabled: bool
+    call_count: int = 0
+    last_called_at: str = ""
+
+
+@dataclass
+class ApiKeyInventory:
+    """An API key on the Triggers page, by name and masked prefix. The server
+    keeps only a hash, so the full key cannot reach a report."""
+    id: str
+    name: str
+    key_masked: str
+    active: bool
+    last_used_at: str = ""
+
+
+@dataclass
 class ApprovalGateInventory:
     id: str
     scope: str                # pipeline | project | global
@@ -316,6 +340,8 @@ class InventoryReport:
     schedules: list[ScheduleInventory] = field(default_factory=list)
     alerts: list[AlertInventory] = field(default_factory=list)
     approval_gates: list[ApprovalGateInventory] = field(default_factory=list)
+    trigger_endpoints: list[TriggerEndpointInventory] = field(default_factory=list)
+    api_keys: list[ApiKeyInventory] = field(default_factory=list)
     operational_audit: OperationalAudit = field(default_factory=OperationalAudit)
     # "What should I fix first?" — computed last, from data already in
     # `projects`/`pipelines`. Empty in fail-safe mode if computation
@@ -419,6 +445,7 @@ class InventoryCollector:
             self._collect_license_summary(report)
         self._collect_schedules(report)
         self._collect_alerts(report)
+        self._collect_triggers(report)
         self._collect_projects_and_pipelines(report)
         self._apply_env_filter(report)
         self._backfill_connection_usage(report)
@@ -786,6 +813,51 @@ class InventoryCollector:
                 channels=data.get("channels", []) or data.get("notify_channels", []) or [],
             ))
 
+    def _collect_triggers(self, report: InventoryReport) -> None:
+        """What another application can use to start a pipeline."""
+        store = self._state.get("gateway_store")
+        wf_store = self._state.get("store")
+        if not store:
+            return
+        try:
+            endpoints = store.list_endpoints(self._workspace_id) or []
+            keys = store.list_api_keys(self._workspace_id) or []
+        except Exception as exc:
+            logger.warning("inventory: gateway_store lists failed: %s", exc)
+            return
+
+        def when(epoch: Any) -> str:
+            return datetime.fromtimestamp(epoch, timezone.utc).isoformat() if epoch else ""
+
+        visible_wf_ids = self._visible_workflow_ids(wf_store) if self._scope == "user" else None
+        for e in endpoints:
+            wf_id = e.get("workflow_id", "")
+            if visible_wf_ids is not None and wf_id not in visible_wf_ids:
+                continue
+            report.trigger_endpoints.append(TriggerEndpointInventory(
+                id=e.get("id", ""),
+                path=e.get("path", ""),
+                workflow_id=wf_id,
+                workflow_name=self._workflow_name(wf_store, wf_id),
+                require_api_key=bool(e.get("require_api_key")),
+                enabled=bool(e.get("is_active")),
+                call_count=int(e.get("request_count") or 0),
+                last_called_at=when(e.get("last_called_at")),
+            ))
+
+        # A key opens every endpoint in the workspace, so it belongs to no
+        # pipeline a developer's own report could scope it to.
+        if self._scope == "user":
+            return
+        for k in keys:
+            report.api_keys.append(ApiKeyInventory(
+                id=k.get("id", ""),
+                name=k.get("name", ""),
+                key_masked=f"{k.get('key_prefix', '')}••••••••",
+                active=bool(k.get("is_active")),
+                last_used_at=when(k.get("last_used_at")),
+            ))
+
     def _collect_projects_and_pipelines(self, report: InventoryReport) -> None:
         proj_store = self._state.get("project_store")
         wf_store = self._state.get("store")
@@ -1119,6 +1191,10 @@ class InventoryCollector:
           - ``report.users``          — emptied for pipeline scope (a
                                         single-pipeline report has no
                                         meaningful user roster)
+          - ``report.trigger_endpoints`` — keep only those starting surviving
+                                        workflows
+          - ``report.api_keys``       — emptied (a key opens every endpoint in
+                                        the workspace, not this scope's)
         """
         surviving_wf = self._scope_filtered_workflow_ids(report)
         if surviving_wf is None:
@@ -1137,6 +1213,10 @@ class InventoryCollector:
         report.alerts = [
             a for a in report.alerts if a.workflow_id in surviving_wf
         ]
+        report.trigger_endpoints = [
+            e for e in report.trigger_endpoints if e.workflow_id in surviving_wf
+        ]
+        report.api_keys = []
         # used_by_pipelines was populated by _backfill_connection_usage from
         # the already-narrowed report.projects, so an empty list means the
         # connection is not referenced at the chosen scope.
@@ -1207,6 +1287,11 @@ class InventoryCollector:
             "alerts": len(report.alerts),
             "alerts_enabled": sum(1 for a in report.alerts if a.enabled),
             "approval_gates": len(report.approval_gates),
+            "endpoints": len(report.trigger_endpoints),
+            "endpoints_enabled": sum(1 for e in report.trigger_endpoints if e.enabled),
+            "endpoints_without_key": sum(1 for e in report.trigger_endpoints if not e.require_api_key),
+            "api_keys": len(report.api_keys),
+            "api_keys_active": sum(1 for k in report.api_keys if k.active),
         }
 
     def _compute_insights(self, report: InventoryReport) -> None:

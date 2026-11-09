@@ -2,6 +2,7 @@ import { memo, useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { nodeTypeLabel } from '../modulesPanelData';
 import { branchPortsFor } from '../../utils/branchPorts';
 import { getEditorPreferences, useEditorPreferences } from '../../hooks/useEditorPreferences';
 import ConnectorIcon from '../shared/ConnectorIcons';
@@ -952,10 +953,9 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
   // The node's STANDARD name — what the node is, derived from its type.
   // It renders inside the square. `label` is the user's own name for this
   // instance and renders below; until they rename, the two are the same
-  // string, and showing both printed "Destination" twice.
-  const typeLabel = stepType
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  // string, and showing both printed "Destination" twice. The palette's name,
+  // so a node doesn't get called something else once it's on the canvas.
+  const typeLabel = nodeTypeLabel(stepType);
   const hasCustomName =
     String(label ?? '').trim().length > 0 &&
     String(label).trim().toLowerCase() !== typeLabel.toLowerCase();
