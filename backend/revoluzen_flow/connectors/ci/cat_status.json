@@ -5,15 +5,15 @@
       "failed": 0,
       "manifest_sha256": "abe87119f178cf1aa97b9e6cf5f2aa7d4deff9839eba7ecaf6dc788fa9b68a88",
       "passed": 7,
-      "run_at": "2026-11-05T10:05:21.954207+00:00"
+      "run_at": "2026-11-09T10:40:12.437717+00:00"
     },
     "github": {
       "cat_level": "verified",
       "failed": 0,
       "manifest_sha256": "6178648d5d62ddb15f680173e51ade6a7b13b243944b1bfecff416893fd9d6b2",
       "passed": 4,
-      "run_at": "2026-11-05T10:05:21.960416+00:00"
+      "run_at": "2026-11-09T10:40:12.443491+00:00"
     }
   },
-  "generated_at": "2026-11-05T10:05:21.961050+00:00"
+  "generated_at": "2026-11-09T10:40:12.444042+00:00"
 }
