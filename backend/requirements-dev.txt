@@ -57,4 +57,4 @@ nats-py>=2.6.0
 build>=1.0
 
 # Type stubs for common deps
-types-requests>=2.31
+types-requests>=2.33.0.20261030
