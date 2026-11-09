@@ -288,7 +288,7 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
         setDraft(updated.rates);
         setLastSaved(updated.rates);
         try { window.dispatchEvent(new Event('revoluzen-flow-settings-changed')); } catch { /* noop */ }
-        await uiAlert('AI pricing saved. Activity tile now uses the new rates.');
+        await uiAlert('AI pricing saved. Insights → Activity now uses the new rates.');
       }
     } catch (e) {
       await uiAlert(`Failed to save: ${e instanceof Error ? e.message : 'unknown error'}`);
@@ -345,8 +345,9 @@ export default function AiPricingSection({ dark }: AiPricingSectionProps) {
   return (
     <div className={`rounded-lg border shadow-sm px-4 py-3 space-y-5 ${dark ? 'bg-[#111827] border-white/[0.08]' : 'bg-white border-slate-200'}`}>
       <p className={`text-xs leading-relaxed ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-        Rates apply to the <strong className={dark ? 'text-slate-300' : 'text-slate-700'}>Est. Cost</strong> tile on{' '}
-        <strong className={dark ? 'text-slate-300' : 'text-slate-700'}>Insights → Activity</strong>. Set USD per 1M tokens, split by input,
+        Rates price the AI requests on{' '}
+        <strong className={dark ? 'text-slate-300' : 'text-slate-700'}>Insights → Activity</strong> (the{' '}
+        <strong className={dark ? 'text-slate-300' : 'text-slate-700'}>Est. cost</strong> card and column). Set USD per 1M tokens, split by input,
         cached input, and output. Ollama / local inference is always free regardless of these numbers.
         {' '}<HelpIcon dark={dark} tip="Cached input = prompt-cache hits, charged at a lower rate by most cloud providers (Anthropic ≈ 10% of input, OpenAI ≈ 50%). OSS run history doesn't separate cached vs uncached tokens yet, so the cached rate currently affects only the Cost Simulator below." />
       </p>

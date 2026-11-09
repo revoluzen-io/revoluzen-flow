@@ -21,6 +21,22 @@ function emitBackendReachable(reachable: boolean, reason?: string) {
   }
 }
 
+// One dropped request isn't an outage. A busy machine can lose a single call
+// while everything else gets through, so ask the server directly before telling
+// the user it's gone.
+let _checkingBackend = false;
+async function confirmBackendDown(reason: string) {
+  if (_checkingBackend || !_backendReachable) return;
+  _checkingBackend = true;
+  try {
+    await fetch(`${BASE}/health`, { method: 'GET' });
+  } catch {
+    emitBackendReachable(false, reason);
+  } finally {
+    _checkingBackend = false;
+  }
+}
+
 /**
  * Auth + workspace headers for RAW `fetch` calls that bypass `request()`
  * (streaming/preview endpoints). Mirrors what `request()` attaches — Bearer
@@ -90,8 +106,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     // True TypeError = the browser couldn't reach the server at all
     // (DNS fail / TCP RST / dev backend not running). Distinguish from
     // any error returned in the response body so the global banner only
-    // flips on the genuine offline signal.
-    emitBackendReachable(false, networkErr?.message || 'Network error');
+    // flips on the genuine offline signal. A cancelled request says nothing
+    // about the server at all.
+    if (networkErr?.name !== 'AbortError') void confirmBackendDown(networkErr?.message || 'Network error');
     throw networkErr;
   }
   emitBackendReachable(true);
@@ -254,6 +271,58 @@ export interface StepSchemaResponse {
   error?: string;
 }
 
+// The Bin: pipelines deleted from the workspace that can still be restored
+// (GET /workflows/bin). `purge_at` is when one is removed for good, or null
+// when retention_days is 0 and nothing is removed until someone empties the Bin.
+export interface WorkflowBinItem {
+  id: string;
+  name: string;
+  project_id: string;
+  folder_id: string | null;
+  status_before: string;
+  deleted_at: string;
+  deleted_by_id: string;
+  deleted_by_name: string;
+  version_count: number;
+  purge_at: string | null;
+}
+export interface WorkflowBin {
+  retention_days: number;
+  count: number;
+  items: WorkflowBinItem[];
+}
+export interface WorkflowRestoreResult {
+  restored: boolean;
+  id: string;
+  name: string;
+  renamed_from: string | null;
+  status: string;
+  project_id: string;
+  folder_id: string | null;
+  schedules_restored: number;
+  /** What was corrected on the way back, in plain words. */
+  notes: string[];
+}
+
+// GET /folders/{id}/delete-preview: what deleting a folder would take with it,
+// without deleting anything. A folder that holds pipelines needs a mode on the
+// delete itself (see deleteFolder below).
+export interface FolderDeletePreview {
+  folder_id: string;
+  folder_name: string;
+  descendant_folder_ids: string[];
+  descendant_folder_names: string[];
+  doomed_folder_count: number;
+  affected_workflow_count: number;
+  affected_workflow_ids: string[];
+  // The pipelines among them that are published. `force` is refused (409) while
+  // there are any: a published pipeline has to be revoked first, as on the
+  // Pipelines page. Optional so an older server reads as "none".
+  published_workflow_count?: number;
+  published_workflow_ids?: string[];
+  published_workflow_names?: string[];
+}
+
 interface LicenseCacheEntry {
   data: any;
   ts: number;
@@ -411,8 +480,21 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ workflow, change_summary: changeSummary }),
     }),
-  deleteWorkflow: (id: string) =>
-    request<any>(`/workflows/${id}`, { method: 'DELETE' }),
+  // Delete moves the pipeline to the Bin, where it stays until the retention
+  // window ends (retention_days in the reply; purge_at is the date). With
+  // `permanent` it skips the Bin and is gone at once.
+  deleteWorkflow: (id: string, opts?: { permanent?: boolean }) =>
+    request<{ deleted: boolean; binned: boolean; retention_days?: number; purge_at?: string | null }>(
+      `/workflows/${id}${opts?.permanent ? '?permanent=true' : ''}`,
+      { method: 'DELETE' },
+    ),
+  listWorkflowBin: () => request<WorkflowBin>('/workflows/bin'),
+  restoreWorkflowFromBin: (id: string) =>
+    request<WorkflowRestoreResult>(`/workflows/bin/${id}/restore`, { method: 'POST' }),
+  purgeWorkflowFromBin: (id: string) =>
+    request<{ purged: boolean; id: string; name: string }>(`/workflows/bin/${id}`, { method: 'DELETE' }),
+  // Admins only (the server answers 403 to anyone else).
+  emptyWorkflowBin: () => request<{ purged: number }>('/workflows/bin', { method: 'DELETE' }),
   // Schema Propagation Loop (PR 1) — return the column schema flowing
   // INTO `stepId`. ConfigPanel + Data Wrangler use this so column-name
   // dropdowns always show the live, post-transformation column list.
@@ -644,8 +726,19 @@ export const api = {
     request<any>('/templates/user', { method: 'POST', body: JSON.stringify(body) }),
   deleteUserTemplate: (id: string) =>
     request<any>(`/templates/user/${id}`, { method: 'DELETE' }),
-  chat: (messages: Array<{ role: string; content: string }>) =>
-    request<any>('/planner/chat', { method: 'POST', body: JSON.stringify(messages) }),
+  chat: (messages: Array<{ role: string; content: string; choices?: unknown }>, opts?: { preview?: boolean }) =>
+    request<any>(`/planner/chat${opts?.preview ? '?preview=true' : ''}`, { method: 'POST', body: JSON.stringify(messages) }),
+  /** Save a chat draft the user reviewed, as a new pipeline. */
+  applyDraft: (draft: { name: string; description?: string; steps: unknown[]; connections?: unknown[] }) =>
+    request<any>('/planner/apply-draft', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: draft.name,
+        description: draft.description ?? '',
+        steps: draft.steps,
+        connections: draft.connections ?? [],
+      }),
+    }),
   /**
    * Natural-language chat anchored to the editor canvas. The LLM gets
    * the canvas snapshot as part of its system prompt and replies in
@@ -873,8 +966,19 @@ export const api = {
   getFolder: (id: string) => request<any>(`/folders/${id}`),
   updateFolder: (id: string, data: { name?: string; description?: string; parent_folder_id?: string | null; color?: string; icon?: string }) =>
     request<any>(`/folders/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  deleteFolder: (id: string) =>
-    request<any>(`/folders/${id}`, { method: 'DELETE' }),
+  previewFolderDelete: (id: string) =>
+    request<FolderDeletePreview>(`/folders/${id}/delete-preview`),
+  // A folder that holds pipelines is refused (409) unless a mode is given:
+  // `force` deletes the pipelines with the folder (they go to the Bin, where they
+  // can be restored), `moveToRoot` keeps them and moves them to the project's top
+  // level. An empty folder needs neither.
+  deleteFolder: (id: string, opts?: { force?: boolean; moveToRoot?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (opts?.force) qs.set('force', 'true');
+    if (opts?.moveToRoot) qs.set('move_to_root', 'true');
+    const q = qs.toString();
+    return request<any>(`/folders/${id}${q ? '?' + q : ''}`, { method: 'DELETE' });
+  },
   moveWorkflowsToFolder: (data: { workflow_ids: string[]; folder_id: string | null }) =>
     request<any>('/folders/move-workflows', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -1029,6 +1133,10 @@ export const api = {
   },
   getMonitorStats: (hours?: number) =>
     request<any>(`/monitor/stats${hours ? '?hours=' + hours : ''}`),
+  getRunCounts: (hours: number, projectId?: string) =>
+    request<{ at: string; status: string; count: number }[]>(
+      `/monitor/run-counts?hours=${hours}${projectId ? `&project_id=${encodeURIComponent(projectId)}` : ''}`,
+    ),
   getMultiStats: () => request<any>('/monitor/stats/multi'),
 
   // 2026-05-22 (audit J2 / L1) — single authoritative dashboard
@@ -1276,7 +1384,7 @@ export const api = {
   // Schema Contracts
   listContracts: (workflowId: string) =>
     request<any[]>(`/contracts/${workflowId}`),
-  createContract: (data: { workflow_id: string; step_id: string; expected_columns: any[] }) =>
+  createContract: (data: { workflow_id: string; step_id: string; columns: any[]; description?: string }) =>
     request<any>('/contracts/', { method: 'POST', body: JSON.stringify(data) }),
   validateContract: (contractId: string, actualSchema: any[]) =>
     request<any>(`/contracts/validate/${contractId}`, { method: 'POST', body: JSON.stringify({ columns: actualSchema }) }),

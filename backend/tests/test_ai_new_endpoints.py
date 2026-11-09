@@ -191,7 +191,7 @@ def _install_fake_store(monkeypatch, workflow):
     """
     from revoluzen_flow.main import app_state as _app_state
     monkeypatch.setitem(_app_state, "workflow_store", _FakeWorkflowStore(workflow))
-    monkeypatch.setitem(_app_state, "execution_log", None)
+    monkeypatch.setitem(_app_state, "execution_log_store", None)
 
 
 def test_pre_run_validate_empty_pipeline_blocks(monkeypatch):

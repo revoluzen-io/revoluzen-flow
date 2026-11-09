@@ -506,7 +506,7 @@ _DOC_CATALOG: list[dict] = [
         "path": "user-guides/external-triggers.md",
         "title": "Triggering Pipelines from External Systems",
         "audience": "Integrators, developers, CI/CD owners",
-        "summary": "Run pipelines from external apps via the authenticated API or public webhook, with parameter passing and declared inputs.",
+        "summary": "Let another application start a pipeline from the Triggers page, with an endpoint and an API key, or through the authenticated API. Covers passing values and what each answer means.",
         "admin_only": False,
         "plus_only": False,
     },

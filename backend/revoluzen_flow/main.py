@@ -379,7 +379,9 @@ def _populate_state(data_dir: str) -> None:
         # the metadata index.
         "datastore": DataStore(db=db),
         "lifecycle_store": LifecycleStore(db=db),
-        "contract_store": SchemaContractStore(db=db),
+        # Its own key: "contract_store" below is the Execution Contract store,
+        # and a repeated key in this dict silently replaces the earlier value.
+        "schema_contract_store": SchemaContractStore(db=db),
         # 2026-05-27 — append-only audit log of managed-table schema
         # evolutions, written by sinks AFTER schema_policy applies a
         # change. See revoluzen_flow/intelligence/schema_history.py.
@@ -406,6 +408,10 @@ def _populate_state(data_dir: str) -> None:
         # Set to "pending" right before asyncio.create_task(_warmup()) below.
         "warmup_status": "not_applicable",
     })
+
+    # Copilot tools, pre-publish and storage usage look the workflow store up
+    # under this name; without the alias they silently find nothing.
+    app_state["workflow_store"] = app_state["store"]
 
     # AI config store with the always-on encryptor — keeps API keys
     # for Anthropic/OpenAI/etc. encrypted at rest in OSS Free, not just
@@ -782,6 +788,49 @@ async def _trace_pruner_loop() -> None:
             await asyncio.sleep(3600)
 
 
+async def _workflow_bin_purge_loop() -> None:
+    """Remove pipelines from the Bin once they have been there longer than
+    REVOLUZEN_FLOW_BIN_RETENTION_DAYS (default 30).
+
+    Does nothing when the setting is below 1: then a binned pipeline stays
+    until someone deletes it from the Bin or empties the Bin.
+
+    One pass shortly after startup, so a server that was off for weeks
+    catches up straight away, then daily at 03:50 UTC, after the 03:30
+    step-output and 03:45 trace sweeps so the three do not contend for the
+    same SQLite write lock.
+    """
+    from datetime import datetime, timezone, timedelta
+    from revoluzen_flow.ir.workflow_bin import purge_expired
+    from revoluzen_flow.runtime_config import BIN_RETENTION_DAYS
+
+    if BIN_RETENTION_DAYS < 1:
+        return
+
+    first_pass = True
+    while True:
+        try:
+            if first_pass:
+                await asyncio.sleep(120)
+                first_pass = False
+            else:
+                now = datetime.now(timezone.utc)
+                target = now.replace(hour=3, minute=50, second=0, microsecond=0)
+                if target <= now:
+                    target += timedelta(days=1)
+                await asyncio.sleep((target - now).total_seconds())
+
+            store = app_state.get("workflow_store")
+            if store is None:
+                continue
+            purge_expired(store=store, retention_days=BIN_RETENTION_DAYS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Bin purge error (will retry): %s", exc)
+            await asyncio.sleep(3600)
+
+
 # ── Lifespan: replaces @app.on_event("startup"/"shutdown") ───────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -940,6 +989,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info(
             "Trace pruner scheduled (daily 03:45 UTC, %d-day retention)",
             _trace_days,
+        )
+
+    # 6b-quater) Bin purge — daily 03:50 UTC. Removes pipelines that have
+    # been in the Bin longer than the retention window (default 30 days).
+    # Off when REVOLUZEN_FLOW_BIN_RETENTION_DAYS is below 1.
+    from revoluzen_flow.runtime_config import BIN_RETENTION_DAYS as _bin_days
+    if _bin_days >= 1:
+        app_state["bin_purge_task"] = asyncio.create_task(_workflow_bin_purge_loop())
+        logger.info(
+            "Bin purge scheduled (daily 03:50 UTC, %d-day retention)",
+            _bin_days,
         )
 
     # 6c) Product knowledge — Layer 2 of the chat knowledge architecture.
@@ -1579,8 +1639,7 @@ async def plus_audit_events_oss_stub(request: Request):
             "code": "plus_tier_required",
             "message": (
                 "The audit-events explorer is a Revoluzen Flow Enterprise feature. "
-                "The basic audit log is available at the dashboard's "
-                "Activity panel in OSS."
+                "This edition has no audit-log page."
             ),
         },
     )
@@ -2035,10 +2094,14 @@ async def saas_manifests(refresh: bool = False):
         out.append({
             "id": m.id,
             "name": m.name,
+            "tier": (getattr(m, "tier", "beta") or "beta").lower(),
             "description": m.description,
             "category": m.category,
             "params": m.params,
-            "streams": [{"name": s.get("name"), "label": s.get("label", s.get("name"))} for s in (m.streams or [])],
+            "streams": [
+                {"name": s.get("name"), "label": s.get("label", s.get("name")), **({"auth": s["auth"]} if s.get("auth") else {})}
+                for s in (m.streams or [])
+            ],
         })
     return out
 
@@ -2109,6 +2172,9 @@ async def upload_file(
                 replaced = True
         except OSError:
             pass
+
+    from revoluzen_flow.api.uploads import _index_upload
+    _index_upload(_ws, name, name, dest, len(content), replaces if replaced else None)
 
     return {"filename": name, "path": name, "size": len(content), "replaced_previous": replaced}
 

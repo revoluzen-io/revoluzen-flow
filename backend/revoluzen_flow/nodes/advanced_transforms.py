@@ -347,6 +347,15 @@ class MaterializeNode(BaseNode):
         return ctx.conn.sql(f"SELECT * FROM {safe_name}")
 
     def _get_input_ids(self, ctx: ExecutionContext) -> list[str]:
+        # Prefer the wired upstream. Falling back to "every result so far"
+        # made `inputs[0]` the FIRST step of the run (the raw source), so a
+        # materialize placed after typecast/derived_column cached the raw
+        # rows and every downstream reference to a derived column failed
+        # (sample 13: `line_total` missing in the filter). 2026-11-03.
+        wired = self.params.get("_input_step_ids") or []
+        wired = [sid for sid in wired if sid in ctx._results]
+        if wired:
+            return wired
         return list(ctx._results.keys())
 
     @staticmethod

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -80,6 +80,10 @@ class ExecutionRecord(BaseModel):
     # snapshot to reconstitute the Workflow, sha to embed in the new
     # replay run's metadata so the audit trail closes.
     ir_sha: str | None = None
+    # Saved pipeline version this run executed. The pipeline moves on after
+    # the run, so its current version says nothing about this one. None on
+    # rows written before this field existed and on paths without a version.
+    workflow_version: int | None = None
 
     @model_validator(mode="after")
     def _auto_fill_ir_sha(self):
@@ -237,6 +241,36 @@ class ExecutionStore:
             order_by=f"started_at DESC LIMIT {limit}",
         )
 
+    def run_counts(
+        self,
+        hours: int = 24,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """Runs over a window, counted by status in ten-minute slots, for charts.
+
+        Charts used to bucket the newest rows of the run list, which is capped,
+        so a busy workspace lost everything older than its last few hundred
+        runs while the headline beside the chart still counted them. Counting
+        here has no such limit and reads no run bodies.
+        """
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        where = ["started_at >= ?"]
+        params: list[Any] = [cutoff]
+        if workspace_id is not None:
+            where.append("workspace_id = ?")
+            params.append(workspace_id)
+        if project_id:
+            where.append("project_id = ?")
+            params.append(project_id)
+        rows = self._db.fetchall(
+            "SELECT substr(started_at, 1, 15) AS slot, status, COUNT(*) AS count "
+            f"FROM executions WHERE {' AND '.join(where)} GROUP BY slot, status",
+            params,
+        )
+        # Rows store UTC, so the slot is the start of a UTC ten-minute window.
+        return [{"at": f"{r['slot']}0:00Z", "status": r["status"], "count": r["count"]} for r in rows]
+
     def get_stats(self, hours: int = 24, workspace_id: str | None = None) -> dict:
         """Get execution statistics for the monitor dashboard.
 
@@ -281,7 +315,8 @@ class ExecutionStore:
         # rate down). The fix is to compute TWO success-rate numbers:
         #
         #   - All runs (legacy `success_rate` field — backwards compat)
-        #   - Production runs only — scheduled + webhook + replay
+        #   - Production runs only — scheduled + webhook + replay + runs
+        #     another application started through a published endpoint
         #     (new `scheduled.*` sub-dict — what the headline KPI should
         #     show for an operational view)
         #
@@ -292,7 +327,7 @@ class ExecutionStore:
         # `manual` trigger today; they're also excluded — a backfill
         # window failing is a backfill problem, not a production-
         # health problem.
-        PRODUCTION_TRIGGERS = {"schedule", "webhook", "replay"}
+        PRODUCTION_TRIGGERS = {"schedule", "webhook", "replay", "api", "pipeline"}
 
         cats: dict[str, int] = {
             "success": 0, "failed": 0, "running": 0,
@@ -316,9 +351,14 @@ class ExecutionStore:
         running = cats["running"]
         queued = cats["queued"]
 
+        # Average over SUCCESSFUL runs only, matching the Dashboard card's
+        # "per successful run" note and docs/dashboard-metrics.md. A run that
+        # failed fast, or was killed by a timeout, says nothing about how long
+        # the pipeline takes, and would drag the figure either way. Running and
+        # queued runs have no finished duration yet and stay out regardless.
         avg_duration = 0.0
         completed = [e for e in recent
-                     if e.get("status") not in ("running", "queued", "pending")
+                     if normalize_status(e.get("status")) == "success"
                      and (e.get("duration_ms", 0) > 0
                           or (e.get("metadata") or {}).get("duration_basis") == "recorded_start_to_finish")]
         if completed:
@@ -357,7 +397,7 @@ class ExecutionStore:
             ),
             "avg_duration_ms": round(avg_duration, 1),
             "period_hours": hours,
-            # 2026-05-28 — production-only sub-dict (scheduled + webhook
+            # 2026-05-28 — production-only sub-dict (scheduled + API + webhook
             # + replay triggers). The Dashboard's headline Success Rate
             # KPI should read this so manual test runs the user fires
             # while iterating don't drag the operational health number

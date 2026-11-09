@@ -21,22 +21,27 @@
 ---
 
 ```bash
-pip install revoluzen-flow
+git clone https://github.com/revoluzen-io/revoluzen-flow.git
+cd revoluzen-flow
+cd frontend && npm ci && npm run build && cd ..
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
 python -m revoluzen_flow open
 ```
 
-The backend boots on loopback, your browser opens, and you're in.
+The backend boots on loopback, your browser opens, and you're in. Needs Python
+3.11+ and Node 20+. On Windows, or for Docker, see [Quick start](#quick-start).
 
 <div align="center">
   <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a ten-node pipeline taking two sources through validation and dedupe, into a join, a derived column and an aggregation, then a conditional branch out to a Slack alert and a managed table" width="100%">
-  <em>Build pipelines on a canvas · 44 node types · 66 connectors · run, schedule and alert from the same place</em>
+  <em>Build pipelines on a canvas · 45 node types · 66 connectors · run, schedule and alert from the same place</em>
 </div>
 
 > [!NOTE]
 > **1.0.1 stable.** The full test suite runs on **Python 3.11 and 3.13** in CI
 > (3.12 is smoke-tested and sits between the two) · Docker 25+ · DuckDB 1.1.3 ·
-> Postgres 16. PyPI, Docker and source installs are all supported today;
-> prebuilt desktop installers are still pending. See
+> Postgres 16. Source and Docker installs work today; the PyPI package, Linux
+> packages and prebuilt desktop installers are not published yet. See
 > [CHANGELOG.md](CHANGELOG.md) for the tested-with matrix and known gaps.
 
 ## Contents
@@ -60,11 +65,12 @@ a browser UI, not a desktop program.
 
 | You are | Path | Time |
 |---|---|---|
-| On Linux and want one command, nothing installed first | **[One-line install](#one-line-install)** — no Python, no Docker, no root | 1 min |
 | On any OS and want it to just work | **[Docker Compose](#docker-compose)** — one identical command everywhere | 2–5 min |
-| Comfortable with Python 3.11+ | **[PyPI](#pypi)** | 2 min |
-| On Linux and would rather not run Docker | **[Linux package](#linux-package)** — `.deb` / `.rpm` / `.AppImage` | 2 min |
-| A developer or contributor | **[From source](#from-source)** | 10 min |
+| Comfortable with Python 3.11+ and Node 20+, or a contributor | **[From source](#from-source)** | 10 min |
+
+Not available yet, because no release has been published: the
+[one-line install](#one-line-install), [PyPI](#pypi) and
+[Linux packages](#linux-package). They are described below for when it is.
 
 > [!TIP]
 > Hitting an error? Everything we know about install failures is collected in
@@ -72,6 +78,11 @@ a browser UI, not a desktop program.
 > through these steps.
 
 ### One-line install
+
+> [!IMPORTANT]
+> **Not available yet.** This script downloads from the latest GitHub Release,
+> and none has been published. Use [Docker Compose](#docker-compose) or
+> [From source](#from-source) for now.
 
 Linux x86_64. Installs per-user, no root. The AppImage it fetches carries its
 own Python runtime, so nothing needs to be on the machine first.
@@ -103,8 +114,8 @@ so rather than fail obscurely. Revoluzen Flow does not publish unsigned Windows
 or macOS builds: without an EV certificate SmartScreen shows a red block dialog,
 and without Developer ID notarization Gatekeeper refuses to open the package at
 all — which stops exactly the people a one-line installer is for. Use
-[Docker Compose](#docker-compose) or [PyPI](#pypi) there until signing is in
-place. `installer/install.ps1` is written and waiting on that.
+[Docker Compose](#docker-compose) or [From source](#from-source) there until
+signing is in place. `installer/install.ps1` is written and waiting on that.
 
 ### Docker Compose
 
@@ -117,7 +128,7 @@ docker compose up -d            # Revoluzen Flow only
 docker compose --profile ai up -d   # Revoluzen Flow + local Ollama
 ```
 
-Open <http://localhost:8001>. Upgrade later with `docker compose pull && docker compose up -d`.
+Open <http://localhost:8001>. Upgrade later with `git pull && docker compose build && docker compose up -d`.
 
 > [!IMPORTANT]
 > **The image builds locally on first run** — `revoluzen/flow` is not on Docker
@@ -146,6 +157,11 @@ docker run -d --name revoluzen-flow \
 
 ### PyPI
 
+> [!IMPORTANT]
+> **Not available yet.** `revoluzen-flow` has not been published to PyPI, so
+> these commands fail today. Use [Docker Compose](#docker-compose) or
+> [From source](#from-source) for now.
+
 **Requires Python 3.11+** (the suite is run on 3.11 and 3.13). Check first — an
 older Python fails with `No matching distribution found`:
 
@@ -171,6 +187,11 @@ found, `python -m revoluzen_flow open` always works — see
 [Install troubleshooting](#install-troubleshooting).
 
 ### Linux package
+
+> [!IMPORTANT]
+> **Not available yet.** No GitHub Release has been published, so these packages
+> cannot be downloaded. Use [Docker Compose](#docker-compose) or
+> [From source](#from-source) for now.
 
 Bundles a frozen Python runtime and the compiled UI — no Python, no Node, no
 Docker on the target machine. After install, Revoluzen Flow registers itself as
@@ -439,7 +460,7 @@ warehouse-first platform or a heavyweight IDE.
 | What you get | Why it matters |
 |---|---|
 | **DuckDB execution** | Joins, group-bys, pivots and aggregates run in a vectorised engine, with disk spill for larger local workloads. |
-| **Operations in the box** | Scheduler, alerts, run history, per-step row counts, lineage view, versioning, deploy and rollback are included. |
+| **Operations in the box** | Scheduler, endpoints so another application can start a pipeline, alerts, run history, per-step row counts, lineage view, versioning, deploy and rollback are included. |
 | **Local-first install** | Runs on a laptop or VM. No cloud lock-in. Telemetry is off by default and opt-in only. |
 | **Visual + code workflow** | Drag nodes on the canvas, use expressions for light logic, and drop into DuckDB SQL when the canvas is not enough. |
 | **Optional AI assistance** | Claude, OpenAI, Gemini, Ollama and OpenRouter can help with node setup, SQL and error diagnosis; deterministic fallbacks keep the app useful without an LLM. |

@@ -82,7 +82,23 @@ class JoinNode(BaseNode):
                 op = pair.get("operator", "=")
                 if left_col and right_col:
                     parts.append(f'{jl}."{left_col}" {op} {jr}."{right_col}"')
-            on_clause = " AND ".join(parts) if parts else "TRUE"
+            if not parts:
+                # Every pair was unusable — most often because the keys are
+                # spelled `left_key`/`right_key`, which this reads as empty.
+                # This used to fall through to ON TRUE, turning a configured
+                # join into a silent cross join: no error, every row matched
+                # against every row, and a row count nobody checked. Failing
+                # is the only safe answer, because the alternative is wrong
+                # data that looks like a successful run.
+                keys_seen = sorted({k for p in key_pairs if isinstance(p, dict) for k in p})
+                raise ValueError(
+                    "Join: mapped_keys needs each pair to set 'left' and 'right' "
+                    "to a column name. None of the "
+                    f"{len(key_pairs)} pair(s) did"
+                    + (f" (saw: {', '.join(keys_seen)})" if keys_seen else "")
+                    + "."
+                )
+            on_clause = " AND ".join(parts)
         else:
             # same_key mode
             join_key = self.params.get("join_key", [])

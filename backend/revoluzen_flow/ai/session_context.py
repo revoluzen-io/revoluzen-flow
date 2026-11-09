@@ -62,7 +62,7 @@ _OSS_FREE_INCLUDES = [
     "agent-tool RBAC (4 roles × 2 envs × 3 tool tiers) — distinct from workspace RBAC",
     "AI Copilot with local Ollama (default) or cloud provider opt-in",
     "RAG: nomic-embed-text + sqlite-vec + recall_history tool",
-    "trace store, activity timeline, eval harness, cert matrix, trust posture endpoint",
+    "trace store, AI activity view (every AI request, tokens, cost), eval harness, cert matrix, trust posture endpoint",
     "telemetry off by default, opt-in only",
 ]
 

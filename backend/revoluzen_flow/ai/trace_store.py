@@ -2,7 +2,9 @@
 SQLite-backed durable store for agent execution traces.
 
 Step 1.5b-3 of the AI arc — every successful or failed `AgentRunner.run()`
-persists its `AgentRunResult` here so we have:
+persists its `AgentRunResult` here, and every other AI call (the Editor's
+drafting, the SQL helpers, summaries; see `revoluzen_flow.ai.usage_sources`)
+is saved as a one-step row with `source` naming the feature, so we have:
   - Replayable trace history per user/workspace
   - SOC2 / DORA-grade audit evidence (per docs/TRUST.md Pillar 3)
   - Cost / outcome analytics over time
@@ -43,15 +45,19 @@ CREATE TABLE IF NOT EXISTS agent_traces (
     created_at TEXT NOT NULL,
     model TEXT,
     provider TEXT,
+    source TEXT,
     data TEXT NOT NULL
 );
 """
 
-# Idempotent backfill for installs that pre-date the model/provider columns.
-# SQLite has no ADD COLUMN IF NOT EXISTS, so we swallow the duplicate-column error.
+# Idempotent backfill for installs that pre-date the model/provider/source
+# columns. SQLite has no ADD COLUMN IF NOT EXISTS, so we swallow the
+# duplicate-column error. `source` is empty for a Copilot run and names the
+# feature for any other AI call (see revoluzen_flow.ai.usage_sources).
 _BACKFILL_SQL = [
     "ALTER TABLE agent_traces ADD COLUMN model TEXT",
     "ALTER TABLE agent_traces ADD COLUMN provider TEXT",
+    "ALTER TABLE agent_traces ADD COLUMN source TEXT",
 ]
 
 _INDEX_SQL = [
@@ -59,6 +65,30 @@ _INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_agent_traces_workspace_time ON agent_traces(workspace_id, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_agent_traces_outcome ON agent_traces(outcome)",
 ]
+
+# Run outcomes, grouped the way the AI usage view counts them. A failed run
+# is one where the model call errored, a tool broke the run, or it ran out of
+# time; a blocked run was stopped by a limit (for example a daily token cap)
+# before the model was asked.
+FAILED_OUTCOMES = ("llm_failure", "tool_failure", "timeout")
+BLOCKED_OUTCOMES = ("policy_block",)
+
+
+def _first_failure_reason(data_json: str | None) -> str | None:
+    """The reason recorded on a run's first failed step, if any."""
+    if not data_json:
+        return None
+    try:
+        steps = json.loads(data_json).get("steps") or []
+    except Exception:
+        return None
+    for step in steps:
+        if not isinstance(step, dict) or step.get("outcome") in (None, "success"):
+            continue
+        reason = str(step.get("decision_reason") or "").strip()
+        if reason:
+            return reason[:300]
+    return None
 
 
 class TraceStore:
@@ -113,8 +143,12 @@ class TraceStore:
         tool_results: list[dict[str, Any]] | None = None,
         model: str | None = None,
         provider: str | None = None,
+        source: str | None = None,
     ) -> None:
         """Persist one AgentRunResult. Best-effort — never raises.
+
+        ``source`` stays None for a Copilot run; an AI call from another
+        feature names that feature (see revoluzen_flow.ai.usage_sources).
 
         Caller (AgentRunner) doesn't await this beyond the normal SQLite
         write; if the store is unavailable we log + continue. Trace loss
@@ -150,8 +184,9 @@ class TraceStore:
                 INSERT OR REPLACE INTO agent_traces
                 (run_id, user_id, workspace_id, page, user_intent,
                  outcome, iterations, total_tokens_in, total_tokens_out,
-                 elapsed_ms, step_count, created_at, model, provider, data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 elapsed_ms, step_count, created_at, model, provider,
+                 source, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -168,6 +203,7 @@ class TraceStore:
                     datetime.now(timezone.utc).isoformat(),
                     model or None,
                     provider or None,
+                    source or None,
                     json.dumps(payload, default=str),
                 ),
             )
@@ -262,6 +298,157 @@ class TraceStore:
             return []
 
         return [dict(r) for r in rows]
+
+    # ── AI usage (Insights → Activity) ──────────────────────────────────
+
+    @staticmethod
+    def _usage_where(
+        *,
+        workspace_id: str,
+        since: str | None,
+        until: str | None,
+        user_id: str | None,
+        unattributed_only: bool,
+    ) -> tuple[str, list[Any]]:
+        """WHERE clause shared by the usage list and its totals.
+
+        Always scoped to one workspace, unlike ``list_recent``, whose user
+        filter would return a person's runs from every workspace.
+        ``since`` / ``until`` are UTC ISO strings, compared as text the same
+        way ``purge_older_than`` does.
+        """
+        clauses = ["workspace_id = ?"]
+        params: list[Any] = [workspace_id or "default"]
+        if since:
+            clauses.append("created_at >= ?")
+            params.append(since)
+        if until:
+            clauses.append("created_at <= ?")
+            params.append(until)
+        if unattributed_only:
+            clauses.append("(user_id IS NULL OR user_id IN ('', 'anonymous'))")
+        elif user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        return " AND ".join(clauses), params
+
+    def list_usage(
+        self,
+        *,
+        workspace_id: str,
+        since: str | None = None,
+        until: str | None = None,
+        user_id: str | None = None,
+        unattributed_only: bool = False,
+        limit: int = 200,
+    ) -> list[dict]:
+        """Copilot runs in one workspace and time window, newest first.
+
+        Each row carries the indexed columns plus ``failure_reason``: for a
+        run that did not succeed, the reason recorded on its first failed
+        step (for example the provider's error message), else ``None``.
+        """
+        if self._db is None:
+            return []
+        limit = max(1, min(int(limit), 500))
+        where, params = self._usage_where(
+            workspace_id=workspace_id, since=since, until=until,
+            user_id=user_id, unattributed_only=unattributed_only,
+        )
+        sql = (
+            "SELECT run_id, user_id, workspace_id, page, user_intent, "
+            "outcome, iterations, total_tokens_in, total_tokens_out, "
+            "elapsed_ms, step_count, created_at, model, provider, source, "
+            "CASE WHEN outcome != 'success' THEN data END AS failure_data "
+            f"FROM agent_traces WHERE {where} "
+            "ORDER BY created_at DESC LIMIT ?"
+        )
+        try:
+            rows = self._db.fetchall(sql, tuple(params + [limit]))
+        except Exception as exc:
+            logger.warning("TraceStore.list_usage DB error: %s", exc)
+            return []
+        out: list[dict] = []
+        for r in rows:
+            row = dict(r)
+            row["failure_reason"] = _first_failure_reason(row.pop("failure_data", None))
+            out.append(row)
+        return out
+
+    def usage_totals(
+        self,
+        *,
+        workspace_id: str,
+        since: str | None = None,
+        until: str | None = None,
+        user_id: str | None = None,
+        unattributed_only: bool = False,
+    ) -> dict[str, Any]:
+        """Totals for the same window as ``list_usage``, over every run in
+        it rather than only the rows a page shows.
+
+        ``by_model`` splits the tokens per provider and model so a caller
+        can price them with per-model rates; ``by_source`` counts requests
+        per feature, with the Copilot's under ``"copilot"``.
+        """
+        totals: dict[str, Any] = {
+            "requests": 0, "tokens_in": 0, "tokens_out": 0,
+            "failed": 0, "blocked": 0, "by_model": [], "by_source": [],
+        }
+        if self._db is None:
+            return totals
+        where, params = self._usage_where(
+            workspace_id=workspace_id, since=since, until=until,
+            user_id=user_id, unattributed_only=unattributed_only,
+        )
+        failed = ", ".join(f"'{o}'" for o in FAILED_OUTCOMES)
+        blocked = ", ".join(f"'{o}'" for o in BLOCKED_OUTCOMES)
+        sql = (
+            "SELECT provider, model, COUNT(*) AS requests, "
+            "COALESCE(SUM(total_tokens_in), 0) AS tokens_in, "
+            "COALESCE(SUM(total_tokens_out), 0) AS tokens_out, "
+            f"SUM(CASE WHEN outcome IN ({failed}) THEN 1 ELSE 0 END) AS failed, "
+            f"SUM(CASE WHEN outcome IN ({blocked}) THEN 1 ELSE 0 END) AS blocked "
+            f"FROM agent_traces WHERE {where} "
+            "GROUP BY provider, model ORDER BY requests DESC"
+        )
+        try:
+            rows = self._db.fetchall(sql, tuple(params))
+        except Exception as exc:
+            logger.warning("TraceStore.usage_totals DB error: %s", exc)
+            return totals
+        for r in rows:
+            requests = int(r.get("requests") or 0)
+            tokens_in = int(r.get("tokens_in") or 0)
+            tokens_out = int(r.get("tokens_out") or 0)
+            totals["requests"] += requests
+            totals["tokens_in"] += tokens_in
+            totals["tokens_out"] += tokens_out
+            totals["failed"] += int(r.get("failed") or 0)
+            totals["blocked"] += int(r.get("blocked") or 0)
+            totals["by_model"].append({
+                "provider": r.get("provider") or None,
+                "model": r.get("model") or None,
+                "requests": requests,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+            })
+        try:
+            source_rows = self._db.fetchall(
+                "SELECT COALESCE(NULLIF(source, ''), 'copilot') AS source, "
+                "COUNT(*) AS requests "
+                f"FROM agent_traces WHERE {where} "
+                "GROUP BY 1 ORDER BY requests DESC",
+                tuple(params),
+            )
+        except Exception as exc:
+            logger.warning("TraceStore.usage_totals source split failed: %s", exc)
+            source_rows = []
+        totals["by_source"] = [
+            {"source": r.get("source") or "copilot", "requests": int(r.get("requests") or 0)}
+            for r in source_rows
+        ]
+        return totals
 
     def purge_older_than(self, days: int) -> int:
         """Delete traces older than N days. Returns rows deleted."""

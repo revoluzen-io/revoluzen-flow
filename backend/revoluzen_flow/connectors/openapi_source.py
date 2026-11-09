@@ -114,13 +114,18 @@ class OpenApiSourceNode(BaseNode):
             "data_path": self.params.get("data_path", ""),
             "pagination": {"type": self.params.get("pagination", "none"),
                            "page_size": int(self.params.get("page_size", 100)),
-                           "max_pages": int(self.params.get("max_pages", 20))},
+                           "max_pages": int(self.params.get("max_pages", 20)),
+                           "on_max_pages": self.params.get("on_max_pages") or "error"},
         }
         env = {
             "token": self.params.get("token", ""),
             "api_key": self.params.get("api_key", ""),
         }
-        rows = _execute_stream(manifest, stream, env)
+        # A preview is a sample by design; a real run must not truncate silently.
+        rows = _execute_stream(
+            manifest, stream, env,
+            on_max_pages="stop" if getattr(ctx, "preview_mode", False) else None,
+        )
         return _rows_to_relation(ctx.conn, rows)
 
     @staticmethod
@@ -138,7 +143,8 @@ class OpenApiSourceNode(BaseNode):
 
     @staticmethod
     def default_params() -> dict[str, Any]:
-        return {"spec_url": "", "method": "GET", "pagination": "none", "page_size": 100, "max_pages": 20}
+        return {"spec_url": "", "method": "GET", "pagination": "none", "page_size": 100, "max_pages": 20,
+                "on_max_pages": "error"}
 
     @staticmethod
     def param_schema() -> list[dict]:
@@ -157,4 +163,10 @@ class OpenApiSourceNode(BaseNode):
             {"name": "pagination", "type": "string", "label": "Pagination",
              "options": [{"value": x, "label": x} for x in ["none", "page_number", "offset_limit", "cursor", "link_header"]]},
             {"name": "max_pages", "type": "number", "label": "Max pages", "default": 20},
+            {"name": "on_max_pages", "type": "string", "label": "When max pages is reached",
+             "default": "error",
+             "options": [
+                 {"value": "error", "label": "Fail the step (no silent data loss)"},
+                 {"value": "stop", "label": "Keep the rows read so far"},
+             ]},
         ]

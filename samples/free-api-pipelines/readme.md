@@ -18,7 +18,42 @@ That means you can:
 
 The locked source-node contract is **file OR saved connection** — inline URLs are no longer accepted on the canvas. This keeps every network-side credential under the Connections page's audit/RBAC/environment scoping, so a fresh install with these samples behaves the same as a production deployment with its own connections.
 
-Sample 13 is the file-input exception — it uses a local CSV via `file_path` instead of a connection, demonstrating the other half of the contract.
+Samples 13, 14, 15, 16 and 18 are the file-input exceptions — they read local CSV / XML files via `file_path` instead of a connection, demonstrating the other half of the contract. The files ship in `data/` (see "Offline sample data" below).
+
+## Offline sample data (added 2026-11-03)
+
+The local inputs live in `data/` and are produced by `data/generate_sample_data.py` (standard library only, fixed seed, so re-running it reproduces byte-identical files). They are checked in, so a fresh clone has them.
+
+| File | Rows | Columns | Used by |
+|---|---|---|---|
+| `orders.csv` | 400 | order_id, customer_id, order_date, country (ISO-2), sku, product, quantity, unit_price, status | 13, 14 |
+| `customers.csv` | 120 | customer_id, name, email, country_code, signup_date, tier | 14 — load it into `dbo.customers`; the pipeline reads that table, not the CSV |
+| `daily_sales.csv` | 720 | region (EMEA / AMER / APAC / LATAM), sale_date, channel, units, revenue | 15 |
+| `baseline_sales.csv` | 168 | same columns, the two weeks before `daily_sales` | 15 |
+| `signups.csv` | 300 | signup_id, name, email, country_code, signup_date, plan, source — about 8% of rows are deliberately invalid for the `validate` step | 16 |
+| `products.xml` | 32 `<product>` rows | id, sku, name, category, price, stock — two rows the `data_quality` step drops | 18 |
+
+### How the file paths resolve
+
+The pipelines use checkout-relative paths such as `samples/free-api-pipelines/data/orders.csv`. A source node tries, in order:
+
+1. `<REVOLUZEN_FLOW_DATA_DIR>/<path>`
+2. `<working directory>/<path>`
+3. `<checkout root>/<path>` — the folder that contains `backend/`
+
+So the samples resolve whether the backend was started by `start.ps1` (working directory `backend/`), by hand from the repo root, or from anywhere else, as long as the source checkout is present. The `validation` (wait-for-file) step in 18 uses the same chain.
+
+**Packaged installs** (the `installer/` builds, a `pip install` of the wheel, the Docker image) do not contain `samples/`. Copy this `data/` folder to `<data dir>/samples/free-api-pipelines/data/` — the data dir is `REVOLUZEN_FLOW_DATA_DIR`, with per-OS defaults listed in `installer/readme.md` — or change the `file_path` values to absolute paths. Sinks always write under the data dir, so for example 15's Excel report lands at `<data dir>/data/sales_report.xlsx`.
+
+### What runs out of the box (verified 2026-11-03 on a fresh install, no warehouse connection)
+
+- **15** — every step through the Excel report, the unpivot and the fact projection completes. Only `→ dbo.fact_sales` fails: the placeholder connection `conn_mssql_prod` does not exist until you create a SQL Server connection and import through `import.ps1`.
+- **13** — source → typecast → derived column → materialize → high-value filter and the per-country aggregate complete. `→ dbo.orders_high_value` fails because its `connection_id` is a literal id (`d9880bfabd79`, not `conn_mssql_prod`, so `import.ps1` does not rewrite it); edit that sink to your connection.
+- **16** — validate → conditional_split → all four region filters and the QA sample CSV complete. The warehouse sinks fail without a connection.
+- **14** needs `dbo.customers` on SQL Server (load `customers.csv` into it) plus network for REST Countries.
+- **18** needs SQL Server: `execute_sql_task` sits in the main chain before typecast, so nothing downstream runs without the connection. Its last step moves `products.xml` into `data/archive/` (gitignored); re-run `data/generate_sample_data.py` to restore the file.
+
+A run stops at the first failed step, so a file sink that sits after a failing warehouse sink in the same pipeline (13's `orders_by_country.csv`, 16's `signups_review.csv`) is only written once the warehouse sink succeeds.
 
 ## What's here
 
@@ -27,12 +62,14 @@ samples/free-api-pipelines/
 ├── connections/
 │   └── mssql.json                  ← SQL Server target connection (edit creds first)
 ├── data/
+│   ├── generate_sample_data.py     ← seeded generator; re-run to regenerate every file below
 │   ├── orders.csv                  ← used by 13, 14
-│   ├── customers.csv               ← used by 14 (also expected as dbo.customers source)
+│   ├── customers.csv               ← used by 14 (load into dbo.customers)
 │   ├── daily_sales.csv             ← used by 15
 │   ├── baseline_sales.csv          ← used by 15
 │   ├── signups.csv                 ← used by 16
-│   └── products.xml                ← used by 18
+│   ├── products.xml                ← used by 18
+│   └── archive/                    ← created by 18's file_system step (gitignored)
 ├── pipelines/
 │   ├── 01-jsonplaceholder-posts.json
 │   ├── 02-jsonplaceholder-users-flatten.json

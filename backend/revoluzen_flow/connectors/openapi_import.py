@@ -40,6 +40,57 @@ def _base_url(spec: dict) -> str:
     return ""
 
 
+# Fields that describe a page of results rather than a record.
+_ENVELOPE_FIELDS = frozenset({
+    "total", "total_count", "totalcount", "count", "size", "length",
+    "page", "page_size", "pagesize", "per_page", "perpage", "page_count", "pagecount",
+    "limit", "offset", "next", "next_page", "nextpage", "previous", "prev",
+    "cursor", "next_cursor", "nextcursor", "has_more", "hasmore",
+    "links", "_links", "meta", "metadata", "paging", "pagination",
+    "status", "success", "message", "error", "errors",
+})
+
+
+def _resolve(spec: dict, schema: Any) -> dict:
+    """Follow local $refs, so a schema defined under components reads like an inline one."""
+    for _ in range(8):
+        ref = schema.get("$ref") if isinstance(schema, dict) else None
+        if not isinstance(ref, str) or not ref.startswith("#/"):
+            break
+        node: Any = spec
+        for part in ref[2:].split("/"):
+            node = node.get(part.replace("~1", "/").replace("~0", "~")) if isinstance(node, dict) else None
+        schema = node
+    return schema if isinstance(schema, dict) else {}
+
+
+def _rows_path(spec: dict, operation: dict) -> str:
+    """Where the records are in a successful reply, when the spec makes that clear.
+
+    Many APIs wrap their list, as in {"items": [...], "total": 6}. With no path,
+    that whole reply becomes one row. It only counts as a wrapper when one list
+    sits beside nothing but paging details: {"id": 7, "lines": [...]} is a single
+    record that happens to contain a list, and stays one row.
+    """
+    responses = operation.get("responses")
+    reply = _resolve(spec, (responses or {}).get("200")) if isinstance(responses, dict) else {}
+    content = reply.get("content") if isinstance(reply.get("content"), dict) else {}
+    media = content.get("application/json") or next(iter(content.values()), {})
+    schema = _resolve(spec, (media or {}).get("schema") or reply.get("schema"))
+
+    path: list[str] = []
+    for _ in range(3):
+        properties = schema.get("properties")
+        if schema.get("type") == "array" or not isinstance(properties, dict):
+            break
+        body = {name: _resolve(spec, prop) for name, prop in properties.items() if name.lower() not in _ENVELOPE_FIELDS}
+        if len(body) != 1:
+            return ""
+        name, schema = next(iter(body.items()))
+        path.append(name)
+    return ".".join(path) if schema.get("type") == "array" else ""
+
+
 def manifest_from_openapi(
     spec: Any, *, connector_id: str | None = None,
     base_url: str | None = None, max_streams: int = 50,
@@ -79,8 +130,8 @@ def manifest_from_openapi(
             "path": path,
             "method": "GET",
             "auth": operation_auth,
-            # data_path + pagination are left for the human pass — the spec
-            # rarely states where the array lives or how it pages.
+            # Pagination is left for the human pass — the spec rarely says how an API pages.
+            **({"data_path": rows} if (rows := _rows_path(spec, get)) else {}),
         })
         if len(streams) >= max_streams:
             break

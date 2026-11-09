@@ -51,8 +51,8 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "tagline": "SaaS extract with cursor pagination",
         "description": (
             "Pull from a paginated REST API using the last successful run "
-            "as a cursor, flatten nested JSON, and append to a Postgres "
-            "table. The most common production pattern for SaaS data."
+            "as a cursor, flatten nested JSON, and upsert into a Postgres "
+            "table by id. The most common production pattern for SaaS data."
         ),
         "complexity": "simple",
         "category": "Ingest",
@@ -65,8 +65,9 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "tagline": "Operational database to analytical store",
         "description": (
             "Query an operational Postgres table, roll up to daily "
-            "aggregates, and write to a warehouse (Parquet on S3 by "
-            "default). Foundation for any analytics layer."
+            "aggregates, and write to a warehouse table (Snowflake, "
+            "BigQuery, Redshift or any warehouse connection). Foundation "
+            "for any analytics layer."
         ),
         "complexity": "simple",
         "category": "Replicate",
@@ -79,7 +80,9 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "tagline": "Operational monitoring → notify on threshold",
         "description": (
             "Run a KPI query on a schedule, branch when the result crosses "
-            "a threshold, and post to Slack with the offending rows. The "
+            "a threshold, and post to Slack about the offending rows. Slack "
+            "Notify sends one message per run, filled from the first row "
+            "that reaches it, and sends it even when no row does. The "
             "starter pattern for pager-style operational alerting."
         ),
         "complexity": "simple",
@@ -121,12 +124,16 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
     {
         "id": "ai_classify_route",
         "name": "AI classify + conditional route",
-        "tagline": "LLM categorization → switch to right destination",
+        "tagline": "AI categorization → switch to right destination",
         "description": (
             "Read incoming items (tickets, leads, alerts), classify each "
-            "with an LLM into urgent / standard / spam, then route to "
-            "three different destinations. Demonstrates AI-augmented "
-            "workflows with deterministic fallback."
+            "with the Semantic Router (closest of urgent / standard / "
+            "spam, matched against example phrases per label), then route "
+            "to three different destinations. Pick an embedding provider "
+            "in the AI classify step: the built-in hash provider is a "
+            "demo that only matches an example phrase word for word. "
+            "Slack Notify sends one message per run, from the first "
+            "urgent item, and sends it even when there is none."
         ),
         "complexity": "complex",
         "category": "AI",
@@ -138,14 +145,14 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "name": "Data quality + dead-letter queue",
         "tagline": "Trustworthy data — bad rows quarantined, not dropped",
         "description": (
-            "Validate every row against a schema and business rules. "
+            "Check every row against required fields and business rules. "
             "Passing rows write to the clean table; failing rows write to "
-            "a dead-letter table with the failure reason."
+            "a dead-letter table so nothing silently disappears."
         ),
         "complexity": "complex",
         "category": "Quality",
-        "tags": ["Validate", "Conditional Split", "DLQ"],
-        "node_count": 5,
+        "tags": ["Validate", "DLQ"],
+        "node_count": 4,
     },
     {
         "id": "reverse_etl",
@@ -153,8 +160,8 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "tagline": "Operationalize analytics — push insights to revenue tools",
         "description": (
             "Query the warehouse for the latest customer scores, shape "
-            "into the destination API's payload format, and POST in "
-            "batches with retry. The mirror of ingestion."
+            "into the destination API's payload format, and POST "
+            "them in one request with retry. The mirror of ingestion."
         ),
         "complexity": "complex",
         "category": "Egress",
@@ -166,14 +173,14 @@ BUILTIN_TEMPLATES: list[BuiltinTemplateMeta] = [
         "name": "Webhook → enrich → DB",
         "tagline": "Real-time event ingestion with API-side enrichment",
         "description": (
-            "Receive an inbound webhook, validate the payload shape, "
-            "enrich each record by looking up additional context from a "
-            "reference API, and persist to a database. The push-based "
-            "mirror of polling-based API ingestion."
+            "Started by a webhook that carries an event id: fetch the "
+            "event, validate its shape, enrich it from a reference table "
+            "(the users directory), and persist it to a database. The "
+            "push-based mirror of polling-based API ingestion."
         ),
         "complexity": "complex",
         "category": "Real-time",
         "tags": ["Webhook", "Lookup", "Database"],
-        "node_count": 4,
+        "node_count": 5,
     },
 ]

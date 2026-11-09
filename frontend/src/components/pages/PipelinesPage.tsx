@@ -8,7 +8,7 @@ import { useTableColumns, type TColumn, type TColumnGroup } from '../shared/Tabl
 import { ReactFlow, Background, BackgroundVariant, MarkerType, type Node as FlowNode, type Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../../api/client';
-import { navigateTo, navigateToSubRoute } from '../../router';
+import { navigateTo, navigateToSubRoute, navigateWithQuery } from '../../router';
 import RunStatusSparkline, { type RunStatusKind } from '../shared/RunStatusSparkline';
 
 // Normalise a backend status string into the sparkline's union type.
@@ -47,6 +47,10 @@ import PublishTestModal from '../PublishTestModal';
 import SaveAsTemplateDialog from '../SaveAsTemplateDialog';
 import type { WorkflowParameter } from '../../stores/workflowStore';
 import { usePageContext } from '../../hooks/usePageContext';
+import { useWorkflowBin } from '../../hooks/useWorkflowBin';
+import PipelinesBin from './PipelinesBin';
+import { bulkDeleteConfirm, deleteOptionDescription, quoted } from '../../utils/binText';
+import type { WorkflowBinItem } from '../../api/client';
 
 /* ── Node appearance constants (mirrored from workflowStore) ── */
 const _NODE_COLORS: Record<string, string> = {
@@ -1489,6 +1493,18 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // RBAC — does the current user have write/deploy access in this environment?
   const canEdit = useCan('edit', environment);
   const canDelete = useCan('delete', environment);
+  // Emptying the Bin is for admins (the server answers 403 to anyone else).
+  // The page only knows the role when someone is signed in; with no user it
+  // shows the button and lets the server decide.
+  const canEmptyBin = (() => {
+    try {
+      const raw = localStorage.getItem('revoluzen_flow_user');
+      const role: string | undefined = raw ? JSON.parse(raw)?.role : undefined;
+      return !role || ['admin', 'workspace_admin', 'super_admin', 'lead'].includes(role);
+    } catch {
+      return true;
+    }
+  })();
   const canDeploy = useCan('deploy', environment);
   // Approval workflow — leads/admins can approve; any dev can submit
   const canApprove = useCan('approve', 'prod');
@@ -1696,9 +1712,22 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailData, setDetailData] = useState<any>(null);
   const [deleteModal, setDeleteModal] = useState<{ id: string; name: string } | null>(null);
-  const [binItems, setBinItems] = useState<Array<{ id: string; name: string; deleted_at: string; project_id?: string; status?: string }>>(() => {
-    try { return JSON.parse(localStorage.getItem('revoluzen_flow_bin') || '[]'); } catch { return []; }
-  });
+  // The Bin: pipelines deleted from this workspace that can still be restored.
+  // Server-backed, so every browser and user of the workspace sees the same
+  // list. A deleted pipeline stays for `binRetentionDays` days (0 = until
+  // someone deletes it from the Bin or empties it), then a daily job removes it.
+  // The list is read when the page opens, after this page's own changes
+  // (`loadBin`), and again every time the Bin tab is opened, because someone
+  // else may have deleted or restored a pipeline since.
+  const { items: binItems, retentionDays: binRetentionDays, loading: binLoading, reload: loadBin } =
+    useWorkflowBin(statusFilter === 'bin');
+  const [binBusyId, setBinBusyId] = useState<string | null>(null);
+  // Before the Bin lived on the server, an earlier build kept a list of
+  // deleted pipelines in this browser only. It could restore nothing, so drop
+  // whatever an older session left behind.
+  useEffect(() => {
+    try { localStorage.removeItem('revoluzen_flow_bin'); } catch { /* storage unavailable */ }
+  }, []);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(() => {
@@ -1936,11 +1965,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     setDeleteModal({ id, name });
   };
 
-  const saveBin = (items: typeof binItems) => {
-    setBinItems(items);
-    localStorage.setItem('revoluzen_flow_bin', JSON.stringify(items));
-  };
-
   const confirmDelete = async () => {
     if (!deleteModal) return;
     // Optimistic update — drop the row from local state and close the
@@ -1950,7 +1974,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     // (user feedback 2026-05-12). We snapshot the row + close the modal,
     // hit the API, then either keep the optimistic state on success or
     // restore it on failure.
-    const pipeline = pipelines.find(p => p.id === deleteModal.id);
     const targetId = deleteModal.id;
     const targetName = deleteModal.name;
     const previousPipelines = pipelines;
@@ -1960,15 +1983,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     setDeleteModal(null);
     try {
       await api.deleteWorkflow(targetId);
-      const binEntry = {
-        id: targetId,
-        name: targetName,
-        deleted_at: new Date().toISOString(),
-        project_id: (pipeline as any)?.project_id || 'default',
-        status: pipeline?.status || 'draft',
-      };
-      saveBin([binEntry, ...binItems]);
-      toast.success('Moved to Bin', `"${targetName}" — restore from Bin tab`);
+      toast.success('Moved to the Bin', `${quoted(targetName)} — restore it from the Bin tab`);
+      void loadBin();
     } catch (err: any) {
       // Roll back the optimistic delete if the server refused.
       setPipelines(previousPipelines);
@@ -1994,6 +2010,65 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     } catch (err: any) {
       setPipelines(previousPipelines);
       toast.error('Archive failed', err.message);
+    }
+  };
+
+  // ── The Bin ──
+  // Restore brings a pipeline back as a draft (schedules paused). The reply's
+  // `notes` say what was corrected on the way back: a name that is taken again,
+  // a project or folder that no longer exists.
+  const restoreFromBin = async (item: WorkflowBinItem) => {
+    setBinBusyId(item.id);
+    try {
+      const result = await api.restoreWorkflowFromBin(item.id);
+      toast.success(
+        'Pipeline restored',
+        [`${quoted(result.name)} is back as a draft.`, ...(result.notes || [])].join(' '),
+      );
+      await Promise.all([loadBin(), fetchPipelines()]);
+    } catch (err: any) {
+      toast.error('Restore failed', err.message);
+    } finally {
+      setBinBusyId(null);
+    }
+  };
+
+  const purgeFromBin = async (item: WorkflowBinItem) => {
+    const ok = await uiConfirm({
+      title: `Delete ${quoted(item.name)} forever?`,
+      message: 'It is removed from the Bin for good, with its saved versions. This cannot be undone.',
+      confirmLabel: 'Delete forever',
+      destructive: true,
+    });
+    if (!ok) return;
+    setBinBusyId(item.id);
+    try {
+      await api.purgeWorkflowFromBin(item.id);
+      toast.success('Deleted forever', `${quoted(item.name)} was removed from the Bin`);
+      await loadBin();
+    } catch (err: any) {
+      toast.error('Delete failed', err.message);
+    } finally {
+      setBinBusyId(null);
+    }
+  };
+
+  const emptyBin = async () => {
+    const count = binItems.length;
+    if (count === 0) return;
+    const ok = await uiConfirm({
+      title: 'Empty the Bin?',
+      message: `${count === 1 ? 'The pipeline' : `All ${count} pipelines`} in the Bin will be removed for good, with their saved versions. This cannot be undone.`,
+      confirmLabel: 'Empty Bin',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.emptyWorkflowBin();
+      toast.success('Bin emptied', `${result.purged} pipeline${result.purged === 1 ? '' : 's'} removed for good`);
+      await loadBin();
+    } catch (err: any) {
+      toast.error('Could not empty the Bin', err.message);
     }
   };
 
@@ -2620,8 +2695,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       if (!await uiConfirm({
         title: `Revoke "${pipeline?.name || 'Pipeline'}"?`,
         message: hasSchedule
-          ? 'The pipeline will move back to draft and any active schedules will be paused. You can re-publish to resume scheduling.'
-          : 'The pipeline will move back to draft. Triggers will stop firing until you publish again.',
+          ? 'The pipeline will move back to draft and any active schedules will be paused. You can re-publish to resume scheduling. Endpoints on the Triggers page keep running it until you turn them off.'
+          : 'The pipeline will move back to draft. Endpoints on the Triggers page keep running it until you turn them off.',
         confirmLabel: 'Revoke',
         destructive: true,
       })) return;
@@ -2651,7 +2726,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       }
       else if (action === 'archive') await api.archiveWorkflow(id);
       else if (action === 'restore') await api.restoreWorkflow(id);
-      toast.success(`Pipeline ${action} successful`);
+      if (action === 'restore') toast.success('Pipeline restored', 'It is back in Draft.');
+      else toast.success(`Pipeline ${action} successful`);
       fetchPipelines();
       // Re-fetch schedules so the table cell shows the paused state
       // (or hides the chip entirely, since scheduleMap filters on
@@ -2711,7 +2787,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         await api.toggleActive(p.id, nextActive, 'dev');
         toast.success(
           nextActive ? 'Pipeline activated' : 'Pipeline deactivated',
-          `"${p.name}" is now ${nextActive ? 'live' : 'paused'} in DEV`,
+          nextActive
+            ? `"${p.name}" is back on. Its schedules and endpoints work again.`
+            : `"${p.name}" is paused. Its schedules are skipped and its endpoints answer 423.`,
         );
       }
       fetchPipelines();
@@ -2806,6 +2884,12 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       workflowId: null,
       workflowName: 'Untitled Pipeline',
       version: 0,
+      // A new pipeline is an unsaved draft, whatever was open before it. Keeping
+      // the old status showed the "Published pipeline" banner on a blank canvas.
+      status: 'draft',
+      parameters: [],
+      pastRunId: null,
+      isDirty: false,
       selectedNodeId: null,
       stepResults: {},
       // Reset to empty so ChatPanel's structured empty-state (3 clickable
@@ -2870,67 +2954,107 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     // chooser modal. Per docs/PAGE_BY_PAGE_AUDIT.md (P0 #1, 2026-05-19).
     const count = selectedIds.size;
     if (count === 0) return;
-    const ok = await uiConfirm({
-      title: `Delete ${count} pipeline${count === 1 ? '' : 's'}?`,
-      message: count === 1
-        ? 'The selected pipeline will be moved to Bin. Auto-removed after 30 days (Free).'
-        : `All ${count} selected pipelines will be moved to Bin. Auto-removed after 30 days (Free). This cannot be easily undone — restore one at a time from the Bin tab.`,
-      confirmLabel: count === 1 ? 'Delete' : `Delete ${count}`,
-      destructive: true,
-    });
+    // Recoverable (the Bin), so this is a plain confirm rather than a red one.
+    const ok = await uiConfirm(bulkDeleteConfirm(count, binRetentionDays));
     if (!ok) return;
     setDeleteModal({ id: '__bulk__', name: `${count} pipeline${count === 1 ? '' : 's'}` });
   };
 
   const confirmBulkDelete = async () => {
-    const newBinEntries: typeof binItems = [];
+    let deleted = 0;
+    let failed = 0;
     for (const id of selectedIds) {
-      const p = pipelines.find(pp => pp.id === id);
       try {
         await api.deleteWorkflow(id);
-        newBinEntries.push({
-          id,
-          name: p?.name || id,
-          deleted_at: new Date().toISOString(),
-          project_id: (p as any)?.project_id || 'default',
-          status: p?.status || 'draft',
-        });
-      } catch {}
+        deleted += 1;
+      } catch {
+        failed += 1;
+      }
     }
-    saveBin([...newBinEntries, ...binItems]);
     setSelectedIds(new Set());
-    toast.success('Moved to Bin', `${newBinEntries.length} pipeline(s) in Bin`);
+    if (failed === 0) {
+      toast.success(
+        'Moved to the Bin',
+        `${deleted} pipeline${deleted === 1 ? '' : 's'} — restore ${deleted === 1 ? 'it' : 'them'} from the Bin tab`,
+      );
+    } else if (deleted === 0) {
+      toast.error('Delete failed', `${failed} pipeline${failed === 1 ? '' : 's'} could not be deleted`);
+    } else {
+      toast.error('Partly deleted', `${deleted} moved to the Bin, ${failed} could not be deleted`);
+    }
     fetchPipelines();
+    void loadBin();
     setDeleteModal(null);
   };
 
+  // Opened from a row's "more" menu (Version history) or the details drawer.
   const openHistory = async (id: string, name: string) => {
     setHistoryPipelineId(id);
     setHistoryPipelineName(name);
+    setCompareIdx(null);
     setVersionsLoading(true);
     try {
       const v = await api.getWorkflowVersions(id);
       setVersions(Array.isArray(v) ? v.reverse() : []);
-    } catch {
+    } catch (err: any) {
       setVersions([]);
+      toast.error('Could not load the version history', err?.message || String(err));
     }
     setVersionsLoading(false);
   };
 
+  // Restore saves an earlier version again as the newest one. The versions
+  // after it are kept, so a restore can be undone from the same panel.
+  // Schedules, endpoints and other pipelines run the newest saved version, so
+  // the restore is live from their next run: on a published pipeline that is
+  // production, hence the confirm.
   const restoreVersion = async (version: number) => {
-    if (!historyPipelineId) return;
+    const id = historyPipelineId;
+    if (!id) return;
+    const live = normalizeStatus(pipelines.find(pp => pp.id === id)?.status) === 'published';
+    const ok = await uiConfirm({
+      title: `Restore version ${version}?`,
+      message:
+        `Version ${version} of "${historyPipelineName}" will be saved as the newest version. ` +
+        'The versions after it are kept, so you can switch back. ' +
+        (live
+          ? 'This pipeline is published, so its schedules and endpoints run the restored version from their next run.'
+          : 'Anything that runs this pipeline, such as an endpoint or another pipeline, uses the restored version from its next run.'),
+      confirmLabel: 'Restore',
+    });
+    if (!ok) return;
     setRestoringVersion(version);
     try {
-      const data = await api.getWorkflowVersion(historyPipelineId, version);
-      if (data?.workflow) {
-        await api.updateWorkflow(historyPipelineId, data.workflow, `Restored to version ${version}`);
-        fetchPipelines();
-        // Refresh versions
-        const v = await api.getWorkflowVersions(historyPipelineId);
-        setVersions(Array.isArray(v) ? v.reverse() : []);
+      const data = await api.getWorkflowVersion(id, version);
+      if (!data?.workflow) throw new Error(`Version ${version} could not be read.`);
+      const saved = await api.updateWorkflow(id, data.workflow, `Restored to version ${version}`);
+      if (saved?.unchanged) {
+        toast.info('Nothing to restore', `Version ${version} is the same as the current version.`);
+      } else {
+        toast.success(
+          `Version ${version} restored`,
+          `Saved as version ${saved?.version}.${live ? ' Schedules and endpoints use it from their next run.' : ''}`,
+        );
+        // The editor keeps the last pipeline it opened. Bring it up to date,
+        // unless it holds edits nobody has saved: a reload would lose them.
+        const editor = useWorkflowStore.getState();
+        if (editor.workflowId === id) {
+          if (editor.isDirty) {
+            toast.warning(
+              'The editor has unsaved changes to this pipeline',
+              'Saving them there will replace the version you just restored.',
+            );
+          } else if (!editor.pastRunId) {
+            loadWorkflow(await api.getWorkflow(id));
+          }
+        }
       }
-    } catch (err) {
-      console.error('Restore error:', err);
+      fetchPipelines();
+      const v = await api.getWorkflowVersions(id);
+      setVersions(Array.isArray(v) ? v.reverse() : []);
+      setCompareIdx(null);
+    } catch (err: any) {
+      toast.error('Restore failed', err?.message || String(err));
     }
     setRestoringVersion(null);
   };
@@ -4346,7 +4470,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             </button>
           ))}
 
-          {/* Bin tab */}
+          {/* Bin tab: deleted pipelines that can still be restored (server-backed). */}
           <div className="w-px h-5 bg-slate-200 mx-1" />
           <button
             onClick={() => setStatusFilter('bin')}
@@ -4421,90 +4545,20 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           )}
         </div>
 
-        {/* ── BIN VIEW ── */}
         {statusFilter === 'bin' ? (
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
-            {binItems.length === 0 ? (
-              <div className="text-center py-16 px-8">
-                <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-slate-100 flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14H7L5 6" /><path d="M9 6V4h6v2" /></svg>
-                </div>
-                <h2 className="text-lg font-bold text-slate-700 mb-2">Bin is empty</h2>
-                <p className="text-sm text-slate-500">Deleted pipelines will appear here for recovery.</p>
-              </div>
-            ) : (
-              <>
-                <div className="px-5 py-3 bg-red-50/50 border-b border-red-100 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14H7L5 6" /><path d="M9 6V4h6v2" /></svg>
-                    <span className="text-xs font-semibold text-red-700">{binItems.length} item{binItems.length !== 1 ? 's' : ''} in Bin</span>
-                  </div>
-                  <button
-                    onClick={() => { saveBin([]); toast.success('Bin emptied'); }}
-                    className="text-xs font-medium text-red-500 hover:text-red-700 transition-colors"
-                  >
-                    Empty Bin
-                  </button>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr className="bg-gradient-to-r from-slate-900 via-blue-950 to-slate-900 border-b-2 border-amber-400/40">
-                      <th className="text-left px-4 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">Name</th>
-                      <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">Project</th>
-                      <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">Deleted</th>
-                      <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">Auto-purge</th>
-                      <th className="w-40 px-3 py-3 text-right text-xs font-bold text-amber-300 uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {binItems.map((item) => {
-                      const deletedDate = new Date(item.deleted_at);
-                      const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - deletedDate.getTime()) / 86400000));
-                      return (
-                        <tr key={item.id} className="border-b border-slate-100 hover:bg-red-50/20 transition-colors">
-                          <td className="px-4 py-3 max-w-[300px]">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-                              </div>
-                              <div className="min-w-0">
-                                <div className="text-sm font-medium text-slate-500 line-through truncate" title={item.name}>{item.name}</div>
-                                <div className="text-xs text-slate-500 font-mono">{item.id.slice(0, 8)}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className="text-xs text-slate-500">{item.project_id || 'default'}</span>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className="text-xs text-slate-500">{formatRelativeTime(item.deleted_at)}</span>
-                          </td>
-                          <td className="px-3 py-3">
-                            <span className={`text-xs font-medium ${daysLeft <= 7 ? 'text-red-500' : 'text-slate-500'}`}>
-                              {daysLeft} day{daysLeft !== 1 ? 's' : ''}
-                            </span>
-                          </td>
-                          <td className="px-3 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => {
-                                  saveBin(binItems.filter(b => b.id !== item.id));
-                                  toast.success('Removed from Bin', `"${item.name}" permanently deleted`);
-                                }}
-                                className="px-2 py-1 text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                              >
-                                Delete Forever
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </>
-            )}
-          </div>
+          <PipelinesBin
+            items={binItems}
+            retentionDays={binRetentionDays}
+            loading={binLoading}
+            canChange={canDelete}
+            canEmpty={canDelete && canEmptyBin}
+            busyId={binBusyId}
+            projectLabel={(pid) => (pid === 'default' ? 'Default' : projectNameById.get(pid) || pid)}
+            formatTime={formatRelativeTime}
+            onRestore={restoreFromBin}
+            onPurge={purgeFromBin}
+            onEmpty={emptyBin}
+          />
         ) : loading ? (
           // Skeleton loader (per design decision D-004 — wrapped in
           // DelayedSkeleton so we don't flicker for sub-200ms responses).
@@ -5046,7 +5100,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               const flag = (p as any).is_active_dev;
                               if (flag === false) {
                                 return (
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200" title="This pipeline is paused — schedules and triggers are disabled">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200" title="This pipeline is paused. Its schedules are skipped and its endpoints answer 423. You can still run it by hand.">
                                     <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="0.5" /><rect x="14" y="4" width="4" height="16" rx="0.5" /></svg>
                                     Paused
                                   </span>
@@ -5291,6 +5345,19 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                   REJECTED
                                 </span>
                               )}
+                              {/* Restore — the undo for Archive: the pipeline comes
+                                  back as a draft. (A deleted pipeline is restored
+                                  from the Bin tab instead.) */}
+                              {canEdit && ns === 'archived' && (
+                                <button
+                                  onClick={() => handleLifecycleAction(p.id, 'restore')}
+                                  disabled={!!lifecycleLoading[p.id]}
+                                  className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                  title="Restore — move back to Draft"
+                                >
+                                  {lifecycleLoading[p.id] === 'restore' ? 'Restoring...' : 'Restore'}
+                                </button>
+                              )}
                               {/* Edit */}
                               {canEdit && ns !== 'running' && (
                                 <button
@@ -5330,8 +5397,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                 const canCopy = ns !== 'archived' && ns !== 'running';
                                 const canTemplate = ns !== 'archived' && ns !== 'running';
                                 const canDeleteHere = canDelete && (ns === 'draft' || ns === 'failed' || ns === 'archived');
-                                const anyMenuItem = canCopy || canTemplate || canDeleteHere || ns === 'running';
-                                if (!anyMenuItem) return null;
+                                // Version history is on every row, so the
+                                // menu always has at least that item.
                                 return (
                                   <RowActionsPopover open={moreMenuFor === p.id} onOpenChange={open => setMoreMenuFor(open ? p.id : null)}>
                                     <div className="flex flex-col items-stretch gap-1 px-2 py-1">
@@ -5347,14 +5414,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                 </button>
                               )}
                               {/* Revoke — pull a published pipeline back to draft.
-                                  Inverse of Publish. Schedules + triggers stop
-                                  firing once status flips. */}
+                                  Inverse of Publish. Its schedules are paused
+                                  once status flips. */}
                               {canEdit && ns === 'published' && !approval && (
                                 <button
                                   onClick={() => handleLifecycleAction(p.id, 'revoke')}
                                   disabled={!!lifecycleLoading[p.id]}
                                   className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-                                  title="Revoke — move back to draft (stops schedules and triggers)"
+                                  title="Revoke — move back to draft (pauses its schedules)"
                                 >
                                   {lifecycleLoading[p.id] === 'revoke' ? 'Revoking...' : 'Revoke'}
                                 </button>
@@ -5391,7 +5458,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                       onClick={onClick}
                                       disabled={busy}
                                       className="px-2 py-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
-                                      title="Deactivate this pipeline (DEV — direct)"
+                                      title="Pause this pipeline. Its schedules are skipped and its endpoints answer 423."
                                     >
                                       {busy ? '…' : 'Deactivate'}
                                     </button>
@@ -5402,7 +5469,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                     onClick={onClick}
                                     disabled={busy}
                                     className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
-                                    title="Activate this pipeline (DEV — direct)"
+                                    title="Switch this pipeline back on"
                                   >
                                     {busy ? '…' : 'Activate'}
                                   </button>
@@ -5411,6 +5478,24 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
 
                                     </div>
                                     <div className="my-1 border-t border-slate-100" />
+                                        <button
+                                          onClick={() => { setMoreMenuFor(null); openHistory(p.id, p.name); }}
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                          title="See the saved versions of this pipeline, compare them and restore one"
+                                        >
+                                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
+                                          Version history
+                                        </button>
+                                        {ns !== 'archived' && (
+                                          <button
+                                            onClick={() => { setMoreMenuFor(null); navigateWithQuery('triggers', { pipeline: p.id }); }}
+                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                                            title="Let another application start this pipeline and pass it values"
+                                          >
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-400"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+                                            Run from another app
+                                          </button>
+                                        )}
                                         {canCopy && (
                                           <button
                                             onClick={() => { setMoreMenuFor(null); handleDuplicate(p); }}
@@ -5535,6 +5620,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
             </div>
           ) : (
             <div className="p-3 space-y-0">
+              <p className="text-[11px] leading-snug text-slate-500 mb-3">
+                Restore saves an earlier version again as the newest one. The versions after it are kept.
+              </p>
               {versions.map((v, idx) => (
                 <div key={v.version} className="flex gap-3 group">
                   {/* Timeline */}
@@ -5579,13 +5667,17 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                     </div>
                     {idx > 0 && (
                       <div className="flex items-center gap-1.5 mt-1.5">
-                        <button
-                          onClick={() => restoreVersion(v.version)}
-                          disabled={restoringVersion === v.version}
-                          className="px-2.5 py-1 text-xs font-medium text-pipe-600 bg-pipe-50 rounded-md hover:bg-pipe-100 transition-colors disabled:opacity-50"
-                        >
-                          {restoringVersion === v.version ? 'Restoring...' : 'Restore'}
-                        </button>
+                        {/* Restore writes a new version, so it needs edit
+                            rights. Archived pipelines are read-only here. */}
+                        {canEdit && normalizeStatus(pipelines.find(pp => pp.id === historyPipelineId)?.status) !== 'archived' && (
+                          <button
+                            onClick={() => restoreVersion(v.version)}
+                            disabled={restoringVersion !== null}
+                            className="px-2.5 py-1 text-xs font-medium text-pipe-600 bg-pipe-50 rounded-md hover:bg-pipe-100 transition-colors disabled:opacity-50"
+                          >
+                            {restoringVersion === v.version ? 'Restoring...' : 'Restore'}
+                          </button>
+                        )}
                         <button
                           onClick={() => setCompareIdx(compareIdx === idx ? null : idx)}
                           className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
@@ -5704,7 +5796,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   <button
                     onClick={() => { handleLifecycleAction(detailPipeline.id, 'revoke'); closeDrawer(); }}
                     className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1"
-                    title="Revoke — move back to draft (stops schedules and triggers)"
+                    title="Revoke — move back to draft (pauses its schedules)"
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
                     Revoke
@@ -5716,6 +5808,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 >
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3" /></svg>
                   Run
+                </button>
+                <button
+                  onClick={() => { closeDrawer(); openHistory(detailPipeline.id, detailPipeline.name); }}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1"
+                  title="See the saved versions of this pipeline, compare them and restore one"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
+                  Version history
                 </button>
                 <button
                   onClick={() => handleDuplicate(detailPipeline)}
@@ -5946,7 +6046,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 </button>
               )}
 
-              {/* Delete to Bin option */}
+              {/* Delete option: moves the pipeline to the Bin, where it can be
+                  restored until the retention window ends. Archive above takes
+                  it out of use without removing it. */}
               <button
                 onClick={() => {
                   if (deleteModal.id === '__bulk__') {
@@ -5963,7 +6065,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 <div>
                   <div className="text-xs font-semibold text-red-600">Delete</div>
                   <div className="text-xs text-slate-500">
-                    Move to Bin. Auto-removed after 30 days (Free) or backed up (Plus).
+                    {deleteOptionDescription(binRetentionDays, deleteModal.id === '__bulk__')}
                   </div>
                 </div>
               </button>

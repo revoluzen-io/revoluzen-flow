@@ -30,16 +30,59 @@ class PlannerResult:
         }
 
 
+# Words that mean an aggregate on their own. Whole words: "accounts" contains
+# "count" and "consumers" contains "sum", and neither asks for a total.
+_AGGREGATE_WORD_RE = re.compile(
+    r"\b(aggregates?|group\s+by|sums?|counts?|average|avg|totals?|revenue|summari[sz]e[sd]?)\b"
+)
+_PERIOD_WORD_RE = re.compile(r"\b(daily|weekly|monthly)\b")
+
+# "Copy customers to Snowflake daily" is a schedule, not a daily aggregate.
+_COPY_INTENT_RE = re.compile(
+    r"^(?:build\s+a\s+pipeline\s*:\s*)?(?:copy|sync|replicate|migrate|mirror|move|transfer)\b"
+)
+
+# "shows returns by reason" and "aggregate revenue by region" both name the
+# column to group on.
+_GROUP_BY_RE = re.compile(
+    r"\b(?:shows?|showing|lists?|listing|reports?|reporting|counts?|counting|summari[sz]es?|summari[sz]ing"
+    r"|breaks?\s+down|tracks?|tracking|aggregates?|aggregating|groups?|grouped|totals?)\b"
+    r"[^,.;]*?\bby\s+([a-z_]\w*)"
+)
+
+_JOIN_WORD_RE = re.compile(r"\b(?:join|joins|joining|merge|merges|merging|combine|combines|combining)\b")
+_JOIN_KEY_RE = re.compile(r"\b(?:on|using|by)\s+([a-z_]\w*)")
+
+# The framing around a request, not what it is about.
+_NAME_FRAMING_RE = re.compile(
+    r"^(?:please\s+)?(?:build|create|draft|make|generate|design|set\s?up|scaffold)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:new\s+)?"
+    r"(?:pipeline|workflow|etl|flow)\b\s*:?\s*(?:that\s+|to\s+|which\s+)?(?:shows?\s+)?",
+    re.IGNORECASE,
+)
+
+
 class RulePlanner:
     """Intent-to-IR planner using keyword matching and templates."""
 
-    def plan(self, intent: str) -> PlannerResult:
-        """Convert a natural language intent to a workflow IR."""
+    def plan(self, intent: str, *, assume_source: bool = False) -> PlannerResult:
+        """Convert a natural language intent to a workflow IR.
+
+        ``assume_source`` is for a caller that already knows the source and
+        puts it on the draft itself, so a request that names none isn't refused
+        and no placeholder transform is added to fill the gap.
+        """
         intent_lower = intent.lower().strip()
 
-        # Detect operations from intent
-        ops = self._detect_operations(intent_lower)
-        source = self._detect_source(intent_lower, intent)
+        # Detect operations from intent. A join is an operation, so it needs no
+        # placeholder transform either.
+        join_files = self._detect_join_files(intent_lower, intent)
+        ops = self._detect_operations(intent_lower, assume_source=assume_source or bool(join_files))
+        if join_files:
+            source = {"type": "csv", "file_path": join_files[0]}
+        else:
+            source = self._detect_source(intent_lower, intent)
+        if not source and assume_source:
+            source = {"type": "db", "query": "SELECT 1 AS id"}
 
         if not source:
             return PlannerResult(
@@ -58,6 +101,25 @@ class RulePlanner:
         steps.append(source_step)
         prev_id = source_step.id
         x_pos += 350
+
+        # A second file and the join between them
+        if join_files:
+            other = self._create_source_step({"type": "csv", "file_path": join_files[1]}, intent, 0)
+            other.position = NodePosition(x=0, y=300)
+            steps.append(other)
+            key_match = _JOIN_KEY_RE.search(intent_lower)
+            key = key_match.group(1) if key_match else ""
+            join_step = Step(
+                type=StepType.JOIN,
+                label=f"Join on {key}" if key else "Join",
+                params={"join_type": "inner", "join_key": key},
+                position=NodePosition(x=x_pos, y=100),
+            )
+            steps.append(join_step)
+            connections.append(StepConnection(from_step=prev_id, to_step=join_step.id))
+            connections.append(StepConnection(from_step=other.id, to_step=join_step.id))
+            prev_id = join_step.id
+            x_pos += 350
 
         # Step 2+: Operation nodes
         for op in ops:
@@ -96,7 +158,7 @@ class RulePlanner:
             explanation=" ".join(explanation_parts),
         )
 
-    def _detect_operations(self, intent: str) -> list[dict[str, Any]]:
+    def _detect_operations(self, intent: str, assume_source: bool = False) -> list[dict[str, Any]]:
         """Detect operations from intent keywords."""
         ops = []
 
@@ -127,17 +189,23 @@ class RulePlanner:
                 break
 
         # Aggregate — look for revenue/sum/count/daily keywords
-        has_agg = any(w in intent for w in [
-            "aggregate", "group by", "sum", "count", "average", "avg",
-            "total", "revenue", "daily", "weekly", "monthly",
-        ])
+        group_match = _GROUP_BY_RE.search(intent)
+        has_agg = bool(
+            _AGGREGATE_WORD_RE.search(intent)
+            or group_match
+            or (_PERIOD_WORD_RE.search(intent) and not _COPY_INTENT_RE.search(intent))
+        )
         # "calculate" only triggers aggregate if paired with agg-related words
         if not has_agg and "calculate" in intent:
             has_agg = any(w in intent for w in ["revenue", "total", "sum", "average", "daily", "count"])
         if has_agg and not any(o["type"] == "aggregate" for o in ops):
             hint_match = re.search(r"(?:daily|weekly|monthly)\s+([\w\s]+?)(?:\s*,|\s+(?:and|then|output)|$)", intent)
             hint = hint_match.group(1).strip() if hint_match else ""
-            ops.append({"type": "aggregate", "hint": hint})
+            ops.append({
+                "type": "aggregate",
+                "hint": hint,
+                "group_by": group_match.group(1) if group_match else "",
+            })
 
         # Transform — only if explicit transform keywords (not "calculate")
         transform_patterns = [
@@ -152,12 +220,20 @@ class RulePlanner:
 
         # If no operations detected, check for simple patterns
         if not ops:
-            if any(w in intent for w in ["load", "read", "ingest", "import"]):
+            if assume_source or _COPY_INTENT_RE.search(intent) or any(w in intent for w in ["load", "read", "ingest", "import"]):
                 pass  # Just source → output
             else:
                 ops.append({"type": "transform", "hint": "custom"})
 
         return ops
+
+    def _detect_join_files(self, intent_lower: str, intent_original: str) -> list[str]:
+        """The two files a request joins, in the order it names them."""
+        if not _JOIN_WORD_RE.search(intent_lower):
+            return []
+        named = re.findall(r'[\w\-./\\]+\.(?:csv|json|parquet)', intent_original, re.IGNORECASE)
+        distinct = list(dict.fromkeys(named))
+        return distinct[:2] if len(distinct) >= 2 else []
 
     def _detect_source(self, intent_lower: str, intent_original: str) -> dict[str, Any] | None:
         """Detect data source from intent."""
@@ -227,7 +303,10 @@ class RulePlanner:
 
         elif op["type"] == "aggregate":
             # Try to detect group by columns and functions
-            group_by = ["order_date"] if any(w in intent_lower for w in ["daily", "by date", "per day"]) else ["category"]
+            if op.get("group_by"):
+                group_by = [op["group_by"]]
+            else:
+                group_by = ["order_date"] if any(w in intent_lower for w in ["daily", "by date", "per day"]) else ["category"]
             func = "SUM" if any(w in intent_lower for w in ["sum", "total", "revenue"]) else "COUNT"
             col = "amount" if any(w in intent_lower for w in ["amount", "revenue", "sales"]) else "*"
             alias = f"{func.lower()}_{col}" if col != "*" else "count"
@@ -301,7 +380,7 @@ class RulePlanner:
             return " ".join(parts) + " Pipeline"
 
         # Fallback: first 4 meaningful words
-        clean = re.sub(r'[^\w\s]', '', intent)
+        clean = re.sub(r'[^\w\s]', '', _NAME_FRAMING_RE.sub('', intent.strip()))
         skip = {"load", "read", "from", "the", "and", "then", "to", "a", "an", "in", "with", "into", "output", "write", "save"}
         words = [w.capitalize() for w in clean.split() if w.lower() not in skip][:4]
         return " ".join(words) + " Pipeline" if words else "Untitled Pipeline"

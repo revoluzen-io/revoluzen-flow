@@ -762,6 +762,12 @@ export default function ReportsPage({
                       count: isFree ? '—' : (summary.totals.approval_gates ?? 0),
                       plus: true,
                     },
+                    {
+                      num: '9',
+                      title: 'Triggers',
+                      hint: 'Endpoints · API keys, masked · calls + last used',
+                      count: summary.totals.endpoints ?? 0,
+                    },
                   ];
                   return sections.filter((s) => !(s.plus && isFree)).map((s) => {
                     const plusGated = s.plus && isFree;

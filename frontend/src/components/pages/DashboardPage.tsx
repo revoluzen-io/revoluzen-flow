@@ -61,7 +61,7 @@ interface Stats {
     running: number;
     success_rate: number;
     avg_duration_ms: number;
-    // 2026-05-28 — production-only sub-dict (scheduled / webhook /
+    // 2026-05-28 — production-only sub-dict (scheduled / API / webhook /
     // replay triggers). The headline Success Rate KPI uses this so
     // manual test runs the user fires while iterating don't drag the
     // operational health number down. Optional for backward compat —
@@ -76,6 +76,9 @@ interface Stats {
     };
   };
   recentExecutions: any[];
+  // Every run in the chart's window, counted by the server in ten-minute slots.
+  // Null when that call failed; the chart then falls back to the recent runs.
+  runCounts?: { at: string; status: string; count: number }[] | null;
   activeSchedules: any[];
   failedPipelines: any[];
   pendingApprovals: any[];
@@ -228,7 +231,7 @@ function glowFor(gradient: string): string {
 }
 
 function HeroKPI({
-  label, value, suffix, sparkline, gradient, trend, onClick, lighter,
+  label, value, suffix, sparkline, gradient, trend, onClick, lighter, title,
 }: {
   label: string;
   value: string | number;
@@ -237,6 +240,8 @@ function HeroKPI({
   gradient: string;
   trend?: { arrow: '▲' | '▼' | '—'; text: string; tone: 'ok' | 'bad' | 'muted' };
   onClick?: () => void;
+  /** Hover text saying what the number covers. */
+  title?: string;
   /** When true, shift every shade in the gradient one step lighter
    *  (500→400, 600→500, etc.). Used to distinguish the DEV dashboard
    *  (softer, building-friendly) from PROD (richer, operational). */
@@ -280,6 +285,7 @@ function HeroKPI({
   return (
     <Cmp
       onClick={onClick}
+      title={title}
       // 2026-05-25 — toned down for enterprise-quieter look:
       // - dropped the colored glow shadow (was 28px blur w/ accent color)
       // - reduced base shadow opacity ~40%
@@ -998,7 +1004,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       const [
         pipelines, projects, connections, credentials, schedules, variables,
         storageSummary,
-        execStats, recentExecs, activeScheds, failedPipes,
+        execStats, recentExecs, runCounts, activeScheds, failedPipes,
         pendingApprovals, poolStatus, sysMetrics,
         users, license,
       ] = await Promise.all([
@@ -1019,6 +1025,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
         }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
         api.getMonitorStats(24).catch(() => ({ total: 0, success: 0, failed: 0, running: 0, success_rate: 0, avg_duration_ms: 0 })),
         api.listExecutions().catch(() => []),
+        api.getRunCounts(trendHours, projectFilter !== 'all' ? projectFilter : undefined).catch(() => null),
         api.getActiveSchedules().catch(() => []),
         api.getFailedPipelines().catch(() => []),
         (api as any).listPendingProjects?.().catch(() => []) ?? Promise.resolve([]),
@@ -1074,6 +1081,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
         // for the Recent table). The /executions endpoint already paginates
         // server-side; raise the request limit if it returns < 500.
         recentExecutions: Array.isArray(recentExecs) ? recentExecs.slice(0, 500) : [],
+        runCounts: Array.isArray(runCounts) ? runCounts : null,
         activeSchedules: Array.isArray(activeScheds) ? activeScheds.slice(0, 6) : [],
         failedPipelines: Array.isArray(failedPipes) ? failedPipes.slice(0, 6) : [],
         pendingApprovals: Array.isArray(pendingApprovals) ? pendingApprovals.slice(0, 6) : [],
@@ -1139,11 +1147,14 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       buckets.push({ label, success: 0, failed: 0, running: 0 });
     }
 
-    const recent = stats?.recentExecutions || [];
-    recent.forEach((e: any) => {
-      const t = e.started_at || e.created_at || e.start_time;
-      if (!t) return;
-      const ts = new Date(t).getTime();
+    const counted = stats?.runCounts ?? (stats?.recentExecutions || []).map((e: any) => ({
+      at: e.started_at || e.created_at || e.start_time,
+      status: e.status,
+      count: 1,
+    }));
+    counted.forEach((e: { at: string; status: string; count: number }) => {
+      if (!e.at) return;
+      const ts = new Date(e.at).getTime();
       let binIdx: number;
       if (isHourly) {
         binIdx = (binCount - 1) - Math.floor((nowMs - ts) / binMs);
@@ -1161,11 +1172,11 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       // backend module and reflected here.
       const s = (e.status || '').toLowerCase();
       if (s === 'success' || s === 'ok' || s === 'completed' || s === 'passed') {
-        buckets[binIdx].success += 1;
+        buckets[binIdx].success += e.count;
       } else if (s === 'error' || s === 'failed' || s === 'failure' || s === 'timeout' || s === 'timed_out') {
-        buckets[binIdx].failed += 1;
+        buckets[binIdx].failed += e.count;
       } else if (s === 'running' || s === 'in_progress' || s === 'executing') {
-        buckets[binIdx].running += 1;
+        buckets[binIdx].running += e.count;
       }
     });
     const maxCount = Math.max(1, ...buckets.map(b => b.success + b.failed + b.running));
@@ -1179,7 +1190,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       }),
     };
     return { buckets, maxCount, spark };
-  }, [stats?.recentExecutions, trendHours]);
+  }, [stats?.recentExecutions, stats?.runCounts, trendHours]);
 
   // 2026-05-22 (audit O2) — prefer the new /api/dashboard/summary
   // endpoint's data for KPIs that have a trend-window dependency
@@ -1208,10 +1219,10 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   // copy. Single source of truth for the toggle-aware text.
   const windowLabel = trendHours === 24 ? '24h' : trendHours === 168 ? '7d' : '30d';
   const windowLong = trendHours === 24 ? 'last 24 hours' : trendHours === 168 ? 'last 7 days' : 'last 30 days';
-  // 2026-05-28 — headline Success Rate is SCHEDULED runs only (or
-  // webhook / replay — the "production" triggers). Manual test runs
-  // the user fires while iterating on a pipeline must NOT drag the
-  // operational health KPI down. Falls back to the legacy all-runs
+  // 2026-05-28 — headline Success Rate covers automated runs only: schedule,
+  // API, webhook and replay (PRODUCTION_TRIGGERS in monitoring/store.py).
+  // Manual test runs the user fires while iterating on a pipeline must
+  // NOT drag the operational health KPI down. Falls back to the legacy all-runs
   // success_rate when the backend hasn't shipped the new sub-dict
   // (e.g. running against an older OSS install).
   const scheduledExec = (exec as any)?.scheduled;
@@ -1219,13 +1230,36 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
   const scheduledRate = scheduledExec
     ? Math.round(scheduledExec.success_rate || 0)
     : Math.round(exec?.success_rate || 0);
-  // hasRuns drives the "—" empty state. We base it on SCHEDULED runs
-  // when the sub-dict is present (the headline KPI is now scheduled-
-  // only, so empty-state should match). Falls back to all-runs count
-  // for backward compat.
+  // hasRuns drives the "—" empty state of the AUTOMATED success rate only.
+  // We base it on SCHEDULED runs when the sub-dict is present (the headline
+  // KPI is scheduled-only, so empty-state should match). Falls back to
+  // all-runs count for backward compat.
   const hasRuns = scheduledExec ? scheduledRuns24h > 0 : runs24h > 0;
   const successRate = hasRuns ? scheduledRate : 0;
   const successDisplay = hasRuns ? successRate : '—';
+  // hasAnyRuns asks the same question about ALL runs, hand-started ones
+  // included. Everything that counts or draws every run — the Runs and
+  // Failures cards, the Run volume chart, the outcome ring and the greeting's
+  // headline — reads this one. Gating them on hasRuns made a workspace that
+  // had only run pipelines by hand read "no runs yet" and show the inventory
+  // ring while the Runs card beside them counted runs.
+  const hasAnyRuns = runs24h > 0;
+  // The Run volume chart and the outcome ring plot every run, so on DEV they
+  // follow hasAnyRuns. PROD keeps the automated gate: its chart is titled as
+  // an SLA trend and its header quotes the automated success rate.
+  const showRunData = isProd ? hasRuns : hasAnyRuns;
+  // The outcome ring counts runs, and only runs: the centre is the run total
+  // and the slices add up to it. Success, Running and Failed are the same
+  // counts the cards above show; any other status (queued, cancelled,
+  // skipped) goes under "Other" so nothing is left out of the total.
+  const successRuns = exec?.success || 0;
+  const otherRuns = Math.max(0, runs24h - successRuns - running - failures24h);
+  const runOutcomeSegments = [
+    { value: successRuns,   color: '#10b981', label: 'Success' },
+    { value: running,       color: '#3b82f6', label: 'Running' },
+    { value: failures24h,   color: '#ef4444', label: 'Failed' },
+    ...(otherRuns > 0 ? [{ value: otherRuns, color: '#cbd5e1', label: 'Other' }] : []),
+  ];
   const avgDur = exec?.avg_duration_ms || 0;
   const approvalsPending = stats?.pendingApprovals?.length || 0;
   // 2026-05-22 (audit O2): prefer the summary endpoint's top_failed
@@ -1275,7 +1309,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
     if (failures24h > 0) return { text: `${failures24h} failure${failures24h === 1 ? '' : 's'} in the ${windowLong}`, tone: 'bad' as const };
     if (attentionFailedCount > 0) return { text: `${attentionFailedCount} pipeline${attentionFailedCount === 1 ? '' : 's'} need${attentionFailedCount === 1 ? 's' : ''} attention`, tone: 'warn' as const };
     if (running > 0) return { text: `${running} pipeline${running === 1 ? '' : 's'} running now`, tone: 'warn' as const };
-    if (!hasRuns) return { text: 'Workspace is quiet — nothing running', tone: 'muted' as const };
+    if (!hasAnyRuns) return { text: 'Workspace is quiet — nothing running', tone: 'muted' as const };
     return { text: 'All systems healthy', tone: 'ok' as const };
   })();
   const toneClass = headline.tone === 'bad' ? p.bad : headline.tone === 'warn' ? p.warn : headline.tone === 'muted' ? p.inkMuted : p.ok;
@@ -1287,8 +1321,10 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           ? { label: `Review ${approvalsPending} Approval${approvalsPending === 1 ? '' : 's'}`, onClick: () => onNavigate('approvals') }
           : { label: 'View Deployments', onClick: () => onNavigate('pipelines') })
       : { label: 'My Deployments', onClick: () => onNavigate('pipelines') };
+    // Insights → Activity lists what the AI did (each AI request and its
+    // cost), not the team's pipeline runs, so the button says so.
     return isAdmin
-      ? { label: 'Team Activity', onClick: () => onNavigate('activity') }
+      ? { label: 'AI Activity', onClick: () => onNavigate('activity') }
       : { label: 'New Pipeline', onClick: () => onNavigate('templates') };
   })();
 
@@ -1836,14 +1872,15 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   while PROD stays full saturation for the operational view. */}
               <HeroKPI
                 lighter
-                label="Success rate · scheduled"
+                label="Success rate · automated"
+                title="Runs that started on a schedule, from another application or as a replay. Runs you start by hand are left out."
                 value={successDisplay}
                 suffix={hasRuns ? '%' : ''}
                 onClick={() => onNavigate('executions')}
                 gradient={!hasRuns ? 'from-emerald-800 to-emerald-900' : successRate >= 95 ? 'from-emerald-500 to-emerald-600' : successRate >= 80 ? 'from-amber-500 to-orange-500' : 'from-red-500 to-rose-500'}
                 sparkline={hasRuns ? spark.success : undefined}
                 trend={(() => {
-                  // 2026-05-28 — when there are no scheduled runs but
+                  // 2026-05-28 — when there are no automated runs but
                   // the user has run pipelines manually (testing /
                   // iterating), surface the all-runs rate in the
                   // trend slot so the card is informative rather than
@@ -1852,7 +1889,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   const allRunsRate = Math.round(exec?.success_rate || 0);
                   if (!hasRuns) {
                     return allRunsCount > 0
-                      ? { arrow: '—' as const, text: `No scheduled runs · all runs: ${allRunsRate}%`, tone: 'muted' as const }
+                      ? { arrow: '—' as const, text: `No automated runs · all runs: ${allRunsRate}%`, tone: 'muted' as const }
                       : { arrow: '—' as const, text: 'Run a pipeline first', tone: 'muted' as const };
                   }
                   if (successRate >= 95) return { arrow: '▲' as const, text: 'Healthy', tone: 'ok' as const };
@@ -1866,7 +1903,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 value={runs24h}
                 onClick={() => navigateWithFilter('executions', { hours: trendHours })}
                 gradient={runs24h === 0 ? 'from-blue-800 to-indigo-900' : 'from-blue-500 to-indigo-500'}
-                sparkline={hasRuns ? spark.runs : undefined}
+                sparkline={hasAnyRuns ? spark.runs : undefined}
                 trend={running > 0
                   ? { arrow: '▲', text: `${running} running now`, tone: 'ok' }
                   : runs24h === 0 ? { arrow: '—', text: `No activity in ${windowLabel}`, tone: 'muted' }
@@ -1879,28 +1916,31 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 onClick={() => navigateWithFilter('executions', { status: 'failed', hours: trendHours })}
                 // 2026-05-25 — color semantics tightened:
                 //   failures>0 → red (alarm)
-                //   hasRuns + 0 failures → emerald (good news)
+                //   any runs + 0 failures → emerald (good news)
                 //   no runs at all → very light slate so the tile reads
                 //     "neutral / nothing to report" instead of "heavy grey"
+                // Failures counts every run, so "any runs" means every run,
+                // hand-started ones included (hasAnyRuns), not just automated.
                 gradient={
                   failures24h > 0
                     ? 'from-red-500 to-rose-500'
-                    : hasRuns
+                    : hasAnyRuns
                       ? 'from-emerald-500 to-emerald-600'
                       : 'from-slate-200 to-slate-300'
                 }
                 sparkline={failures24h > 0 ? spark.failed : undefined}
                 trend={failures24h === 0
-                  ? (hasRuns ? { arrow: '—', text: 'Nothing broken', tone: 'ok' } : { arrow: '—', text: 'No activity', tone: 'muted' })
-                  : { arrow: '▲', text: `${incidentsCount} pipelines affected`, tone: 'bad' }}
+                  ? (hasAnyRuns ? { arrow: '—', text: 'Nothing broken', tone: 'ok' } : { arrow: '—', text: 'No activity', tone: 'muted' })
+                  : { arrow: '▲', text: `${incidentsCount} pipeline${incidentsCount === 1 ? '' : 's'} affected`, tone: 'bad' }}
               />
               <HeroKPI
                 lighter
                 label="Avg duration"
+                title="Average time of the runs that finished successfully in this window. Failed and cancelled runs are left out, so one run that timed out doesn't skew it."
                 value={avgDur > 0 ? formatDuration(avgDur) : '—'}
                 onClick={() => onNavigate('executions')}
                 gradient={avgDur > 0 ? 'from-violet-500 to-purple-500' : 'from-violet-800 to-purple-900'}
-                trend={avgDur > 0 ? { arrow: '—', text: 'per successful run', tone: 'muted' } : { arrow: '—', text: 'No runs to average', tone: 'muted' }}
+                trend={avgDur > 0 ? { arrow: '—', text: 'per successful run', tone: 'muted' } : { arrow: '—', text: 'No successful runs to average', tone: 'muted' }}
               />
             </div>
             </section>
@@ -2128,12 +2168,12 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   {isProd ? `SLA trend · ${windowLong}` : `Run volume · ${windowLong}`}
                 </div>
                 <div className="text-sm font-bold text-slate-800 mt-0.5">
-                  {hasRuns
+                  {showRunData
                     ? (isProd ? `${successRate}% success rate` : `${runs24h} total runs`)
                     : 'No runs yet'}
                 </div>
               </div>
-              {hasRuns && (
+              {showRunData && (
                 <div className="flex items-center gap-3 text-xs font-medium">
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-500" /><span className="text-slate-600">Success</span></span>
                   <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-red-500" /><span className="text-slate-600">Failed</span></span>
@@ -2142,7 +2182,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
               )}
             </div>
             <div className="p-5">
-            {hasRuns ? (
+            {showRunData ? (
               <>
                 <div className="flex items-end gap-1 h-32">
                   {buckets.map((b, i) => {
@@ -2199,41 +2239,25 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
             </div>
           </div>
 
-          {/* Donut (1/3 width) — silver header to match chart + feeds */}
+          {/* Donut (1/3 width) — silver header to match chart + feeds.
+              One unit: runs. Both environments plot the same run outcomes
+              the Run volume chart beside it counts, so the centre number
+              and the slices agree. (DEV used to mix run counts for Success
+              / Failed with a pipeline total for the centre and "Idle".) */}
           <div className="rounded-xl border border-slate-300 shadow-sm bg-white overflow-hidden">
             <div className="px-4 py-2.5 bg-gradient-to-b from-slate-100 to-slate-200 border-b border-slate-300">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-600">
-                {isProd
-                  ? (hasRuns ? `Run outcome mix (${windowLabel})` : 'Workspace composition')
-                  : (hasRuns ? 'Pipeline status' : 'Workspace composition')}
+                {showRunData ? `Run outcome mix (${windowLabel})` : 'Workspace composition'}
               </div>
             </div>
             <div className="p-5">
-            {hasRuns ? (
-              isProd ? (
-                <StatusDonut
-                  ariaLabel="Run outcome mix"
-                  segments={[
-                    { value: exec?.success || 0, color: '#10b981', label: 'Success' },
-                    { value: running,             color: '#3b82f6', label: 'Running' },
-                    { value: failures24h,         color: '#ef4444', label: 'Failed' },
-                  ]}
-                  centerTop={runs24h}
-                  centerBottom="runs"
-                />
-              ) : (
-                <StatusDonut
-                  ariaLabel="Pipeline status"
-                  segments={[
-                    { value: exec?.success || 0,                                        color: '#10b981', label: 'Success' },
-                    { value: running,                                                   color: '#3b82f6', label: 'Running' },
-                    { value: failures24h,                                               color: '#ef4444', label: 'Failed' },
-                    { value: Math.max(0, (stats?.pipelines || 0) - running - failures24h), color: '#cbd5e1', label: 'Idle' },
-                  ]}
-                  centerTop={stats?.pipelines ?? 0}
-                  centerBottom="pipelines"
-                />
-              )
+            {showRunData ? (
+              <StatusDonut
+                ariaLabel="Run outcome mix"
+                segments={runOutcomeSegments}
+                centerTop={runs24h}
+                centerBottom="runs"
+              />
             ) : (
               // No runs — use the donut for composition breakdown so the
               // card isn't wasted on emptiness. Shows inventory distribution.

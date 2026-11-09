@@ -67,7 +67,8 @@ holds three categories of asset:
 2. **Auth required on every write route.** The "anonymous-access
    regression" CI job (`security-scan.yml`) re-runs the route-coverage
    check on every PR — fail-loud if a route is added that doesn't require
-   auth.
+   auth. The exception is `POST /api/published/{path}`, where another
+   application starts a pipeline with an API key instead of a login.
 3. **Rate limiting.** Per-IP sliding window on auth + execute endpoints.
    Tunable via `REVOLUZEN_FLOW_RATE_LIMIT_*` env vars.
 4. **Security headers.** `SecurityHeadersMiddleware` sets
@@ -152,7 +153,7 @@ attention because they touch user-supplied URLs / file paths / SQL:
 | **OpenAPI API Explorer fetch** (`ai_authoring.py:_ssrf_check_url`) | **Strong** — scheme allowlist, DNS resolution check, blocks 169.254/16 + RFC1918 + loopback, resolved-IP fetch to defeat DNS rebinding, redirect re-validation, 2MB response cap. Opt-in escape via `REVOLUZEN_FLOW_OPENAPI_FETCH_ALLOW_PRIVATE=1` for trusted internal networks. |
 | **`api_source` node HTTP fetch** (`nodes/activities.py`) | **Strong** (since 2026-06-03 — H2 closed) — every `urllib.request.urlopen()` site (initial + pagination) wraps `revoluzen_flow.security.ssrf.check_url()` first. Same defence as OpenAPI fetch. Operators with internal API catalogs can opt in via `REVOLUZEN_FLOW_API_SOURCE_ALLOW_PRIVATE=1`. |
 | **`http_request` action node** | Strong — uses the same `_do_request` path as `api_source`, inherits the SSRF guard. |
-| **Webhook trigger** | Inbound, not outbound — receives signed POSTs. HMAC verification per-trigger using `signing_secret`. |
+| **Published endpoint** (`/api/published/{path}`) | Inbound, not outbound. The caller sends an API key in the `X-API-Key` header, the server keeps only its hash, and calls are rate limited per key and per endpoint. An endpoint can be set to need no key: it then refuses a pipeline that places request values in SQL, unless the operator overrides that. |
 
 ### 4.2 Local file-system access
 

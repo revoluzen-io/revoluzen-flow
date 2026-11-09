@@ -589,3 +589,39 @@ jobs:
           # exit-code signal honest while we work the planner cases up
           # to the real 85% target.
           python -m revoluzen_flow.eval.run --no-save --min-pass-rate=0.10 || true
+
+  repair-eval:
+    # Blocking, unlike the job above: no model and no key, so a failure here is a
+    # real regression in the agent loop, tools, engine or scoring. The oracle must
+    # score 100%, and each recorded model must not get worse on today's code.
+    # See docs/repair-evaluation.md.
+    name: Repair evaluation (oracle + recorded models)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend requirements
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Oracle must score 100%
+        working-directory: backend
+        env:
+          REVOLUZEN_FLOW_MODE: dev
+        run: |
+          python -m revoluzen_flow.eval.repair --provider oracle --gate --md "$RUNNER_TEMP/repair.md"
+          cat "$RUNNER_TEMP/repair.md" >> "$GITHUB_STEP_SUMMARY"
+          python -m revoluzen_flow.eval.repair --suite fresh --provider oracle --gate --md "$RUNNER_TEMP/fresh.md"
+          cat "$RUNNER_TEMP/fresh.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Recorded models must not get worse
+        working-directory: backend
+        env:
+          REVOLUZEN_FLOW_MODE: dev
+        run: |
+          for cassette in ai_eval_cassettes/repair-*.json; do
+            python -m revoluzen_flow.eval.repair --provider replay --cassette "$cassette" --gate --md "$RUNNER_TEMP/replay.md"
+            cat "$RUNNER_TEMP/replay.md" >> "$GITHUB_STEP_SUMMARY"
+          done

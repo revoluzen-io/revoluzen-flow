@@ -24,6 +24,7 @@ import httpx
 
 from revoluzen_flow.ai.agent import LLMResponse
 from revoluzen_flow.ai.openai_client import _parse_openai_response, _translate_messages
+from revoluzen_flow.ai.tls import ai_ssl_context
 from revoluzen_flow.planner.ai_client import _chat_completions_url, openai_compatible_base
 
 
@@ -92,7 +93,7 @@ class OpenAICompatibleAgentClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
 
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, verify=ai_ssl_context()) as client:
             resp = await client.post(url, headers=headers, json=body)
             resp.raise_for_status()
             data = resp.json()

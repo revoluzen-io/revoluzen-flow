@@ -16,8 +16,8 @@ in the OSS Free build, it is marked **(Plus only)**.
 2. Click the **+ New Pipeline** button at the top-right of the Pipelines page.
 3. Optionally pick a starter template (27 templates ship in OSS — simple ETL, dedup, aggregation, data quality, etc.). To start blank, click **Blank pipeline**.
 4. The editor opens. The empty canvas shows a **HeroPromptCard** prompting "describe what you want to build".
-5. **Either** type a description like *"Read sales.csv, dedupe on order_id, write to Parquet"* and press Enter — the Copilot drafts a pipeline. **Or** drag node types from the left palette onto the canvas and connect them by hand.
-6. Configure each node by clicking it (opens **ConfigPanel** on the right with that node's params).
+5. **Either** type a description like *"Read sales.csv, dedupe on order_id, write to Parquet"* and press Enter — the Copilot drafts a pipeline. If you left out where the data comes from or where it goes, it asks first, offering your real connections, uploaded files and managed tables, and you can create a missing connection in the chat. **Or** drag node types from the left palette onto the canvas and connect them by hand.
+6. Configure each node by double-clicking it (opens **ConfigPanel**, docked along the bottom of the editor, with that node's params; a single click only selects the node).
 7. Save with `Ctrl+S` / `Cmd+S` or by clicking **Save** in the top toolbar. Auto-save fires 2 seconds after the last edit if **Auto-save canvas** is enabled in Settings → General → Editor Preferences (default ON).
 
 The **Dashboard page** (sidebar → first entry) is the home / landing page — greeting, hero KPIs, system usage, recent-activity feeds. The **Pipelines page** is where you list, edit, run, and manage individual pipelines. They are two different pages.
@@ -122,9 +122,45 @@ To run from outside the editor: Pipelines page → row → **⋯** menu → **Ru
 2. Click **Settings** (gear icon in the editor toolbar) → **Schedule** tab.
 3. Pick a schedule type: `cron` (full cron expression), `daily` (HH:MM), `hourly`, `interval` (every N minutes), `once`.
 4. Set **Environment** — DEV or PROD (PROD is **Revoluzen Flow Enterprise only**; in OSS Free schedules fire in DEV).
-5. **Save**. The schedule appears on the Schedules page.
+5. **Save**. The schedule appears on the pipeline's row on the Pipelines page. There is no separate Schedules page.
 
 The scheduler polls every 30 s; expect first fire within 30 s of the configured time.
+
+## How do I pause a pipeline?
+
+1. **Pipelines** page → the pipeline's row → **⋯** menu → **Deactivate**. The row shows a **Paused** badge.
+2. While it is paused, its schedules are skipped and its endpoints on the Triggers page answer `423`. You can still run it by hand, so you can test a fix.
+3. **⋯** menu → **Activate** switches it back on.
+
+## How do I let another application start a pipeline?
+
+1. **Workflows → Triggers** (or the row's **⋯** menu → **Run from another app**).
+2. **New endpoint**: pick a saved pipeline and check the URL path.
+3. **New API key**: name it after the application. The full key is shown once.
+4. Copy the command under **Ready-to-use command**, or send the same request from your application. The JSON body holds the pipeline's parameter values.
+
+The run appears on the Executions page with the trigger **API**. Full guide: `docs/user-guides/external-triggers.md`.
+
+## How do I upload a file over FTP or SFTP?
+
+1. Add a **Destination** node and pick your FTP or SFTP connection.
+2. Set **Remote Path**, such as `/uploads/orders.csv`. The folder must already exist on the server.
+3. Choose the **File Format** (csv, json or parquet).
+
+FTP and FTPS need nothing extra. SFTP needs the `paramiko` package.
+
+## How do I copy or move a file inside a pipeline?
+
+1. Add a **File System** node and pick an **Operation**.
+2. Set the paths. A relative path means inside the data folder, so `outbox/orders.csv` lands there. Missing folders are created.
+
+It works on the machine running Revoluzen Flow only, not on remote servers or cloud storage.
+
+## How do I read from a SaaS application?
+
+1. Drag a **SaaS Connector** node from the palette's **Import** group.
+2. Pick the connector and a **Stream / Endpoint**. The list holds the built-in connectors and any you saved from **Insights → API Explorer**.
+3. If it needs a key, pick it under **Saved credential**. The pipeline stores only which credential to use.
 
 ## How do I add a credential (database password / API key)?
 
@@ -135,7 +171,9 @@ The scheduler polls every 30 s; expect first fire within 30 s of the configured 
 5. **Config** — type-specific fields (host/port/database/user/password for databases; key + header for API keys; client_id/secret/scopes for OAuth).
 6. **Save**. Revoluzen Flow encrypts the secret at rest using **Fernet (AES-128-CBC + HMAC-SHA256)** with the master key at `~/.revoluzen-flow/secret.key`. The frontend never sees plaintext after save.
 
-To use the credential: drop a Database Source / Sink or REST Connector node and pick the credential by name from the dropdown.
+To use the credential: pick it under **Saved credential** on a connection or a SaaS Connector step. The fields it holds fill themselves.
+
+To be warned before it lapses: set its **Expiry date**. Administrators get a warning on the bell and by email a week ahead, a day ahead and when it expires.
 
 **External vaults (HashiCorp Vault, AWS Secrets Manager, Azure Key Vault) are Revoluzen Flow Enterprise only** via the Vault-Ref pattern. OSS Free uses the built-in Credentials page exclusively.
 
@@ -150,7 +188,7 @@ To use the credential: drop a Database Source / Sink or REST Connector node and 
 1. **Connections** page in the sidebar.
 2. **+ New Connection**.
 3. **Name** + **Type** (postgresql / mysql / mssql / sqlite).
-4. Fill the connection config OR click **Use existing credential** to reference one from the Credentials page.
+4. Fill the connection config, or pick one under **Saved credential**: the fields it holds fill themselves.
 5. Click **Test Connection** to verify reachability before saving.
 6. **Save**.
 
@@ -185,7 +223,7 @@ The watchdog polls at the schedule cadence; expect first alert fire within ~30 s
 ## How do I configure email / Slack / Discord / webhook for notifications?
 
 1. **Settings → Notifications** tab.
-2. Pick the channel section (Email SMTP, Slack, Discord, Webhook).
+2. Pick the channel section (Email SMTP, Slack, Teams, Discord, Webhook).
 3. Enter the channel-specific config (SMTP host/port/from for email; webhook URL for Slack/Discord/generic).
 4. Click **Test** to verify.
 5. **Save**.
@@ -256,7 +294,15 @@ Backend binds to `127.0.0.1` (loopback) by default — the API is **invisible to
 
 ## How do I delete a pipeline?
 
-Pipelines page → row → **⋯** menu → **Delete**. The pipeline IR + execution history is removed from SQLite. **There is no recycle bin** — restore from a backup if you need to recover.
+Pipelines page → row → **⋯** menu → **Delete**. The pipeline moves to the **Bin** (a tab on the same page) with all of its saved versions; its schedules are removed and its cached step output is cleared; its past runs stay in Executions. It stays in the Bin for **30 days** (`REVOLUZEN_FLOW_BIN_RETENTION_DAYS`; `0` = never removed automatically), then a daily job removes it for good.
+
+In the Bin, **Restore** brings it back as a **draft** (never published), with its schedules back but **paused**; **Delete forever** removes it at once and cannot be undone; admins also get **Empty Bin**. Restore and Delete forever need the Developer role or above. The API can skip the Bin with `DELETE /api/workflows/{id}?permanent=true`; the app cannot.
+
+To take a pipeline out of use without deleting it, choose **Archive** in the same dialog instead: it moves to the **Archived** tab, where **Restore** brings it back as a draft, and it is never removed automatically.
+
+## How do I delete a folder?
+
+Projects page → open the project → the folder's row → **Delete**. The dialog says how many pipelines are inside. An empty folder is deleted at once. If it holds pipelines, they are moved to the **Bin** (see the answer above) and the folder is removed; restore them from the Bin and they come back in the project's top level, outside any folder. The folder itself cannot be restored. If a pipeline in the folder is **published**, the app names it and nothing is deleted: a published pipeline cannot be deleted, so revoke it first (Pipelines page → its row → **⋯** → **Revoke**) or move it out of the folder, then delete the folder. Deleting a folder takes the Developer role or above, like deleting a pipeline. Folders are one level deep in this edition: a folder cannot sit inside another.
 
 ## How do I share a pipeline with a teammate?
 
@@ -281,9 +327,9 @@ You only need this after editing `docs/product_facts/*.md`:
 
 ## How do I view audit logs?
 
-**OSS Free**: Insights → **Activity** subtab. Combined view of audit + agent traces + execution history. Best-effort retention (no enforced policy).
+**OSS Free**: there is no audit-log page. Changes to a pipeline are in its **Version history** (Pipelines → the pipeline's **⋯** menu → Version history). Deletions and other destructive actions are logged by the backend as `AUDIT:` lines at INFO level, which the default server setup does not print. Insights → **Activity** lists what the AI did (each AI request), not audit events; pipeline runs are on **Executions**.
 
-**Revoluzen Flow Enterprise**: same view + retention policy + sigstore-signed export at `POST /api/plus/audit/export`.
+**Revoluzen Flow Enterprise**: an audit-log explorer with retention policy and sigstore-signed export at `POST /api/plus/audit/export`.
 
 ## How do I set credentials encryption / which algorithm?
 

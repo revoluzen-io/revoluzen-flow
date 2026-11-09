@@ -714,6 +714,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
         if (typeof cfg.notify_on_long_running === 'boolean') setNotifyOnLongRunning(cfg.notify_on_long_running);
         if (typeof cfg.long_running_threshold_min === 'number') setLongRunningThresholdMin(cfg.long_running_threshold_min);
         if (typeof cfg.notify_on_schedule_miss === 'boolean') setNotifyOnScheduleMiss(cfg.notify_on_schedule_miss);
+        if (typeof cfg.notify_on_credential_expiry === 'boolean') setNotifyOnCredentialExpiry(cfg.notify_on_credential_expiry);
         if (typeof cfg.email_enabled === 'boolean') setEmailNotifications(cfg.email_enabled);
         if (typeof cfg.browser_enabled === 'boolean') setBrowserNotifications(cfg.browser_enabled);
         // SMTP nested object — backend stores as notifications.smtp = { host, port, user, password, from_email, tls }
@@ -891,6 +892,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
   const [notifyOnLongRunning, setNotifyOnLongRunning] = useState(true);
   const [longRunningThresholdMin, setLongRunningThresholdMin] = useState(30);
   const [notifyOnScheduleMiss, setNotifyOnScheduleMiss] = useState(true);
+  const [notifyOnCredentialExpiry, setNotifyOnCredentialExpiry] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(false);
   const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
@@ -962,6 +964,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
         notify_on_long_running: notifyOnLongRunning,
         long_running_threshold_min: longRunningThresholdMin,
         notify_on_schedule_miss: notifyOnScheduleMiss,
+        notify_on_credential_expiry: notifyOnCredentialExpiry,
         email_enabled: emailNotifications,
         browser_enabled: browserNotifications,
         webhook_url: genericWebhookUrl,
@@ -1015,7 +1018,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
   const TAB_SUBTITLE: Record<SettingsTab, string> = {
     general: 'Editor preferences and per-user defaults.',
     security: 'Posture, authentication, and operator config.',
-    notifications: 'Email, Slack, Discord, and webhook delivery.',
+    notifications: 'What you are told about, and how it reaches you.',
     about: 'Version, license, and runtime details.',
   };
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
@@ -1870,10 +1873,10 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   <Toggle dark={dark} enabled={notifyOnWarning} onChange={setNotifyOnWarning} label="Notify on warnings" description="Show notification for data quality warnings" />
                 </div>
 
-                {/* ── Execution alerts ────────────────────────────── */}
+                {/* ── Automatic alerts ────────────────────────────── */}
                 <div className="mt-6">
                   <SectionHeader dark={dark}
-                    title="Execution Alerts"
+                    title="Automatic Alerts"
                     icon={<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>}
                   />
                   <div className={`rounded-lg border shadow-sm px-4 divide-y ${dark ? 'bg-[#111827] border-white/[0.08] divide-white/[0.06]' : 'bg-white border-slate-200 divide-slate-100'}`}>
@@ -1906,6 +1909,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       )}
                     </div>
                     <Toggle dark={dark} enabled={notifyOnScheduleMiss} onChange={setNotifyOnScheduleMiss} label="Schedule miss detection" description="Alert when a scheduled pipeline does not start within its expected window" />
+                    <Toggle dark={dark} enabled={notifyOnCredentialExpiry} onChange={setNotifyOnCredentialExpiry} label="Credential expiry warnings" description="Warn administrators on the bell and by email a week before a saved credential expires, a day before, and when it expires" />
                   </div>
                 </div>
 
@@ -2203,7 +2207,8 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
 
                   {/* 2026-06-02 — stat tiles replaced with HONEST,
                       verifiable numbers:
-                        - 40 node types: readme.md line 9 + ModulesPanel count
+                        - 45 node types: MODULES in modulesPanelData.ts (40) + the backend
+                          types HIDDEN_TYPES does not hide (5)
                         - 66 connectors: picker count (80 CONNECTION_TYPES - 14 roadmap)
                         - 27 templates: frontend/src/templates/catalog.ts header
                         - Apache 2.0: pyproject.toml + LICENSE
@@ -2211,11 +2216,11 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       numbers that don't match any source-of-truth. */}
                   <div className="mt-6 grid grid-cols-4 gap-3 text-center">
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
-                      <div className="text-lg font-bold text-pipe-600">40</div>
+                      <div className="text-lg font-bold text-pipe-600">45</div>
                       <div className="text-xs text-slate-500 uppercase font-medium">Node Types</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
-                      <div className="text-lg font-bold text-pipe-600">33</div>
+                      <div className="text-lg font-bold text-pipe-600">66</div>
                       <div className="text-xs text-slate-500 uppercase font-medium">Connectors</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>

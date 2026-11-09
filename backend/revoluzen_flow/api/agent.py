@@ -350,6 +350,68 @@ def _estimate_cost_usd(
         return round((tokens_in / 1_000_000) * in_per_m + (tokens_out / 1_000_000) * out_per_m, 6)
 
 
+def _record_quick_answer(
+    *,
+    run_id: str,
+    lane: str,
+    page_ctx: PageContext,
+    user_intent: str,
+    provider: str | None,
+    model: str | None,
+    text: str,
+    tokens_in: int,
+    tokens_out: int,
+    elapsed_ms: int,
+    error: str | None = None,
+) -> None:
+    """Save a hybrid or single-shot answer to the trace store.
+
+    These lanes ask the model once, outside AgentRunner, so nothing else
+    records them and Insights → Activity would miss their tokens and cost.
+    A call that errored, or came back with no text, is saved as a failed
+    model call with the reason. Best-effort: never raises.
+    """
+    try:
+        from revoluzen_flow.main import app_state  # type: ignore
+        store = app_state.get("trace_store")
+        if store is None:
+            return
+        user_id = page_ctx.user_id
+        if not user_id or user_id == "anonymous":
+            user_id = None
+        failed = bool(error) or not text
+        steps: list[dict[str, Any]] = []
+        if failed:
+            steps.append({
+                "step_id": f"{run_id}-model",
+                "tool_name": f"llm_call:{lane}",
+                "tool_tier": "read",
+                "outcome": "llm_failure",
+                "decision_reason": (error or "The model returned no answer.")[:300],
+                "latency_ms": elapsed_ms,
+                "tokens_in": tokens_in,
+                "tokens_out": tokens_out,
+            })
+        store.store(
+            run_id=run_id,
+            user_id=user_id,
+            workspace_id=page_ctx.workspace_id or page_ctx.tenant_id,
+            page=page_ctx.page,
+            user_intent=user_intent,
+            outcome="llm_failure" if failed else "success",
+            iterations=1,
+            total_tokens_in=tokens_in,
+            total_tokens_out=tokens_out,
+            elapsed_ms=elapsed_ms,
+            steps=steps,
+            final_text=text or "",
+            model=model,
+            provider=provider,
+        )
+    except Exception:  # noqa: BLE001 — recording must never break a reply
+        pass
+
+
 # ---------------------------------------------------------------------------
 # AgentRunner construction (factory pattern for testability)
 # ---------------------------------------------------------------------------
@@ -954,8 +1016,16 @@ async def run_agent(req: AgentRequest, request: Request) -> AgentResponse:
                 except Exception:  # noqa: BLE001
                     pass
                 import uuid as _uuid
+                _hybrid_run_id = str(_uuid.uuid4())
+                _record_quick_answer(
+                    run_id=_hybrid_run_id, lane="hybrid", page_ctx=page_ctx,
+                    user_intent=req.user_intent, provider=info.provider,
+                    model=info.model, text=hyb.text, tokens_in=hyb.tokens_in,
+                    tokens_out=hyb.tokens_out, elapsed_ms=hyb.elapsed_ms,
+                    error=hyb.llm_error or None,
+                )
                 return AgentResponse(
-                    run_id=str(_uuid.uuid4()),
+                    run_id=_hybrid_run_id,
                     final_text=hyb.text,
                     outcome="success",
                     iterations=2,
@@ -1018,8 +1088,15 @@ async def run_agent(req: AgentRequest, request: Request) -> AgentResponse:
                 shot = None
             if shot is not None and shot.text:
                 import uuid as _uuid
+                _shot_run_id = str(_uuid.uuid4())
+                _record_quick_answer(
+                    run_id=_shot_run_id, lane="single_shot", page_ctx=page_ctx,
+                    user_intent=req.user_intent, provider=info.provider,
+                    model=info.model, text=shot.text, tokens_in=shot.tokens_in,
+                    tokens_out=shot.tokens_out, elapsed_ms=shot.elapsed_ms,
+                )
                 return AgentResponse(
-                    run_id=str(_uuid.uuid4()),
+                    run_id=_shot_run_id,
                     final_text=shot.text,
                     outcome="success",
                     iterations=1,
@@ -1672,6 +1749,18 @@ async def run_agent_stream(req: AgentRequest, request: Request) -> StreamingResp
                     text_with_hint = (hybrid_result.text or "") + hint
                 else:
                     text_with_hint = hybrid_result.text if hybrid_result else ""
+                # An escalation never asked the model, so there is no AI
+                # call to record.
+                if hybrid_result is not None and not hybrid_result.escalate:
+                    _record_quick_answer(
+                        run_id=run_id, lane="hybrid", page_ctx=page_ctx,
+                        user_intent=req.user_intent, provider=info.provider,
+                        model=info.model, text=hybrid_result.text,
+                        tokens_in=hybrid_result.tokens_in,
+                        tokens_out=hybrid_result.tokens_out,
+                        elapsed_ms=hybrid_result.elapsed_ms,
+                        error=hybrid_result.llm_error or None,
+                    )
                 final = {
                     "event": "final",
                     "run_id": run_id,
@@ -1758,7 +1847,24 @@ async def run_agent_stream(req: AgentRequest, request: Request) -> StreamingResp
                         break
                     yield f"data: {json.dumps({'event': 'token', 'delta': delta})}\n\n"
 
-                shot = await runner_task
+                try:
+                    shot = await runner_task
+                except Exception as exc:
+                    _record_quick_answer(
+                        run_id=run_id, lane="single_shot", page_ctx=page_ctx,
+                        user_intent=req.user_intent, provider=info.provider,
+                        model=info.model, text="", tokens_in=0, tokens_out=0,
+                        elapsed_ms=0, error=f"{type(exc).__name__}: {exc}",
+                    )
+                    raise
+                _record_quick_answer(
+                    run_id=run_id, lane="single_shot", page_ctx=page_ctx,
+                    user_intent=req.user_intent, provider=info.provider,
+                    model=info.model, text=shot.text if shot else "",
+                    tokens_in=shot.tokens_in if shot else 0,
+                    tokens_out=shot.tokens_out if shot else 0,
+                    elapsed_ms=shot.elapsed_ms if shot else 0,
+                )
                 final = {
                     "event": "final",
                     "run_id": run_id,
@@ -2095,6 +2201,23 @@ def agent_suggestions(
                 label="Diagnose a connection failure",
                 prompt="Help me diagnose why a connection is failing.",
                 category="diagnose",
+            ),
+        ],
+        "triggers": [
+            AgentSuggestion(
+                label="How do I start a pipeline from another app?",
+                prompt="How do I let another application start a pipeline and pass it values?",
+                category="general",
+            ),
+            AgentSuggestion(
+                label="What does a 423 mean?",
+                prompt="What do the error codes from a published endpoint mean, such as 401, 403 and 423?",
+                category="diagnose",
+            ),
+            AgentSuggestion(
+                label="Recent API runs",
+                prompt="Show me the most recent runs that were started through the API.",
+                category="monitor",
             ),
         ],
         "schedules": [

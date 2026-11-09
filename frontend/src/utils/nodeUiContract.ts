@@ -77,6 +77,35 @@ const INPUT_ROLES: Record<string, string[]> = {
 export interface ResolvedInput { label: string; columns: string[] }
 
 /**
+ * The inputs a node's Data In band shows. What's connected comes from the
+ * canvas edges: a schema lookup that's in flight or failed says nothing about
+ * the wiring, and treating it as if it did made wired nodes read "Not
+ * connected". Columns come from that lookup when known, else from the last run.
+ * `leftInputId` puts a Join's Left side first.
+ */
+export function resolveInputs(
+  nodeId: string,
+  edges: ReadonlyArray<{ source: string; target: string }>,
+  nodes: ReadonlyArray<{ id: string; data?: unknown }>,
+  schemaInputs: ReadonlyArray<{ upstream_step_id: string; upstream_label?: string; schema?: { columns?: ReadonlyArray<{ name: string }> } }>,
+  runColumns: (stepId: string) => string[] | undefined,
+  leftInputId?: string,
+): ResolvedInput[] {
+  const incoming = edges.filter((e) => e.target === nodeId);
+  if (leftInputId) {
+    incoming.sort((a, b) => Number(b.source === leftInputId) - Number(a.source === leftInputId));
+  }
+  return incoming.map((e) => {
+    const data = nodes.find((n) => n.id === e.source)?.data as { label?: string; stepType?: string } | undefined;
+    const known = schemaInputs.find((i) => i.upstream_step_id === e.source);
+    return {
+      label: data?.label || data?.stepType || known?.upstream_label || e.source,
+      columns: known?.schema?.columns?.map((c) => c.name) ?? runColumns(e.source) ?? [],
+    };
+  });
+}
+
+/**
  * Build the Data In descriptor. `inputs` are the connected upstreams in the
  * ROLE order the node expects — the caller orders them (e.g. Join puts the
  * Left side first based on `left_input_id`). Pass `[]` when nothing is

@@ -136,6 +136,17 @@ def test_delete_data_files_mode_raises_instead_of_silent_noop():
     assert sorted(r[0] for r in rel.fetchall()) == [1, 3]
 
 
+def test_delete_data_settings_do_not_offer_files_mode():
+    """Files mode was never implemented, so the settings no longer offer it
+    (file cleanup is the File System node's job). A step saved while it was
+    offered still raises, as the test above checks."""
+    from revoluzen_flow.nodes.flow_control import DeleteDataNode
+    names = {f["name"] for f in DeleteDataNode.param_schema()}
+    assert "condition" in names
+    assert names.isdisjoint({"target_kind", "target_path", "wildcard", "recursive"})
+    assert "target_kind" not in DeleteDataNode.default_params()
+
+
 # ── Pivot: row columns ─────────────────────────────────────────────────
 
 def test_unpivot_id_columns_restrict_carried_columns():

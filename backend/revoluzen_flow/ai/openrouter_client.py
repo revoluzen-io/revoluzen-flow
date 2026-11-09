@@ -32,6 +32,7 @@ from typing import Any
 import httpx
 
 from revoluzen_flow.ai.agent import LLMResponse, LLMToolUse
+from revoluzen_flow.ai.tls import ai_ssl_context
 
 
 # Attribution headers — OpenRouter uses these for ranking pages on their
@@ -101,7 +102,7 @@ class OpenRouterAgentClient:
                 for t in tools
             ]
 
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, verify=ai_ssl_context()) as client:
             resp = await client.post(
                 self.api_url,
                 headers={

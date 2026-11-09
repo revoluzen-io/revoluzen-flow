@@ -156,7 +156,8 @@ async def direct_test_connection(prompt: str, ctx: ToolContext) -> str:
             if cred_store is not None:
                 cred = cred_store.get_raw(connection.credential_id)
                 if cred and cred.config:
-                    config.update(cred.config)
+                    from revoluzen_flow.connections.credentials import apply_linked_credential
+                    apply_linked_credential(config, cred.config)
 
         tester = ConnectionTester()
         result = tester.test_connection(connection.type, config)

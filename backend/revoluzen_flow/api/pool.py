@@ -202,8 +202,8 @@ async def pool_history(limit: int = 100, workspace_id: str = Depends(_safe_works
     store (NOT the in-memory pool._history, which was wiped on every
     backend restart).
 
-    Scope: workspace-bound, matching every other history surface in
-    the app (Executions page, Activity page). For pre-restart runs
+    Scope: workspace-bound, matching every other run-history surface in
+    the app (the Executions page). For pre-restart runs
     still in SQLite this is the only path that surfaces them.
 
     The peak_memory_mb + cpu_seconds columns come straight off the

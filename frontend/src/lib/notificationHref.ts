@@ -50,6 +50,9 @@ export function notificationHref(n: NotificationLike): string | null {
     case 'settings':
       return '#settings';
 
+    case 'credentials':
+      return '#credentials';
+
     // 2026-06-05 — Steward findings ping the bell when new or escalated.
     // There's no dedicated routed page yet (the Steward lives in a
     // header dropdown), so we land on the dashboard and dispatch an

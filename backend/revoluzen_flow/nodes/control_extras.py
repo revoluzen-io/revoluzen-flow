@@ -494,9 +494,16 @@ class ValidationNode(BaseNode):
                 raise ValueError("Validation: no path and no upstream input")
             return src
 
+        # Relative paths resolve the same way source nodes resolve them
+        # (data dir, then CWD, then the source checkout root) so a sample
+        # pipeline's `samples/free-api-pipelines/data/products.xml` is
+        # found however the backend was started. Re-resolved on every
+        # poll because the file may appear in any of those places.
+        from revoluzen_flow.nodes._path_utils import resolve_input_path
+
         deadline = time.time() + timeout
         while time.time() < deadline:
-            p = Path(path)
+            p = Path(resolve_input_path(path, ctx.data_dir))
             if p.exists():
                 if child_items and p.is_dir():
                     if any(p.iterdir()):
@@ -641,26 +648,34 @@ class FileSystemNode(BaseNode):
         if op not in self._OPS:
             raise ValueError(f"File System: unknown operation '{op}'")
 
+        # A relative path means the data folder, as it does for every file sink.
+        # It used to mean wherever the server happened to be started from.
+        data_dir = ctx.data_dir
+        src_path = os.path.join(data_dir, source) if source and not os.path.isabs(source) else source
+        dst_path = os.path.join(data_dir, destination) if destination and not os.path.isabs(destination) else destination
+
         result_rows: list[dict] = []
         try:
+            if op in ("copy_file", "move_file", "rename_file", "copy_directory", "move_directory"):
+                os.makedirs(os.path.dirname(dst_path) or ".", exist_ok=True)
             if op == "copy_file":
-                if not overwrite and os.path.exists(destination):
+                if not overwrite and os.path.exists(dst_path):
                     raise FileExistsError(destination)
-                shutil.copy2(source, destination)
+                shutil.copy2(src_path, dst_path)
             elif op == "move_file":
-                shutil.move(source, destination)
+                shutil.move(src_path, dst_path)
             elif op == "rename_file":
-                os.replace(source, destination)
+                os.replace(src_path, dst_path)
             elif op == "delete_file":
-                Path(source).unlink(missing_ok=True)
+                Path(src_path).unlink(missing_ok=True)
             elif op == "copy_directory":
-                shutil.copytree(source, destination, dirs_exist_ok=overwrite)
+                shutil.copytree(src_path, dst_path, dirs_exist_ok=overwrite)
             elif op == "move_directory":
-                shutil.move(source, destination)
+                shutil.move(src_path, dst_path)
             elif op == "delete_directory":
-                shutil.rmtree(source, ignore_errors=not recursive)
+                shutil.rmtree(src_path, ignore_errors=not recursive)
             elif op == "create_directory":
-                Path(source).mkdir(parents=True, exist_ok=True)
+                Path(src_path).mkdir(parents=True, exist_ok=True)
 
             result_rows.append({
                 "operation": op,
@@ -718,11 +733,12 @@ class FileSystemNode(BaseNode):
              ]},
             {"name": "source", "type": "text", "label": "Source Path",
              "required": True, "tab": "Settings",
-             "placeholder": "/data/incoming/orders.csv"},
+             "placeholder": "outputs/orders.csv",
+             "description": "A relative path means inside the data folder."},
             {"name": "destination", "type": "text", "label": "Destination Path",
              "tab": "Settings",
-             "placeholder": "/data/processed/orders.csv",
-             "description": "Required for copy/move/rename operations."},
+             "placeholder": "outbox/orders.csv",
+             "description": "Required for copy/move/rename operations. Missing folders are created."},
             {"name": "overwrite", "type": "boolean", "label": "Overwrite if Exists",
              "default": False, "tab": "Settings"},
             {"name": "recursive", "type": "boolean", "label": "Recursive (directories)",
@@ -864,7 +880,9 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
             conn.close()
     elif kind == "sqlite":
         import sqlite3
-        conn = sqlite3.connect(cfg.get("database") or ":memory:", timeout=timeout)
+
+        from revoluzen_flow.connections.sqlite_path import sqlite_db_path
+        conn = sqlite3.connect(sqlite_db_path(cfg) or ":memory:", timeout=timeout)
         try:
             cur = conn.cursor()
             cur.execute(sql)

@@ -62,7 +62,7 @@ def _assert_not_500(resp, what: str):
     )
 
 
-def _assert_reached_the_executor(resp, what: str, *, expect_execution_id: bool = True):
+def _assert_reached_the_executor(resp, what: str):
     """Stronger than "not 500": the run actually produced an outcome.
 
     A saved pipeline cannot be made to SUCCEED connection-free here:
@@ -82,12 +82,9 @@ def _assert_reached_the_executor(resp, what: str, *, expect_execution_id: bool =
     assert body.get("status") in ("success", "error"), (
         f"{what} produced no run outcome: {body}"
     )
-    # Resume answers with the run's timing fields rather than an id —
-    # a shape difference, not a defect, so it opts out.
-    if expect_execution_id:
-        assert body.get("execution_id") or body.get("id"), (
-            f"{what} recorded no execution: {body}"
-        )
+    assert body.get("execution_id") or body.get("id"), (
+        f"{what} recorded no execution: {body}"
+    )
 
 
 @pytest.fixture
@@ -166,7 +163,61 @@ def test_resume_executes(authed_client, pipeline_id, finished_run):
     r = authed_client.post(
         f"/api/execute/workflow/{pipeline_id}/resume?run_id={finished_run}"
     )
-    _assert_reached_the_executor(r, "Resume from failed", expect_execution_id=False)
+    _assert_reached_the_executor(r, "Resume from failed")
+
+
+def test_resume_records_a_new_linked_run(authed_client, pipeline_id, finished_run):
+    """Resume used to return a result and write nothing, so the run never
+    appeared in history and the page stayed on the failed run."""
+    r = authed_client.post(
+        f"/api/execute/workflow/{pipeline_id}/resume?run_id={finished_run}"
+    )
+    new_id = _body(r).get("execution_id")
+    assert new_id and new_id != finished_run
+
+    run = _body(authed_client.get(f"/api/monitor/executions/{new_id}"))
+    assert run["workflow_id"] == pipeline_id
+    assert run["triggered_by"] == f"resume:{finished_run[:8]}"
+    assert run["metadata"]["resumed_from"] == finished_run
+    assert run["status"] == _body(r)["status"]
+
+
+def test_resume_of_a_run_from_another_pipeline_is_404(authed_client, finished_run):
+    other = authed_client.post("/api/workflows", json={
+        "name": "other-pipeline", "steps": RUNNABLE_STEPS, "connections": [],
+    })
+    other_id = _body(other).get("id") or _body(other)["workflow"]["id"]
+    r = authed_client.post(
+        f"/api/execute/workflow/{other_id}/resume?run_id={finished_run}"
+    )
+    assert r.status_code == 404, _body(r)
+
+
+def test_run_keeps_the_version_it_executed(authed_client, pipeline_id, finished_run):
+    """The run page showed the pipeline's current version as the run's."""
+    first = _body(authed_client.get(f"/api/monitor/executions/{finished_run}"))
+    ran_at = first["workflow_version"]
+    assert ran_at is not None
+
+    current = _body(authed_client.get(f"/api/workflows/{pipeline_id}"))
+    wf = current.get("workflow") or current
+    saved = authed_client.put(f"/api/workflows/{pipeline_id}", json={
+        **wf, "name": "run-again-probe-renamed",
+    })
+    assert saved.status_code == 200, _body(saved)
+    assert _body(authed_client.get(f"/api/workflows/{pipeline_id}"))["version"] > ran_at
+
+    again = _body(authed_client.get(f"/api/monitor/executions/{finished_run}"))
+    assert again["workflow_version"] == ran_at
+
+
+def test_public_run_route_ignores_a_resume_query_param(authed_client, pipeline_id, finished_run):
+    """Only the resume route, which checks the run, may start a resume."""
+    r = authed_client.post(
+        f"/api/execute/workflow/{pipeline_id}?resume_from_run_id={finished_run}"
+    )
+    run = _body(authed_client.get(f"/api/monitor/executions/{_body(r)['execution_id']}"))
+    assert run["triggered_by"] == "manual"
 
 
 def test_resume_without_run_id_is_422_not_500(authed_client, pipeline_id):

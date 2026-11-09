@@ -38,7 +38,8 @@ _PAGES: tuple[Topic, ...] = (
         ),
         body=(
             "The **Dashboard** is the global landing page. It shows a workspace overview "
-            "(pipeline / project / schedule / connection counts), success rate and run "
+            "(pipeline / project / schedule / connection counts), the success rate of "
+            "automated runs (scheduled, API and replay, not runs started by hand), run "
             "volume for the last 24 hours, recent failed pipelines, recent runs, active "
             "schedules, and system stats (CPU, memory, threads, storage). It also hosts "
             "the Revoluzen Flow Copilot panel on the right edge."
@@ -58,10 +59,12 @@ _PAGES: tuple[Topic, ...] = (
             "The **Pipelines** page lists every workflow in the workspace with name, "
             "status, last-run timestamp, schedule, and step count. You can run, edit, "
             "schedule, duplicate, or delete pipelines from here. The new-pipeline "
-            "button opens either the visual Editor or the Templates picker. Pipelines "
-            "live under Workflows in the sidebar (renamed 'Deployed' on PROD environments)."
+            "button opens either the visual Editor or the Templates picker. In a row's menu, "
+            "**Deactivate** pauses the pipeline and **Run from another app** opens the "
+            "Triggers page. Pipelines live under Workflows in the sidebar (renamed "
+            "'Deployed' on PROD environments)."
         ),
-        see_also=("page.editor", "page.executions", "howto.create_pipeline"),
+        see_also=("page.editor", "page.executions", "howto.create_pipeline", "howto.deactivate_pipeline"),
     ),
     Topic(
         id="page.editor",
@@ -75,7 +78,8 @@ _PAGES: tuple[Topic, ...] = (
         body=(
             "The **Editor** (also called the canvas) is where you build pipelines "
             "visually. Drag node types from the left palette onto the canvas, connect "
-            "them with edges, and configure each step in the right-hand config panel. "
+            "them with edges, and configure each step in its config panel, which opens "
+            "along the bottom of the editor. "
             "Save / save-as / run / debug controls are at the top. The Copilot can draft "
             "pipelines from a natural-language description and place them on the canvas. "
             "Editor is a DEV-environment surface only."
@@ -102,6 +106,24 @@ _PAGES: tuple[Topic, ...] = (
         see_also=("page.dashboard", "howto.debug_pipeline", "howto.see_failures"),
     ),
     Topic(
+        id="page.triggers",
+        category=TopicCategory.PAGE,
+        title="Triggers",
+        aliases=(
+            "triggers", "triggers page", "api keys", "api keys page", "published endpoints",
+            "run from another app", "where do i create an api key", "webhook url",
+        ),
+        body=(
+            "The **Triggers** page lets another application start a pipeline and pass "
+            "it values. It lists **Endpoints** (a web address that starts one pipeline, "
+            "with its call count and an on/off switch) and **API keys** (shown in full "
+            "only once, and revocable), and it gives a **Ready-to-use command** for the "
+            "selected endpoint. The runs appear on the Executions page with the trigger "
+            "API and their parameter values."
+        ),
+        see_also=("howto.trigger_from_api", "page.executions"),
+    ),
+    Topic(
         id="page.connections",
         category=TopicCategory.PAGE,
         title="Connections",
@@ -116,7 +138,8 @@ _PAGES: tuple[Topic, ...] = (
             "shows type (Postgres / Salesforce / S3 / etc.), connection name, last "
             "health check, and which credential it uses. From here you can test, edit, "
             "or delete connections. Credentials are stored separately under the "
-            "Credentials child page."
+            "Credentials child page. Picking a saved credential on a connection fills "
+            "the fields it holds, so the secret is not typed in twice."
         ),
         see_also=("page.credentials", "glossary.connection", "glossary.connector"),
     ),
@@ -127,16 +150,17 @@ _PAGES: tuple[Topic, ...] = (
         aliases=(
             "credentials", "credentials page", "secrets", "secret store",
             "where are passwords stored", "manage credentials",
-            "api keys page", "tokens",
+            "tokens",
         ),
         body=(
             "The **Credentials** page stores encrypted secrets — API keys, OAuth tokens, "
             "passwords, certs — keyed by name so multiple Connections can reuse the "
             "same credential. Secrets are encrypted at rest with the installation's "
             "encryption key and never returned in API responses. Credentials live under "
-            "the Connections section in the sidebar and are a DEV-environment surface."
+            "the Connections section in the sidebar and are a DEV-environment surface. "
+            "Give one an expiry date and administrators are warned before it lapses."
         ),
-        see_also=("page.connections", "howto.add_credential"),
+        see_also=("page.connections", "howto.add_credential", "howto.credential_expiry"),
     ),
     Topic(
         id="page.pool",
@@ -170,8 +194,9 @@ _PAGES: tuple[Topic, ...] = (
             "The **Settings** page has 4 tabs: **General** (theme, autosave, default "
             "run-safety mode, execution tuning), **Security & Diagnostics** (the "
             "live control baseline — see `page.security`), **Notifications** "
-            "(email / Slack / webhook / Discord delivery), and **About** (version, "
-            "license, support links). Most controls are wired to live consumers — "
+            "(what you are told about, such as a missed schedule or a credential about "
+            "to expire, and delivery by email / Slack / Teams / Discord / webhook), and "
+            "**About** (version, license, support links). Most controls are wired to live consumers — "
             "autosave, snap-to-grid, minimap, etc. take effect without page reload."
         ),
         see_also=("page.security", "page.notifications", "page.account"),
@@ -226,11 +251,12 @@ _PAGES: tuple[Topic, ...] = (
         ),
         body=(
             "The **Help** page is the in-app documentation center. It has 5 tabs: "
-            "Getting Started (6-step walkthrough from first pipeline to scheduling), "
-            "How-To Guides (Building Pipelines, Managing Data, Scheduling & Alerts, "
-            "Triggering from API), Shortcuts (keyboard reference), Nodes (per-node-type "
-            "reference), and Reference (concept index). Click the Help icon (top-right) "
-            "to open it from any page."
+            "Getting Started (7 steps, from a first pipeline to starting it from another "
+            "application and using the Copilot), How-To Guides (Building Pipelines, "
+            "Managing Data, Scheduling & Alerts, Triggering Pipelines from the API), "
+            "Shortcuts (keyboard reference), Node Reference (per-node-type reference), and "
+            "Documentation (the full guides). Click the Help icon (top-right) to open it "
+            "from any page."
         ),
         see_also=("howto.find_docs", "howto.use_copilot"),
     ),
@@ -262,9 +288,9 @@ _PAGES: tuple[Topic, ...] = (
         ),
         body=(
             "The **Notifications** page lists every alert that has fired (pipeline "
-            "failures, long-running runs, missed schedules, threshold breaches) with "
-            "timestamp, delivery channel, and outcome. Filter by channel, severity, or "
-            "pipeline. To configure WHICH alerts fire and WHERE they go, use Settings → "
+            "failures, long-running runs, missed schedules, threshold breaches, credentials "
+            "about to expire) with the time it fired. Filter by kind with the chips at the "
+            "top. To configure WHICH alerts fire and WHERE they go, use Settings → "
             "Notifications."
         ),
         see_also=("page.settings", "feature.alerts"),
@@ -282,12 +308,16 @@ _PAGES: tuple[Topic, ...] = (
             "copilot settings", "ai settings",
             "ai provider", "configure ai", "model settings",
             "where do i set the model", "switch provider",
+            "ai activity", "ai usage", "copilot usage", "token usage", "ai cost",
         ),
         body=(
-            "The **Insights** page consolidates everything Copilot-related: the AI Provider "
-            "tab (choose Ollama / Anthropic / OpenAI / OpenRouter and the model), the "
-            "Activity tab (recent Copilot runs with traces), the Trust tab (the eval "
-            "harness scorecard), and the Reports tab (token / cost usage). For local Ollama "
+            "The **Insights** page has four tabs: **AI Provider** (choose Ollama / "
+            "Anthropic / OpenAI / OpenRouter and the model), **Activity** (what the AI "
+            "did: each AI request, from the Copilot or from another feature such as "
+            "drafting a pipeline in the Editor, with the model, tokens, estimated "
+            "cost and failures; pipeline runs are on Workflows → Executions "
+            "instead), **Reports** (a PDF or Word snapshot of the installation) "
+            "and the **API Explorer**. For local Ollama "
             "on a CPU laptop, qwen2.5:7b is the recommended floor (~6 GB RAM, 30–60 s per "
             "turn) — anything smaller can't reliably drive the tool-use loop. For faster "
             "responses or production quality, switch to a cloud provider."
@@ -560,10 +590,11 @@ _GLOSSARY: tuple[Topic, ...] = (
         ),
         body=(
             "The **Copilot** is the right-side AI chat panel — page-aware, tool-using, "
-            "with 23 deterministic backend tools (list pipelines, query metrics, draft "
+            "with deterministic backend tools (list pipelines, query metrics, draft "
             "pipeline from intent, etc.). It can answer status / failure / metric "
             "questions instantly via a fast-lane, draft pipelines from natural "
-            "language, and walk you through any feature. Provider and model are "
+            "language, and walk you through any feature. Before it drafts a new pipeline "
+            "it asks where the data comes from and where it goes. Provider and model are "
             "configurable in Insights → AI Provider."
         ),
         see_also=("feature.copilot", "page.ai_hub", "howto.use_copilot"),
@@ -635,10 +666,14 @@ _HOWTOS: tuple[Topic, ...] = (
             "The template clones with all nodes pre-configured; rename and save.\n"
             "2. **In the Editor from scratch** — Sidebar → Editor → drag a Source "
             "node onto the canvas, then add transforms / destinations and connect "
-            "them with edges. Configure each step in the right-hand panel.\n"
+            "them with edges. Configure each step in its config panel, along the "
+            "bottom of the editor.\n"
             "3. **From natural language with the Copilot** — open the Copilot panel, "
-            "tick **Allow drafts**, then type 'create a pipeline that…' — the Copilot "
-            "drafts the IR and previews it for you to accept before saving."
+            "tick **Allow drafts**, then type 'create a pipeline that…'. If you did not "
+            "say where the data comes from or where it goes, the Copilot asks first and "
+            "lists your real connections, uploaded files and managed tables. A connection "
+            "you don't have yet can be created in the chat. It then drafts the pipeline "
+            "and previews it for you to accept before saving."
         ),
         see_also=("page.editor", "page.templates", "howto.use_copilot"),
     ),
@@ -654,12 +689,13 @@ _HOWTOS: tuple[Topic, ...] = (
         body=(
             "1. Sidebar → **Connections** → click **+ New Connection** at the top "
             "right.\n"
-            "2. Pick the connector type from the catalog (Postgres / Salesforce / "
-            "S3 / 40+ others).\n"
+            "2. Pick the connector type from the catalog (Postgres, Salesforce, S3 "
+            "and the others).\n"
             "3. Fill in the connection parameters (host, port, database, etc.).\n"
-            "4. Either pick an existing credential or click **+ New credential** to "
-            "create one — credentials are stored encrypted and reusable across "
-            "connections.\n"
+            "4. Under **Saved credential**, pick one if you have it. It fills the fields "
+            "it holds, such as the username and password, and it stays encrypted and "
+            "reusable across connections. Otherwise type the values in, or add a "
+            "credential on the Credentials tab first.\n"
             "5. Click **Test** to verify; on success, **Save**. The connection now "
             "appears in node configuration dropdowns in the Editor."
         ),
@@ -675,16 +711,19 @@ _HOWTOS: tuple[Topic, ...] = (
             "where do passwords go",
         ),
         body=(
-            "1. Sidebar → **Connections** → **Credentials** → **+ New Credential**.\n"
+            "1. Sidebar → **Connections** → **Credentials** → **Add Credential**.\n"
             "2. Give the credential a memorable name (e.g. 'sales-pg-prod').\n"
             "3. Pick the credential type — Username/Password, API Key, OAuth, "
             "Certificate, etc.\n"
             "4. Paste the secret values; Revoluzen Flow encrypts them at rest with the "
             "installation's encryption key.\n"
-            "5. **Save**. The credential is now selectable from any new or existing "
-            "Connection. Secrets are never returned by the API once saved."
+            "5. Set an **expiry date** if the secret has one, so you are warned before "
+            "it lapses.\n"
+            "6. **Save**. The credential is now selectable from any new or existing "
+            "Connection, and from a SaaS Connector step. Secrets are never returned by "
+            "the API once saved."
         ),
-        see_also=("page.credentials", "howto.add_connection"),
+        see_also=("page.credentials", "howto.add_connection", "howto.credential_expiry"),
     ),
     Topic(
         id="howto.run_pipeline",
@@ -701,9 +740,10 @@ _HOWTOS: tuple[Topic, ...] = (
             "button. You can pass override parameters in the dialog before running.\n"
             "2. **From a schedule** — Pipelines page → row → Schedule → set a cron "
             "expression or pick a preset. The schedule fires at the configured times.\n"
-            "3. **From an API call** — `POST /api/execute/workflow/{id}` with an "
-            "optional `{\"params\": {...}}` body. Useful for webhooks or external "
-            "orchestrators."
+            "3. **From another application** — open Workflows → Triggers, create an "
+            "endpoint and an API key, and copy the ready-to-use command. A signed-in user "
+            "can also call `POST /api/execute/workflow/{id}` with an optional "
+            "`{\"parameter_values\": {...}}` body."
         ),
         see_also=("howto.schedule_pipeline", "howto.trigger_from_api", "page.executions"),
     ),
@@ -783,14 +823,15 @@ _HOWTOS: tuple[Topic, ...] = (
             "talk to the assistant", "ask the ai",
         ),
         body=(
-            "**Open** — click the gradient Copilot button (bottom-right), or use the "
-            "keyboard shortcut.\n\n"
+            "**Open** — click the gradient Copilot button (bottom-right).\n\n"
             "**Ask anything** — try natural questions: 'recent failures', 'why did "
             "the latest run fail', 'show me running pipelines', 'create a pipeline "
             "that reads CSV from S3 and loads it into Postgres'.\n\n"
             "**Allow drafts** — tick the checkbox in the panel header to let the "
             "Copilot draft pipelines / alerts / reports (you still approve each draft "
-            "before it's saved).\n\n"
+            "before it's saved). A new pipeline starts with a card asking where the data "
+            "comes from and where it goes, with your real connections, files and tables "
+            "as one-click choices.\n\n"
             "**Suggestions tab** — page-aware chips show common prompts for the page "
             "you're on. Below the chat input, the four most-used chips appear "
             "whenever the input is empty."
@@ -809,12 +850,11 @@ _HOWTOS: tuple[Topic, ...] = (
         body=(
             "Sidebar → **Settings** → **Notifications** tab.\n\n"
             "Configure delivery channels: **Email** (SMTP host + from-address), "
-            "**Slack** (incoming webhook), **Discord** (webhook), or a generic "
-            "**Webhook** (any HTTPS URL).\n\n"
-            "Then in the same tab, toggle which event types trigger alerts: pipeline "
-            "failure, long-running run, missed schedule, threshold breach. Each "
-            "event can target a different channel. Past alerts show in the "
-            "Notifications page."
+            "**Slack** (incoming webhook), **Teams** (incoming webhook), **Discord** "
+            "(webhook), or a generic **Webhook** (any HTTPS URL).\n\n"
+            "Then in the same tab, toggle what you are told about: pipeline success, "
+            "error and warnings, long-running runs, missed schedules and credentials "
+            "about to expire. Past alerts show in the Notifications page."
         ),
         see_also=("page.notifications", "feature.alerts"),
     ),
@@ -833,7 +873,7 @@ _HOWTOS: tuple[Topic, ...] = (
             "does, and the connectors it uses.\n"
             "3. Click **Use this template** — it clones into a new pipeline in the "
             "Editor with all nodes pre-configured.\n"
-            "4. Update connection / credential bindings in the right-hand panel, "
+            "4. Update connection / credential bindings in each node's config panel, "
             "tweak any logic, then save and run.\n"
             "To save your OWN pipeline as a template: in the Editor, menu → Save as "
             "template."
@@ -847,18 +887,103 @@ _HOWTOS: tuple[Topic, ...] = (
         aliases=(
             "how do i trigger from api", "how to call api",
             "trigger from webhook", "run pipeline programmatically",
-            "rest api", "external trigger",
+            "rest api", "external trigger", "how do i create an api key",
+            "start a pipeline from another app",
         ),
         body=(
-            "`POST /api/execute/workflow/{pipeline_id}` runs a pipeline. Pass "
-            "parameters in the JSON body as `{\"params\": {\"key\": \"value\"}}` — "
-            "they override the pipeline's default inputs. The response includes the "
-            "new execution id, which you can poll at `GET /api/executions/{id}` for "
-            "status. For published pipelines, the friendly URL "
-            "`POST /api/published/{path}` accepts the same body. See the API tab in "
-            "Help for the full surface and authentication options."
+            "To let another application start a pipeline, open the Triggers tab under "
+            "Workflows, create an endpoint and an API key, and copy the ready-to-use "
+            "command. It calls `POST /api/published/{path}` with an `X-API-Key` header, "
+            "and the keys of the JSON body are the pipeline's parameter values, as in "
+            "`{\"region\": \"EU\"}`. The call waits for the run to finish and returns its "
+            "status, execution id, parameter values and each step's row count. A signed-in "
+            "user can also call `POST /api/execute/workflow/{pipeline_id}` with the body "
+            "`{\"parameter_values\": {\"key\": \"value\"}}`. See Help for the full guide."
         ),
-        see_also=("howto.run_pipeline", "page.help"),
+        see_also=("howto.run_pipeline", "page.help", "page.triggers"),
+    ),
+    Topic(
+        id="howto.deactivate_pipeline",
+        category=TopicCategory.HOWTO,
+        title="How to deactivate or pause a pipeline",
+        aliases=(
+            "how do i deactivate a pipeline", "how to deactivate a pipeline",
+            "how do i pause a pipeline", "pause a pipeline", "stop a schedule",
+            "activate a pipeline", "what does deactivate do", "what does paused mean",
+        ),
+        body=(
+            "On the Pipelines page, open the pipeline's row menu (⋯) and click **Deactivate**. "
+            "It shows a **Paused** badge straight away. While it is paused, its schedules are "
+            "skipped and its endpoints on the Triggers page answer 423. You can still run "
+            "it by hand with **Run**, so you can test a fix first. Click **Activate** to "
+            "switch it back on. Nothing else about the pipeline changes. On Revoluzen Flow "
+            "Enterprise, a change in PROD goes to an approver instead."
+        ),
+        see_also=("page.pipelines", "page.triggers", "howto.schedule_pipeline"),
+    ),
+    Topic(
+        id="howto.credential_expiry",
+        category=TopicCategory.HOWTO,
+        title="How credential expiry warnings work",
+        aliases=(
+            "how do i get warned before a credential expires",
+            "credential expiry warning", "credential expiry warnings",
+            "credential expiring", "credential about to expire",
+            "turn off credential expiry warnings",
+        ),
+        body=(
+            "Give a credential an **expiry date** on the Credentials page. Administrators "
+            "are then warned on the notification bell and by email a week ahead, a day "
+            "ahead and when it expires, once each. Email needs SMTP set up in Settings → "
+            "Notifications. Clicking the bell's warning opens the Credentials page. Renew "
+            "the credential there and every connection using it picks up the new value; a "
+            "new date starts the warnings again. To stop them, turn off **Credential "
+            "expiry warnings** in Settings → Notifications. The date is the one you enter: "
+            "Revoluzen Flow does not ask the provider, and a credential with no date gets "
+            "no warning."
+        ),
+        see_also=("page.credentials", "howto.add_credential", "howto.set_up_notifications"),
+    ),
+    Topic(
+        id="howto.saas_connector",
+        category=TopicCategory.HOWTO,
+        title="How to use the SaaS Connector node",
+        aliases=(
+            "how do i use the saas connector", "saas connector",
+            "use a connector from the api explorer",
+            "use a generated connector in a pipeline", "read from a saas app",
+        ),
+        body=(
+            "Drag **SaaS Connector** from the Import group of the Editor's palette. Pick a "
+            "connector and the stream to read, for example `accounts`. The list holds the "
+            "built-in connectors and any you saved from Insights → API Explorer, and this "
+            "node is how a saved one gets used in a pipeline. If the connector needs a "
+            "secret, choose it under **Saved credential**: the pipeline stores only which "
+            "credential to use, never the key. The node reads data; it does not write back."
+        ),
+        see_also=("glossary.connector", "page.credentials", "howto.add_credential"),
+    ),
+    Topic(
+        id="howto.file_transfer",
+        category=TopicCategory.HOWTO,
+        title="How to move files: FTP, SFTP and the File System step",
+        aliases=(
+            "how do i upload a file over ftp", "how do i upload over sftp",
+            "write a file to ftp", "ftp upload", "sftp upload", "file system step",
+            "how do i copy a file in a pipeline", "move a file in a pipeline",
+        ),
+        body=(
+            "**To send results to a server**, add a **Destination** node, pick an FTP or "
+            "SFTP connection, then set **Remote Path**, such as `/uploads/orders.csv`, and "
+            "a file format. The folder must already exist on the server. FTP and FTPS need "
+            "nothing extra; SFTP also needs the `paramiko` package installed.\n\n"
+            "**To copy, move, rename or delete files on the machine running Revoluzen "
+            "Flow**, add a **File System** node. A relative path means inside the data "
+            "folder, so `outbox/orders.csv` lands there, and missing folders are created. "
+            "An absolute path is used as written. It does not reach remote servers or "
+            "cloud storage: use a Destination node for those."
+        ),
+        see_also=("page.connections", "howto.add_connection"),
     ),
 )
 
@@ -898,11 +1023,12 @@ _FEATURES: tuple[Topic, ...] = (
         body=(
             "OSS supports pipeline-level alert rules — failure, long-running, "
             "missed-schedule, and threshold-breach events — with delivery to email, "
-            "Slack, Discord, or generic webhook. Past deliveries surface in the "
+            "Slack, Teams, Discord, or generic webhook. It also warns administrators "
+            "before a saved credential expires. Past deliveries surface in the "
             "Notifications page. Plus extends this with per-schedule routing, alert "
             "email domain allowlists, and richer routing logic."
         ),
-        see_also=("howto.set_up_notifications", "page.notifications"),
+        see_also=("howto.set_up_notifications", "page.notifications", "howto.credential_expiry"),
     ),
     Topic(
         id="feature.copilot",
@@ -913,7 +1039,7 @@ _FEATURES: tuple[Topic, ...] = (
             "ai tools", "assistant capabilities",
         ),
         body=(
-            "The Copilot is a page-aware, tool-using AI assistant with 23+ "
+            "The Copilot is a page-aware, tool-using AI assistant with "
             "deterministic backend tools. Supports four providers (Ollama for local, "
             "Anthropic / OpenAI / OpenRouter for cloud) and a multi-lane router: "
             "fast-lane for instant ops questions, hybrid for reasoning + fresh data, "
@@ -942,9 +1068,10 @@ _EDITIONS: tuple[Topic, ...] = (
         ),
         body=(
             "**Revoluzen Flow** is the free, open-source, single-user, single-tenant "
-            "build. Includes: visual pipeline editor, 40 node types, 66 "
-            "connectors, scheduling, alerts (pipeline-level), templates, the "
-            "Copilot with full 23-tool surface, basic eval harness, vertical "
+            "build. Includes: visual pipeline editor, 45 node types, 66 "
+            "connectors, scheduling, starting a pipeline from another application, "
+            "alerts (pipeline-level), templates, the Copilot with its full tool "
+            "set, basic eval harness, vertical "
             "scaling up to ~500 GB / single node, telemetry opt-in, and a Help "
             "center. Designed for the solo developer on their laptop. Multi-user, "
             "RBAC, audit, SSO, lineage, CDC, drift detection, and PROD environment "

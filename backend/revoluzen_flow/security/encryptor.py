@@ -85,6 +85,8 @@ _SENSITIVE_FIELD_NAMES = frozenset({
     "api_key", "apikey", "client_secret", "passphrase",
     "access_token", "refresh_token", "sasl_password",
     "private_key_pem", "service_account_json",
+    "secret_access_key", "aws_secret_access_key", "session_token",
+    "account_key", "sas_token", "connection_string",
 })
 
 
@@ -317,20 +319,30 @@ class Encryptor:
             return ""
         if ciphertext.startswith(_ENC_PREFIX):
             try:
-                return self._fernet.decrypt(
-                    ciphertext[len(_ENC_PREFIX):].encode("ascii")
-                ).decode("utf-8")
+                value = self._decrypt_token(ciphertext)
             except InvalidToken as exc:
                 raise RuntimeError(
                     "Decryption failed — master key may have changed since "
                     "this credential was saved. Restore the original "
                     "secret.key or re-enter the credential."
                 ) from exc
+            # Earlier versions encrypted a stored secret again each time its
+            # credential was used or edited, so a row can hold several layers.
+            # Reading through them repairs those rows; the next save stores one.
+            while value.startswith(_ENC_PREFIX):
+                try:
+                    value = self._decrypt_token(value)
+                except InvalidToken:
+                    break  # a secret that merely starts with the prefix
+            return value
         if ciphertext.startswith(_PLAIN_PREFIX):
             return ciphertext[len(_PLAIN_PREFIX):]
         # Untyped plaintext — only happens on installs that pre-date this
         # encryptor entirely. Return as-is; the next save will encrypt.
         return ciphertext
+
+    def _decrypt_token(self, value: str) -> str:
+        return self._fernet.decrypt(value[len(_ENC_PREFIX):].encode("ascii")).decode("utf-8")
 
     # ── Config-dict API ─────────────────────────────────────────────
 

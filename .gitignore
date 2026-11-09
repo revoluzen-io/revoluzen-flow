@@ -154,6 +154,14 @@ backend/data/
 !frontend/src/data/
 !frontend/src/data/**
 
+# 2026-11-03: The sample pack ships its own input data (CSV + XML plus
+# the seeded generator) so the offline sample pipelines run on a fresh
+# install. Un-ignore that one folder; keep sample 18's archive/ output
+# out of the tree since a run moves products.xml there.
+!samples/free-api-pipelines/data/
+!samples/free-api-pipelines/data/**
+samples/free-api-pipelines/data/archive/
+
 # Test/regression scratch output (do not commit)
 backend/_regress.txt
 

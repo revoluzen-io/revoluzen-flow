@@ -36,7 +36,14 @@ def _get_connection_config(connection_id: str) -> tuple[dict, str] | None:
         if connection.credential_id and cred_store:
             cred = cred_store.get_raw(connection.credential_id)
             if cred and cred.config:
-                config.update(cred.config)
+                from revoluzen_flow.connections.credentials import apply_linked_credential
+                apply_linked_credential(config, cred.config)
+        # The connection form saves `username` and `token`; the dialects read
+        # `user` and `access_token`.
+        if config.get("username") and not config.get("user"):
+            config["user"] = config["username"]
+        if config.get("token") and not config.get("access_token"):
+            config["access_token"] = config["token"]
         return config, connection.type
     except Exception:
         return None

@@ -69,7 +69,8 @@ def _get_connection(connection_id: str) -> dict | None:
         if connection.credential_id and cred_store:
             cred = cred_store.get_raw(connection.credential_id)
             if cred and cred.config:
-                config.update(cred.config)
+                from revoluzen_flow.connections.credentials import apply_linked_credential
+                apply_linked_credential(config, cred.config)
         return config
     except Exception:
         return None

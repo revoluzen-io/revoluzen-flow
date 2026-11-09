@@ -4,15 +4,17 @@ import { useWorkflowStore } from '../stores/workflowStore';
 import { api } from '../api/client';
 import { ModuleIcon } from './ModulesPanel';
 import { InputPane, InspectPane } from './NodeDataPane';
+import { nodeTypeLabel } from './modulesPanelData';
 import { useEmbeddedAI, type DiagnoseResult } from '../hooks/useEmbeddedAI';
 import { useUpstreamSchema } from '../hooks/useUpstreamSchema';
 import { toast } from './Toast';
 import DynamicConfig from './DynamicConfig';
 import { securityLabel, type OpenApiSecurity } from './OpenApiSecurityReview';
 import { DataInBand, DataOutBand } from './NodeConfigFrame';
-import { buildDataIn, buildDataOut, deriveOutputColumns } from '../utils/nodeUiContract';
+import { buildDataIn, buildDataOut, deriveOutputColumns, resolveInputs } from '../utils/nodeUiContract';
 import { hasSideEffect } from '../utils/nodeArity';
 import ExpressionPreview from './ExpressionPreview';
+import DataQualityRules, { IgnoredStepSettings } from './DataQualityRules';
 // P5 (2026-05-21): cast-safety classifier mirrors the backend taxonomy
 // so the Mapping tab renders ✓ / ⚠ / ✕ glyphs without a network hop.
 import { classifyCastUI, TIER_META, type CastTier } from '../lib/castSafety';
@@ -377,7 +379,10 @@ export default function ConfigPanel() {
     if (!_activeStepType) return;
     setModalWidth(
       _activeStepType === 'data_wrangler' ? 1280
-        : WIDE_CONFIGS.has(_activeStepType) ? 920
+        // On a laptop, 920 leaves the Input and Output panes too narrow to
+        // read a table, or even the row count above one. Leave them 320 each,
+        // allowing for the 40px rails either side of the dock.
+        : WIDE_CONFIGS.has(_activeStepType) ? Math.max(620, Math.min(920, window.innerWidth - 80 - 640))
         : 620,   // simple nodes → compact centered modal
     );
   }, [_activeStepType]);
@@ -439,17 +444,14 @@ export default function ConfigPanel() {
   // Processing form so configs read consistently (Data In → Processing →
   // Data Out → Settings/Advanced). Skipped for full-bleed nodes (Data Wrangler
   // owns its own surface). Join orders inputs Left-first by left_input_id.
-  const _frameInputs = ((liveSchema.raw?.inputs ?? []) as any[])
-    .slice()
-    .sort((a, b) => {
-      if (stepType !== 'join' || !params?.left_input_id) return 0;
-      const L = params.left_input_id;
-      return a.upstream_step_id === L ? -1 : b.upstream_step_id === L ? 1 : 0;
-    })
-    .map((i: any) => ({
-      label: i.upstream_label || i.upstream_step_id || '',
-      columns: ((i.schema?.columns ?? []) as any[]).map((c) => c.name as string),
-    }));
+  const _frameInputs = resolveInputs(
+    node.id,
+    edges,
+    nodes,
+    liveSchema.raw?.inputs ?? [],
+    (id) => stepResults[id]?.columns,
+    stepType === 'join' ? params?.left_input_id : undefined,
+  );
   const frameDataIn = buildDataIn(stepType, _frameInputs);
   // Show the real resulting columns when they're deterministically knowable
   // (filter/derived/rename/… ); deriveOutputColumns returns [] for dynamic or
@@ -930,7 +932,7 @@ export default function ConfigPanel() {
               {label}
             </div>
           )}
-          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium">{stepType.replace(/_/g, ' ')}</div>
+          <div className="text-xs text-slate-500 uppercase tracking-wider font-medium">{nodeTypeLabel(stepType)}</div>
         </div>
 
         {/* Single adaptive AI button. Two separate pills (AI Fix + AI
@@ -1280,7 +1282,7 @@ export default function ConfigPanel() {
           {/* Node version */}
           <div className="pt-2.5 border-t border-slate-100">
             <span className="text-[11px] text-slate-500">
-              {stepType.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} · v1.0 (latest)
+              {nodeTypeLabel(stepType)} · v1.0 (latest)
             </span>
           </div>
         </div>
@@ -1539,7 +1541,7 @@ export default function ConfigPanel() {
           <SaaSConnectorConfig params={params} nodeId={node.id} onChange={updateNodeParams} />
         )}
         {stepType === 'data_quality' && (
-          <DataQualityConfig params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} />
+          <DataQualityConfig params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} sourceTypes={upstreamSourceTypes} />
         )}
         {stepType === 'upsert' && (
           <UpsertConfig params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} />
@@ -7815,7 +7817,7 @@ function KafkaSourceConfig({ params, nodeId, onChange }: ConfigProps) {
   );
 }
 
-function FtpSourceConfig({ params, nodeId, onChange }: ConfigProps) {
+function FtpSourceConfig({ params, nodeId, onChange, isSink }: ConfigProps & { isSink?: boolean }) {
   const hasConn = !!params.connection_id;
   const protocol = params.protocol || 'ftp';
   return (
@@ -7825,7 +7827,7 @@ function FtpSourceConfig({ params, nodeId, onChange }: ConfigProps) {
           value={params.connection_id || ''}
           onChange={(v) => onChange(nodeId, { connection_id: v })}
           filter={['ftp', 'sftp', 'ftps']}
-          requireCapability="read"
+          requireCapability={isSink ? 'write' : 'read'}
         />
       </Field>
       {hasConn && (
@@ -7851,11 +7853,14 @@ function FtpSourceConfig({ params, nodeId, onChange }: ConfigProps) {
         </Field>
       </>}
       <Field label="Remote Path *">
-        <TextInput value={params.remote_path || ''} onChange={(v) => onChange(nodeId, { remote_path: v })} placeholder="/data/exports/orders.csv" />
+        <TextInput value={params.remote_path || ''} onChange={(v) => onChange(nodeId, { remote_path: v })} placeholder={isSink ? '/uploads/results.csv' : '/data/exports/orders.csv'} />
+        {isSink && <div className="text-[10px] text-slate-500 mt-1">The folder must already exist on the server.</div>}
       </Field>
+      {!hasConn && (
       <Field label="Protocol">
         <Select value={protocol} onChange={(v) => onChange(nodeId, { protocol: v })} options={['ftp', 'sftp', 'ftps']} />
       </Field>
+      )}
       <Field label="File Format">
         {/* 2026-06-17 — write `format` (not `file_format`): FtpSourceNode /
             FtpSinkNode read params["format"]. Options limited to what the
@@ -9031,6 +9036,7 @@ function ExecutePipelineConfig({ params, nodeId, onChange }: ConfigProps) {
 interface SaasManifest {
   id: string;
   name: string;
+  tier?: string;
   description?: string;
   category?: string;
   params?: Array<{ name: string; label?: string; type?: string; required?: boolean; default?: any; secret?: boolean }>;
@@ -9039,11 +9045,15 @@ interface SaasManifest {
 
 function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
   const [manifests, setManifests] = useState<SaasManifest[]>([]);
+  const [credentials, setCredentials] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+    api.listCredentials()
+      .then((data) => { if (!cancelled) setCredentials(Array.isArray(data) ? data as Array<{ id: string; name: string }> : []); })
+      .catch(() => {});
     api.get<SaasManifest[]>('/saas/manifests')
       .then((data) => {
         if (cancelled) return;
@@ -9066,7 +9076,9 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
   const candidate = security?.alternatives[choiceIndex];
   const choice = candidate?.supported ? candidate : undefined;
   const activeFields = new Set(choice?.schemes.flatMap(s => Object.values(s.fields)) || []);
-  const visibleParams = security ? manifestParams.filter(p => activeFields.has(p.name)) : streams.some(s => s.auth) ? [] : manifestParams;
+  const fieldsForAuth = security ? manifestParams.filter(p => activeFields.has(p.name)) : streams.some(s => s.auth) ? [] : manifestParams;
+  // With a saved credential chosen, the secrets come from it at run time.
+  const visibleParams = params.credential_id ? fieldsForAuth.filter(p => !p.secret) : fieldsForAuth;
   const clearAuth = () => Object.fromEntries(manifestParams.filter(p => p.secret).map(p => [p.name, '']));
 
   if (loading) {
@@ -9131,7 +9143,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
           onChange={(e) => {
             const id = e.target.value;
             // Reset stream + manifest params when switching connector
-            const next: Record<string, any> = { ...clearAuth(), connector_id: id, stream: '', auth_alternative: undefined };
+            const next: Record<string, any> = { ...clearAuth(), connector_id: id, stream: '', auth_alternative: undefined, credential_id: '' };
             // Pre-fill defaults from the new manifest
             const m = manifests.find((mm) => mm.id === id);
             for (const p of m?.params || []) {
@@ -9145,7 +9157,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
         >
           <option value="">— Select a connector —</option>
           {manifests.map((m) => (
-            <option key={m.id} value={m.id}>{m.name}</option>
+            <option key={m.id} value={m.id}>{!m.tier || m.tier === 'certified' ? m.name : `${m.name} · ${m.tier}`}</option>
           ))}
         </select>
       </Field>
@@ -9185,6 +9197,23 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
         </fieldset>
       )}
 
+      {selected && manifestParams.some(p => p.secret) && (
+        <Field label="Saved credential">
+          <select
+            aria-label="Saved credential"
+            value={params.credential_id || ''}
+            onChange={(e) => onChange(nodeId, { ...clearAuth(), credential_id: e.target.value })}
+            className="w-full px-2.5 py-1.5 text-xs text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300"
+          >
+            <option value="">— Enter the key below instead —</option>
+            {credentials.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <div className="text-[10px] text-slate-500 mt-1">
+            The key stays encrypted in Credentials. This pipeline only stores which credential to use.
+          </div>
+        </Field>
+      )}
+
       {selected && visibleParams.length > 0 && (
         <div className="mt-2 pt-2 border-t border-slate-100">
           <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-semibold">Connector Parameters</div>
@@ -9210,20 +9239,8 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
    Quality / Shape Configs (Sprint B)
    ═══════════════════════════════════════════════════════ */
 
-const DQ_OPS = [
-  'not_null', 'is_null', 'eq', 'ne', 'gt', 'lt', 'gte', 'lte',
-  'in', 'not_in', 'regex', 'between', 'min_length', 'max_length',
-];
-
-function DataQualityConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
+function DataQualityConfig({ params, nodeId, onChange, columns = [], sourceTypes }: ConfigProps) {
   const rules = Array.isArray(params.rules) ? params.rules : [];
-
-  const update = (idx: number, patch: Record<string, any>) => {
-    const next = rules.map((r: any, i: number) => i === idx ? { ...r, ...patch } : r);
-    onChange(nodeId, { rules: next });
-  };
-  const addRule = () => onChange(nodeId, { rules: [...rules, { column: columns[0] || '', op: 'not_null', value: '' }] });
-  const removeRule = (idx: number) => onChange(nodeId, { rules: rules.filter((_: any, i: number) => i !== idx) });
 
   return (
     <>
@@ -9240,50 +9257,20 @@ function DataQualityConfig({ params, nodeId, onChange, columns = [] }: ConfigPro
             (e.g. reject → a quarantine sink).
           </div>
         )}
+        {/* Settings the step does not read (an `on_failure` where it reads `mode`), with a way to remove them. */}
+        <IgnoredStepSettings
+          params={params}
+          onRemove={(keys) => onChange(nodeId, Object.fromEntries(keys.map((k) => [k, undefined])))}
+        />
       </Field>
       <Field label={`Validation Rules (${rules.length})`}>
-        <div className="flex flex-col gap-1.5">
-          {rules.map((rule: any, idx: number) => (
-            <div key={idx} className="flex items-center gap-1">
-              {columns.length > 0 ? (
-                <Select
-                  value={rule.column || columns[0]}
-                  onChange={(v) => update(idx, { column: v })}
-                  options={columns}
-                />
-              ) : (
-                <input
-                  value={rule.column || ''}
-                  onChange={(e) => update(idx, { column: e.target.value })}
-                  placeholder="column"
-                  className="w-24 px-2 py-1 text-xs border border-slate-200 rounded"
-                />
-              )}
-              <Select
-                value={rule.op || 'not_null'}
-                onChange={(v) => update(idx, { op: v })}
-                options={DQ_OPS}
-              />
-              {rule.op !== 'not_null' && rule.op !== 'is_null' && (
-                <input
-                  value={rule.value ?? ''}
-                  onChange={(e) => update(idx, { value: e.target.value })}
-                  placeholder="value"
-                  className="flex-1 px-2 py-1 text-xs border border-slate-200 rounded"
-                />
-              )}
-              <button
-                onClick={() => removeRule(idx)}
-                className="text-xs text-red-500 hover:text-red-700 px-1"
-                title="Remove rule"
-              >✕</button>
-            </div>
-          ))}
-          <button
-            onClick={addRule}
-            className="text-xs text-pipe-600 hover:text-pipe-800 self-start"
-          >+ Add rule</button>
-        </div>
+        {/* Stores each rule as { column, op, value }: a list for in / not_in, [low, high] for between. */}
+        <DataQualityRules
+          rules={rules}
+          columns={columns}
+          sourceTypes={sourceTypes}
+          onChange={(next) => onChange(nodeId, { rules: next })}
+        />
       </Field>
       <Field label="Quality Score Threshold (%)">
         <TextInput value={String(params.quality_threshold ?? 0)} onChange={(v) => onChange(nodeId, { quality_threshold: parseFloat(v) || 0 })}
@@ -10838,46 +10825,31 @@ function DeleteDataConfig({ params, nodeId, onChange }: ConfigProps) {
 
       {tab === 'Source' && (
         <>
-          <Field label="Delete Target *">
-            <Select
-              value={kind}
-              onChange={(v) => set({ target_kind: v })}
-              options={['rows', 'files']}
+          {/* Delete Data drops rows only. It used to offer a "files" target
+              that was never implemented and failed at run time; file cleanup
+              is the File System node's job. A step saved while that option was
+              offered still carries target_kind "files" and fails when run, so
+              say so here and offer the one-click way back to rows. */}
+          {kind === 'files' && (
+            <div className="bg-amber-50 rounded-lg px-3 py-2 border border-amber-200 mb-3">
+              <div className="text-xs text-amber-800 font-medium">
+                This step is set to delete files, which Delete Data does not do. It will fail when run, and no files will be deleted. Use a File System node for file cleanup.
+              </div>
+              <button
+                onClick={() => set({ target_kind: 'rows' })}
+                className="mt-1.5 text-xs font-semibold text-amber-900 underline hover:text-amber-950"
+              >
+                Switch to deleting rows
+              </button>
+            </div>
+          )}
+          <Field label="Delete Condition *">
+            <TextInput
+              value={params.condition || ''}
+              onChange={(v) => set({ condition: v })}
+              placeholder="status = 'expired' AND created_at < '2024-01-01'"
             />
           </Field>
-          {kind === 'rows' ? (
-            <Field label="Delete Condition *">
-              <TextInput
-                value={params.condition || ''}
-                onChange={(v) => set({ condition: v })}
-                placeholder="status = 'expired' AND created_at < '2024-01-01'"
-              />
-            </Field>
-          ) : (
-            <>
-              <Field label="File / Folder Path *">
-                <TextInput
-                  value={params.target_path || ''}
-                  onChange={(v) => set({ target_path: v })}
-                  placeholder="/data/incoming/"
-                />
-              </Field>
-              <Field label="Wildcard Filter">
-                <TextInput
-                  value={params.wildcard || ''}
-                  onChange={(v) => set({ wildcard: v })}
-                  placeholder="*.csv"
-                />
-              </Field>
-              <Field label="Recursive">
-                <Toggle
-                  value={!!params.recursive}
-                  onChange={(v) => set({ recursive: v })}
-                  label="Recurse into subfolders"
-                />
-              </Field>
-            </>
-          )}
         </>
       )}
 
@@ -10912,9 +10884,9 @@ function DeleteDataConfig({ params, nodeId, onChange }: ConfigProps) {
         </>
       )}
 
-      <div className="bg-red-50 rounded-lg px-3 py-2 border border-red-100">
-        <div className="text-[10px] text-red-500 font-medium">
-          This action permanently deletes data. Use with caution.
+      <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-200">
+        <div className="text-[10px] text-slate-600 font-medium">
+          Rows that match are dropped from the data passing through this step. Nothing is deleted from a database or from storage.
         </div>
       </div>
     </>
@@ -11191,7 +11163,7 @@ function FileSystemConfig({ params, nodeId, onChange }: ConfigProps) {
         <TextInput
           value={params.source || ''}
           onChange={(v) => onChange(nodeId, { source: v })}
-          placeholder="/data/incoming/orders.csv"
+          placeholder="outputs/orders.csv"
         />
       </Field>
       {needsDest && (
@@ -11199,7 +11171,7 @@ function FileSystemConfig({ params, nodeId, onChange }: ConfigProps) {
           <TextInput
             value={params.destination || ''}
             onChange={(v) => onChange(nodeId, { destination: v })}
-            placeholder="/data/processed/orders.csv"
+            placeholder="outbox/orders.csv"
           />
         </Field>
       )}
@@ -11228,8 +11200,8 @@ function FileSystemConfig({ params, nodeId, onChange }: ConfigProps) {
       </Field>
       <div className="bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
         <div className="text-[10px] text-amber-600">
-          Copy, move, rename, or delete files on the local Revoluzen Flow runtime
-          filesystem.
+          Copy, move, rename, or delete files on the machine running Revoluzen Flow.
+          A relative path means inside the data folder. Missing folders are created.
         </div>
       </div>
     </>
@@ -11456,8 +11428,9 @@ function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigP
         optional={!params.connection_id && FILE_LOCAL_CONNECTORS.has(connectorType || 'csv')}
       />
 
-      {/* File format for storage connections */}
-      {params.connection_id && isStorage && (
+      {/* File format for storage connections. FTP has its own, which writes the
+          key its node reads. */}
+      {params.connection_id && isStorage && connectorType !== 'ftp' && (
         <Field label="File Format *">
           <Select
             value={params.file_format || 'csv'}
@@ -11531,8 +11504,9 @@ function GenericDestinationConfig({ params, nodeId, onChange, columns = [], sour
         optional={!params.connection_id && FILE_LOCAL_CONNECTORS.has(connectorType || 'csv')}
       />
 
-      {/* File format for storage connections */}
-      {params.connection_id && isStorage && (
+      {/* File format for storage connections. FTP has its own, which writes the
+          key its node reads. */}
+      {params.connection_id && isStorage && connectorType !== 'ftp' && (
         <Field label="File Format *">
           <Select
             value={params.file_format || 'csv'}
@@ -11548,6 +11522,9 @@ function GenericDestinationConfig({ params, nodeId, onChange, columns = [], sour
           redundant ConnectionPicker (the top picker above owns the connection). */}
       <EmbeddedConnectionContext.Provider value={true}>
       {connectorType === 'csv' && <CsvSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
+      {/* A saved FTP / SFTP connection could be picked here, but there was no
+          field for where the file goes, so an upload couldn't be set up at all. */}
+      {connectorType === 'ftp' && <FtpSourceConfig params={params} nodeId={nodeId} onChange={onChange} isSink />}
       {connectorType === 'json' && <JsonSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
       {connectorType === 'excel' && <ExcelSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
       {connectorType === 'database' && <DbSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} sourceTypes={sourceTypes} mappingOnly={mappingOnly} hideConnection />}

@@ -484,6 +484,11 @@ export default function StoragePreviewDrawer({
             <span className={provenance.consumer_count > 0 ? 'text-amber-700 font-medium' : 'text-slate-500'}>
               {provenance.consumer_count} pipeline{provenance.consumer_count === 1 ? '' : 's'}
             </span>
+            {/* A few names say who to warn before changing this table. A long
+                list stays in the tooltip, so the strip keeps to one line. */}
+            {provenance.consumers.length > 0 && provenance.consumers.length <= 4 && (
+              <span className="text-slate-600">: {provenance.consumers.map((c) => c.name).join(', ')}</span>
+            )}
           </span>
           {/* Transformation recipe (the Data-Wrangler steps that built this
               table). Stored as prep_recipe + returned by /provenance; shown

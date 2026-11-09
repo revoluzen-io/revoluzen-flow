@@ -46,7 +46,12 @@ const frontend = join(here, '..')
 
 const URL = process.env.REVOLUZEN_FLOW_URL ?? 'http://localhost:5174'
 const STATE = process.env.REVOLUZEN_FLOW_E2E_STATE ?? join(frontend, 'e2e', '.auth', 'state.json')
-const WIDTHS = (process.env.REVOLUZEN_FLOW_WIDTHS ?? '1280,900')
+// 768 is not padding: at 1280 and 900 every panel in the app measured clean
+// while the notifications panel was starting 210px off the left edge at 768
+// and the account menu 62px off. Right-anchored panels fail progressively as
+// the window narrows and the trigger walks left, so the narrow end is where
+// this guard earns its keep.
+const WIDTHS = (process.env.REVOLUZEN_FLOW_WIDTHS ?? '1280,900,768')
   .split(',').map((w) => Number(w.trim())).filter(Boolean)
 
 const PAGES = ['dashboard', 'projects', 'pipelines', 'editor', 'connections',
@@ -135,6 +140,8 @@ function escapes(box, vp) {
 const browser = await chromium.launch()
 const offenders = []
 const skipped = new Set()
+// Coverage, not just correctness. See the exit check at the bottom.
+let openedTotal = 0
 
 // ── Self-test ───────────────────────────────────────────────────────────────
 // Inject a panel hanging off the left edge — the exact shape of the bug this
@@ -168,6 +175,36 @@ const skipped = new Set()
     process.exit(1)
   }
   console.log('self-test ok — detector caught a panel 233px off the left edge\n')
+}
+
+// ── Are we actually signed in? ──────────────────────────────────────────────
+// `storageState` is origin-scoped. A state file saved against a different
+// origin — a previous run's auto-picked port, say — loads without error and
+// grants nothing, so the sweep crawls the LOGIN page: four buttons, none of
+// them menu-ish, zero panels opened, and a confident "every panel opened
+// fully on screen". That happened. Fail here instead, where the cause is
+// obvious.
+{
+  const ctx = await browser.newContext({ storageState: STATE, viewport: { width: 1280, height: 900 } })
+  const page = await ctx.newPage()
+  await page.goto(`${URL}/#editor`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(2500)
+  const loggedOut = await page.evaluate(() => !!document.querySelector('input[type="password"]'))
+  const origins = await page.evaluate(() => location.origin)
+  await ctx.close()
+  if (loggedOut) {
+    console.error(
+      `check-popover-placement: FAIL — not signed in at ${origins}.\n`
+      + `The saved session at ${STATE} does not apply to this origin, so the\n`
+      + 'sweep would crawl the login page and report success having opened\n'
+      + 'nothing. Re-run the E2E suite from this directory so global-setup\n'
+      + 'rewrites the state for this origin, or point REVOLUZEN_FLOW_E2E_STATE\n'
+      + 'at the right file. Note that global-setup writes a RELATIVE path, so\n'
+      + 'it lands next to the cwd you launched Playwright from.',
+    )
+    await browser.close()
+    process.exit(1)
+  }
 }
 
 // ── Menus and dropdowns ─────────────────────────────────────────────────────
@@ -242,6 +279,7 @@ for (const width of WIDTHS) {
       await page.waitForTimeout(250)
     }
 
+    openedTotal += found.triggers.length
     const decl = found.triggers.filter((x) => x.disclosure).length
     console.log(
       `     ${String(width).padStart(4)} ${p.padEnd(11)} ${found.triggers.length} opened `
@@ -304,8 +342,20 @@ await browser.close()
 console.log(`\n==== ${skipped.size} triggers NOT opened (looked destructive) ====`)
 for (const s of [...skipped].sort()) console.log(`  ${s}`)
 
+// A clean result is only as good as its coverage. "No offenders" out of no
+// triggers is the shape every false pass in this file's history took, so it
+// is an error, not a pass.
+if (openedTotal === 0) {
+  console.error(
+    '\ncheck-popover-placement: FAIL — opened 0 triggers across every page and\n'
+    + 'width, so "no offenders" means nothing was tested. Check that the app\n'
+    + 'rendered and that the trigger heuristics still match this build.',
+  )
+  process.exit(1)
+}
+
 if (offenders.length === 0) {
-  console.log('\ncheck-popover-placement: OK — every panel opened fully on screen.')
+  console.log(`\ncheck-popover-placement: OK — ${openedTotal} triggers opened, every panel fully on screen.`)
   process.exit(0)
 }
 
@@ -319,7 +369,10 @@ for (const [k, o] of unique) {
 }
 console.error(
   '\nRight-anchoring (`absolute right-0`) only works for a trigger near the right\n'
-  + 'edge. Prefer a measured, viewport-clamped `fixed` panel — see the panelPos\n'
-  + 'effect in src/components/StewardBadge.tsx.',
+  + 'edge. Use the measured, viewport-clamped `fixed` panel instead:\n'
+  + '  const pos = useAnchoredPanel(open, triggerRef, { width: 420 })\n'
+  + 'from src/hooks/useAnchoredPanel.ts, then render `fixed` with pos.top/left/\n'
+  + 'width. The Steward panel, the notification bell and the account menu all\n'
+  + 'share it — this bug had to be fixed three times before it was extracted.',
 )
 process.exit(1)

@@ -15,18 +15,16 @@ from revoluzen_flow.ai.tools.base import ToolContext, ToolDefinition, ToolTier
 async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     try:
         from revoluzen_flow.main import app_state  # type: ignore
-        log_store = app_state.get("execution_log")
+        store = app_state.get("execution_store")
     except Exception:
-        log_store = None
-    if log_store is None:
-        return {"running": [], "count": 0, "message": "execution_log not available"}
+        store = None
+    if store is None:
+        return {"running": [], "count": 0, "message": "execution store not available"}
 
-    rows = log_store.list_executions(
-        workflow_id=None,
-        status="running",
-        limit=50,
-        workspace_id=ctx.workspace_id,
-    )
+    rows = [
+        r for r in store.list_all(limit=200, workspace_id=ctx.workspace_id)
+        if (r.get("status") or "").strip().lower() == "running"
+    ]
 
     # Default to caller's env. "all" via input opts out for cross-env asks.
     env_filter = (inputs.get("environment") or ctx.environment or "").strip().lower()

@@ -1,6 +1,6 @@
 # Add a custom node
 
-Revoluzen Flow ships 44 node types across 6 categories (Data Movement / Transform / Combine / Control Flow / Action / AI / Semantic). When you need a transform that's specific to your domain — apply a custom risk model, hit your internal compliance API mid-pipeline, run a proprietary classifier — you can add a node without touching the Revoluzen Flow core.
+Revoluzen Flow ships 45 node types across 6 categories (Data Movement / Transform / Combine / Control Flow / Action / AI / Semantic). When you need a transform that's specific to your domain — apply a custom risk model, hit your internal compliance API mid-pipeline, run a proprietary classifier — you can add a node without touching the Revoluzen Flow core.
 
 This page covers the **OSS path**: nodes added directly to your local install. For a polished plugin format that other Revoluzen Flow installs can drop in unchanged, see [docs/connector-authoring.md](../connector-authoring.md) — the same registration plumbing applies.
 
@@ -114,5 +114,5 @@ Built something reusable? Same paths as connectors:
 ## See also
 
 - [docs/extend/build-a-connector.md](build-a-connector.md) — when "I need a node" turns out to be "I need a connector"
-- [docs/nodes-and-canvas-reference.md](../nodes-and-canvas-reference.md) — full reference for the 40 first-party nodes
+- [docs/nodes-and-canvas-reference.md](../nodes-and-canvas-reference.md) — full reference for the first-party nodes
 - [Request a node](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose) — if your need is generic enough that we should ship it first-party

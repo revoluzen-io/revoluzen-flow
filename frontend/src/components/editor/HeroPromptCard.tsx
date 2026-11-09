@@ -100,7 +100,7 @@ export default function HeroPromptCard() {
     const lower = trimmed.toLowerCase();
     const alreadyFramed = /^(build|create|draft|make|design|construct|scaffold|generate)\b/.test(lower);
     const message = alreadyFramed ? trimmed : `Build a pipeline: ${trimmed}`;
-    askCopilot(message);
+    askCopilot(message, { send: true });
   };
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

@@ -46,6 +46,10 @@ import {
 } from '../../api/ollama';
 import { useCurrentPageContext } from '../../hooks/usePageContext';
 import { buildPageContextPayload } from './pageContext';
+import {
+  allowSafeWrites as readAllowSafeWrites,
+  setAllowSafeWrites as persistAllowSafeWrites,
+} from '../../ai/safeWritesSetting';
 import { useAgentChatStore, type ChatTurn as StoreChatTurn } from '../../hooks/useAgentChatStore';
 // CP-P3 (2026-06-16) — apply an AI-drafted pipeline straight onto the canvas.
 import { useWorkflowStore } from '../../stores/workflowStore';
@@ -252,7 +256,13 @@ export default function AgentChatPanel() {
   // status visible while the agent is still working.
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const [allowSafeWrites, setAllowSafeWrites] = useState(false);
+  // Shared with the editor chat (see ai/safeWritesSetting.ts), so the two
+  // assistants no longer disagree about whether the person wants drafts.
+  const [allowSafeWrites, setAllowSafeWritesState] = useState(readAllowSafeWrites);
+  const setAllowSafeWrites = useCallback((on: boolean) => {
+    setAllowSafeWritesState(on);
+    persistAllowSafeWrites(on);
+  }, []);
   // 2026-06-17 — Deep mode now DEFAULTS ON: every turn sends `mode: 'deep'`
   // so the backend SKIPS the rule-based fast lane and always runs the full
   // reasoning agent (LLM + tools + workspace grounding). Per the product

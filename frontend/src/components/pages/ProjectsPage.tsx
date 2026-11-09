@@ -211,8 +211,8 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
   }, []);
   // Table view = the classic grid you already had.
   // Tree view = nested project / folder / pipeline browser, with inline
-  // "+ Folder" and "+ Sub-folder" actions per node. Persisted so the
-  // user's last choice survives reloads.
+  // "+ Folder" action per project. Persisted so the user's last choice
+  // survives reloads.
   // 2026-05-19 (P2 #1 of PAGE_BY_PAGE_AUDIT.md): `viewMode` and the flat-
   // table render dropped. Tree is the only view today; projects are
   // inherently a hierarchy (project → folder → pipeline) and the table
@@ -311,11 +311,15 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
 
   const handleUpdate = async () => {
     if (!editProject) return;
+    if (!form.name.trim()) return;
     try {
       await api.updateProject(editProject.id, {
         name: form.name, description: form.description, color: form.color, icon: form.icon,
         members: form.members,
-        metadata: form.metadata,
+        // The server replaces metadata wholesale, and this form only knows
+        // six keys. Start from what the project already has so a key set
+        // elsewhere (the API, an import) isn't wiped by an unrelated edit.
+        metadata: { ...(editProject.metadata || {}), ...form.metadata },
       });
       toast.success('Project updated');
       setEditProject(null);
@@ -396,6 +400,7 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
 
   const openEdit = (p: Project) => {
     setEditProject(p);
+    setTagInput('');
     const m = p.metadata || {};
     setForm({
       name: p.name, description: p.description, color: p.color, icon: p.icon,
@@ -818,6 +823,13 @@ export default function ProjectsPage({ onSelectProject, environment = 'dev', tie
                 // (handleExport). Tree is the only project list today.
                 const p = projects.find((proj) => proj.id === projectId);
                 if (p) handleExport(p);
+              }}
+              onEdit={(projectId) => {
+                // Edit Project — the tree only knows the id; this page holds
+                // the full project (metadata, members) the form needs, so it
+                // looks the project up here and opens its own dialog.
+                const p = projects.find((proj) => proj.id === projectId);
+                if (p) openEdit(p);
               }}
             />
 
