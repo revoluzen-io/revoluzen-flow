@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-11-09T13:33:56.675051+00:00",
+  "generated_at": "2026-11-10T13:12:54.022764+00:00",
   "signals": [
     {
       "connector_id": "asana",
-      "fingerprint": "a28f54a1bc30e1e809eab9d8edba64dfadce485a9043fc7fe784aeed17c0d72c",
+      "fingerprint": "bb9128f33708de453e1443c3631df21428b21a458c12b9587597566e9761620a",
       "kind": "spec",
-      "observed": "a28f54a1bc30",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "bb9128f33708",
+      "pinned": "a28f54a1bc30",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "github",
@@ -21,12 +21,12 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "b8973e498305c0e45891c45a109901f9caf6ecbf8ad0e53404a7947c503e120f",
+      "fingerprint": "806d4735354a732049599a70f059811f63cfde8521436d723a3f452c606e4859",
       "kind": "spec",
-      "observed": "b8973e498305",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "806d4735354a",
+      "pinned": "b8973e498305",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "intercom",
