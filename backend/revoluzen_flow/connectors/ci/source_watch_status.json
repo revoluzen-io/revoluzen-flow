@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-11T12:21:55.402945+00:00",
+  "generated_at": "2026-11-12T13:30:24.064925+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "3e056802680135531a5b8b6c8b3fd35e4e0c9705a6130e128c655e01ed9a8d1e",
+      "fingerprint": "2a93393cfccb292caeaa0ad9ab250900e361bda28f76743cc812dd0951cae8f0",
       "kind": "spec",
-      "observed": "3e0568026801",
-      "pinned": "806d4735354a",
+      "observed": "2a93393cfccb",
+      "pinned": "3e0568026801",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
