@@ -5,7 +5,7 @@
     },
     "github": {
       "api_version": "2026-03-10",
-      "spec_sha256": "2a93393cfccb292caeaa0ad9ab250900e361bda28f76743cc812dd0951cae8f0"
+      "spec_sha256": "9416f1144aee15971790d0de5388e7ad88a6fdad759fdb729bf94b8414bfb57f"
     },
     "intercom": {
       "spec_sha256": "0624d034b3fd096e99efba8e968243c9a2820d0c05c709a0b5cc5fe3227dc92f"
@@ -14,7 +14,7 @@
       "spec_sha256": "16aa86dccbeee5b027434a7bb4405667d23c4956f8902ba54e375a5bed8757fd"
     },
     "pagerduty": {
-      "spec_sha256": "6471be3950a0023c3e3e4153b2a44c6462c2d622ba94b881260f1d8e905c22c8"
+      "spec_sha256": "cbae7d77f588e8fb5b14118003c9b8a71f274c57719ddc39eb8e77a71994f6d8"
     },
     "slack_api": {
       "spec_sha256": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7"
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-12T13:30:24.064925+00:00"
+  "updated_at": "2026-11-13T12:48:19.040867+00:00"
 }

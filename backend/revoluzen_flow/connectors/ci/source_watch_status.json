@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-12T13:30:24.064925+00:00",
+  "generated_at": "2026-11-13T12:48:19.040867+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "2a93393cfccb292caeaa0ad9ab250900e361bda28f76743cc812dd0951cae8f0",
+      "fingerprint": "9416f1144aee15971790d0de5388e7ad88a6fdad759fdb729bf94b8414bfb57f",
       "kind": "spec",
-      "observed": "2a93393cfccb",
-      "pinned": "3e0568026801",
+      "observed": "9416f1144aee",
+      "pinned": "2a93393cfccb",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -48,12 +48,12 @@
     },
     {
       "connector_id": "pagerduty",
-      "fingerprint": "6471be3950a0023c3e3e4153b2a44c6462c2d622ba94b881260f1d8e905c22c8",
+      "fingerprint": "cbae7d77f588e8fb5b14118003c9b8a71f274c57719ddc39eb8e77a71994f6d8",
       "kind": "spec",
-      "observed": "6471be3950a0",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "cbae7d77f588",
+      "pinned": "6471be3950a0",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "slack_api",
