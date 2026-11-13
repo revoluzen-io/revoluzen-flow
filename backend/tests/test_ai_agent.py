@@ -85,7 +85,11 @@ def _registry_read_only() -> ToolRegistry:
 # ---------------------------------------------------------------------------
 
 
-def test_agent_invokes_one_tool_then_returns_text():
+def test_agent_invokes_one_tool_then_returns_text(monkeypatch):
+    # summarize_pipeline must not reach a store another test left in
+    # app_state (under xdist it can be a closed database).
+    from revoluzen_flow.main import app_state
+    monkeypatch.setitem(app_state, "workflow_store", None)
     fake = FakeLLMClient(script=[
         # First call: model wants to call summarize_pipeline
         LLMResponse(
