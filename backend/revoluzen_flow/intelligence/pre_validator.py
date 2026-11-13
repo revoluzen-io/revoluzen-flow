@@ -206,6 +206,9 @@ class PreValidator:
         schemas: dict[str, list[str]] = {}  # step_id -> list of column names
         import duckdb  # method-scoped — first call pays import, rest hit sys.modules cache
         conn = duckdb.connect(":memory:")
+        # Executes source nodes: same file sandbox as a real run (server mode).
+        from revoluzen_flow.security import sql_sandbox
+        sql_sandbox.apply(conn, workflow, effective_data_dir)
 
         try:
             # Topological order
@@ -362,6 +365,9 @@ class PreValidator:
         try:
             # Create a dummy table so basic queries don't fail on missing tables
             conn.sql("CREATE TABLE __syntax_check (id INTEGER)")
+            from revoluzen_flow.security import sql_sandbox
+            sql_sandbox.lock_scratch(conn)
+            sql_sandbox.require_single_statement(conn, query, "The query")
             conn.sql(f"EXPLAIN {query}")
             checks.append(ValidationCheck(
                 step_id=step.id,
@@ -554,6 +560,9 @@ class PreValidator:
         try:
             # Create a minimal dummy table
             conn.sql("CREATE TABLE __t (dummy INTEGER)")
+            from revoluzen_flow.security import sql_sandbox
+            sql_sandbox.lock_scratch(conn)
+            sql_sandbox.require_single_statement(conn, sql, "The expression")
             conn.sql(f"EXPLAIN {sql}")
             checks.append(ValidationCheck(
                 step_id=step.id,

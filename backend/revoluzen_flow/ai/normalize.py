@@ -96,6 +96,16 @@ def normalize_tool_output(tool_name: str, result: Any) -> Any:
             )
         return result
 
+    # An empty schema declares no keys, so there is nothing to enforce. Read
+    # as "keep only these keys", it kept none: get_incidents, the business
+    # glossary and the shared rule sets all reached the model as {}.
+    if isinstance(schema, dict) and not schema:
+        if not isinstance(result, dict):
+            raise SchemaError(
+                f"Tool {tool_name!r} expected dict, got {type(result).__name__}"
+            )
+        return result
+
     # Dict-shaped schema: enforce required keys, drop extras
     if isinstance(schema, dict):
         if not isinstance(result, dict):

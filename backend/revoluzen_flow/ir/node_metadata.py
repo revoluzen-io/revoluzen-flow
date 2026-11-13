@@ -58,13 +58,15 @@ NO_INPUT_NODES: frozenset[str] = frozenset({
     "ftp_source", "gsheet_source", "delta_source", "file_source",
     "sharepoint_source", "onedrive_source", "gdrive_source", "dropbox_source",
     "box_source", "azure_blob_source", "adls_gen2_source", "gcs_source",
-    "webhook_trigger", "http_request",
+    "http_request",
     # 2026-05-22 — Microsoft Graph (generic) source. Same arity as
     # any other API-backed source: no upstream, produces rows.
     "microsoft_graph_source",
     # 2026-05-23 (Y3) — managed local table source. Reads from
     # tables/{ws}/{schema}/{name}/part-*.parquet by name; no upstream.
     "local_table_source",
+    # Connectors read from the API they describe.
+    "saas_connector", "rest_connector",
 })
 
 # Explicit overrides for nodes that don't fit the "1 in, 1 out" default.
@@ -74,6 +76,9 @@ _CONTRACTS: dict[str, InputContract] = {
     "lookup": {"required": 2, "optional": 0, "variadic": False},
     "union":  {"required": 2, "optional": 0, "variadic": True},
     "scd2":   {"required": 1, "optional": 1, "variadic": False},
+    # Reconcile: the data, plus the system of record as a second input when
+    # it is not read by the step's own query.
+    "reconcile": {"required": 1, "optional": 1, "variadic": False},
     # Control-flow that can run with or without data
     "append_variable": {"required": 0, "optional": 1, "variadic": False},
     "filter_array":    {"required": 0, "optional": 1, "variadic": False},
@@ -149,6 +154,8 @@ SIDE_EFFECT_CLASS: dict[str, SideEffectClass] = {
     # 2026-05-23 (Y3): managed local Parquet sink — passthrough of the
     # input relation while the bytes write to disk in parallel.
     "local_table_sink": "passthrough",
+    # 2026-11-10: one file in Storage -> Pipeline Outputs, replaced each run.
+    "pipeline_output": "passthrough",
     # Transforming — output reflects the side effect
     "http_request": "transforming",
     "copy_data": "transforming",

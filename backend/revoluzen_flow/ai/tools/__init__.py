@@ -26,7 +26,11 @@ from revoluzen_flow.ai.tools.draft_connector_from_samples import DEFINITION as D
 from revoluzen_flow.ai.tools.test_connection import DEFINITION as TEST_CONNECTION
 from revoluzen_flow.ai.tools.modify_pipeline_step import DEFINITION as MODIFY_PIPELINE_STEP
 from revoluzen_flow.ai.tools.get_installation_health import DEFINITION as GET_INSTALLATION_HEALTH
+from revoluzen_flow.ai.tools.get_incidents import DEFINITION as GET_INCIDENTS
+from revoluzen_flow.ai.tools.list_quality_rule_sets import DEFINITION as LIST_QUALITY_RULE_SETS
+from revoluzen_flow.ai.tools.lookup_business_terms import DEFINITION as LOOKUP_BUSINESS_TERMS
 from revoluzen_flow.ai.tools.get_next_scheduled import DEFINITION as GET_NEXT_SCHEDULED
+from revoluzen_flow.ai.tools.get_pipeline_spec import DEFINITION as GET_PIPELINE_SPEC
 from revoluzen_flow.ai.tools.get_running_executions import DEFINITION as GET_RUNNING_EXECUTIONS
 from revoluzen_flow.ai.tools.get_user_role import DEFINITION as GET_USER_ROLE
 from revoluzen_flow.ai.tools.list_catalog import DEFINITION as LIST_CATALOG
@@ -53,6 +57,7 @@ from revoluzen_flow.ai.tools.summarize_pipeline import DEFINITION as SUMMARIZE_P
 from revoluzen_flow.ai.tools.validate_pipeline import DEFINITION as VALIDATE_PIPELINE
 from revoluzen_flow.ai.tools.explain_step import DEFINITION as EXPLAIN_STEP
 from revoluzen_flow.ai.tools.inspect_step_columns import DEFINITION as INSPECT_STEP_COLUMNS
+from revoluzen_flow.ai.tools.suggest_join_keys import DEFINITION as SUGGEST_JOIN_KEYS
 from revoluzen_flow.ai.tools.test_pipeline_draft import DEFINITION as TEST_PIPELINE_DRAFT
 from revoluzen_flow.ai.tools.workspace_overview import DEFINITION as GET_WORKSPACE_OVERVIEW
 from revoluzen_flow.ai.tools.web_fetch import DEFINITION as WEB_FETCH
@@ -82,11 +87,19 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
     LIST_TEMPLATES,
     # Drill-down + metrics
     SUMMARIZE_PIPELINE,
+    # What the pipeline was asked to do and how to tell it worked: the
+    # intent spec and its contract verdict. Added 2026-11-11 so a repair
+    # keeps the acceptance criteria the pipeline was built to.
+    GET_PIPELINE_SPEC,
     VALIDATE_PIPELINE,
     EXPLAIN_STEP,
     # Column names and types a step receives. Added 2026-11-03: the repair
     # evaluation showed the agent could only guess at a renamed column.
     INSPECT_STEP_COLUMNS,
+    # Which columns a join should match on, from shared values in both
+    # inputs. Added 2026-11-11: every recorded model fixed a renamed join
+    # column by guessing from names and setting the wrong key mode.
+    SUGGEST_JOIN_KEYS,
     # Run a draft and report what happened. Added 2026-11-03 for the other
     # half of the same finding: models stopped after one fix because the
     # engine error names only the first broken step and the agent had no
@@ -104,6 +117,15 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
     GET_RUNNING_EXECUTIONS,
     GET_NEXT_SCHEDULED,
     GET_INSTALLATION_HEALTH,
+    # Open incidents and, for one, what changed since the pipeline last
+    # worked. Added 2026-11-11 with incidents and fixes by policy.
+    GET_INCIDENTS,
+    # Shared quality rule sets a Data Quality step can pick instead of
+    # retyped rules. Added 2026-11-11.
+    LIST_QUALITY_RULE_SETS,
+    # The workspace's business glossary (its own terms and metrics). Added
+    # 2026-11-11; the terms a request mentions are also put in the prompt.
+    LOOKUP_BUSINESS_TERMS,
     # Security & Diagnostics baseline — the same rows the Settings page
     # shows. Added 2026-10-26 because the Copilot had no way to see them:
     # asked "why is master key permissions failing", it answered from the
@@ -132,7 +154,7 @@ INITIAL_TOOLS: tuple[ToolDefinition, ...] = (
 # Opt-in web tools — READ-tier, registered ONLY when the operator sets
 # REVOLUZEN_FLOW_AI_WEB_ACCESS=1 (see revoluzen_flow.ai.web). Kept OUT of INITIAL_TOOLS so the
 # air-gap default holds: with the flag off the LLM never sees these tools at all.
-# (The offline count is whatever INITIAL_TOOLS holds — 32 as of 2026-11-03;
+# (The offline count is whatever INITIAL_TOOLS holds — 35 as of 2026-11-11;
 # the old hard-coded "29" here went stale the first time a tool was added.)
 OPTIONAL_WEB_TOOLS: tuple[ToolDefinition, ...] = (
     WEB_SEARCH,
@@ -201,7 +223,9 @@ __all__ = [
     "LIST_TEMPLATES",
     # Drill-down
     "SUMMARIZE_PIPELINE",
+    "GET_PIPELINE_SPEC",
     "INSPECT_STEP_COLUMNS",
+    "SUGGEST_JOIN_KEYS",
     "TEST_PIPELINE_DRAFT",
     "QUERY_METRICS",
     "RECALL_HISTORY",
@@ -210,6 +234,9 @@ __all__ = [
     "GET_RUNNING_EXECUTIONS",
     "GET_NEXT_SCHEDULED",
     "GET_INSTALLATION_HEALTH",
+    "GET_INCIDENTS",
+    "LIST_QUALITY_RULE_SETS",
+    "LOOKUP_BUSINESS_TERMS",
     "GET_SECURITY_POSTURE",
     "LIST_STEWARD_FINDINGS",
     # Safe-write

@@ -13,7 +13,7 @@ the caller decides whether to persist it. Saving is a separate endpoint
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException
@@ -106,6 +106,30 @@ class FromSamplesRequest(BaseModel):
     samples: list[dict] = Field(..., min_length=1, max_length=5)
 
 
+class RequestField(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    label: str = Field(default="", max_length=200)
+    required: bool = False
+    default: str = Field(default="", max_length=8192)
+
+
+class FromRequestRequest(BaseModel):
+    connector_id: str = Field(..., min_length=1, max_length=64)
+    display_name: str | None = None
+    category: str = "saas"
+    operation: str = Field(default="", max_length=200)
+    url: str = Field(..., min_length=1, max_length=2048)
+    method: Literal["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"] = "GET"
+    headers: dict[str, str] = Field(default_factory=dict, max_length=40)
+    query: dict[str, str] = Field(default_factory=dict, max_length=40)
+    body: str = Field(default="", max_length=32768)
+    body_type: Literal["json", "xml", "form", "text"] = "json"
+    fields: list[RequestField] = Field(default_factory=list, max_length=300)
+    row_path: str = Field(default="", max_length=512)
+    auth_type: Literal["none", "bearer", "basic", "api_key", "api_key_query"] = "none"
+    key_name: str = Field(default="X-API-Key", max_length=128)
+
+
 class AuthorResponse(BaseModel):
     manifest: dict
     validation: dict
@@ -167,6 +191,51 @@ async def author_from_samples(req: FromSamplesRequest) -> AuthorResponse:
         raise HTTPException(500, "generation failed") from exc
 
     return AuthorResponse(**result)
+
+
+@router.post("/from-request", response_model=AuthorResponse)
+async def author_from_request(req: FromRequestRequest) -> AuthorResponse:
+    """A runnable connector from an XML or SOAP request tried in the API Explorer.
+
+    Nothing is saved here; ``/save`` does that. Sign-in values are never taken
+    from the request, so they cannot end up in the connector.
+    """
+    from revoluzen_flow.connectors.request_connector import manifest_from_request
+
+    try:
+        manifest, warnings = manifest_from_request(
+            connector_id=req.connector_id,
+            display_name=req.display_name,
+            category=req.category,
+            url=req.url,
+            method=req.method,
+            headers=req.headers,
+            query=req.query,
+            body=req.body,
+            body_type=req.body_type,
+            fields=[field.model_dump() for field in req.fields],
+            row_path=req.row_path,
+            auth_type=req.auth_type,
+            key_name=req.key_name,
+            operation=req.operation,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)[:300]) from exc
+    return AuthorResponse(
+        manifest=manifest,
+        validation={
+            "connector_id": manifest["id"],
+            "valid": True,
+            "declared_depth_score": 0,
+            "computed_depth_score": 0,
+            "effective_depth_score": 0,
+            "errors": [],
+            "warnings": warnings,
+            "streams_evaluated": [stream["name"] for stream in manifest["streams"]],
+        },
+        mode="request",
+        runtime_manifest=manifest,
+    )
 
 
 class RuntimeManifestResponse(BaseModel):
@@ -258,8 +327,16 @@ async def list_saved_connectors() -> dict[str, Any]:
 
 @router.delete("/saved/{connector_id}", dependencies=[Depends(require_min_rank("admin"))])
 async def delete_saved_connector(connector_id: str) -> dict[str, Any]:
-    """Remove a user-added connector. 404 if it isn't a user-added one."""
+    """Remove a user-added connector. 404 if it isn't a user-added one.
+    Refused while a published pipeline uses it."""
     from revoluzen_flow.connectors import rest_framework as rf
+    from revoluzen_flow.ir.published_refs import published_using_connector, refusal
+    from revoluzen_flow.main import app_state
+    workflow_store = app_state.get("store")
+    if workflow_store is not None:
+        pipelines = published_using_connector(workflow_store, connector_id)
+        if pipelines:
+            raise HTTPException(409, refusal("The connector", connector_id, pipelines))
     if not rf.delete_user_manifest(connector_id):
         raise HTTPException(404, "no such user-added connector")
     return {"deleted": True, "id": connector_id}

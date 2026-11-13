@@ -105,6 +105,8 @@ class TransformNode(BaseNode):
         # Materializing into a step-scoped temp table breaks that chain: the
         # returned relation reads the temp table, not `source_table`.
         out_tbl = ctx.scoped_name("__transform_out")
+        from revoluzen_flow.security.sql_sandbox import require_single_statement
+        require_single_statement(ctx.conn, expression, "A SQL Transform")
         ctx.conn.execute(f"CREATE OR REPLACE TEMP TABLE {out_tbl} AS {expression}")
         return ctx.conn.sql(f"SELECT * FROM {out_tbl}")
 

@@ -140,6 +140,42 @@ oracledb>=2.0
 paramiko>=3.0
 redis>=5.0
 pymongo>=4.0
+# 2026-11-11: three more drivers, so the connectors and steps the app offers
+# as ready work out of the box. Self-contained wheels, permissive licences,
+# no OS-level deps:
+#   * deltalake — Delta Lake Sink (Apache-2.0). Without it the step now
+#     stops and writes nothing; it used to write Parquet that no Delta
+#     reader opens.
+#   * google-cloud-bigquery — BigQuery source, sink and browse (Apache-2.0)
+#   * databricks-sql-connector — Databricks SQL warehouses (Apache-2.0)
+# Db2 / Informix (ibm_db), SAP HANA (hdbcli) and Teradata (teradatasql) stay
+# add-ons: their drivers come under the vendors' own licences. The New
+# Connection picker says "Needs an add-on" until one is installed.
+deltalake>=1.0
+google-cloud-bigquery>=3.18
+databricks-sql-connector>=3.0
+# 2026-11-11 (later): the last drivers behind connectors the picker marks
+# Certified. A pip dry-run added 7 packages (these 4, azure-core, isodate,
+# backports.zstd) and changed none. Apache-2.0 / MIT, no OS-level deps.
+#   * clickhouse-connect — ClickHouse reading, writing and browsing. Browsing
+#     used clickhouse-driver (native port 9000) while runs used this one
+#     (HTTP port 8123); both now use this one, so one driver and one port.
+#   * google-cloud-storage — browsing GCS, GCS backups, and watching a GCS
+#     folder with a service account. Pipelines read GCS through DuckDB.
+#   * azure-storage-blob / azure-storage-file-datalake — browsing Azure Blob
+#     and ADLS Gen2, Azure backups. Pipelines read them through DuckDB.
+# Redshift needs no driver of its own: it speaks the PostgreSQL protocol, so
+# psycopg2 above reads and writes it (redshift_connector is used if added).
+clickhouse-connect>=0.8
+google-cloud-storage>=2.14
+azure-storage-blob>=12.19
+azure-storage-file-datalake>=12.14
+# 2026-11-11 (later): Windows file shares (SMB). The File step reads and
+# writes \\server\share files with a saved sign-in, the same on Windows,
+# Linux and Docker (connections/file_share.py). smbprotocol (MIT) brings
+# pyspnego (MIT) for the NTLM / Kerberos sign-in and, on Windows only,
+# sspilib (MIT). Pure Python apart from sspilib's Windows wheel.
+smbprotocol>=1.15
 # 2026-06-01: Avro file reader (File node, Cloud Files node). ORC reads
 # go through pyarrow.orc (already shipped with pyarrow), but Avro is
 # row-oriented + schema-embedded and needs fastavro to parse — there's

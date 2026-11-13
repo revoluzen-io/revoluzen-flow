@@ -338,7 +338,8 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `rules` | `rule_list` | yes | `[]` | `{column,op,value}` checks. Empty → pass-through. A rule the step cannot use stops the run (see Fails when). |
+| `rules` | `rule_list` | yes, or `rule_sets` | `[]` | `{column,op,value}` checks. Empty with no `rule_sets` → pass-through (the editor refuses it before Run). A rule the step cannot use stops the run (see Fails when). |
+| `rule_sets` | `rule_set_list` | no | `[]` | Ids of shared quality rule sets (`/api/quality-rule-sets`, 2026-11-11). Their rules run with the step's own, as each set is at run time; the run's copy of the step records `_rule_set_versions` ({id: version}), so an edited set also re-runs the step under **Rerun from here**. A set that no longer exists, or that checks a column the input does not have, stops the run naming the set. |
 | `mode` | `select` (`drop`,`fail`,`tag`,`reject`,`split`) | no | `drop` | What happens to failing rows. |
 | `quality_threshold` | `number` | no | `0` | If >0, treat below-threshold pass rate as failure per mode. |
 | `include_score` | `boolean` | no | `False` | Add `__dq_score` (0–100) per row. |
@@ -347,6 +348,29 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 **Output.** drop/split → passing rows; tag → all + `__dq_passed`; reject → all + `_split_output` routed to **Pass**/**Reject**; fail → all rows or aborts. Single `output` except in reject mode.
 **Variables & parameters.** Rule `value` fields resolve `${param.x}` / `{{ }}`. **Writes** `ctx.vars["_dq_failures_<step_id>"]` in `split` mode.
 **Fails when.** No input; a rule the step cannot use, which it reports before checking any row (`dq_rule_problems`, a `ValueError` naming each rule by number): no column, a check that is not one of the fourteen, or a value the check cannot read (eq / ne / gt / lt / gte / lte need one value, in / not_in a non-empty list with no empty entry, between `[low, high]` with both filled in, regex a non-empty pattern, min_length / max_length a whole number of 0 or more; not_null / is_null need none; no `op` reads as `not_null`). Such a rule used to compile to `TRUE` and pass every row. `mode='fail'` with any failing row or pass rate below `quality_threshold`.
+
+### Reconcile — `reconcile`
+**Purpose.** Compare the data with the system of record before it is written: the row count, the totals of chosen columns, and the keys on each side. A pipeline can keep every row rule and still be wrong the way the business means it (2,480 orders against the ERP's 2,500); this catches that inside the run, so a mismatch stops the write instead of being found at month end.
+**Design.** The reference is a second wired input (`reference: input`; `reference_step` pins which input, else the second) or one read-only `SELECT`/`WITH` statement against a saved connection (`reference: query`, run through `_run_connection_sql`; a statement with `;` or any other verb is refused before it reaches the connection). Query rows are loaded into a temp table, whole-number columns as `BIGINT`, other numbers as `DOUBLE`, the rest as text; with no rows, the compared columns are created empty so "0 rows in the reference" is a finding. Checks: `COUNT(*)` on both sides; `SUM(col)` for each of `sum_columns`; for `key_columns`, `SELECT DISTINCT keys ... EXCEPT ...` both ways (keys the reference has that the data lacks, and the reverse), compared as written when both sides are whole numbers, as numbers when both are numeric, else as text. Row count and totals pass within `tolerance_pct` of the reference; totals involving floating-point numbers get a 1e-9 relative allowance, because a parallel sum of the same numbers can differ in the last digits. Key checks are exact. A mismatch raises (`on_mismatch: fail`) with counts and totals only, never row values (run errors reach the Copilot, which works from names only), or logs and carries on (`warn`).
+**Inputs.** One or two: the data, and the reference when it is not a query.
+**Input fields.**
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `reference` | `select` (`input`,`query`) | no | `input` | Where the reference comes from. |
+| `reference_step` | `upstream_step` | no | `""` | Which wired input is the system of record. Empty = the second. |
+| `connection_id` | `connection` | with `query` | `""` | The system of record to query. |
+| `query` | `sql` | with `query` | `""` | One read-only `SELECT`/`WITH`. Alias columns to the data's names. |
+| `compare_row_count` | `boolean` | no | `True` | Compare the number of rows. |
+| `sum_columns` | `column_list` | no | `[]` | Columns whose totals must match. |
+| `key_columns` | `column_list` | no | `[]` | Columns whose distinct values must match on both sides. |
+| `tolerance_pct` | `number` | no | `0` | Allowed difference for row count and totals, in % of the reference. |
+| `on_mismatch` | `select` (`fail`,`warn`) | no | `fail` | Stop the run here, or carry on. |
+| `output` | `select` (`input`,`report`) | no | `input` | The data unchanged, or one row per check (`check_name, column_name, value, reference, difference, allowed, passed, detail`). |
+
+**Output.** The data unchanged (so the step sits in front of a destination), or the report.
+**Variables & parameters.** `query` resolves `${param.x}` / `{{ }}` like any SQL field. Reads/writes no `$vars`.
+**Fails when.** No input; `reference: input` with one input; nothing chosen to compare; a compared column missing on either side (the message says to alias it in the query); a column that cannot be totalled; a reference query that is not a single read-only statement; a mismatch with `on_mismatch: fail`.
 
 ### Data Profile — `data_profile`
 **Purpose.** Emit one row per source column with summary statistics (null %, distinct, min/max, top value, mean/median/stddev, length stats). A profiling/audit node.
@@ -419,6 +443,7 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 **Purpose.** Combine two datasets by matching key column(s), with full enterprise join-type support. ADF Join / n8n Merge (by-key).
 **Design.** Registers the two inputs as views `__join_left` / `__join_right`. The ON clause follows `key_mode`: `same_key` → `__join_left."k" = __join_right."k"` AND-joined; `mapped_keys` → one `__join_left."left" <op> __join_right."right"` per `key_pairs`; `custom` → `custom_on` verbatim. `FULL` → `FULL OUTER`; `SEMI`/`ANTI` → `WHERE [NOT] EXISTS`. Projection: explicit `select_left`/`select_right` if set; otherwise `_default_projection()` keeps all left columns, collapses `same_key` keys to a single `COALESCE(left,right) AS k` (survives RIGHT/FULL null-left rows), and suffixes any clashing right column with `dup_column_suffix`. `left_input_id` pins the left side (else index 0).
 **Inputs.** Exactly 2 (raises if fewer); left/right by `left_input_id`.
+**Suggest keys.** The config's **Suggest keys** button (and the Copilot's `suggest_join_keys` tool) samples both inputs the way Test Node runs them, in preview with nothing written, and ranks column pairs by the values they share, their names (`customer_id` against `id` on a step named `customers`), types and uniqueness, with the join's shape (many-to-one, many-to-many). A same-name pair applies as `same_key`; a pair whose names differ applies as `mapped_keys` with one key pair. Only names and percentages come back, never sampled values (`intelligence/join_discovery.py`, `POST /api/execute/workflow/ephemeral/step/{step_id}/join-keys`).
 **Input fields.**
 
 | Field | Type | Required | Default | What it does |
@@ -642,8 +667,8 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 
 ### For Each (Run Pipeline) — `foreach_pipeline`
 **Purpose.** A true per-item loop: run a saved sub-pipeline ONCE PER input row, injecting that row's columns as parameters. ADF ForEach / n8n Loop Over Items. Distinct from `foreach_loop` (batching).
-**Design.** Validates `pipeline_id`, `on_item_error`, `max_iterations`, `item_param`, static `parameters`. Materializes all rows; refuses inputs larger than `max_iterations`. Per row builds `overrides = {**static, **row, item_param: row}` and calls `_run_subpipeline`, which filters overrides to the child's DECLARED params and runs the child with `parameter_values=filtered`. Per-item errors raise (`fail`) or count-and-continue. Sequential.
-**Inputs.** Exactly one — the rows to iterate; the relation passes through.
+**Design.** Validates `pipeline_id`, `on_item_error`, `max_iterations`, `max_parallel`, `output`, `item_param`, static `parameters`. Numbers the input rows once (so a row keeps its number in the run, in errors and in the results) and refuses inputs larger than `max_iterations`. Per row builds `overrides = {**static, **row, item_param: row}` and calls `_run_subpipeline`, which filters overrides to the child's DECLARED params and runs the child with `parameter_values=filtered`. With `max_parallel` 1 (the default) rows run in order. Above 1, up to that many rows run at once on a thread pool, each as its own child run (ceiling 16, since every child has its own DuckDB connection and memory limit). While the run governor reads memory as orange or red, rows start one at a time until it recovers. Worker threads carry the parent's pipeline chain, so a child that would start its own parent is still refused. Stop ends the loop in both modes: no new row starts once the run is cancelled, and the step raises `RunCancelled`.
+**Inputs.** Exactly one — the rows to iterate.
 **Input fields.**
 
 | Field | Type | Required | Default | What it does |
@@ -651,12 +676,14 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 | `pipeline_id` | workflow_picker | Yes | `""` | Sub-pipeline run once per row. |
 | `item_param` | text | No | `item` | Name under which the whole row is passed as one JSON parameter. |
 | `max_iterations` | number | No | `100` | Safety cap; refuses inputs exceeding it. |
-| `on_item_error` | select (`fail`,`continue`) | No | `fail` | Stop on first failed item vs skip and finish. |
+| `max_parallel` | number | No | `1` | Rows at once. 1 = in order; at most 16. |
+| `on_item_error` | select (`fail`,`continue`) | No | `fail` | `fail`: stop at the first failed row (rows already running finish, no new row starts; the error names the first failed row and how many never started). `continue`: finish every row. |
+| `output` | select (`input`,`results`) | No | `input` | `input`: the input rows unchanged. `results`: the input rows plus `_item`, `_status` (`success`, `error`, `not_run`), `_error`, `_duration_ms`. |
 | `parameters` | key_value_map | No | `{}` | Fixed params for every iteration; per-row columns override these. |
 
-**Output.** The input relation unchanged (child outputs not collected).
+**Output.** By default the input relation unchanged (child outputs not collected). With `output="results"`, one row per input row, in input order, with how that row's run ended, so a later step can route the failed rows.
 **Variables & parameters.** `pipeline_id`/`item_param`/static `parameters` resolve `${param.x}` / `{{ }}`; each iteration writes row+static into the CHILD's `parameter_values`. Does not read/write parent `$vars`.
-**Fails when.** No input; missing `pipeline_id`; invalid `on_item_error`; non-numeric or `<=0` `max_iterations`; row count exceeding `max_iterations`; store/pipeline unavailable; a failing item with `on_item_error="fail"`.
+**Fails when.** No input; missing `pipeline_id`; invalid `on_item_error` or `output`; non-numeric or `<=0` `max_iterations`; non-numeric or negative `max_parallel`; row count exceeding `max_iterations`; store/pipeline unavailable; a failing item with `on_item_error="fail"`; the run is stopped.
 
 ### Lookup (Activity) — `lookup_activity`
 **Purpose.** The orchestration-layer Lookup (ADF "Lookup activity"): read reference row(s) into a named variable for control flow (watermarks, config lookups, row-count gates). Distinct from the Combine **Lookup** transformation. *(Note: an ADF-exact connection+query mode is planned — today it reads its wired upstream relation.)*
@@ -717,23 +744,28 @@ The Data Movement nodes move rows between storage systems and the in-pipeline Du
 These nodes perform side effects (HTTP, email/Slack, file ops, SQL, deletes) or return metadata. `$vars` is not written by any of them.
 
 ### HTTP Request — `http_request`
-**Purpose.** Call a web API and capture the JSON response, as one batch request or one request per input row. ADF Web/Web Hook / n8n HTTP Request.
-**Design.** Batch mode ignores input and calls once; per-row mode materializes the input to a DataFrame and substitutes `{column}` placeholders into URL/body per row. `_do_request` builds a `urllib` request (default `Accept: application/json`, `User-Agent: Revoluzen Flow/0.6.0`; JSON body → `Content-Type: application/json`). **Before opening any socket** it runs the SSRF guard `check_url(url, allow_private_env="REVOLUZEN_FLOW_HTTP_ALLOW_PRIVATE")` (blocks loopback/private/link-local/metadata unless allowed). Response parsing: a JSON list → rows; a dict unwrapped on `data/results/items/records/rows/values`, else one row; scalars → `{"response": …}`. Timeout: per-step `timeout` > 0 else `REVOLUZEN_FLOW_HTTP_DEFAULT_TIMEOUT` else 30s. Per-row capped at `REVOLUZEN_FLOW_HTTP_PER_ROW_MAX` (default 1000).
+**Purpose.** Call a web API and capture the response, as one batch request or one request per input row. ADF Web/Web Hook / n8n HTTP Request.
+**Design.** Batch mode ignores input and calls once; per-row mode materializes the input to a DataFrame and substitutes `{column}` placeholders into URL/body per row, escaped for the body type (JSON string-escaped, XML escaped, form values URL-encoded). `_do_request` builds a `urllib` request (default `Accept` prefers JSON and also takes XML, `User-Agent: Revoluzen Flow/0.6.0`; `Content-Type` follows the body type unless a header sets it). **Before opening any socket** it runs the SSRF guard `check_url(url, allow_private_env="REVOLUZEN_FLOW_HTTP_ALLOW_PRIVATE")` (blocks loopback/private/link-local/metadata unless allowed), and each redirect is checked the same way; credentials are dropped if a redirect leaves the site. Response parsing (`common/http_reply.py`): a JSON list → rows; a dict unwrapped on `data/results/items/records/rows/values`, else one row; scalars → `{"response": …}`; XML → rows at the row path, with attributes and child elements as columns, `parent_child` for nested elements and JSON text for repeats; an empty reply → no rows; plain text → one row in `response`. Under Automatic, a web page or a file is an error. A SOAP fault is an error at any HTTP status. XML that declares entities is refused. Timeout: per-step `timeout` > 0 else `REVOLUZEN_FLOW_HTTP_DEFAULT_TIMEOUT` else 30s. Per-row capped at `REVOLUZEN_FLOW_HTTP_PER_ROW_MAX` (default 1000).
 **Inputs.** 0 in batch mode (valid no-input entry node); exactly 1 in per-row mode.
 **Input fields.**
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
+| connection_id | connection | No | "" | A saved REST API connection: its address and sign-in are used. `url` is then a path (`/orders`, or `/` for the connection's own address); a full address must be on the connection's site. Sign-in fields on the step win over the connection's. |
 | url | text | Yes | "" | Target URL; `{column}` placeholders in per-row mode. |
 | method | select (GET/POST/PUT/PATCH/DELETE) | No | GET | HTTP method. |
 | headers | key_value | No | {} | Extra headers, merged over defaults. |
-| body | code | No | "" | Request body (JSON); `{column}` in per-row mode. |
+| body_type | select (json/xml/form/text) | No | json | Sets `Content-Type` and how `{column}` values are escaped. A form body is `name=value&…` or a JSON object. |
+| body | code | No | "" | Request body; `{column}` in per-row mode. |
+| auth_type | select (none/bearer/basic/api_key) | No | none | With `auth_token`, `auth_user`/`auth_pass` or `api_key_header`/`api_key_value`. A header set above wins. |
+| response_format | select (auto/json/xml/text) | No | auto | How to read the reply. `text` keeps it as one row. |
+| row_path | text | No | "" | XML only: the element that is one row, such as `//order` or `/orders/order`. Namespaces are ignored. Empty finds the repeating element. |
 | per_row | boolean | No | false | One request per input row. |
 | timeout | number | No | 0 | Per-request timeout; 0 = default. |
 
 **Output.** Batch: response rows. Per-row: each input row merged with the first response row; empty → `{**row, "_http_status":"empty"}`; per-row exceptions captured as `{**row, "_http_error":…}` (do not abort). No rows → input unchanged.
 **Variables & parameters.** `url`/`body`/`headers`/`method`/`timeout` resolve `${param.x}` / `{{ }}`; `url`/`body` also support `{column}` in per-row mode. Does not read/write `$vars`.
-**Fails when.** `url` empty; SSRF block; per-row input exceeds the cap; batch HTTP error / unreachable host.
+**Fails when.** `url` empty; SSRF block; per-row input exceeds the cap; batch HTTP error / unreachable host; a SOAP fault; malformed or unsafe XML; under Automatic, a web page or a file.
 
 ### Code / Script — `code_script`
 **Purpose.** Run user Python over the input as a pandas DataFrame. ADF custom transform / n8n Code node.
@@ -947,7 +979,7 @@ Surfaced while documenting from code, then triaged 2026-06-15 (each claim re-ver
 **Declared-but-unused params:**
 - ✅ **Execute Pipeline** — `wait_for_completion` removed (it always runs synchronously).
 - ✅ **Get Metadata** — schema trimmed to `[]`; the file/directory + field/size toggles `execute()` never read are gone (it profiles the upstream relation, fixed output).
-- ✅ **ForEach / Batch Rows** — the fake `mode=parallel` removed (always sequential).
+- ✅ **ForEach / Batch Rows** — the fake `mode=parallel` removed from Batch Rows (always sequential). ForEach (Run Pipeline) gained a real `max_parallel` on 2026-11-11.
 - ⚠️ **Switch (`conditional_split`)** — docstring still mentions an `all_match` mode that isn't implemented (docstring-only; not in schema).
 - ⚠️ **Retry** — docstring lists a `last_good` `on_exhausted` option not exposed in the schema (docstring-only).
 

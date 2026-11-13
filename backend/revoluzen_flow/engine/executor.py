@@ -145,7 +145,7 @@ def _has_template(value: Any) -> bool:
     return False
 
 
-def _open_duckdb() -> duckdb.DuckDBPyConnection:
+def _open_duckdb(workflow=None, data_dir: str | None = None) -> duckdb.DuckDBPyConnection:
     """Open an in-memory DuckDB connection with runtime guardrails applied.
 
     Why this wrapper exists: a single runaway GROUP BY or JOIN can hash
@@ -197,6 +197,11 @@ def _open_duckdb() -> duckdb.DuckDBPyConnection:
     except Exception as exc:  # noqa: BLE001
         logger.warning("executor: could not set preserve_insertion_order (%s)", exc)
 
+    # File-system sandbox for pipeline SQL (on in server mode): the pipeline's
+    # own files stay readable, the master key and the app database do not.
+    # Applied last, after every SET above, because it locks the configuration.
+    from revoluzen_flow.security import sql_sandbox
+    sql_sandbox.apply(conn, workflow, data_dir)
     return conn
 
 
@@ -275,6 +280,11 @@ class WorkflowExecutor:
         # on_error policy as if the step exhausted its own budget.
         self.workflow_retry_budget = self.DEFAULT_WORKFLOW_RETRY_BUDGET
         self._workflow_retries_used = 0
+        # The running workflow's time limit, when it has one, and its
+        # cancellation token. Set and cleared by execute_workflow; the step
+        # retry loop reads the token to stop retrying a stopped run.
+        self._run_limit = None
+        self._run_token = None
 
     def _emit(self, event_type: str, data: dict[str, Any]) -> None:
         """Report progress to an optional listener.
@@ -306,8 +316,15 @@ class WorkflowExecutor:
         execution_code: str | None = None,
         preview_mode: bool = False,
         sample_row_limit: int | None = None,
+        time_limit_seconds: float | None = None,
     ) -> WorkflowRunResult:
         """Execute all steps in topological order.
+
+        A run is stopped and marked failed once it has gone on longer than
+        its time limit: the pipeline's own "Maximum Running Time"
+        (``metadata.execution_settings``) or ``time_limit_seconds``, whichever
+        is shorter. A published endpoint passes its timeout here. See
+        ``engine/run_time_limit.py``.
 
         When ``full_run`` is False (default), source nodes limit to
         ``DEV_SAMPLE_ROWS`` in dev mode for fast iteration.  The frontend
@@ -348,6 +365,15 @@ class WorkflowExecutor:
         # deep in the step loop, and a list carried over from the last
         # run would attribute the previous run's damage to this receipt.
         self._blast_radius = []
+        # What this run was asked to run, fingerprinted before the run adds
+        # its own wiring to the step params. The contract receipt records it,
+        # and the publish gate uses it to find the verdict on exactly this
+        # definition (contracts/gate.py).
+        try:
+            from revoluzen_flow.ir.versioning import definition_hash as _definition_hash
+            self._definition_hash = _definition_hash(workflow)
+        except Exception:  # noqa: BLE001 — a fingerprint never stops a run
+            self._definition_hash = None
 
         try:
             from revoluzen_flow.security.execution_codes import enforce_execution_code
@@ -484,7 +510,7 @@ class WorkflowExecutor:
             import uuid as _uuid
             run_id = _uuid.uuid4().hex[:12]
 
-        conn = _open_duckdb()
+        conn = _open_duckdb(workflow, self.data_dir)
         # A sandbox run already redirects every sink to a scratch
         # namespace, so there is nothing to protect the operator from and
         # skipping would only make the preview less faithful.
@@ -526,6 +552,7 @@ class WorkflowExecutor:
 
         # Set up per-workflow step cache so each success writes a parquet
         # checkpoint the "Rerun from here" feature can read later.
+        self._stamp_shared_rule_sets(workflow)
         self._cache = StepCache(self.data_dir, workflow.id)
         self._effective_hashes = self._cache.compute_effective_hashes(workflow, input_map)
         self._cached_step_ids = set()
@@ -578,6 +605,31 @@ class WorkflowExecutor:
         # so the main loop can apply retry logic to upstream nodes.
         retry_targets = self._find_retry_targets(workflow, order, input_map)
 
+        # Every run gets a cancellation token, so Stop can reach it, and its
+        # DuckDB connection is registered on the token, so Stop or the time
+        # limit interrupts a query in flight instead of waiting it out.
+        # A run stopped while it was still queued arrives already cancelled
+        # and ends at the first step boundary, before any work.
+        from revoluzen_flow.engine.cancellation import create_token
+        self._run_token = create_token(run_id)
+        _interrupt = getattr(conn, "interrupt", None)
+        if callable(_interrupt) and not self._run_token.is_cancelled:
+            self._run_token.register_cancel_callback(_interrupt)
+        else:
+            _interrupt = None
+
+        # The run's time limit, when it has one. Armed just before the first
+        # step, so time spent waiting in the pool's queue does not count.
+        from revoluzen_flow.engine.run_time_limit import (
+            TIME_LIMIT_STEP_ID,
+            RunTimeLimit,
+            configured_limit_seconds,
+            effective_limit_seconds,
+        )
+        _limit_s = effective_limit_seconds(configured_limit_seconds(workflow), time_limit_seconds)
+        run_result.time_limit_seconds = _limit_s
+        self._run_limit = RunTimeLimit(run_id, _limit_s).start() if _limit_s else None
+
         for step_index, step in enumerate(order):
             # E3.1 (2026-06-08, docs/design/executor-maturity-1.2.md) —
             # cancellation check at the step boundary. If a
@@ -593,9 +645,29 @@ class WorkflowExecutor:
                     from revoluzen_flow.engine.cancellation import get_token
                     _tok = get_token(run_id)
                     if _tok is not None and _tok.is_cancelled:
-                        run_result.status = "cancelled"
-                        logger.info("run %s cancelled at step boundary (%s)",
-                                    run_id, step.id)
+                        if self._run_limit is not None and self._run_limit.is_reached:
+                            # No step is running to carry the reason, so the
+                            # run gets a result of its own, like "validation".
+                            run_result.step_results[TIME_LIMIT_STEP_ID] = StepRunResult(
+                                step_id=TIME_LIMIT_STEP_ID,
+                                status="error",
+                                error=self._run_limit.message_between_steps(),
+                                error_type=StepErrorType.TIMEOUT,
+                            )
+                            run_result.status = "error"
+                            run_result.stopped_by_time_limit = True
+                            run_result.stop_message = self._run_limit.message_between_steps()
+                            logger.info("run %s stopped at its time limit before step %s",
+                                        run_id, step.id)
+                        else:
+                            run_result.status = "cancelled"
+                            run_result.stop_message = (
+                                f"{self._stopped_by(_tok)} before "
+                                f"“{ctx.node_labels.get(step.id, step.id)}” started, "
+                                f"so it and the steps after it did not run."
+                            )
+                            logger.info("run %s cancelled at step boundary (%s)",
+                                        run_id, step.id)
                         break
                 except Exception:  # noqa: BLE001 — never break the loop over cancel plumbing
                     pass
@@ -686,6 +758,30 @@ class WorkflowExecutor:
                 )
             else:
                 step_result = self._execute_step(step, ctx, input_map, preview_limit)
+            if self._stopped_by_run_limit(step_result):
+                # Say why, rather than DuckDB's bare "Interrupted!", and stop
+                # the run even when the step is set to continue on error.
+                step_result = step_result.model_copy(update={
+                    "status": "error",
+                    "error": self._run_limit.message_during_step(),
+                    "error_type": StepErrorType.TIMEOUT,
+                })
+                run_result.stopped_by_time_limit = True
+                run_result.stop_message = self._run_limit.message_during_step()
+            elif self._stopped_mid_step(step_result):
+                # Someone pressed Stop while this step ran. The run ends as
+                # cancelled, not failed: no failure alert, and the record
+                # says who stopped it.
+                who = self._stopped_by(self._run_token)
+                step_result = step_result.model_copy(update={
+                    "status": "error",
+                    "error": f"{who} while this step was running.",
+                    "error_type": StepErrorType.CANCELLED,
+                })
+                run_result.status = "cancelled"
+                run_result.stop_message = (
+                    f"{who} while “{ctx.node_labels.get(step.id, step.id)}” was running."
+                )
             run_result.step_results[step.id] = step_result
 
             self._emit(
@@ -775,12 +871,25 @@ class WorkflowExecutor:
             # ``skipped`` (set when on_error=continue) lets the workflow keep
             # going. Only a hard ``error`` (on_error=stop, the default) aborts.
             if step_result.status == "error":
-                run_result.status = "error"
+                if run_result.status != "cancelled":
+                    run_result.status = "error"
                 break
+
+        # Disarm the limit and the interrupt before cleanup, so the queries
+        # below are never interrupted by a timer or a late Stop.
+        if self._run_limit is not None:
+            self._run_limit.stop()
+            self._run_limit = None
+        if _interrupt is not None:
+            self._run_token.unregister_cancel_callback(_interrupt)
+        self._run_token = None
 
         elapsed = (time.perf_counter() - t0) * 1000
 
-        if run_result.status != "error":
+        # A cancelled run stays cancelled. It used to fall through to
+        # "success" here, and commit the incremental-load cursors below as if
+        # every row had been loaded.
+        if run_result.status not in ("error", "cancelled"):
             run_result.status = "success"
             # Persist buffered incremental-sync watermarks ONLY now that the
             # whole run (sources AND sinks) has succeeded. A source that
@@ -792,6 +901,9 @@ class WorkflowExecutor:
             # were never loaded.
             if not (getattr(ctx, "preview_mode", False) or getattr(ctx, "sandboxed", False)):
                 self._commit_sync_cursors(ctx)
+        # Whatever was not saved above stays unsaved, and queue messages the
+        # run took but did not confirm go back to their queue (streams/holds.py).
+        self._release_pending_reads(ctx)
 
         run_result.completed_at = datetime.now(timezone.utc)
         run_result.duration_ms = round(elapsed, 2)
@@ -849,7 +961,9 @@ class WorkflowExecutor:
         # sandbox run wrote nothing there, on capped rows, so judging it would
         # raise false alerts and add a false receipt to the chain.
         if not (ctx.preview_mode or ctx.sandboxed):
-            self._maybe_verify_contract(workflow, run_result, run_id)
+            self._maybe_verify_contract(
+                workflow, run_result, run_id, ctx=ctx, resumed_from=resume_from_run_id,
+            )
 
         conn.close()
         return run_result
@@ -983,7 +1097,10 @@ class WorkflowExecutor:
                 step.id, "; ".join(str(v) for v in violations),
                 f" [{radius.summary()}]" if radius else "",
             )
-            raise ContractBlockedWrite(step.id, violations)
+            raise ContractBlockedWrite(
+                step.id, violations, step_label=getattr(step, "label", None),
+                row_count=row_count, columns=columns,
+            )
 
     def _record_blast_radius(self, step, ctx, *, rows_written: int,
                              blocked: bool):
@@ -1047,7 +1164,9 @@ class WorkflowExecutor:
         except Exception:  # noqa: BLE001
             return None
 
-    def _maybe_verify_contract(self, workflow, run_result, run_id: str | None) -> None:
+    def _maybe_verify_contract(
+        self, workflow, run_result, run_id: str | None, *, ctx=None, resumed_from: str | None = None,
+    ) -> None:
         """Check the run against its Execution Contract and store the receipt.
 
         No contract for this pipeline means nothing to verify, and that is
@@ -1070,11 +1189,33 @@ class WorkflowExecutor:
             if contract is None:
                 return
 
+            from revoluzen_flow.contracts.facts import destination_confirmed, measure_contract_facts
             from revoluzen_flow.contracts.service import verify_run
 
             upstream: dict[str, list[str]] = {}
             for edge in workflow.connections:
                 upstream.setdefault(edge.to_step, []).append(edge.from_step)
+
+            # Duplicate keys and the age of a time column need the rows, so
+            # they are measured here while the run's relations still exist.
+            # Before this, both guarantees failed every run for lack of a fact.
+            facts: dict = {}
+            if ctx is not None:
+                facts = measure_contract_facts(
+                    contract, run_result, dict(getattr(ctx, "_results", {}) or {}), ctx.conn,
+                )
+            radius = list(getattr(self, "_blast_radius", []) or [])
+            # A full run with the step cache on writes every finished step's
+            # output, which is what Resume reads back: that run can be
+            # resumed. Said here so "Run was resumable" is a measured fact,
+            # not a clause that failed every run for lack of one.
+            checkpointed = None
+            if ctx is not None:
+                checkpointed = bool(
+                    getattr(self, "_cache", None) is not None
+                    and getattr(self, "_effective_hashes", None)
+                    and getattr(ctx, "full_run", False)
+                )
 
             receipt = verify_run(
                 contract,
@@ -1088,7 +1229,17 @@ class WorkflowExecutor:
                 trigger=getattr(run_result, "trigger", None) or "api",
                 # What this run did to its destinations, captured by the
                 # gate while the before-and-after both still existed.
-                blast_radius=list(getattr(self, "_blast_radius", []) or []),
+                blast_radius=radius,
+                destination_verified=destination_confirmed(radius),
+                resumed_from=resumed_from,
+                checkpoint_enabled=(True if resumed_from else checkpointed),
+                duplicate_key_counts=facts.get("duplicate_key_counts"),
+                column_age_seconds=facts.get("column_age_seconds"),
+                unmeasured=facts.get("unmeasured"),
+                # Which definition ran, as fingerprinted when the run began.
+                # The publish gate reads it to find the last verdict on
+                # exactly the version about to go live.
+                pipeline_hash=getattr(self, "_definition_hash", None),
             )
             store.record(workflow.id, receipt)
             logger.info(
@@ -1136,12 +1287,37 @@ class WorkflowExecutor:
             return
         for state in pending:
             try:
-                sync_state_store.upsert(state)
+                # Streaming sources (2026-11-13) hand over something that saves
+                # itself: a read position saved only if no other run moved it
+                # (streams/positions.py), or queue messages to confirm
+                # (streams/holds.py).
+                commit = getattr(state, "commit", None)
+                if callable(commit):
+                    commit()
+                else:
+                    sync_state_store.upsert(state)
             except Exception as exc:  # noqa: BLE001 — one bad cursor won't fail the run
                 logger.warning(
                     "cursor commit failed for step %s: %s",
                     getattr(state, "step_id", "?"), exc,
                 )
+        ctx.pending_sync_cursors = []
+
+    @staticmethod
+    def _release_pending_reads(ctx) -> None:
+        """Drop the read positions a run did not save, and give queue messages
+        it did not confirm back to their queue (``release``)."""
+        pending = getattr(ctx, "pending_sync_cursors", None)
+        if not pending:
+            return
+        for item in pending:
+            release = getattr(item, "release", None)
+            if callable(release):
+                try:
+                    release()
+                except Exception:  # noqa: BLE001 — never break run cleanup
+                    logger.warning("could not give back the messages of step %s",
+                                   getattr(item, "step_id", "?"), exc_info=True)
         ctx.pending_sync_cursors = []
 
     def execute_step(self, workflow: Workflow, step_id: str, preview_limit: int = 50) -> StepRunResult:
@@ -1189,7 +1365,7 @@ class WorkflowExecutor:
             )
             return run_result
 
-        conn = _open_duckdb()
+        conn = _open_duckdb(workflow, self.data_dir)
         try:
             ctx = ExecutionContext(
                 conn=conn,
@@ -1200,6 +1376,7 @@ class WorkflowExecutor:
             ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
             input_map = self._build_input_map(workflow)
 
+            self._stamp_shared_rule_sets(workflow)
             self._cache = StepCache(self.data_dir, workflow.id)
             self._effective_hashes = self._cache.compute_effective_hashes(workflow, input_map)
             self._cached_step_ids = set()
@@ -1283,7 +1460,7 @@ class WorkflowExecutor:
         if not step:
             return StepRunResult(step_id=step_id, status="error", error="Step not found")
 
-        conn = _open_duckdb()
+        conn = _open_duckdb(workflow, self.data_dir)
         # Not a preview: the target step runs for real and may write.
         ctx = ExecutionContext(conn=conn, data_dir=self.data_dir, full_run=True, app_state=self.app_state)
         ctx.node_labels = {s.id: (s.label or s.type.value) for s in workflow.steps}
@@ -1383,7 +1560,7 @@ class WorkflowExecutor:
         if not step:
             raise ValueError(f"Step not found: {step_id}")
 
-        conn = _open_duckdb()
+        conn = _open_duckdb(workflow, self.data_dir)
         try:
             ctx = ExecutionContext(
                 conn=conn,
@@ -1397,6 +1574,7 @@ class WorkflowExecutor:
             # StepCache + retry tracker must be initialised because _execute_step
             # reads them. We don't persist anything from this run — schema
             # lookups are read-only against any data they touch.
+            self._stamp_shared_rule_sets(workflow)
             self._cache = StepCache(self.data_dir, workflow.id)
             try:
                 self._effective_hashes = self._cache.compute_effective_hashes(
@@ -1669,6 +1847,12 @@ class WorkflowExecutor:
                             break  # short-circuit; failure won't change between attempts
                 except Exception:
                     pass  # policy is observational; never break the per-step retry contract
+                # A stopped run (Stop, or past its time limit) starts no more
+                # attempts: they would only start work that has been ruled
+                # out, and DuckDB's interrupt is one shot, so a retried query
+                # would run to the end.
+                if self._run_token is not None and self._run_token.is_cancelled:
+                    break
                 if attempt >= attempts_total:
                     break
                 # Workflow-level retry budget — if the run as a whole has
@@ -1689,7 +1873,13 @@ class WorkflowExecutor:
                     delay_ms = retry_delay_ms * attempt
                 elif retry_strategy == "exponential":
                     delay_ms = retry_delay_ms * (2 ** (attempt - 1))
-                time.sleep(max(0.0, delay_ms / 1000.0))
+                if self._run_token is not None:
+                    # Wakes early on Stop or the time limit, so a long
+                    # back-off cannot hold a stopped run open.
+                    if self._run_token.wait(delay_ms / 1000.0):
+                        break
+                else:
+                    time.sleep(max(0.0, delay_ms / 1000.0))
 
         # All attempts failed — apply on_error policy
         elapsed = (time.perf_counter() - t0) * 1000
@@ -1731,14 +1921,75 @@ class WorkflowExecutor:
                 duration_ms=round(elapsed, 2),
             )
 
+        # A write the contract refused keeps what it would have written, so
+        # the run's receipt judges the other guarantees on that data.
+        refused_rows, refused_columns = 0, []
+        try:
+            from revoluzen_flow.contracts.precommit import ContractBlockedWrite
+            if isinstance(last_error, ContractBlockedWrite):
+                refused_rows = int(last_error.row_count or 0)
+                refused_columns = list(last_error.columns or [])
+        except Exception:  # noqa: BLE001 — never mask the step's own error
+            pass
+
         # Default: stop the workflow on this error
         return StepRunResult(
             step_id=step.id,
             status="error",
+            row_count=refused_rows,
+            columns=refused_columns,
             error=err_msg,
             error_type=err_type,
             failure_class=fclass,
             duration_ms=round(elapsed, 2),
+        )
+
+    # Reasons a step is skipped without failing. A limit that passes at that
+    # moment did not stop such a step, so its result keeps its own message.
+    _NON_FAILURE_SKIPS = (
+        "Node is deactivated",
+        "Skipped — an upstream node is deactivated or was skipped",
+    )
+
+    @staticmethod
+    def _stopped_by(token) -> str:
+        """Who or what stopped the run, as the start of a sentence."""
+        reason = (getattr(token, "reason", "") or "").strip()
+        return reason or "Stopped"
+
+    def _stopped_mid_step(self, step_result: StepRunResult) -> bool:
+        """True when this step failed because someone stopped the run while
+        it ran: its query was interrupted, a driver cancelled, or a retry was
+        cut short. The time limit is reported separately (see below)."""
+        token = self._run_token
+        if token is None or not token.is_cancelled:
+            return False
+        if self._run_limit is not None and self._run_limit.is_reached:
+            return False
+        if step_result.status == "error":
+            return True
+        return (
+            step_result.status == "skipped"
+            and bool(step_result.error)
+            and step_result.error not in self._NON_FAILURE_SKIPS
+        )
+
+    def _stopped_by_run_limit(self, step_result: StepRunResult) -> bool:
+        """True when this step failed because the run's time limit passed.
+
+        The step boundary check stops the run before a step starts once the
+        limit has passed, so a failure here means the limit expired while the
+        step ran: DuckDB was interrupted, a driver cancelled, or a retry was
+        cut short. A step set to continue on error reports that as skipped."""
+        limit = self._run_limit
+        if limit is None or not limit.is_reached:
+            return False
+        if step_result.status == "error":
+            return True
+        return (
+            step_result.status == "skipped"
+            and bool(step_result.error)
+            and step_result.error not in self._NON_FAILURE_SKIPS
         )
 
     @staticmethod
@@ -2025,6 +2276,16 @@ class WorkflowExecutor:
             rewritten_steps.append(rewritten)
 
         return workflow.model_copy(update={"steps": rewritten_steps})
+
+    def _stamp_shared_rule_sets(self, workflow: Workflow) -> None:
+        """Put the current version of each shared rule set into the Data
+        Quality steps that use one (quality_rules/store.py), before the step
+        cache hashes the steps: an edited set is then a changed step."""
+        try:
+            from revoluzen_flow.quality_rules.store import stamp_rule_set_versions
+            stamp_rule_set_versions(workflow, self.app_state)
+        except Exception:  # noqa: BLE001 — the step reads the sets itself; this only keys the cache
+            logger.warning("could not stamp shared rule set versions", exc_info=True)
 
     def _build_input_map(self, workflow: Workflow) -> dict[str, list[str]]:
         """Map each step to its input step IDs.

@@ -315,7 +315,7 @@ Three layers:
    can_deploy_prod.
 2. **Layer 2 — product knowledge RAG**: 17+ curated `docs/product_facts/`
    files retrieved per turn based on the user's query.
-3. **Layer 3 — tools**: 32 tools that fetch live workspace state when
+3. **Layer 3 — tools**: 37 tools that fetch live workspace state when
    the LLM picks them.
 
 The agent does NOT know the contents of pipeline rows, individual

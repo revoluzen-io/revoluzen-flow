@@ -15,7 +15,34 @@ logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import current_user_optional, require_admin, require_auth
+from revoluzen_flow.auth.deps import _ROLE_RANK, current_user_optional, require_admin, require_auth
+
+
+# Fields an admin may change on an account through PUT /users/{id}. The body
+# used to be written field-by-field with no allowlist, so an admin could set
+# its own role to super_admin, or change ids and permissions directly
+# (2026-11-13 pen test).
+_ADMIN_EDITABLE_USER_FIELDS = frozenset({"role", "projects", "is_active", "email", "name", "environments"})
+
+
+def _rank(role: str | None) -> int:
+    return _ROLE_RANK.get(role or "", 0)
+
+
+def _check_role_grant(caller, role: str | None) -> None:
+    """An admin can hand out any real role up to, not above, its own."""
+    if role is None:
+        return
+    if role not in _ROLE_RANK:
+        raise HTTPException(400, f"Unknown role {role!r}")
+    if _rank(role) > _rank(getattr(caller, "role", None)):
+        raise HTTPException(403, "You cannot grant a role above your own.")
+
+
+def _check_can_manage(caller, target) -> None:
+    """No admin acts on an account that outranks it."""
+    if _rank(getattr(target, "role", None)) > _rank(getattr(caller, "role", None)):
+        raise HTTPException(403, "You cannot manage an account that outranks yours.")
 # 2026-10-23: every audit row and the login throttle used to read
 # request.client.host, which is the load balancer's address behind a proxy.
 # client_ip() honours X-Forwarded-For only from a declared trusted proxy
@@ -458,6 +485,67 @@ def _read_signup_policy() -> dict:
     }
 
 
+#: One-time setup token for the first account on a server-mode install.
+#:
+#: 2026-11-13 pen test: on an empty server, the first ``/register`` from
+#: ANYONE became super_admin. Between `docker compose up` and the operator
+#: opening the page, whoever reached the port first owned the instance. Now
+#: the first account needs a token that only someone with access to the
+#: server's log or data folder can read. It is required even from loopback:
+#: behind a reverse proxy every request looks local. Local (laptop) mode is
+#: unchanged — the person at the machine is the operator.
+SETUP_TOKEN_FILENAME = "SETUP_TOKEN.txt"
+
+
+def _no_users_yet() -> bool:
+    try:
+        return len(get_store().list_users()) == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ensure_setup_token(data_dir: str | None) -> str | None:
+    """The current setup token, creating ``SETUP_TOKEN.txt`` if needed.
+
+    None when no token applies: local mode, or the instance already has an
+    account. The token survives restarts (it is re-read from the file) so the
+    one printed in the log stays valid until the first account exists.
+    """
+    import os
+    import secrets as _secrets
+    from revoluzen_flow import runtime_config
+
+    if not runtime_config.IS_SERVER_MODE or not data_dir or not _no_users_yet():
+        return None
+    path = os.path.join(data_dir, SETUP_TOKEN_FILENAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            existing = f.read().strip()
+        if len(existing) >= 24:
+            return existing
+    except OSError:
+        pass
+    token = _secrets.token_urlsafe(24)
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token + "\n")
+    except OSError as exc:
+        logger.warning("could not write %s (%s); the token is only in this log", path, exc)
+    return token
+
+
+def _clear_setup_token(data_dir: str | None) -> None:
+    import os
+    if not data_dir:
+        return
+    try:
+        os.remove(os.path.join(data_dir, SETUP_TOKEN_FILENAME))
+    except OSError:
+        pass
+
+
 #: The account `AuthStore.ensure_bootstrap_admin` creates, and the file it
 #: writes the one-time password to. Both only exist when the operator set
 #: REVOLUZEN_FLOW_BOOTSTRAP_ADMIN=1 (headless / Docker / CI); a normal
@@ -523,6 +611,8 @@ async def signup_policy():
         "first_user_bootstrap": policy["first_user_bootstrap"],
         "bootstrap_password_pending": pending,
         "bootstrap_admin_email": BOOTSTRAP_ADMIN_EMAIL if pending else None,
+        # The sign-up form shows a "Setup token" field when this is true.
+        "setup_token_required": bool(policy["first_user_bootstrap"] and runtime_config.IS_SERVER_MODE),
     }
 
 
@@ -556,11 +646,10 @@ async def register(body: RegisterRequest):
         escalation hole.
     """
     store = get_store()
-    existing = store.get_user_by_email(body.email)
-    if existing:
-        raise HTTPException(409, "Email already registered")
 
-    # Signup policy gate
+    # Signup policy gate. Checked BEFORE the email lookup: the other order
+    # answered 409 for a registered address and 403 for an unknown one on a
+    # closed instance, which made /register an account-enumeration oracle.
     policy = _read_signup_policy()
     if not policy["allow_self_registration"] and not policy["first_user_bootstrap"]:
         raise HTTPException(
@@ -569,6 +658,31 @@ async def register(body: RegisterRequest):
             "single operator — sign in with it, or point REVOLUZEN_FLOW_DATA_DIR at a "
             "new folder to start a separate instance.",
         )
+
+    existing = store.get_user_by_email(body.email)
+    if existing:
+        raise HTTPException(409, "Email already registered")
+
+    # First account on a server: prove access to the server (setup token).
+    from revoluzen_flow import runtime_config as _rc
+    from revoluzen_flow.main import app_state as _app_state
+    _data_dir = _app_state.get("data_dir")
+    if policy["first_user_bootstrap"] and _rc.IS_SERVER_MODE:
+        import hmac as _hmac
+        expected = ensure_setup_token(_data_dir)
+        supplied = (body.setup_token or "").strip()
+        if not expected or not supplied or not _hmac.compare_digest(supplied, expected):
+            raise HTTPException(
+                403,
+                {
+                    "code": "setup_token_required",
+                    "message": (
+                        "Creating the first account on this server needs its one-time "
+                        "setup token. It is printed in the server log at startup and "
+                        f"saved as {SETUP_TOKEN_FILENAME} in the data folder."
+                    ),
+                },
+            )
 
     # Strong-password gate. Runs BEFORE we touch the user store so a
     # weak-password attempt never creates a half-formed user record.
@@ -601,6 +715,8 @@ async def register(body: RegisterRequest):
     )
     created = store.create_user(user)
     session = store.create_session(created.id)
+    if policy["first_user_bootstrap"]:
+        _clear_setup_token(_data_dir)  # single use: the instance now has its operator
 
     # Audit log
     audit = app_state.get("audit_logger")
@@ -913,6 +1029,7 @@ async def invite_user(body: InviteRequest, _user = Depends(require_admin)):
     resources instead of a blank slate.
     """
     store = get_store()
+    _check_role_grant(_user, body.role)
     existing = store.get_user_by_email(body.email)
     if existing:
         raise HTTPException(400, "Email already registered")
@@ -1204,6 +1321,7 @@ async def admin_reset_password(user_id: str, _user = Depends(require_admin)):
     target = store.get_user(user_id) if hasattr(store, "get_user") else None
     if not target:
         raise HTTPException(404, "User not found")
+    _check_can_manage(_user, target)
 
     new_password = generate_strong_password(20)
     # Dedicated set_password path — update_user silently strips
@@ -1357,11 +1475,21 @@ def _send_reset_email(to: str, token: str, ttl_seconds: int, origin: str) -> boo
             return False
         url = f"{origin}/?reset_token={token}"
         ttl_minutes = max(1, ttl_seconds // 60)
+        if origin:
+            how = f"Click the link below to set a new password:\n\n  {url}\n\n"
+        else:
+            # No trusted public URL (server mode without REVOLUZEN_FLOW_PUBLIC_URL):
+            # never guess a host from the request — see _request_origin.
+            how = (
+                "Open your Revoluzen Flow address in the browser and add this to the end "
+                f"of it to set a new password:\n\n  {url}\n\n"
+                "(Your administrator can set REVOLUZEN_FLOW_PUBLIC_URL so this becomes a "
+                "clickable link.)\n\n"
+            )
         body = (
             "Hi,\n\n"
             "We received a request to reset the password on your Revoluzen Flow account.\n\n"
-            "Click the link below to set a new password:\n\n"
-            f"  {url}\n\n"
+            f"{how}"
             f"This link expires in {ttl_minutes} minutes and can only be used once.\n"
             "If you didn't request a reset, you can safely ignore this email.\n\n"
             "-- Revoluzen Flow"
@@ -1390,15 +1518,19 @@ def _request_origin(request: Request) -> str:
     override = _os.environ.get("REVOLUZEN_FLOW_PUBLIC_URL")
     if override:
         return override.rstrip("/")
-    origin = request.headers.get("origin")
-    if origin:
-        return origin.rstrip("/")
+    # 2026-11-13: the `Origin` header used to win here. It is caller-chosen, so
+    # an anonymous request with `Origin: https://attacker.example` produced a
+    # real reset email to the admin whose link carried the live token to the
+    # attacker's site. The Host header behind `request.base_url` is just as
+    # caller-chosen on a network bind, so in server mode with no public URL
+    # configured the link is relative and the email says where to open it.
+    from revoluzen_flow import runtime_config
+    if runtime_config.IS_SERVER_MODE:
+        return ""
     try:
         return str(request.base_url).rstrip("/")
     except Exception:
-        host = request.headers.get("host", "localhost")
-        scheme = request.url.scheme if getattr(request, "url", None) else "http"
-        return f"{scheme}://{host}"
+        return "http://localhost"
 
 
 def _prune_expired_reset_tokens(queue: dict) -> dict:
@@ -1869,6 +2001,16 @@ async def dismiss_queue_item(body: DismissQueueItem, _user = Depends(require_adm
 async def update_user(user_id: str, body: dict, _user = Depends(require_admin)):
     """Update a user's role, projects, active status, or email — admin only."""
     store = get_store()
+    if not isinstance(body, dict):
+        raise HTTPException(400, "Expected a JSON object")
+    unknown = sorted(set(body) - _ADMIN_EDITABLE_USER_FIELDS)
+    if unknown:
+        raise HTTPException(400, f"These fields cannot be changed here: {', '.join(unknown)}")
+    target = store.get_user(user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+    _check_can_manage(_user, target)
+    _check_role_grant(_user, body.get("role"))
     # Guard email changes: validate format + reject collisions before the
     # untyped body is written (login is by email, so a duplicate breaks it).
     if isinstance(body, dict) and body.get("email") is not None:

@@ -61,6 +61,8 @@ export type Page =
   // for the navigateTo type-safety; rendering happens in AIPage as a
   // sub-tab.
   | 'gallery'
+  // 2026-11-11: Insights > Glossary, the business terms the Copilot reads.
+  | 'glossary'
   | 'insights';
 
 /** The full allow-list, in nav-strip display order.
@@ -98,6 +100,7 @@ export const VALID_PAGES: Page[] = [
   // tab and the home-page CTAs) fell back to DEFAULT_PAGE on refresh.
   // Adding here + wiring in App.tsx restores the deep link.
   'gallery',
+  'glossary',
 ];
 
 /** Default landing page when the URL hash is empty or invalid.

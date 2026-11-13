@@ -36,12 +36,12 @@ Legend: ✅ Supported · ◐ Partial / limited · ✕ Not in OSS
 | Generic REST connector runtime | ✅ | Works against arbitrary REST APIs; author one from an OpenAPI spec. |
 | ~27 first-party SaaS connectors | ◐ | Shipped as **manifests** run through the generic adapter. They validate structurally, but only `github` has recorded acceptance fixtures; the rest are **not** verified against live vendors. Treat as Beta/Experimental unless the connector's own row shows an attestation date. |
 
-> **Which number means what.** The catalog ships 66 connectors
+> **Which number means what.** The catalog ships 68 connectors
 > (`CONNECTION_TYPES`, excluding roadmap entries) — that is the count to
 > quote. The ~27 SaaS REST manifests graded above are a *subset* of those
-> 66, so the cert matrix's grades describe that subset and must never be
-> restated against the full catalog ("19 of our 66 are Beta" is wrong —
-> the matrix never looked at the other 39).
+> 68, so the cert matrix's grades describe that subset and must never be
+> restated against the full catalog ("19 of our 68 are Beta" is wrong —
+> the matrix never looked at the other 41).
 >
 > Do not derive a verified-vs-total ratio from any of these numbers. The
 > API deliberately stops providing one, for the reason given in
@@ -119,7 +119,7 @@ source of truth for each:
    README says it "ships in the box." A reader can currently be told opposite
    things — decide whether base lineage is an OSS feature and align all three.
 2. **Connector count vs. readiness.** See the Connectors note above — the
-   headline "66 connectors / working connector in 90 seconds" overstates how
+   headline "68 connectors / working connector in 90 seconds" overstates how
    many integrations are actually verified.
 3. **Plus-only nodes shipping in the OSS repo.** `connectors/cdc.py`,
    `connectors/jdbc.py`, and `connectors/vector_db.py` are present and

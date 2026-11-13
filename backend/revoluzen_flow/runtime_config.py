@@ -183,9 +183,17 @@ VOLUME_TIER_WARN: int = 500 * 1024 * 1024 * 1024     # 500 GB
 
 
 # ── Retention ───────────────────────────────────────────────────────────
-# Keep the last N versions per workflow. Older versions are pruned when
-# a new deploy is recorded. Deployed version is NEVER pruned regardless.
-VERSION_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_VERSION_RETENTION", 20)
+# Versions are kept by kind (ir/versioning.py, WorkflowStore._prune_versions).
+# Never removed while the pipeline exists: the current version, named
+# versions, published versions, the one deployed to PROD and review steps.
+# Of the rest, keep the newest N saves (Save, Restore, Import...) and the
+# newest M auto-saves. 0 or less means no limit for that kind.
+VERSION_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_VERSION_RETENTION", 50)
+AUTOSAVE_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_AUTOSAVE_RETENTION", 10)
+
+# Connection history: keep the newest N versions of each connection, and its
+# first version always. 0 or less means no limit.
+CONNECTION_VERSION_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_CONNECTION_VERSION_RETENTION", 50)
 
 # Keep last N SQLite snapshots from the auto-backup on startup.
 BACKUP_RETENTION_COUNT: int = _int("REVOLUZEN_FLOW_BACKUP_RETENTION", 5)
@@ -233,6 +241,8 @@ def snapshot() -> dict:
         "max_source_rows": MAX_SOURCE_ROWS,
         "dev_sample_rows": DEV_SAMPLE_ROWS,
         "version_retention_count": VERSION_RETENTION_COUNT,
+        "autosave_retention_count": AUTOSAVE_RETENTION_COUNT,
+        "connection_version_retention_count": CONNECTION_VERSION_RETENTION_COUNT,
         "backup_retention_count": BACKUP_RETENTION_COUNT,
         "trace_retention_days": TRACE_RETENTION_DAYS,
         "bin_retention_days": BIN_RETENTION_DAYS,

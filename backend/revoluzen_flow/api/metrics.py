@@ -35,7 +35,9 @@ import logging
 import time
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+
+from revoluzen_flow.auth.deps import current_workspace_id  # server mode: no anonymous internals
 from fastapi.responses import Response, JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -284,7 +286,7 @@ def _status_class(code: int) -> str:
 
 
 # ── /api/metrics/ai — AI loop counters as JSON ─────────────────────────
-@router.get("/metrics/ai")
+@router.get("/metrics/ai", dependencies=[Depends(current_workspace_id)])
 async def ai_metrics_endpoint(request: Request) -> dict:
     """Per-day AI loop metrics — counters + averages.
 

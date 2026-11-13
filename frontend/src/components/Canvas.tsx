@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import { useCallback, useRef, useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   ReactFlow,
   Background,
@@ -33,6 +33,7 @@ import PipelineOutline from './PipelineOutline';
 import CanvasDensityToggle from './CanvasDensityToggle';
 import { HIDDEN_TYPES, remapHiddenType, isLabelForRemovedConnector } from './hiddenNodeTypes';
 import { VALID_GHOST_TYPES } from './modulesPanelData';
+import { canvasMayRefit, useSettingsDockOpen } from './editor/revealNode';
 
 /* ── Stable objects (defined outside component to avoid re-creation) ──
    Canvas responsive tuning (Apr 18):
@@ -334,9 +335,19 @@ export default function Canvas() {
   const isDirty = useWorkflowStore((s) => s.isDirty);
   const ensureWorkflow = useWorkflowStore((s) => s.ensureWorkflow);
   const deleteNode = useWorkflowStore((s) => s.deleteNode);
+  // The side rails: the canvas keeps its drawing still while a node's
+  // settings fold them away and bring them back (see below).
+  const nodesPanelOpen = useWorkflowStore((s) => s.nodesPanelOpen);
+  const chatOpen = useWorkflowStore((s) => s.chatOpen);
+  // While a node's settings are open, the corner controls (mini-map,
+  // Outline, label density) and the bottom toolbar step aside: the dock
+  // covers them, and on a short window it would cut them in half.
+  const settingsOpen = useSettingsDockOpen();
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+  // Where the canvas's left edge was last seen on screen.
+  const paneLeftRef = useRef<number | null>(null);
 
   // Edge-arity guard. ReactFlow calls `isValidConnection` on every
   // pointer-move during a connect drag and on the final drop. We use
@@ -467,10 +478,12 @@ export default function Canvas() {
         // Auto-fit canvas when the user enables it in Settings →
         // General → "Auto-fit canvas view". Slight delay so React
         // Flow has rendered the new node before fitView measures.
+        // Never past natural size: with one or two steps an uncapped fit
+        // zoomed to 2.5x, a giant first square that the next step shrank.
         if (editorPrefs.autoFitView && rfInstance) {
           setTimeout(() => {
             try {
-              rfInstance.fitView({ padding: 0.2, duration: 250 });
+              rfInstance.fitView({ padding: 0.2, maxZoom: 1, duration: 250 });
             } catch { /* ignore */ }
           }, 60);
         }
@@ -497,8 +510,8 @@ export default function Canvas() {
   //      to the live version, scheduled run later picked up the broken
   //      version and failed with "Unknown error" + email alert.
   //      Auto-save on `published` is now a no-op — user must hit Save
-  //      explicitly to overwrite live (which will route through the
-  //      revoke→edit→republish UX with the appropriate confirms).
+  //      explicitly, and that makes a draft beside the published version
+  //      rather than changing it (see WorkflowStore.save on the server).
   //      Drafts continue to auto-save (that's why users turn the
   //      setting on — to not lose work-in-progress).
   useEffect(() => {
@@ -653,24 +666,50 @@ export default function Canvas() {
      or resizes the browser). We attach a ResizeObserver so the fit
      recomputes whenever the wrapper's width/height actually changes.
      Debounced via requestAnimationFrame to avoid thrashing during a
-     continuous drag-resize. */
+     continuous drag-resize.
+     2026-11-10: not while a node's settings are open, nor just after they
+     close. That resize is the side rails folding away or coming back, and
+     a refit there moved every node and put the opened one back behind the
+     settings dock (editor/revealNode.ts). */
   useEffect(() => {
     if (!rfInstance || !reactFlowWrapper.current) return;
     const el = reactFlowWrapper.current;
     let raf = 0;
     const ro = new ResizeObserver(() => {
+      paneLeftRef.current = el.getBoundingClientRect().left;
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
+        if (!canvasMayRefit()) return;
         // Only refit if there are nodes; empty canvas has nothing to fit
         const { nodes: current } = useWorkflowStore.getState();
         if (current.length > 0) {
-          try { rfInstance.fitView({ padding: 0.15, minZoom: 0.25, maxZoom: 1.5, duration: 200 }); } catch {}
+          // maxZoom 1: a small drawing in a wide canvas was blown up to 1.5x (a lone step twice
+          // its size), and a later "glide back" returned to that view with steps cut off.
+          try { rfInstance.fitView({ padding: 0.15, minZoom: 0.25, maxZoom: 1, duration: 200 }); } catch {}
         }
       });
     });
     ro.observe(el);
     return () => { ro.disconnect(); cancelAnimationFrame(raf); };
   }, [rfInstance]);
+
+  // While a node's settings fold the left rail away or bring it back, the
+  // canvas's left edge moves. Shifting the view by the same amount keeps the
+  // drawing exactly where it was on screen, and running before the browser
+  // paints means nothing visibly jumps. A rail toggled by hand, or a window
+  // resize, still refits as above.
+  useLayoutEffect(() => {
+    const el = reactFlowWrapper.current;
+    if (!el) return;
+    const left = el.getBoundingClientRect().left;
+    const before = paneLeftRef.current;
+    paneLeftRef.current = left;
+    if (before === null || !rfInstance || canvasMayRefit()) return;
+    const moved = left - before;
+    if (Math.abs(moved) < 0.5) return;
+    const view = rfInstance.getViewport();
+    rfInstance.setViewport({ ...view, x: view.x - moved });
+  }, [nodesPanelOpen, chatOpen, rfInstance]);
 
   const onNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {
@@ -846,7 +885,7 @@ export default function Canvas() {
         snapGrid={[20, 20]}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color={dark ? 'rgba(148,163,184,0.1)' : 'rgba(148,163,184,0.15)'} />
-        {editorPrefs.showMinimap && nodes.length > 0 && (
+        {editorPrefs.showMinimap && nodes.length > 0 && !settingsOpen && (
           <MiniMap
             nodeColor={miniMapNodeColor}
             maskColor={dark ? 'rgba(11,18,32,0.8)' : 'rgba(240,244,248,0.8)'}
@@ -881,13 +920,13 @@ export default function Canvas() {
           density tames per-edge label noise on fan-in joins, outline
           gives a scannable top-down view for 30+ step pipelines. See
           CanvasLabelDensity in useEditorPreferences for the rationale. */}
-      {nodes.length > 0 && <CanvasDensityToggle />}
+      {nodes.length > 0 && !settingsOpen && <CanvasDensityToggle />}
       {editorPrefs.showPipelineOutline && nodes.length > 0 && (
         <PipelineOutline rfInstance={rfInstance} />
       )}
 
       {/* node-graph Bottom Toolbar */}
-      <BottomToolbar rfInstance={rfInstance} />
+      {!settingsOpen && <BottomToolbar rfInstance={rfInstance} />}
     </div>
   );
 }
@@ -951,8 +990,9 @@ function BottomToolbar({ rfInstance }: { rfInstance: ReactFlowInstance | null })
     const layouted = autoLayout(nodes, edges);
     useWorkflowStore.getState().pushUndoState();
     useWorkflowStore.setState({ nodes: layouted });
-    // Fit view after layout
-    setTimeout(() => rfInstance?.fitView({ padding: 0.3, duration: 400 }), 50);
+    // Fit view after layout, never larger than the steps' own size: it zoomed five steps to 1.6x, and
+    // closing a step's settings later glided back to that view with the second row cut off.
+    setTimeout(() => rfInstance?.fitView({ padding: 0.3, maxZoom: 1, duration: 400 }), 50);
     toast.success('Auto-Layout', 'Nodes arranged automatically');
   };
 

@@ -30,6 +30,12 @@ _ALLOWED_EXTS = {
     ".parquet", ".pq",
     ".xlsx", ".xls",
     ".xml",
+    ".orc", ".avro",
+    # Mainframe and older files (fixed-width text, EBCDIC and copybook
+    # records), their copybooks, and PGP-encrypted files. Data only; nothing
+    # uploaded is ever run.
+    ".dat", ".bin", ".ebc", ".fw", ".cpy", ".cbl",
+    ".pgp", ".gpg", ".asc",
 }
 
 _MAX_MB = int(os.environ.get("REVOLUZEN_FLOW_UPLOAD_MAX_MB", "100"))

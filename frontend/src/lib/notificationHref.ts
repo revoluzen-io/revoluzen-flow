@@ -44,7 +44,7 @@ export function notificationHref(n: NotificationLike): string | null {
       return id ? `#pipelines/${id}` : '#pipelines';
 
     case 'project':
-      return id ? `#projects/${id}` : '#projects';
+      return id ? `#pipelines?project=${encodeURIComponent(id)}` : '#pipelines';
 
     case 'admin':
     case 'settings':
@@ -52,6 +52,14 @@ export function notificationHref(n: NotificationLike): string | null {
 
     case 'credentials':
       return '#credentials';
+
+    case 'report':
+      return id ? `#reports/${id}` : '#reports';
+
+    // 2026-11-11 — a managed table's tests failed (table monitors).
+    case 'storage':
+    case 'table':
+      return '#storage/tables';
 
     // 2026-06-05 — Steward findings ping the bell when new or escalated.
     // There's no dedicated routed page yet (the Steward lives in a

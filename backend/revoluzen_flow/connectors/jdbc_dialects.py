@@ -4,7 +4,7 @@ JDBC dialect registry for warehouse connectors.
 Each dialect is a tiny adapter: build a connection (or DuckDB attach string),
 read a table or run a query, and return rows. Drivers are imported lazily so
 Revoluzen Flow never crashes if a vendor driver isn't installed — instead, the user
-gets a clear "pip install <package>" message.
+gets a plain message that names the missing package.
 
 Dialects supported:
   snowflake, bigquery, redshift, databricks, mssql, oracle, mongodb, clickhouse
@@ -44,24 +44,35 @@ def list_dialects() -> list[dict]:
     return [{"name": d.name, "label": d.label, "install": d.install_hint} for d in _REGISTRY.values()]
 
 
+_DRIVER_LABELS = {
+    "snowflake.connector": "Snowflake", "google.cloud.bigquery": "BigQuery",
+    "redshift_connector": "Redshift", "databricks.sql": "Databricks",
+    "pyodbc": "SQL Server", "oracledb": "Oracle", "pymongo": "MongoDB",
+    "clickhouse_connect": "ClickHouse",
+}
+
+
 def _import_or_raise(pkg: str, install_hint: str):
     try:
         return importlib.import_module(pkg)
     except ImportError as e:
-        raise RuntimeError(
-            f"Driver '{pkg}' is not installed. Install with: pip install {install_hint}"
-        ) from e
+        # 2026-11-11: plain wording, as in Test connection. "pip install" is a
+        # dead end for someone using a packaged install.
+        from revoluzen_flow.connections.addons import driver_message
+        raise RuntimeError(driver_message(_DRIVER_LABELS.get(pkg, pkg), install_hint)) from e
 
 
 # ─────────────────────────── Snowflake ───────────────────────────
 
+# 2026-11-11: every reader opens its connection through
+# connections/warehouse_clients.py, the same code Test connection and browsing
+# use. Each reader used to have its own, and they had drifted: BigQuery ignored
+# the saved service account key, ClickHouse the SSL box, Databricks the Catalog
+# and Schema, and Redshift needed a driver no install ships.
+
 def _snowflake_reader(cfg, query, table, limit):
-    sf = _import_or_raise("snowflake.connector", "snowflake-connector-python")
-    conn = sf.connect(
-        user=cfg["user"], password=cfg["password"], account=cfg["account"],
-        warehouse=cfg.get("warehouse"), database=cfg.get("database"), schema=cfg.get("schema"),
-        role=cfg.get("role"),
-    )
+    from revoluzen_flow.connections.warehouse_clients import snowflake_connect
+    conn = snowflake_connect(cfg)
     try:
         cur = conn.cursor()
         sql = query or f"SELECT * FROM {table}"
@@ -82,9 +93,10 @@ register_dialect(DialectInfo(
 # ─────────────────────────── BigQuery ───────────────────────────
 
 def _bigquery_reader(cfg, query, table, limit):
-    bq = _import_or_raise("google.cloud.bigquery", "google-cloud-bigquery")
-    client = bq.Client(project=cfg.get("project"))
-    sql = query or f"SELECT * FROM `{cfg.get('project')}.{cfg.get('dataset')}.{table}`"
+    from revoluzen_flow.connections.warehouse_clients import bigquery_client
+    client = bigquery_client(cfg)
+    project = cfg.get("project") or cfg.get("project_id") or client.project
+    sql = query or f"SELECT * FROM `{project}.{cfg.get('dataset')}.{table}`"
     if limit:
         sql = f"SELECT * FROM ({sql}) LIMIT {int(limit)}"
     job = client.query(sql)
@@ -100,11 +112,8 @@ register_dialect(DialectInfo(
 # ─────────────────────────── Redshift ───────────────────────────
 
 def _redshift_reader(cfg, query, table, limit):
-    rs = _import_or_raise("redshift_connector", "redshift_connector")
-    conn = rs.connect(
-        host=cfg["host"], database=cfg["database"], port=int(cfg.get("port", 5439)),
-        user=cfg["user"], password=cfg["password"],
-    )
+    from revoluzen_flow.connections.warehouse_clients import redshift_connect
+    conn = redshift_connect(cfg)
     try:
         cur = conn.cursor()
         sql = query or f"SELECT * FROM {table}"
@@ -118,17 +127,15 @@ def _redshift_reader(cfg, query, table, limit):
         conn.close()
 
 register_dialect(DialectInfo(
-    "redshift", "Amazon Redshift", "redshift_connector", "redshift_connector", _redshift_reader,
+    "redshift", "Amazon Redshift", "psycopg2", "psycopg2-binary", _redshift_reader,
 ))
 
 
 # ─────────────────────────── Databricks ───────────────────────────
 
 def _databricks_reader(cfg, query, table, limit):
-    db = _import_or_raise("databricks.sql", "databricks-sql-connector")
-    conn = db.connect(
-        server_hostname=cfg["host"], http_path=cfg["http_path"], access_token=cfg["access_token"],
-    )
+    from revoluzen_flow.connections.warehouse_clients import databricks_connect
+    conn = databricks_connect(cfg)
     try:
         cur = conn.cursor()
         sql = query or f"SELECT * FROM {table}"
@@ -190,9 +197,8 @@ register_dialect(DialectInfo(
 # ─────────────────────────── Oracle ───────────────────────────
 
 def _oracle_reader(cfg, query, table, limit):
-    ox = _import_or_raise("oracledb", "oracledb")
-    dsn = ox.makedsn(cfg["host"], int(cfg.get("port", 1521)), service_name=cfg.get("service_name"))
-    conn = ox.connect(user=cfg["user"], password=cfg["password"], dsn=dsn)
+    from revoluzen_flow.connections.warehouse_clients import oracle_connect
+    conn = oracle_connect(cfg)
     try:
         cur = conn.cursor()
         sql = query or f"SELECT * FROM {table}"
@@ -242,17 +248,16 @@ register_dialect(DialectInfo(
 # ─────────────────────────── ClickHouse ───────────────────────────
 
 def _clickhouse_reader(cfg, query, table, limit):
-    ch = _import_or_raise("clickhouse_connect", "clickhouse-connect")
-    client = ch.get_client(
-        host=cfg["host"], port=int(cfg.get("port", 8123)),
-        username=cfg.get("user", "default"), password=cfg.get("password", ""),
-        database=cfg.get("database", "default"),
-    )
-    sql = query or f"SELECT * FROM {table}"
-    if limit:
-        sql = f"{sql} LIMIT {int(limit)}"
-    result = client.query(sql)
-    return list(result.column_names), [tuple(r) for r in result.result_rows]
+    from revoluzen_flow.connections.warehouse_clients import clickhouse_client
+    client = clickhouse_client(cfg)
+    try:
+        sql = query or f"SELECT * FROM {table}"
+        if limit:
+            sql = f"SELECT * FROM ({sql}) LIMIT {int(limit)}"
+        result = client.query(sql)
+        return list(result.column_names), [tuple(r) for r in result.result_rows]
+    finally:
+        client.close()
 
 register_dialect(DialectInfo(
     "clickhouse", "ClickHouse", "clickhouse_connect", "clickhouse-connect", _clickhouse_reader,

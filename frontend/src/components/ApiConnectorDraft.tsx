@@ -7,15 +7,16 @@ import OpenApiSecurityReview from './OpenApiSecurityReview';
  * Step two of the API Explorer: turn the endpoint you just tested into a
  * connector draft.
  *
- * Two generator inputs, both already in hand by the time this panel is
- * reachable — the imported OpenAPI spec, or the live response just sampled.
- * They are not equivalent:
+ * Three generator inputs, each already in hand by the time this panel is
+ * reachable. They are not equivalent:
  *
  *   spec    → /from-openapi returns a v2 cert manifest AND a v1 runtime
  *             manifest. Only the runtime one is loadable by the SaaS
- *             Connector node, so only this path can be saved as a connector.
+ *             Connector node, so this path can be saved as a connector.
  *   samples → /from-samples returns the v2 manifest alone. There is no
  *             runtime definition to save, so this path is review/export only.
+ *   request → /from-request makes a runtime manifest that repeats an XML or
+ *             SOAP request that worked, so this path can be saved too.
  *
  * The UI says which one is in play rather than offering a Save button that
  * would fail.
@@ -33,7 +34,17 @@ type AuthorResponse = {
   runtime_manifest?: Record<string, any>;
 };
 
-type Source = 'openapi' | 'samples';
+type Source = 'openapi' | 'samples' | 'request';
+
+/** An XML or SOAP request that was tried, ready to become a connector. */
+export type RequestDraft = {
+  url: string; method: string; auth_type: string; key_name: string; operation: string;
+  headers: Record<string, string>; query: Record<string, string>; body: string; body_type: string;
+  fields: { name: string; label: string; required: boolean; default: string }[];
+  row_path: string;
+  /** Why this cannot be made into a connector yet, or empty. */
+  problem: string;
+};
 
 const CATEGORIES = ['saas', 'payments', 'developer', 'communication', 'infrastructure', 'analytics', 'database', 'other'];
 
@@ -53,17 +64,19 @@ export function samplesFrom(data: unknown): Record<string, any>[] {
   return [];
 }
 
-export default function ApiConnectorDraft({ specText, sourceUrl, responseData, requestUrl }: {
+export default function ApiConnectorDraft({ specText, sourceUrl, responseData, requestUrl, requestDraft = null }: {
   specText: string;
   sourceUrl: string;
   responseData: unknown;
   requestUrl: string;
+  requestDraft?: RequestDraft | null;
 }) {
   const hasSpec = !!(specText.trim() || sourceUrl);
   const samples = useMemo(() => samplesFrom(responseData), [responseData]);
   const hasSamples = samples.length > 0;
+  const hasRequest = !!requestDraft;
 
-  const [source, setSource] = useState<Source>(hasSpec ? 'openapi' : 'samples');
+  const [source, setSource] = useState<Source>(hasRequest ? 'request' : hasSpec ? 'openapi' : 'samples');
   const [connectorId, setConnectorId] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [category, setCategory] = useState('saas');
@@ -77,9 +90,13 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
 
   // Keep the available source honest as the user imports a spec or re-sends.
   useEffect(() => {
-    if (source === 'openapi' && !hasSpec) setSource('samples');
-    if (source === 'samples' && !hasSamples && hasSpec) setSource('openapi');
-  }, [hasSpec, hasSamples, source]);
+    if (source === 'request' && !hasRequest) setSource(hasSpec ? 'openapi' : 'samples');
+    if (source === 'openapi' && !hasSpec) setSource(hasRequest ? 'request' : 'samples');
+    if (source === 'samples' && !hasSamples) {
+      if (hasRequest) setSource('request');
+      else if (hasSpec) setSource('openapi');
+    }
+  }, [hasSpec, hasSamples, hasRequest, source]);
 
   useEffect(() => { if (!connectorId) setConnectorId(suggestConnectorId(requestUrl)); }, [requestUrl]);
 
@@ -96,7 +113,11 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
     try {
       const body: Record<string, any> = { connector_id: id, display_name: displayName.trim() || undefined, category };
       let endpoint: string;
-      if (source === 'openapi') {
+      if (source === 'request' && requestDraft) {
+        endpoint = '/connectors/author/from-request';
+        const { problem: _problem, ...request } = requestDraft;
+        Object.assign(body, request);
+      } else if (source === 'openapi') {
         endpoint = '/connectors/author/from-openapi';
         if (specText.trim()) body.openapi_text = specText;
         else body.openapi_url = sourceUrl;
@@ -141,11 +162,13 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
     URL.revokeObjectURL(href);
   };
 
-  if (!hasSpec && !hasSamples) {
+  if (!hasSpec && !hasSamples && !hasRequest) {
     return <p className="api-draft-empty">
       Send a request, or import an OpenAPI specification, and this step can draft a connector from it.
     </p>;
   }
+
+  const requestProblem = source === 'request' ? requestDraft?.problem : '';
 
   return <div className="api-draft">
     <p className="api-draft-lead">
@@ -159,12 +182,20 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
         <strong>OpenAPI specification</strong>
         <span>{hasSpec ? 'Full endpoint list and declared auth. Can be saved as a connector.' : 'Import a specification to enable this.'}</span>
       </button>
-      <button role="radio" aria-checked={source === 'samples'} disabled={!hasSamples}
-        onClick={() => { setSource('samples'); reset(); }} className={source === 'samples' ? 'is-active' : ''}>
-        <strong>This response{hasSamples ? ` (${samples.length} sample${samples.length === 1 ? '' : 's'})` : ''}</strong>
-        <span>{hasSamples ? 'Field types inferred from real data. Review/export only — not savable.' : 'Send a request that returns JSON objects.'}</span>
-      </button>
+      {requestDraft
+        ? <button role="radio" aria-checked={source === 'request'}
+            onClick={() => { setSource('request'); reset(); }} className={source === 'request' ? 'is-active' : ''}>
+            <strong>This request</strong>
+            <span>Repeats it and makes each {requestDraft.row_path || 'repeating element'} a row. Can be saved as a connector.</span>
+          </button>
+        : <button role="radio" aria-checked={source === 'samples'} disabled={!hasSamples}
+            onClick={() => { setSource('samples'); reset(); }} className={source === 'samples' ? 'is-active' : ''}>
+            <strong>This response{hasSamples ? ` (${samples.length} sample${samples.length === 1 ? '' : 's'})` : ''}</strong>
+            <span>{hasSamples ? 'Field types inferred from real data. Review/export only — not savable.' : 'Send a request that returns JSON objects.'}</span>
+          </button>}
     </div>
+
+    {requestProblem && <p role="status" className="api-draft-error">{requestProblem}</p>}
 
     <div className="api-draft-fields">
       <label>Connector id
@@ -183,7 +214,7 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
       </label>
     </div>
 
-    <button onClick={generate} disabled={busy} className="api-draft-generate">
+    <button onClick={generate} disabled={busy || !!requestProblem} className="api-draft-generate">
       {busy ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
       {busy ? 'Generating...' : 'Generate connector draft'}
     </button>
@@ -205,7 +236,7 @@ export default function ApiConnectorDraft({ specText, sourceUrl, responseData, r
         {result.validation.warnings.map(item => <li key={item} className="is-warning"><AlertTriangle size={13} />{item}</li>)}
       </ul>}
 
-      {result.runtime_manifest && <OpenApiSecurityReview streams={result.runtime_manifest.streams || []} />}
+      {result.runtime_manifest && result.mode !== 'request' && <OpenApiSecurityReview streams={result.runtime_manifest.streams || []} />}
 
       <details className="api-draft-json">
         <summary>Connector definition</summary>

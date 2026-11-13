@@ -50,7 +50,8 @@ class TestVariableStore:
     def test_secret_masking(self, variable_store):
         variable_store.create(Variable(id="v1", key="TOKEN", value="supersecretvalue", type="secret", scope="global"))
         result = variable_store.list_all()
-        assert result[0]["value"] == "su***ue"
+        # Fully masked: no leading or trailing characters of the secret.
+        assert result[0]["value"] == "***"
 
     def test_secret_masking_short(self, variable_store):
         variable_store.create(Variable(id="v1", key="KEY", value="abc", type="secret", scope="global"))

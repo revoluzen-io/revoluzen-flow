@@ -118,6 +118,9 @@ _PAGE_TOOLS: dict[str, tuple[str, ...]] = {
         "list_projects",
         "summarize_pipeline",
         "list_schedules",
+        # What the selected pipeline was asked to do. Last, so on the tight
+        # cap it only takes a slot left over.
+        "get_pipeline_spec",
     ),
     "projects": (
         "list_projects",
@@ -187,9 +190,10 @@ _KEYWORD_TOOLS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
       "encrypt", "icacls", "acl", "hardening", "harden", "not checked",
       "security header", "vulnerab"),
      ("get_security_posture",)),
-    # Failures / errors / debugging
-    (("fail", "error", "broke", "crash", "timeout"),
-     ("list_executions", "recall_history", "get_installation_health")),
+    # Failures / errors / debugging. Incidents first: they say what changed
+    # since the pipeline last worked, which is the first question.
+    (("fail", "error", "broke", "crash", "timeout", "incident", "outage", "what changed"),
+     ("get_incidents", "list_executions", "recall_history", "get_installation_health")),
     # Connection-related
     (("connection", "credential", "auth"),
      ("inspect_connections", "list_catalog")),
@@ -205,6 +209,20 @@ _KEYWORD_TOOLS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     # Reports / output
     (("report", "summary", "summarise", "summarize"),
      ("compose_report", "summarize_pipeline")),
+    # Business words: the workspace's glossary says what they mean here.
+    (("glossary", "business term", "definition of", "what does", "metric", "kpi", "means here"),
+     ("lookup_business_terms",)),
+    # Data Quality rules: a shared rule set may already check these columns.
+    (("quality rule", "rule set", "data quality", "validation rule", "validate", "dq "),
+     ("list_quality_rule_sets", "explain_step")),
+    # Join keys: which columns line up, from the values in both inputs.
+    (("join", "match on", "key column", "join key", "lookup join", "mapped_keys"),
+     ("suggest_join_keys", "explain_step")),
+    # What a pipeline is for and how to tell it worked: the intent spec and
+    # its contract verdict.
+    (("spec", "requirement", "acceptance", "criteria", "criterion", "what is this pipeline for",
+      "what's this pipeline for", "purpose", "business owner", "contract", "promise", "outcome"),
+     ("get_pipeline_spec",)),
     # Health / audit / punch-list
     (("health", "audit", "punch list", "what should i fix", "what needs"),
      ("get_installation_health", "list_steward_findings")),

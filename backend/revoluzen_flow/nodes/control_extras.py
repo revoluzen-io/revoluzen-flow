@@ -787,14 +787,18 @@ def _mssql_connection_string(cfg: dict[str, Any], timeout: int) -> str:
     by host — 17 is the default to match `nodes/db_source.py`, but a container
     with only 18 present would otherwise fail with an opaque ODBC error.
     """
+    from revoluzen_flow.connections.odbc import odbc_value
+
     driver_name = cfg.get("odbc_driver") or "ODBC Driver 17 for SQL Server"
     user = cfg.get("username") or cfg.get("user")
+    # 2026-11-11: values holding ; { } go in braces, so a password with a
+    # semicolon no longer breaks the string or adds settings to it.
     parts = [
         f"DRIVER={{{driver_name}}}",
         f"SERVER={cfg.get('host')},{int(cfg.get('port', 1433) or 1433)}",
-        f"DATABASE={cfg.get('database')}",
-        f"UID={user}",
-        f"PWD={cfg.get('password')}",
+        f"DATABASE={odbc_value(cfg.get('database'))}",
+        f"UID={odbc_value(user)}",
+        f"PWD={odbc_value(cfg.get('password'))}",
         f"Connection Timeout={timeout}",
     ]
     if cfg.get("encrypt") is not None:
@@ -837,9 +841,18 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
     """
     from revoluzen_flow.nodes.db_source import _get_connection_config
 
-    cfg = _get_connection_config(conn_id)
-    if not cfg:
+    resolved = _get_connection_config(conn_id)
+    if not resolved:
         raise ValueError(f"connection '{conn_id}' not found")
+    # 2026-11-11: the lookup returns (settings, type). This read it as one
+    # dict, so every saved connection failed with "'tuple' object has no
+    # attribute 'get'"; the tests stubbed it with a dict and never saw it.
+    # The saved type wins over any "type" inside the settings.
+    if isinstance(resolved, tuple):
+        settings, saved_type = resolved
+        cfg = {**(settings or {}), "type": saved_type}
+    else:
+        cfg = resolved
     kind = (cfg.get("type") or cfg.get("kind") or "").lower()
 
     def _capture(cur) -> tuple[list[dict], int]:
@@ -1011,11 +1024,69 @@ def _run_connection_sql(conn_id: str, sql: str, timeout: int = 60) -> tuple[list
                 cur.close()
         finally:
             conn.close()
+    elif kind == "oracle":
+        # 2026-11-11: Oracle, in thin mode (no Oracle client needed), signed in
+        # the same way runs and Test connection are.
+        from revoluzen_flow.connections.vendor_db import plain_value
+        from revoluzen_flow.connections.warehouse_clients import oracle_connect
+
+        try:
+            conn = oracle_connect(cfg, timeout=timeout)
+        except RuntimeError as exc:  # the driver is missing
+            raise ValueError(f"Execute SQL on Oracle: {exc}") from None
+        try:
+            cur = conn.cursor()
+            cur.execute(_oracle_statement(sql))
+            rows, affected = _capture(cur)
+            # oracledb also needs an explicit commit.
+            conn.commit()
+            # LOB columns arrive as handles; read them while the connection is open.
+            return [{k: plain_value(v) for k, v in row.items()} for row in rows], affected
+        finally:
+            conn.close()
+    elif kind == "odbc":
+        # 2026-11-11: any database with an ODBC driver. The connection is in
+        # autocommit (connections/odbc.py), so each statement applies as it runs.
+        from revoluzen_flow.connections import odbc
+        from revoluzen_flow.connections.vendor_db import plain_value
+
+        try:
+            conn = odbc.connect(cfg, timeout=timeout)
+        except RuntimeError as exc:
+            raise ValueError(f"Execute SQL on ODBC: {exc}") from None
+        try:
+            cur = conn.cursor()
+            cur.execute(sql)
+            rows, affected = _capture(cur)
+            return [{k: plain_value(v) for k, v in row.items()} for row in rows], affected
+        finally:
+            conn.close()
     raise ValueError(
         f"unsupported connection kind '{kind}' — Execute SQL supports "
         f"postgres, mysql/mariadb, sqlite, redshift, mssql/synapse, snowflake, "
-        f"bigquery, databricks"
+        f"bigquery, databricks, oracle, odbc"
     )
+
+
+_PLSQL_START = re.compile(
+    r"^\s*(BEGIN|DECLARE|CREATE\s+(OR\s+REPLACE\s+)?((NON)?EDITIONABLE\s+)?"
+    r"(PROCEDURE|FUNCTION|PACKAGE|TRIGGER|TYPE)\b)",
+    re.IGNORECASE,
+)
+
+
+def _oracle_statement(sql: str) -> str:
+    """One statement as Oracle's driver takes it.
+
+    SQL*Plus habits break it: a trailing ``/`` line, or a ``;`` after plain
+    SQL (ORA-00933 / ORA-00911). A PL/SQL block keeps its final ``END;``.
+    """
+    text = (sql or "").strip()
+    if text.endswith("/"):
+        text = text[:-1].rstrip()
+    if text.endswith(";") and not _PLSQL_START.match(text):
+        text = text[:-1].rstrip()
+    return text
 
 
 @register(StepType.EXECUTE_SQL_TASK)

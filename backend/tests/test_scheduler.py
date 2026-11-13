@@ -3,6 +3,8 @@
 import pytest
 import threading
 from datetime import datetime, timezone, timedelta
+from types import SimpleNamespace
+from revoluzen_flow.reports.cron_human import cron_to_human
 from revoluzen_flow.scheduling.scheduler import PipelineScheduler
 from revoluzen_flow.scheduling.models import ScheduleType
 
@@ -120,9 +122,12 @@ class TestSchedulerIsDue:
         }
         assert scheduler._is_due(sched, now) is False
 
-    def test_event_never_due(self, scheduler):
+    @pytest.mark.parametrize("kind", ["file_arrival", "after_pipeline", "event"])
+    def test_event_triggers_are_never_due_on_the_clock(self, scheduler, kind):
+        """They start when their event happens (triggers/), never by the clock.
+        A leftover "event" row is not due either."""
         now = datetime.now(timezone.utc)
-        sched = {"schedule_type": "event"}
+        sched = {"schedule_type": kind, "last_run_at": None}
         assert scheduler._is_due(sched, now) is False
 
     def test_cron_matching(self, scheduler):
@@ -151,6 +156,203 @@ class TestSchedulerIsDue:
             "last_run_at": None,
         }
         assert scheduler._is_due(sched, now) is False
+
+
+class TestCronWeekdays:
+    """Day of week as in standard cron, and as every screen writes and shows
+    it: 0 and 7 are Sunday, 1 is Monday. It used to count from Monday, so a
+    schedule set for Monday ran on Tuesday."""
+
+    # Monday 2 Nov 2026 to Sunday 8 Nov 2026, at 09:00.
+    DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    WEEK = {name: datetime(2026, 11, 2 + i, 9, 0, tzinfo=timezone.utc) for i, name in enumerate(DAYS)}
+
+    @pytest.fixture
+    def scheduler(self):
+        return PipelineScheduler(check_interval_seconds=30)
+
+    def _due_on(self, scheduler, field):
+        return [name for name, at in self.WEEK.items() if scheduler._check_cron(at, None, f"0 9 * * {field}")]
+
+    @pytest.mark.parametrize("number, day", [
+        ("0", "Sunday"), ("1", "Monday"), ("2", "Tuesday"), ("3", "Wednesday"),
+        ("4", "Thursday"), ("5", "Friday"), ("6", "Saturday"), ("7", "Sunday"),
+    ])
+    def test_each_number_means_its_day(self, scheduler, number, day):
+        assert self._due_on(scheduler, number) == [day]
+
+    @pytest.mark.parametrize("number", list("01234567"))
+    def test_it_runs_on_the_day_it_says(self, scheduler, number):
+        """The words the inventory and scheduled reports print."""
+        due = self._due_on(scheduler, number)
+        assert cron_to_human(f"0 9 * * {number}") == f"Every {due[0]} at 09:00"
+
+    @pytest.mark.parametrize("field, days", [
+        ("1-5", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]),
+        ("0,6", ["Saturday", "Sunday"]),
+        ("6,7", ["Saturday", "Sunday"]),
+        ("5-7", ["Friday", "Saturday", "Sunday"]),
+        ("1,3,5", ["Monday", "Wednesday", "Friday"]),
+        ("*", DAYS),
+    ])
+    def test_ranges_and_lists(self, scheduler, field, days):
+        assert self._due_on(scheduler, field) == days
+
+    def test_the_weekday_is_the_one_in_the_schedules_own_time_zone(self, scheduler):
+        # 20:00 UTC on Sunday is 01:30 on Monday in Kolkata.
+        sunday_evening = datetime(2026, 11, 8, 20, 0, tzinfo=timezone.utc)
+        sched = {
+            "schedule_type": "cron", "cron_expression": "30 1 * * 1",
+            "timezone": "Asia/Kolkata", "last_run_at": None,
+        }
+        assert scheduler._is_due(sched, sunday_evening) is True
+        assert scheduler._is_due({**sched, "cron_expression": "30 1 * * 0"}, sunday_evening) is False
+
+
+class TestCronOncePerMinute:
+    """Two ticks land in most minutes; only the first may fire."""
+
+    @pytest.fixture
+    def scheduler(self):
+        return PipelineScheduler(check_interval_seconds=30)
+
+    FIRST = datetime(2026, 11, 10, 9, 0, 5, tzinfo=timezone.utc)
+
+    def test_the_next_tick_in_the_same_minute_does_not_fire(self, scheduler):
+        # A tick is 30 seconds and a little after the last, so a check on
+        # "fewer than 30 seconds ago" let this through.
+        next_tick = self.FIRST + timedelta(seconds=30, milliseconds=5)
+        assert scheduler._check_cron(next_tick, self.FIRST, "0 9 * * *") is False
+
+    def test_the_next_matching_minute_fires(self, scheduler):
+        assert scheduler._check_cron(self.FIRST + timedelta(minutes=1), self.FIRST, "* * * * *") is True
+
+    def test_the_same_time_tomorrow_fires(self, scheduler):
+        assert scheduler._check_cron(self.FIRST + timedelta(days=1), self.FIRST, "0 9 * * *") is True
+
+    def test_a_stored_time_with_no_zone_is_utc(self, scheduler):
+        naive = self.FIRST.replace(tzinfo=None)
+        assert scheduler._check_cron(self.FIRST + timedelta(seconds=30), naive, "0 9 * * *") is False
+
+    def test_a_run_finishing_in_the_next_matching_minute_keeps_that_minutes_turn(self, scheduler):
+        sched = {
+            "schedule_type": "cron", "cron_expression": "* * * * *",
+            "last_fired_at": "2026-11-10T12:00:25+00:00",
+            "last_run_at": "2026-11-10T12:01:05+00:00",  # 40 seconds later
+        }
+        tick = datetime(2026, 11, 10, 12, 1, 25, tzinfo=timezone.utc)
+        assert scheduler._is_due(sched, tick) is True
+
+    def test_a_run_started_this_minute_is_not_repeated(self, scheduler):
+        sched = {
+            "schedule_type": "cron", "cron_expression": "0 9 * * *",
+            "last_fired_at": self.FIRST.isoformat(),
+            "last_run_at": (self.FIRST + timedelta(seconds=2)).isoformat(),
+        }
+        assert scheduler._is_due(sched, self.FIRST + timedelta(seconds=30)) is False
+
+    def test_rows_from_before_the_start_time_was_kept_use_the_finish_time(self, scheduler):
+        sched = {
+            "schedule_type": "cron", "cron_expression": "0 9 * * *",
+            "last_run_at": (self.FIRST + timedelta(seconds=2)).isoformat(),
+        }
+        assert scheduler._is_due(sched, self.FIRST + timedelta(seconds=30)) is False
+
+
+class TestDeploymentsFireOnce:
+    @pytest.fixture
+    def deployment(self, monkeypatch):
+        from revoluzen_flow.api import deployments as module
+
+        d = SimpleNamespace(
+            id="d1", workflow_id="wf", workspace_id="default", name="Nightly",
+            parameters={}, schedule={"cron": "0 9 * * *"}, last_run_at=None,
+        )
+        monkeypatch.setattr(module, "list_enabled_with_schedule", lambda: [d])
+        monkeypatch.setattr(module, "mark_fired", lambda _id, when: setattr(d, "last_run_at", when))
+        return d
+
+    FIRST = datetime(2026, 11, 10, 9, 0, 5, tzinfo=timezone.utc)
+
+    def test_two_ticks_in_a_minute_run_it_once(self, deployment):
+        scheduler = PipelineScheduler(check_interval_seconds=30)
+        fired = []
+
+        def started(key, _sched):
+            fired.append(key)
+            return True
+
+        scheduler._execute_schedule = started
+        scheduler._check_deployments(self.FIRST, None)
+        scheduler._check_deployments(self.FIRST + timedelta(seconds=30, milliseconds=5), None)
+        assert fired == ["dep:d1"]
+        assert deployment.last_run_at == self.FIRST
+
+    def test_turned_away_at_capacity_it_tries_again_on_the_next_tick(self, deployment):
+        scheduler = PipelineScheduler(check_interval_seconds=30)
+        answers = [False, True]
+        tries = []
+
+        def maybe(key, _sched):
+            tries.append(key)
+            return answers.pop(0)
+
+        scheduler._execute_schedule = maybe
+        scheduler._check_deployments(self.FIRST, None)
+        assert deployment.last_run_at is None
+        next_tick = self.FIRST + timedelta(seconds=30)
+        scheduler._check_deployments(next_tick, None)
+        assert tries == ["dep:d1", "dep:d1"]
+        assert deployment.last_run_at == next_tick
+
+
+class TestExecuteScheduleSaysIfItStarted:
+    SCHED = {"workflow_id": "wf", "workspace_id": "default", "name": "n"}
+
+    def test_started(self, monkeypatch):
+        from revoluzen_flow.engine import execution_manager as module
+
+        manager = SimpleNamespace(spawn_thread=lambda **kwargs: None)
+        monkeypatch.setattr(module.ExecutionManager, "get", classmethod(lambda cls: manager))
+        scheduler = PipelineScheduler()
+        assert scheduler._execute_schedule("s1", self.SCHED) is True
+        assert "s1" in scheduler._running_jobs
+
+    def test_turned_away(self, monkeypatch):
+        from revoluzen_flow.engine import execution_manager as module
+
+        def refuse(**kwargs):
+            raise ValueError("at capacity")
+
+        manager = SimpleNamespace(spawn_thread=refuse)
+        monkeypatch.setattr(module.ExecutionManager, "get", classmethod(lambda cls: manager))
+        scheduler = PipelineScheduler()
+        assert scheduler._execute_schedule("s1", self.SCHED) is False
+        assert "s1" not in scheduler._running_jobs
+
+    def test_nothing_to_run(self):
+        assert PipelineScheduler()._execute_schedule("s1", {}) is False
+
+
+def test_a_finished_run_records_when_it_started(monkeypatch):
+    """So the next tick compares with the start, not the finish."""
+    from revoluzen_flow import main
+
+    calls = []
+    store = SimpleNamespace(record_run=lambda sid, status, fired_at=None: calls.append((sid, status, fired_at)))
+    for key, value in {
+        "store": None, "schedule_store": store, "execution_store": None,
+        "alert_store": None, "notification_store": None, "user_store": None,
+    }.items():
+        monkeypatch.setitem(main.app_state, key, value)
+    before = datetime.now(timezone.utc)
+    scheduler = PipelineScheduler()
+    scheduler._running_jobs["s1"] = before
+    scheduler._run_pipeline("s1", "wf", "name")
+    assert len(calls) == 1
+    sid, status, fired_at = calls[0]
+    assert (sid, status) == ("s1", "error")
+    assert before - timedelta(seconds=1) <= fired_at <= datetime.now(timezone.utc)
 
 
 class TestSchedulerStuckGuard:

@@ -211,6 +211,7 @@ Built something useful? Two ways to share:
 ## See also
 
 - [docs/connector-authoring.md](../connector-authoring.md) — full UI reference + all options for OpenAPI / sample modes
+- [docs/api-explorer.md](../api-explorer.md) — SOAP services and XML APIs, saved from a request you tried. A hand-written manifest can do the same with `"response_format": "xml"` (and `data_path` as a row path such as `//order`) and `"body_format": "xml"` with `body_text`
 - [../api-explorer.md](../api-explorer.md) — testing and assertions in full
 - [docs/connectors.md](../connectors.md) — current first-party catalog + cert-matrix status
 - [docs/vs-talend.md](../vs-talend.md) — why this framework matters vs Talend's Eclipse + Java extension model

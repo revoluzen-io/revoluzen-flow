@@ -20,11 +20,19 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from revoluzen_flow import runtime_config
-from revoluzen_flow.auth.deps import current_workspace_id, require_auth
+from revoluzen_flow.auth.deps import current_workspace_id, require_auth, require_min_rank
 from revoluzen_flow.engine.executor import WorkflowExecutor
 from revoluzen_flow.engine.resource_monitor import ResourceMonitor
 from revoluzen_flow.ir.schema import StepRunResult
+from revoluzen_flow.ir.versioning import PublishedVersionMissing
+from revoluzen_flow.ir.step_secrets import (
+    SECRET_PLACEHOLDER,
+    mask_parameter_values,
+    prepare_incoming_workflow,
+    seal_parameter_values,
+)
 from revoluzen_flow.monitoring.store import ExecutionRecord, StepLog
+from revoluzen_flow.security.step_secret_routes import MaskStepSecretsRoute
 from revoluzen_flow.intelligence.pre_validator import PreValidator
 from revoluzen_flow.intelligence.error_intel import ErrorIntelligence
 
@@ -75,7 +83,16 @@ router = APIRouter(
     prefix="/api/execute",
     tags=["execution"],
     dependencies=[Depends(require_auth)],
+    route_class=MaskStepSecretsRoute,
 )
+
+# Running anything is a pipeline-author capability. A pipeline can carry
+# arbitrary DuckDB SQL and absolute file paths, which the threat model allows
+# only from the authoring role (developer and up). With login alone as the
+# gate, a viewer could POST any workflow IR to /workflow/ephemeral and read
+# the master key file and the database through read_text()/read_blob().
+# Read-only routes (pre-validate, cached output, edges) keep plain login.
+_RUNNER = Depends(require_min_rank("developer"))
 
 # ── Concurrency gate ────────────────────────────────────────────────────
 # There used to be a module-level `asyncio.Semaphore(MAX_CONCURRENT_RUNS)`
@@ -232,7 +249,7 @@ def _sample_kwargs(safety_mode: str, run_key: str, sample_rows: int) -> dict:
 # IMPORTANT: this route MUST be declared before /workflow/{workflow_id}
 # so FastAPI matches the literal "ephemeral" path before treating it as a
 # workflow_id path-parameter value.
-@router.post("/workflow/ephemeral")
+@router.post("/workflow/ephemeral", dependencies=[_RUNNER])
 async def run_workflow_ephemeral(
     body: EphemeralRunBody,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -259,6 +276,8 @@ async def run_workflow_ephemeral(
 
     # Always stamp the caller's workspace — never trust body.workflow.workspace_id.
     wf.workspace_id = workspace_id
+    # The editor sends unsaved pipelines here, with stored secrets as dots.
+    prepare_incoming_workflow(wf, get_store, workspace_id)
 
     # ── 2. Structural validation (the "X steps valid" gate) ─────────────
     from revoluzen_flow.ir.validator import validate_workflow as _validate_workflow
@@ -410,7 +429,7 @@ def _not_a_resume() -> None:
     return None
 
 
-@router.post("/workflow/{workflow_id}")
+@router.post("/workflow/{workflow_id}", dependencies=[_RUNNER])
 async def run_workflow(
     workflow_id: str,
     request: Request,
@@ -418,10 +437,15 @@ async def run_workflow(
     full_run: bool = False,
     environment: str = "dev",
     safety_mode: str = "live",
+    draft: bool = False,
     workspace_id: str = Depends(_safe_workspace_id),
     resume_from_run_id: str | None = Depends(_not_a_resume),
 ):
     """Execute all steps of a workflow — workspace-scoped.
+
+    A published pipeline runs its published version. ``draft=true`` runs the
+    newest saved version instead, which is what the Editor shows; it is how a
+    change is tried before it is published.
 
     ``full_run=True`` skips the dev sample-mode row limit and processes
     the entire dataset.  The default (False) limits source nodes to
@@ -461,7 +485,13 @@ async def run_workflow(
         # overrides. Validation will catch missing-required cases.
         parameter_values = {}
 
-    v = get_store().get(workflow_id, workspace_id=workspace_id)
+    try:
+        v = (
+            get_store().get(workflow_id, workspace_id=workspace_id)
+            if draft else get_store().live_version(workflow_id, workspace_id=workspace_id)
+        )
+    except PublishedVersionMissing as exc:
+        raise HTTPException(409, str(exc)) from None
     if not v:
         raise HTTPException(404, "Workflow not found")
 
@@ -551,8 +581,13 @@ async def run_saved_workflow(
     run_user_id: str = "system",
     owner_email: str = "",
     run_metadata: dict[str, Any] | None = None,
+    time_limit_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Run a saved pipeline version and record it. Returns the full result.
+
+    ``time_limit_seconds`` tightens the pipeline's own time limit for this
+    run (a published endpoint passes its timeout); the executor stops the run
+    and marks it failed when the shorter of the two passes.
 
     The one path for a real run started over HTTP: overlap policy, the
     execution record, pool admission, step logs, the bell and alert rules.
@@ -570,47 +605,18 @@ async def run_saved_workflow(
     data_dir = get_data_dir()
 
     # --- Overlap detection ---
-    # Check execution settings from workflow metadata
-    metadata = getattr(wf, "metadata", {}) or {}
-    exec_settings = metadata.get("execution_settings", {})
-    overlap_policy = exec_settings.get("overlap_policy", "parallel")
-    enable_overlap = exec_settings.get("enable_overlap_detection", False)
-    max_runtime_min = exec_settings.get("max_runtime_minutes", 0)
-
-    if enable_overlap and overlap_policy != "parallel":
-        running = [
-            e for e in exe_store.list_by_workflow(workflow_id, workspace_id=workspace_id)
-            if (e.get("status") if isinstance(e, dict) else getattr(e, "status", None)) == "running"
-        ]
-        if running:
-            first = running[0]
-            first_started = first.get("started_at") if isinstance(first, dict) else getattr(first, "started_at", "")
-            first_id = first.get("id") if isinstance(first, dict) else getattr(first, "id", "")
-            if overlap_policy == "skip":
-                return {
-                    "status": "skipped",
-                    "message": f"Skipped: previous execution still running (started {first_started})",
-                    "overlap_detected": True,
-                    "running_execution_id": first_id,
-                    "step_results": {},
-                }
-            elif overlap_policy == "queue":
-                return {
-                    "status": "queued",
-                    "message": "Queued: waiting for running execution to complete",
-                    "overlap_detected": True,
-                    "running_execution_id": first_id,
-                    "step_results": {},
-                }
-            # cancel_previous: mark previous as cancelled, continue
-            elif overlap_policy == "cancel_previous":
-                for r in running:
-                    rid = r.get("id") if isinstance(r, dict) else getattr(r, "id", "")
-                    exe_store.update(
-                        rid,
-                        {"status": "cancelled", "completed_at": datetime.now(timezone.utc)},
-                        workspace_id=workspace_id,
-                    )
+    # The pipeline's overlap setting (engine/overlap.py), shared with the event
+    # triggers. Cancel Previous stops the running run there and carries on.
+    from revoluzen_flow.engine.overlap import check_overlap
+    overlap = check_overlap(wf, exe_store, workflow_id, workspace_id)
+    if overlap is not None:
+        return {
+            "status": "skipped" if overlap.policy == "skip" else "queued",
+            "message": overlap.message,
+            "overlap_detected": True,
+            "running_execution_id": overlap.running_execution_id,
+            "step_results": {},
+        }
 
     # Create execution record — stamped with caller's workspace_id so
     # the history is correctly attributed. The workflow's own
@@ -626,11 +632,28 @@ async def run_saved_workflow(
         workflow_snapshot=wf.model_dump(mode="json"),
         workflow_version=v.version,
     )
+    # The saved version this run executes, for nodes that record where their
+    # output came from: Managed Table Sink stamps it on the table it writes.
+    # The record above is written after the run, so they cannot read it there.
+    # This is the run's own copy of the workflow, set after the snapshot.
+    wf.metadata = {**(getattr(wf, "metadata", None) or {}), "_run_version": v.version}
     if run_metadata:
         exe.metadata = {**exe.metadata, **run_metadata}
     if resume_from_run_id:
         exe.triggered_by = f"resume:{resume_from_run_id[:8]}"
         exe.metadata = {**exe.metadata, "resumed_from": resume_from_run_id}
+
+    # Recorded now, as running, and again when it ends (the same row). The
+    # Executions page lists what is recorded, so a run started with Run or by
+    # the API used to appear only once it had finished: nobody could watch it
+    # there or stop it from there, and overlap detection, which reads the
+    # running rows, never saw it. A scheduled run has always been recorded
+    # this way (scheduling/scheduler.py).
+    exe.status = "running"
+    try:
+        exe_store.record(exe)
+    except Exception:
+        logger.warning("Could not record the run as started", exc_info=True)
 
     start = time.time()
     from revoluzen_flow.main import app_state as _app_state
@@ -697,6 +720,7 @@ async def run_saved_workflow(
                         run_id=exe.id,
                         resume_from_run_id=resume_from_run_id,
                         execution_code=_exec_code,
+                        time_limit_seconds=time_limit_seconds,
                         **sample_kwargs,
                     ),
                 )
@@ -753,9 +777,14 @@ async def run_saved_workflow(
             md["cpu_seconds"] = round(_resmon.cpu_seconds, 2)
             md["sample_count"] = _resmon.sample.sample_count
             if parameter_values:
-                md["parameter_values"] = parameter_values
+                # Encrypted, not dropped: a replay runs with these again.
+                md["parameter_values"] = seal_parameter_values(parameter_values, wf.parameters)
             if resumed_steps:
                 md["resumed_steps"] = resumed_steps
+            if result.time_limit_seconds:
+                md["time_limit_seconds"] = result.time_limit_seconds
+            if result.stopped_by_time_limit:
+                md["stopped_by_time_limit"] = True
             exe.metadata = md
         except Exception:
             pass
@@ -765,10 +794,18 @@ async def run_saved_workflow(
                 exe.error_message = failed_steps[0].error_message
             else:
                 # A run refused before any step ran (validation, parameters,
-                # capability check) reports through a synthetic step that is
-                # not on the canvas. Its text is the real reason.
-                refused = [r.error for r in result.step_results.values() if r.error]
+                # capability check) or stopped between steps by its time
+                # limit reports through a synthetic step that is not on the
+                # canvas. Its text is the real reason. Only failed results
+                # count: a step loaded from a snapshot also carries a note.
+                refused = [
+                    r.error for r in result.step_results.values()
+                    if r.status == "error" and r.error
+                ]
                 exe.error_message = refused[0] if refused else "Unknown error"
+        elif result.status == "cancelled":
+            # Stopped from the editor, the Executions page or the Pool page.
+            exe.error_message = result.stop_message or "Stopped before it finished."
 
         exe_store.record(exe)
 
@@ -777,14 +814,15 @@ async def run_saved_workflow(
         if error_analyses:
             response["error_intelligence"] = error_analyses
 
-        # Timeout detection
-        if max_runtime_min > 0 and duration > max_runtime_min * 60 * 1000:
+        # The editor's toast reads these keys. They used to mean only that a
+        # run had finished later than its limit; the limit now stops the run.
+        if result.stopped_by_time_limit and result.time_limit_seconds:
+            from revoluzen_flow.engine.run_time_limit import describe_limit
             response["timeout_exceeded"] = True
-            response["max_runtime_minutes"] = max_runtime_min
+            response["max_runtime_minutes"] = round(result.time_limit_seconds / 60, 1)
             response["actual_runtime_minutes"] = round(duration / 60000, 1)
             response["timeout_message"] = (
-                f"Pipeline exceeded maximum runtime of {max_runtime_min} min "
-                f"(actual: {round(duration / 60000, 1)} min)"
+                f"Stopped at its time limit of {describe_limit(result.time_limit_seconds)}."
             )
 
         # Capture per-step status so the alert email can render a
@@ -884,7 +922,7 @@ async def run_saved_workflow(
             workspace_id=workspace_id,
             peak_memory_mb=_resmon.peak_memory_mb,
             cpu_seconds=_resmon.cpu_seconds,
-            parameter_values=parameter_values or None,
+            parameter_values=mask_parameter_values(parameter_values, wf.parameters) or None,
             workflow_steps=_alert_steps,
             workflow_connections=_alert_connections,
             first_failed_step=_alert_failed,
@@ -1163,7 +1201,7 @@ def _trigger_pipeline_alerts(
         logging.getLogger("revoluzen_flow.execution").error(f"Alert trigger failed: {e}")
 
 
-@router.post("/replay/{execution_id}")
+@router.post("/replay/{execution_id}", dependencies=[_RUNNER])
 async def replay_execution(
     execution_id: str,
     request: Request,
@@ -1229,7 +1267,11 @@ async def replay_execution(
     except Exception:
         overrides = {}
 
-    merged_param_values = {**original_params, **overrides}
+    # Dots in an override are a value shown back to the caller, not a new one.
+    merged_param_values = {
+        **original_params,
+        **{k: v for k, v in overrides.items() if v != SECRET_PLACEHOLDER},
+    }
 
     # Hydrate Workflow from the snapshot. The snapshot may be a dict
     # straight from `model_dump`; pass it back through the pydantic
@@ -1292,7 +1334,7 @@ async def replay_execution(
                 **(getattr(exe, "metadata", {}) or {}),
                 "peak_memory_mb": round(_resmon.peak_memory_mb, 2),
                 "cpu_seconds": round(_resmon.cpu_seconds, 2),
-                "parameter_values": merged_param_values,
+                "parameter_values": seal_parameter_values(merged_param_values, wf.parameters),
                 "replay_of": execution_id,
             }
         except Exception:
@@ -1305,7 +1347,7 @@ async def replay_execution(
             "workflow_id": workflow_id,
             "status": result.status,
             "duration_ms": round(duration, 1),
-            "parameter_values": merged_param_values,
+            "parameter_values": mask_parameter_values(merged_param_values, wf.parameters),
             "step_results": result.model_dump(mode="json").get("step_results", {}),
         }
     except Exception as e:
@@ -1345,7 +1387,7 @@ class EphemeralStepRunBody(BaseModel):
 # resulting in a 404 "Workflow not found" lookup against an id of
 # "ephemeral". Mirrors the ordering of /workflow/ephemeral (whole-run)
 # vs /workflow/{workflow_id} earlier in this file.
-@router.post("/workflow/ephemeral/step/{step_id}")
+@router.post("/workflow/ephemeral/step/{step_id}", dependencies=[_RUNNER])
 async def run_step_ephemeral(
     step_id: str,
     body: EphemeralStepRunBody,
@@ -1367,6 +1409,7 @@ async def run_step_ephemeral(
         })
     # Stamp the caller's workspace — never trust body content.
     wf.workspace_id = workspace_id
+    prepare_incoming_workflow(wf, get_store, workspace_id)
 
     # Validate (same gate as the ephemeral whole-run endpoint) so a
     # broken canvas surfaces structured errors instead of a 500.
@@ -1398,7 +1441,48 @@ async def run_step_ephemeral(
     return payload
 
 
-@router.post("/workflow/{workflow_id}/step/{step_id}")
+class JoinKeysBody(BaseModel):
+    """Body for POST /workflow/ephemeral/step/{step_id}/join-keys."""
+    workflow: dict[str, Any] = _Field(...)
+    sample_rows: int = 2000
+
+
+@router.post("/workflow/ephemeral/step/{step_id}/join-keys", dependencies=[_RUNNER])
+async def suggest_join_keys_ephemeral(
+    step_id: str,
+    body: JoinKeysBody,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Suggest the keys for a Join or Lookup Join step on the canvas as it is.
+
+    Samples both inputs the way Test Node runs them (preview, upstream first,
+    no writes) and ranks column pairs by shared values, names, types and
+    uniqueness. Returns names and percentages only, never the sampled rows.
+    The canvas is not validated first: a join with no keys yet is exactly
+    what this is for.
+    """
+    from revoluzen_flow.intelligence.join_discovery import suggest_for_step
+    from revoluzen_flow.ir.schema import Workflow
+    from revoluzen_flow.main import app_state as _app_state
+
+    try:
+        wf = Workflow(**body.workflow)
+    except Exception as exc:
+        raise HTTPException(400, f"Could not read the pipeline: {exc}") from None
+    wf.workspace_id = workspace_id
+    prepare_incoming_workflow(wf, get_store, workspace_id)
+    sample = max(100, min(int(body.sample_rows or 2000), 10000))
+    try:
+        return await anyio.to_thread.run_sync(
+            lambda: suggest_for_step(
+                wf, step_id, app_state=_app_state, data_dir=get_data_dir(), sample_rows=sample,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.post("/workflow/{workflow_id}/step/{step_id}", dependencies=[_RUNNER])
 async def run_step(
     workflow_id: str,
     step_id: str,
@@ -1428,7 +1512,7 @@ async def run_step(
     return payload
 
 
-@router.post("/workflow/{workflow_id}/resume")
+@router.post("/workflow/{workflow_id}/resume", dependencies=[_RUNNER])
 async def resume_workflow(
     workflow_id: str,
     run_id: str,
@@ -1462,7 +1546,7 @@ async def resume_workflow(
     )
 
 
-@router.post("/workflow/{workflow_id}/step/{step_id}/resume")
+@router.post("/workflow/{workflow_id}/step/{step_id}/resume", dependencies=[_RUNNER])
 async def resume_from_step(
     workflow_id: str,
     step_id: str,
@@ -1504,7 +1588,7 @@ async def cache_summary(
     return cache.summary(v.workflow, input_map)
 
 
-@router.delete("/workflow/{workflow_id}/cache")
+@router.delete("/workflow/{workflow_id}/cache", dependencies=[_RUNNER])
 async def clear_cache(
     workflow_id: str,
     step_id: str | None = None,
@@ -1523,7 +1607,7 @@ async def clear_cache(
     return {"status": "ok", "step_id": step_id or "all"}
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[_RUNNER])
 async def preview_file(file_path: str, limit: int = 50):
     """Preview a data file (CSV/Parquet/JSON)."""
     import duckdb
@@ -1563,7 +1647,7 @@ async def preview_file(file_path: str, limit: int = 50):
 # (e.g. CSV from local path) and for connection-backed previews (DB / API
 # / S3) — the connection's own permissions still apply.
 
-@router.post("/preview-source")
+@router.post("/preview-source", dependencies=[_RUNNER])
 async def preview_source(payload: dict, request: Request):
     """Preview the rows a configured source node would produce.
 

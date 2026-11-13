@@ -42,6 +42,8 @@ _ROLE_RANK = {
 }
 
 ADMIN_ROLES = ("super_admin", "admin", "workspace_admin")
+# Roles that may address ANY workspace without membership.
+_INSTANCE_ADMIN_ROLES = ("super_admin", "admin")
 
 
 def _user_store():
@@ -309,8 +311,12 @@ def current_workspace_id(request: Request) -> str:
     if explicit:
         # Instance admins can address any workspace — they bypass the
         # per-workspace membership check the same way they bypass the
-        # project ACL.
-        if user.role in ADMIN_ROLES:
+        # project ACL. workspace_admin is NOT an instance admin: it is
+        # "peer of admin, scoped to a workspace" (see _ROLE_RANK), so it must
+        # be a member like everyone else. It used to bypass here, which let a
+        # workspace_admin of one workspace read another's pipelines
+        # (2026-11-13 pen test).
+        if user.role in _INSTANCE_ADMIN_ROLES:
             return explicit
         if ws_store.is_member(explicit, user.id):
             return explicit

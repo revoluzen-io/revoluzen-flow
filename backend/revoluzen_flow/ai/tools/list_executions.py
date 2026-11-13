@@ -16,9 +16,14 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
     # them as failures.
     status_filter = (inputs.get("status") or "").strip().lower() or None
     # The ExecutionStore persists 'error' for failed runs, but 'failed' /
-    # 'timeout' / 'cancelled' also occur — treat any failure request as the
-    # whole family so "recent failures" doesn't silently miss some.
-    _FAILURE_STATUSES = {"error", "failed", "failure", "timeout", "cancelled", "canceled"}
+    # 'timeout' also occur — treat any failure request as the whole family so
+    # "recent failures" doesn't silently miss some. A 'cancelled' run is one
+    # somebody stopped, recorded apart from failures everywhere else (no
+    # failure alert, outside the success rate), so it is not a failure here
+    # either; ask for status 'cancelled' to list those.
+    _FAILURE_STATUSES = {"error", "failed", "failure", "timeout"}
+    if status_filter == "canceled":
+        status_filter = "cancelled"
     # Optional recency window — only runs started within the last N days.
     cutoff_iso: str | None = None
     _since_days = inputs.get("since_days")
@@ -103,7 +108,9 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
                     "duration_ms": int(r.get("duration_ms", 0) or 0),
                     "peak_memory_mb": float(peak_mem) if peak_mem else 0.0,
                     "cpu_seconds": float(cpu_seconds) if cpu_seconds else 0.0,
-                    "rows_processed": int(rows_processed) if rows_processed else 0,
+                    # None when the run did not record it: a 0 here read as
+                    # "processed no rows" for runs that loaded thousands.
+                    "rows_processed": int(rows_processed) if rows_processed else None,
                     "error": (r.get("error_message") or r.get("error") or "")[:200],
                     "trigger": r.get("trigger", ""),
                 })
@@ -122,7 +129,8 @@ DEFINITION = ToolDefinition(
     tier=ToolTier.READ,
     description=(
         "List recent pipeline runs (executions). Returns id, workflow_id, "
-        "workflow_name, status (success/failed/running), environment (dev/prod), "
+        "workflow_name, status (success/error/running/cancelled — cancelled means "
+        "somebody stopped it, not a failure), environment (dev/prod), "
         "started_at, duration_ms, peak_memory_mb (peak RAM via psutil sampler), "
         "cpu_seconds (cumulative CPU time), rows_processed, error (truncated), "
         "trigger (manual/scheduled/api). USE THIS for 'how much memory does X "
@@ -137,8 +145,11 @@ DEFINITION = ToolDefinition(
             "limit": {"type": "integer", "description": "Max rows to return (1-200, default 20)."},
             "status": {
                 "type": "string",
-                "enum": ["success", "failed", "error", "running"],
-                "description": "Optional: only runs with this status. 'error'/'failed' matches any failure.",
+                "enum": ["success", "failed", "error", "running", "cancelled"],
+                "description": (
+                    "Optional: only runs with this status. 'error'/'failed' matches any failure; "
+                    "'cancelled' lists the runs somebody stopped, which are not failures."
+                ),
             },
             "since_days": {
                 "type": "integer",

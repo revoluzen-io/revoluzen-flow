@@ -97,6 +97,31 @@ dependencies = [
     "starlette>=0.40",
     "requests>=2.31",
     "prometheus-client>=0.19",
+    # 2026-11-11: Delta Lake Sink, BigQuery and Databricks drivers ship by
+    # default. See the block of the same date in backend/requirements.txt.
+    "deltalake>=1.0",
+    "google-cloud-bigquery>=3.18",
+    "databricks-sql-connector>=3.0",
+    # 2026-11-11 (later): ClickHouse, Google Cloud Storage and Azure storage
+    # drivers ship too — same block in backend/requirements.txt.
+    "clickhouse-connect>=0.8",
+    "google-cloud-storage>=2.14",
+    "azure-storage-blob>=12.19",
+    "azure-storage-file-datalake>=12.14",
+    # 2026-11-11 (later): Windows file shares (SMB) for the File step — same
+    # block in backend/requirements.txt.
+    "smbprotocol>=1.15",
+    # 2026-11-11: these were in backend/requirements.txt but missing here, so
+    # `pip install revoluzen-flow` left out the PostgreSQL, MySQL, S3,
+    # Snowflake, Oracle, SFTP, Redis and MongoDB drivers the app offers.
+    "psycopg2-binary>=2.9",
+    "pymysql>=1.1",
+    "boto3>=1.34",
+    "snowflake-connector-python>=3.0",
+    "oracledb>=2.0",
+    "paramiko>=3.0",
+    "redis>=5.0",
+    "pymongo>=4.0",
 ]
 
 [project.optional-dependencies]
@@ -163,8 +188,9 @@ bigquery = ["google-cloud-bigquery>=3.18"]
 # Databricks SQL (warehouses + jobs)
 databricks = ["databricks-sql-connector>=3.0"]
 
-# ClickHouse (native protocol — REST is already supported via stdlib)
-clickhouse = ["clickhouse-driver>=0.2.7"]
+# ClickHouse (HTTP protocol; a core dependency since 2026-11-11 — this extra
+# stays so existing install commands keep working)
+clickhouse = ["clickhouse-connect>=0.8"]
 
 # MongoDB (direct driver — Atlas Data API works over plain HTTP)
 mongodb = ["pymongo>=4.6"]
@@ -214,8 +240,7 @@ kafka = ["confluent-kafka>=2.3"]
 # ─── File transfer + misc ──────────────────────────────────────────────────
 
 sftp = ["paramiko>=3.4"]
-delta = ["deltalake>=0.15"]
-soap  = ["zeep>=4.2"]                # SOAP API client (some SAP/Oracle paths)
+delta = ["deltalake>=1.0"]
 
 # ─── Vector / AI ───────────────────────────────────────────────────────────
 
@@ -242,7 +267,7 @@ all-databases-no-os-deps = [
     "snowflake-connector-python>=3.7",
     "google-cloud-bigquery>=3.18",
     "databricks-sql-connector>=3.0",
-    "clickhouse-driver>=0.2.7",
+    "clickhouse-connect>=0.8",
     "pymongo>=4.6",
     "redis>=5.0",
     "cassandra-driver>=3.29",
@@ -260,7 +285,7 @@ all = [
     "snowflake-connector-python>=3.7",
     "google-cloud-bigquery>=3.18",
     "databricks-sql-connector>=3.0",
-    "clickhouse-driver>=0.2.7",
+    "clickhouse-connect>=0.8",
     "pymongo>=4.6",
     "redis>=5.0",
     "cassandra-driver>=3.29",
@@ -277,7 +302,7 @@ all = [
     "google-cloud-firestore>=2.14",
     "confluent-kafka>=2.3",
     "paramiko>=3.4",
-    "deltalake>=0.15",
+    "deltalake>=1.0",
 ]
 
 [project.scripts]

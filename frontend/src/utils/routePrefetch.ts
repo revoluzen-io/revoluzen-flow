@@ -56,7 +56,6 @@ const ROUTE_LOADERS: Partial<Record<Page, () => Promise<unknown>>> = {
   credentials:   () => import('../components/pages/CredentialsPage'),
   settings:      () => import('../components/pages/SettingsPage'),
   connections:   () => import('../components/pages/ConnectionsPage'),
-  projects:      () => import('../components/pages/ProjectsPage'),
   help:          () => import('../components/pages/HelpPage'),
   trust:         () => import('../components/pages/AIPage'),
   'cert-matrix': () => import('../components/pages/AIPage'),  // folded into Insights → Trust

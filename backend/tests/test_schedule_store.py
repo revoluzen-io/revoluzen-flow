@@ -1,5 +1,7 @@
 """Unit tests for ScheduleStore."""
 
+from datetime import datetime, timezone
+
 import pytest
 from revoluzen_flow.scheduling.models import Schedule, ScheduleType
 from revoluzen_flow.scheduling.store import ScheduleStore
@@ -64,6 +66,16 @@ class TestScheduleStore:
         assert s.last_run_status == "success"
         assert s.run_count == 1
         assert s.last_run_at is not None
+
+    def test_record_run_keeps_when_the_run_started(self, schedule_store, sample_schedule):
+        schedule_store.create(sample_schedule)
+        schedule_store.record_run("sched-001", "success")
+        assert schedule_store.get("sched-001").last_fired_at is None
+        started = datetime(2026, 11, 10, 9, 0, 5, tzinfo=timezone.utc)
+        schedule_store.record_run("sched-001", "success", fired_at=started)
+        saved = schedule_store.get("sched-001")
+        assert saved.last_fired_at == started
+        assert saved.last_run_at > started
 
     def test_record_run_increments_count(self, schedule_store, sample_schedule):
         schedule_store.create(sample_schedule)

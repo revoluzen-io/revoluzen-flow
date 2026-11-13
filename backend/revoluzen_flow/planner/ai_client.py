@@ -432,6 +432,27 @@ def _audit_ai_call(
         pass
 
 
+def _with_glossary(messages: list[dict[str, str]], workspace_id: str | None) -> list[dict[str, str]]:
+    """The messages with the workspace's meaning of any business term the
+    request uses (glossary/store.py) added to the newest user message, so a
+    drafted pipeline computes "net revenue" the way this business does. Every
+    pipeline draft comes through here: the Editor's and the Copilot's."""
+    try:
+        from revoluzen_flow.glossary.store import glossary_block
+
+        last = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=None)
+        if last is None:
+            return messages
+        block = glossary_block(workspace_id, str(messages[last].get("content") or ""))
+        if not block:
+            return messages
+        out = [dict(m) for m in messages]
+        out[last]["content"] = f"{out[last]['content']}\n\n{block}"
+        return out
+    except Exception:  # noqa: BLE001 — a glossary read never stops a draft
+        return messages
+
+
 async def ai_generate_pipeline(
     messages: list[dict[str, str]],
     *,
@@ -458,6 +479,8 @@ async def ai_generate_pipeline(
 
     if provider == "none":
         return None
+
+    messages = _with_glossary(messages, workspace_id)
 
     t0 = time.monotonic()
     result: dict | None = None

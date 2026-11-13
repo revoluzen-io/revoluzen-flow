@@ -21,7 +21,11 @@ This is the per-pipeline list — every pipeline in the workspace with its statu
 
 ## Where do I see my projects?
 
-**Sidebar** → **Projects** (folder icon). URL: `#projects`. Each project is a collection of pipelines sharing a logical purpose; pipelines belong to exactly one project.
+**Sidebar** → **Pipelines**. The project panel on the left of the list shows every project with its folders and how many pipelines each holds. Click a project or a folder to list only its pipelines; **All projects** lists every pipeline, and **Unassigned** lists pipelines whose project you cannot see or that no longer exists. The address keeps the choice: `#pipelines?project=<id>`, plus `&folder=<id>` for a folder. On a narrow screen the panel opens from the **Projects** button above the list. There is no separate Projects page any more; an old `#projects` link opens this panel. Each project is a collection of pipelines sharing a logical purpose; pipelines belong to exactly one project.
+
+## Where are the pipelines I have open?
+
+In two sets of tabs, up to ten each. On the Pipelines page, tabs above the list, beside the project panel: first **Home** (the list itself), then each pipeline opened from the list, shown in full (preview, last run, and Publish, Run, Version history, Duplicate, Edit in Editor); address `#pipelines/<id>`; **Open** at their right end picks another. In the Editor, tabs above the canvas, beside the Nodes panel, hold only the pipelines being built there, each keeping its canvas, test results and unsaved edits; address `#editor/<id>`; at their right end, **Open** brings in another saved pipeline and **New Pipeline** opens an empty canvas in a new tab. Looking at a pipeline on the Pipelines page does not add it to the Editor's tabs; **Edit** on its row or **Edit in Editor** does.
 
 ## Where are my schedules?
 
@@ -41,15 +45,19 @@ This is the per-pipeline list — every pipeline in the workspace with its statu
 - **Notification HISTORY** (the bell): top-right header → **🔔 bell icon** for the last 20; full history at **#notifications**.
 - **Notification CHANNELS** (email SMTP, Slack webhook, etc.): Settings → **Notifications** tab.
 
+## Where are my reports? Where do I see if a scheduled report went out?
+
+**Insights → Reports**. URL hash: `#reports`. The list shows each saved report's schedule, next send and last result. Open one and choose **Sent history** for every send, who it went to, and the reason for anything that failed. The installation inventory document is under **Start from** on the same page.
+
 ## Where is Storage / where do I find my files and managed tables?
 
 **Sidebar** → **Storage** (stacked-cylinders icon, between Pool and Insights). URL hash: `#storage`. Three sub-tabs:
 
 * **Files** — uploaded files (CSV / JSON / Parquet / Excel / XML). Each row shows scope (Global vs project), size, "Used by N pipelines" pill, last-updated, and row actions (Preview, Replace bytes, Promote to managed table, Delete).
-* **Managed Tables** — Parquet-backed tables addressable by `schema.name` from Managed Table Source / Managed Table Sink nodes. Each row shows rows / columns / size / part count / "Used by N" / Drop.
-* **Pipeline Outputs** — files written by pipeline runs, grouped by `(pipeline_id, run_id)`.
+* **Managed Tables** — Parquet-backed tables addressable by `schema.name` from Managed Table Source / Managed Table Sink nodes. Each row shows rows / columns / size / part count / "Used by N" / Drop, and under the name **Prepared by**: the pipeline that writes the table and the version of it the table holds (click the name to edit it). A table's **History** tab lists its last loads. Its **Tests** tab holds its checks and **Run these tests on their own**: after every load and/or every 15 minutes to a day; a failed test lands in the Steward and the admins' notifications.
+* **Pipeline Outputs** — files written by pipeline runs, grouped by `(pipeline_id, run_id)`. A **Pipeline Output** node keeps one file here per pipeline and name, replaced on every run.
 
-The Storage page is workspace-scoped; the active project context (from Projects) auto-filters via the All / Global / Project chip strip.
+The Storage page is workspace-scoped; the active project context (the project picked in the project panel on the Pipelines page) auto-filters via the All / Global / Project chip strip.
 
 ## Where do I upload a data file?
 
@@ -211,7 +219,7 @@ To override the location: set env var `REVOLUZEN_FLOW_MASTER_KEY_FILE=/path/to/s
 - **Chat fast lane**: type `what tools does the agent have` → instant answer.
 - **API**: `GET /api/ai/agent/status` returns `tool_count`.
 - **Code**: `backend/revoluzen_flow/ai/tools/` — one file per tool.
-- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 32 tools by tier.
+- **Doc**: `docs/product_facts/10_ai_copilot.md` enumerates all 37 tools by tier.
 
 ## Where do I see what's running right now?
 

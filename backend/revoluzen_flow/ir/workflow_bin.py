@@ -35,13 +35,17 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from revoluzen_flow.common.unique_name import ensure_unique_name
-from revoluzen_flow.ir.versioning import WorkflowIdInUse, WorkflowStore
+from revoluzen_flow.ir.versioning import WorkflowIdInUse, WorkflowStore, published_pin
 
 logger = logging.getLogger(__name__)
 
 
 class NotInBin(LookupError):
     """There is no such pipeline in the Bin (in that workspace)."""
+
+
+class PublishedPipeline(RuntimeError):
+    """A published pipeline cannot be deleted. It has to be unpublished first."""
 
 
 class IdInUse(RuntimeError):
@@ -132,12 +136,16 @@ def delete_pipeline(
     """Delete a pipeline: into the Bin, or for good with ``permanent=True``.
 
     Returns None when there is no such pipeline in that workspace; otherwise
-    ``{"binned": bool, "name": str, "entry": <Bin entry> | None}``.
+    ``{"binned": bool, "name": str, "entry": <Bin entry> | None}``. Raises
+    :class:`PublishedPipeline` if it is published: every delete comes through
+    here, so a published pipeline has no way round being unpublished first.
     """
     existing = store.get(workflow_id, workspace_id=workspace_id)
     if existing is None:
         return None
     wf = existing.workflow
+    if published_pin(existing) is not None:
+        raise PublishedPipeline(wf.name or workflow_id)
     actor = actor_name or actor_id
     entry = None
     if permanent:

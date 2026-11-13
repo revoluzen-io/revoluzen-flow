@@ -68,7 +68,6 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
   delta_source: 'Import', sharepoint_source: 'Import', onedrive_source: 'Import',
   gdrive_source: 'Import', dropbox_source: 'Import', box_source: 'Import',
   adls_gen2_source: 'Import', azure_blob_source: 'Import', gcs_source: 'Import',
-  webhook_trigger: 'Import',
   // 2026-06-10: managed local-table nodes were missing here, so the
   // intent regrouper dropped them into the default 'Automate' bucket —
   // a table READER filed under Automate while every other reader sits
@@ -77,7 +76,7 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
   // ── Prepare (single-relation transforms + quality) ──
   data_wrangler: 'Prepare', filter: 'Prepare', derived_column: 'Prepare',
   schema_mapper: 'Prepare', sort: 'Prepare', deduplicate: 'Prepare',
-  sample: 'Prepare', data_quality: 'Prepare', flatten_explode: 'Prepare', split_out: 'Prepare',
+  sample: 'Prepare', data_quality: 'Prepare', reconcile: 'Prepare', flatten_explode: 'Prepare', split_out: 'Prepare',
   upsert: 'Prepare', rename: 'Prepare', typecast: 'Prepare',
   validate: 'Prepare', llm_guardrail: 'Prepare',
   // ── Analyze (multi-relation + semantic classification) ──
@@ -105,6 +104,7 @@ export const INTENT_FOR_STEP_TYPE: Record<string, UserIntent> = {
   adls_gen2_sink: 'Publish', azure_blob_sink: 'Publish', gcs_sink: 'Publish',
   output: 'Publish',
   local_table_sink: 'Publish',  // 2026-06-10 — see local_table_source note above
+  pipeline_output: 'Publish',
 };
 
 // D11/12/13 — Progressive disclosure (2026-05-18).
@@ -142,6 +142,9 @@ export const MODULES: ModuleCategory[] = [
       // orphan "Destination" bottom-of-palette category with no icon.
       { type: 'local_table_source', label: 'Managed Table Source', level: 'intermediate', description: 'Read from a workspace-managed Parquet table by schema.name' },
       { type: 'local_table_sink', label: 'Managed Table Sink', level: 'intermediate', description: 'Write to a workspace-managed Parquet table (replace / append / merge)' },
+      // 2026-11-10: the result as one file in Storage → Pipeline Outputs,
+      // replaced on every run. Needs only a name, no path or connection.
+      { type: 'pipeline_output', label: 'Pipeline Output', level: 'intermediate', description: 'Save the result as a file in Storage → Pipeline Outputs, replaced on every run' },
       { type: 'saas_connector', label: 'SaaS Connector', level: 'intermediate', description: 'Read from a SaaS application, using a built-in connector or one you generated in the API Explorer' },
     ],
   },
@@ -157,6 +160,9 @@ export const MODULES: ModuleCategory[] = [
       { type: 'sample', label: 'Sample', level: 'intermediate' },
       { type: 'schema_mapper', label: 'Schema Mapper', level: 'advanced' },
       { type: 'data_quality', label: 'Data Quality', level: 'advanced' },
+      // 2026-11-11: the business check — row count, totals and keys against
+      // the system of record, stopping before the write on a mismatch.
+      { type: 'reconcile', label: 'Reconcile', level: 'intermediate', description: 'Compare the data with the system of record (row count, totals, keys) and stop before the write if they disagree' },
       { type: 'flatten_explode', label: 'Flatten', level: 'advanced' },
       // 2026-06-15 (control-flow alignment): "Split Out" tile removed — it was a duplicate
       // preset of Flatten (mode=explode); use Flatten in explode mode.
@@ -204,14 +210,11 @@ export const MODULES: ModuleCategory[] = [
       { type: 'http_request', label: 'HTTP Request', level: 'intermediate' },
       { type: 'send_email', label: 'Send Email', level: 'intermediate' },
       { type: 'slack_notify', label: 'Slack / Teams', level: 'intermediate' },
-      // 2026-05-22: `webhook_trigger` removed from the palette. Per the
-      // 2026-05-22 node audit it has a StepType enum value but no backend
-      // registration, so every user who added one ended up with a node
-      // that couldn't execute. Inbound-webhook receiver infrastructure
-      // (URL routing, signature verification, replay protection) isn't
-      // ready for v1.0; promote `api_source` for pull-style integration.
-      // Legacy workflows that still carry this type are remapped at load
-      // time via revoluzen_flow/ir/migrations.py:migrate_legacy_node_types.
+      // `webhook_trigger` left the palette on 2026-05-22 (it never ran) and
+      // the step type was retired on 2026-11-11: another system starts a
+      // pipeline through a published endpoint on the Triggers page, which can
+      // require signed calls. Old pipelines that still carry the type are
+      // remapped at load time (ir/migrations.py:RETIRED_STEP_TYPES).
       // 2026-06-15: Code / Script gated to Plus (runs user Python in-process,
       // not a sandbox) — hidden from OSS via HIDDEN_TYPES.
       { type: 'get_metadata', label: 'Get Metadata', level: 'advanced' },

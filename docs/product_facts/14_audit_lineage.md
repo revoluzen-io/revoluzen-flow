@@ -2,13 +2,15 @@
 
 Per `edition-matrix.md` line 137-144 (audit, governance, compliance) and line 96-107 (agent observability).
 
-## Three audit surfaces in OSS Free
+## Four audit surfaces in OSS Free
 
 ### 1. Audit events and pipeline version history
 
 This edition has no `audit_log` table and no audit-log page. Some actions — deleting a pipeline, restoring one from the Bin or removing it from the Bin for good, an uploaded file or a managed table, renaming a table, cleaning up storage, testing a connection, starting a backfill, creating or revoking an endpoint API key, publishing, changing or removing an endpoint — call `revoluzen_flow.audit.audit_action`, which writes one `AUDIT:` line to the `revoluzen_flow.audit` logger at INFO level. The default server setup does not print INFO lines from the app, so keeping them needs Python logging configured for that logger.
 
-For "who changed this pipeline?", use the pipeline's **Version history** (Pipelines → the pipeline's **⋯** menu → Version history): every save that changes a pipeline adds a version with who saved it and when, and **Compare** shows what it added or removed.
+For "who changed this pipeline?", use the pipeline's **Versions** (Pipelines → open the pipeline → **Versions** at the top of its tab, or **Version history** in its row's **⋯** menu): every save that changes a pipeline adds a version with who saved it, when, and the kind of save (Save, auto-save, restore, review step). Clicking a version compares it with the current one, on the canvas or as a list of every setting before and after. Versions saved before Flow recorded who saved them say "Not recorded".
+
+For "who changed this connection?", open it on the Connections page and choose **History**: every change to its settings, linked credential, project, environment, roles, description or tags keeps a version with who made it and when. Passwords and keys are kept only as fingerprints, so the history says a password changed, never what it was. A connection made before November 2026 starts its history at its next change.
 
 **Not here:** Insights → Activity lists AI requests (see 2), not audit events.
 
@@ -35,6 +37,17 @@ Per `04_concepts.md` Execution section. Each run captures status, duration_ms, p
 
 **Where to view:** Executions page. Click a row for the metadata.
 
+`cpu_seconds` and `peak_memory_mb` are measured for the whole server process while the run was going, so two runs at the same time each count the other's work. Read them as the server's load during the run, not as the run's own cost.
+
+### 4. Lineage — where data comes from and goes
+
+On by default; `REVOLUZEN_FLOW_ENABLE_LINEAGE=0` turns it off.
+
+- **Lineage page** (`#lineage`, not in the sidebar; Storage → a managed table → **View lineage** opens it on the pipeline that writes the table): for a pipeline, a column-level graph of how each column moves through its steps (passthrough, filter, transform, aggregate, join), and one column's path. API: `GET /api/lineage/{workflow_id}`, `GET /api/lineage/{workflow_id}/column/{column}`.
+- **A run's lineage**: Executions → open a run → **Lineage** tab: the run's steps as a flow with each step's status; **Runtime lineage — what actually ran** lists each step's columns and rows in and out, and its timing. API: `GET /api/lineage/runs/{run_id}`.
+- **OpenLineage export**: with `REVOLUZEN_FLOW_LINEAGE_OPENLINEAGE_URL` set, each run sends OpenLineage events to that endpoint (Marquez, DataHub, OpenMetadata or any OpenLineage backend); `REVOLUZEN_FLOW_LINEAGE_EXPORT_FILE` appends them to a JSON Lines file; `REVOLUZEN_FLOW_LINEAGE_REDACT_COLUMNS=1` leaves column names out.
+- **Readers**: a downstream system can register itself (`POST /api/lineage/consumers`) so Flow can say what reads an output. Only systems that register are known; Flow does not discover readers on its own.
+
 ## Revoluzen Flow Enterprise adds
 
 ### Audit log retention + export + sigstore signing
@@ -47,11 +60,9 @@ Per `04_concepts.md` Execution section. Each run captures status, duration_ms, p
 
 Same trace data as OSS, but retained 1 year+ with admin-controlled retention overrides per store.
 
-### Lineage (Marquez-compatible)
+### Lineage
 
-Cross-pipeline dataset provenance graph. For each pipeline run, Revoluzen Flow Enterprise emits an OpenLineage event to a configured backend (default: a built-in Marquez instance). Lets you answer "where did the rows in this dashboard come from?" by walking upstream.
-
-**Compatible with:** Marquez, DataHub, OpenMetadata, any OpenLineage-compliant backend.
+Not an Enterprise addition: OSS has the lineage page, each run's lineage and OpenLineage export (see 4 above).
 
 ### Vault (AES-256, references, rotation)
 
@@ -70,16 +81,17 @@ OSS ships `docs/ai-ops-contract.md` and `docs/compliance.md` (the compliance one
 ## Anti-patterns
 
 - ❌ Telling an OSS user "Revoluzen Flow is SOC 2 certified" — the SOFTWARE isn't certified; the OPERATOR's deployment may bring Revoluzen Flow into scope of the operator's own SOC 2. Equally, never promise a Revoluzen SOC 2 report: no audit has been completed yet.
-- ❌ "Use Insights → Activity as your audit log" — it lists AI requests only (what the AI did and what it cost). For the agent, open a request there or use the trace store API; for changes to a pipeline, its Version history; for pipeline runs, the Executions page.
-- ❌ Promising lineage in OSS — it's Plus only. The OSS path for "where did this data come from" is `recall_history` against the RAG index plus `summarize_pipeline` on each upstream node.
+- ❌ "Use Insights → Activity as your audit log" — it lists AI requests only (what the AI did and what it cost). For the agent, open a request there or use the trace store API; for changes to a pipeline, its Versions view; for changes to a connection, its History; for pipeline runs, the Executions page.
+- ❌ Saying OSS has no lineage — it has (see 4). What it does not do is find a pipeline's readers on its own: a downstream system is known only if it registers itself.
 - ❌ Confusing audit log with execution log — they are different stores. Audit log = who did what (auth-scoped). Execution log = pipeline runs (system-scoped).
 
 ## Where to look for evidence
 
 | Question | Where (OSS) | Plus extension |
 | --- | --- | --- |
-| Who changed pipeline X? | Pipelines → ⋯ → Version history | + audit log with sigstore-signed export |
+| Who changed pipeline X? | Pipelines → the pipeline → Versions (or ⋯ → Version history) | + audit log with sigstore-signed export |
+| Who changed connection X? | Connections → the connection → History | — |
 | What did the agent do at 14:32? | Insights → Activity, or `GET /api/ai/agent/traces?limit=20` | + 1-year retention |
 | Why did this run OOM? | Executions page → run row → `peak_memory_mb` | (same — retention extended) |
-| Where did this row come from? | `recall_history` + `summarize_pipeline` | + Marquez lineage graph |
+| Where did this column come from? | Lineage page (column graph) or the run's Lineage tab; OpenLineage export to Marquez / DataHub | — |
 | Are credentials encrypted? | `GET /api/trust/posture` → `security_baseline.credential_encryption.status = ok` | + Vault-Ref pattern |

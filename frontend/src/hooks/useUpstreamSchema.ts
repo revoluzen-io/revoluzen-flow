@@ -43,7 +43,7 @@ export interface UpstreamSchemaResult {
   error: string | null;
   /**
    * A4 — true when ANY ancestor (transitively) is a 'dynamic' schema
-   * node (pivot, transform, api_source, webhook_trigger, code_script,
+   * node (pivot, transform, api_source, code_script,
    * unpivot, flatten_explode). Downstream column dropdowns should
    * either degrade to a free-text input or display a "schema available
    * after first run" hint, because what they see now is at best a

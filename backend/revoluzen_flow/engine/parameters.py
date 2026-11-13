@@ -25,6 +25,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from revoluzen_flow.ir.schema import Workflow, WorkflowParameter
+from revoluzen_flow.ir.step_secrets import (
+    SECRET_PLACEHOLDER,
+    is_secret_parameter,
+    mask_parameter_values,
+    open_parameter_value,
+)
 
 
 _PLACEHOLDER_RE = re.compile(r"\$\{param\.([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -145,24 +151,38 @@ def resolve_parameter_values(
     resolved: dict[str, Any] = {}
     missing: list[str] = []
     for p in declared.values():
-        if p.name in overrides:
-            raw = overrides[p.name]
-        elif p.default is not None:
-            raw = p.default
-            # `_walk` resolves system placeholders before it substitutes a
-            # parameter's value, so one inside a default has to be resolved
-            # here or it reaches the step as literal text.
-            if isinstance(raw, str):
-                raw = _resolve_system_placeholders(raw, run_id or uuid.uuid4().hex)
-        elif p.required:
-            missing.append(p.name)
-            continue
-        else:
-            raw = None
+        secret = is_secret_parameter(p)
+        # The dots stand for the stored value, so they are never the value: as
+        # an override they mean "use the default", and a default still showing
+        # them (a pipeline that was not saved first) has nothing behind it.
+        overridden = p.name in overrides and not (secret and overrides[p.name] == SECRET_PLACEHOLDER)
+        default = None if secret and p.default == SECRET_PLACEHOLDER else p.default
+        try:
+            if overridden:
+                raw = open_parameter_value(overrides[p.name])
+            elif default is not None:
+                raw = open_parameter_value(default)
+                # `_walk` resolves system placeholders before it substitutes a
+                # parameter's value, so one inside a default has to be resolved
+                # here or it reaches the step as literal text.
+                if isinstance(raw, str):
+                    raw = _resolve_system_placeholders(raw, run_id or uuid.uuid4().hex)
+            elif p.required:
+                missing.append(p.name)
+                continue
+            else:
+                raw = None
+        except ValueError as e:
+            raise ParameterError(f"Parameter {p.name!r}: {e}") from None
 
         try:
             resolved[p.name] = _coerce(raw, p.type)
         except (ValueError, TypeError) as e:
+            if secret:
+                # The usual message quotes the value.
+                raise ParameterError(
+                    f"Parameter {p.name!r} (type={p.type!r}): its value does not fit this type"
+                ) from None
             raise ParameterError(
                 f"Parameter {p.name!r} (type={p.type!r}): cannot coerce {raw!r} ({e})"
             )
@@ -235,9 +255,10 @@ def resolve_workflow_parameters(
             )
 
     # Stash the resolved values on metadata so the execution log can record
-    # exactly what was passed (audit + replay).
+    # exactly what was passed (audit + replay). Secrets as dots: this copy of
+    # the pipeline is the one place their readable values live during a run.
     md = dict(out.metadata or {})
-    md["_resolved_parameters"] = resolved
+    md["_resolved_parameters"] = mask_parameter_values(resolved, workflow.parameters)
     md["_run_id"] = run_id
     out.metadata = md
     return out

@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.extraction.events import get_bus
 from revoluzen_flow.extraction.freshness import FreshnessGate
 from revoluzen_flow.extraction.manifest import RunManifest
@@ -82,7 +82,7 @@ async def get_run_events(run_id: str, limit: int = Query(100, ge=1, le=1000)):
     return {"run_id": run_id, "events": events}
 
 
-@router.post("/freshness/check")
+@router.post("/freshness/check", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def check_freshness(body: FreshnessCheckRequest):
     """Returns whether a fresh run is allowed right now per the
     profile's freshness contract. Used by the UI to show 'next
@@ -98,7 +98,7 @@ async def check_freshness(body: FreshnessCheckRequest):
     return decision.to_dict()
 
 
-@router.get("/manifests/{profile_name}/latest")
+@router.get("/manifests/{profile_name}/latest", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def get_latest_manifest(profile_name: str, manifest_dir: str = Query(...)):
     """Latest completed manifest for a profile. Returns 404 if no
     completed run exists in `manifest_dir`."""
@@ -180,7 +180,7 @@ async def get_run_dlq(run_id: str, limit: int = Query(100, ge=1, le=10000)):
              "note": "supply ?manifest_dir= to read DLQ from a specific staging directory"}
 
 
-@router.get("/dlq")
+@router.get("/dlq", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def get_dlq_by_path(failed_path: str = Query(...),
                             limit: int = Query(100, ge=1, le=10000)):
     """Read failed records directly from a known failed_path. Useful

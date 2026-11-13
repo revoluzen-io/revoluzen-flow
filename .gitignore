@@ -184,3 +184,6 @@ backend/_regress.txt
 /backend/revoluzen_flow/connectors/ci/last_local_status.json
 /backend/revoluzen_flow/connectors/ci/last_replay_status.json
 /Environment
+
+# Security sprint working files (threat model, findings, PoCs). Never ship.
+/SECURITY/

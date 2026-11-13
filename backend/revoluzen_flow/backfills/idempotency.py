@@ -32,6 +32,8 @@ _FILE_SINKS = {
     "s3_sink", "adls_gen2_sink", "azure_blob_sink", "gcs_sink",
     "sharepoint_sink", "onedrive_sink", "gdrive_sink",
     "dropbox_sink", "box_sink",
+    # Always replaces its one file, so every re-run leaves the same result.
+    "pipeline_output",
 }
 
 # Sinks that always fire a real-world side effect on every run.

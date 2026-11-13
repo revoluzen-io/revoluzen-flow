@@ -724,6 +724,26 @@ describe('validateWorkflow — Data Quality keys the step does not read', () => 
   });
 });
 
+// 2026-11-11: shared rule sets. A step that only uses a set has nothing to
+// fix; a step with neither its own rules nor a set checks nothing.
+describe('validateWorkflow — Data Quality with shared rule sets', () => {
+  const src = node('src', 'source', { connector_type: 'csv', file_path: 'a.csv' });
+  const rulesIssues = (params: Record<string, any>) =>
+    validateWorkflow([src, node('dq', 'data_quality', params)], [edge('src', 'dq')])
+      .filter((i) => i.nodeId === 'dq' && (i.field === 'rules' || i.field === 'rule_sets'));
+
+  it('accepts a step that only uses a shared rule set', () => {
+    expect(rulesIssues({ rules: [], rule_sets: ['rs_abc'], mode: 'fail' })).toEqual([]);
+  });
+
+  it('refuses a step with neither its own rules nor a set', () => {
+    const found = rulesIssues({ rules: [], rule_sets: [], mode: 'drop' });
+    expect(found).toHaveLength(1);
+    expect(found[0].level).toBe('error');
+    expect(found[0].message).toMatch(/Add a validation rule or pick a shared rule set/);
+  });
+});
+
 // A database step with a saved connection must name what it reads or writes. A Source says
 // so in `source_mode`, and the node reads a query unless told otherwise; a Destination
 // writes to a table. The check read a `kind` that no panel writes any more, so it took every
@@ -798,5 +818,30 @@ describe('validateWorkflow — what a database step with a saved connection must
       [edge('src', 'out')],
     ).filter((i) => i.level === 'error' && i.nodeId === 'src');
     expect(noConnection.map((i) => i.field)).toEqual(['connection_id']);
+  });
+});
+
+describe('validateWorkflow — PGP signatures on the File step', () => {
+  const pgpFields = (nodes: any[]) => validateWorkflow(nodes, [edge('in', 'out')])
+    .filter((i) => i.level === 'error' && String(i.field || '').startsWith('pgp_'))
+    .map((i) => `${i.nodeId}:${i.field}`);
+
+  it('asks for the sender’s key when the signature check is on, and for your key when signing', () => {
+    const source = node('in', 'file_source', {
+      file_path: 'orders.csv.pgp', pgp_decrypt: true, pgp_credential_id: 'ours', pgp_verify: true,
+    });
+    const sink = node('out', 'file_sink', {
+      file_path: 'out.csv', pgp_encrypt: true, pgp_credential_id: 'partner', pgp_sign: true,
+    });
+    expect(pgpFields([source, sink])).toEqual(['in:pgp_verify_credential_id', 'out:pgp_sign_credential_id']);
+    source.data.params.pgp_verify_credential_id = 'sender';
+    sink.data.params.pgp_sign_credential_id = 'ours';
+    expect(pgpFields([source, sink])).toEqual([]);
+  });
+
+  it('ignores the signature settings while PGP itself is off', () => {
+    const source = node('in', 'file_source', { file_path: 'orders.csv', pgp_decrypt: false, pgp_verify: true });
+    const sink = node('out', 'file_sink', { file_path: 'out.csv', pgp_encrypt: false, pgp_sign: true });
+    expect(pgpFields([source, sink])).toEqual([]);
   });
 });

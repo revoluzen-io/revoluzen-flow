@@ -231,7 +231,34 @@ logger = logging.getLogger(__name__)
 #   * the SQL lives in revoluzen_flow/ir/versioning.py (WorkflowStore.trash,
 #     restore_from_trash, purge_*); schedules, step cache, CDC slots and the
 #     audit trail are handled by revoluzen_flow/ir/workflow_bin.py.
-SCHEMA_VERSION = 33
+#
+# v34 (2026-11-10) — what made each version, and names:
+#   * adds `kind` ('saved', 'auto', 'restored', 'review') and `version_name`
+#     to workflow_versions and to the Bin's copy, workflow_trash.
+#   * adds `workflow_version_removals`: per pipeline, how many versions the
+#     keeping rules have removed, so the version history can say so.
+#   * rows written before v34 become 'saved'. Their notes cannot tell a Save
+#     from an auto-save, and counting them as saves keeps every version the
+#     old keep-the-newest-20 rule kept.
+#
+# v35 (2026-11-10) — connection versions:
+#   * adds `connection_versions`: one row per change to a connection's
+#     settings (name, type, settings, credential, project, environment,
+#     roles, description, tags), with who changed it and a note.
+#   * secrets are never copied: each is stored as a keyed fingerprint, so the
+#     history can say a password changed and nothing more.
+#   * pure additive. A connection's first version is written the first time
+#     it is saved after the upgrade (its settings as they were just before).
+#     revoluzen_flow/connections/versions.py has the rules.
+#
+# v36 (2026-11-11) — reports people design and schedule (Insights > Reports):
+#   * adds `saved_reports`: the report's definition as JSON, plus the state of
+#     its schedule in columns of their own, so a send finishing while someone
+#     saves an edit cannot overwrite either.
+#   * adds `report_deliveries`: one row per send, who it reached, and the report
+#     as it went out. Webhook addresses are encrypted inside `data`.
+#   * pure additive. revoluzen_flow/reports/builder/store.py has the rules.
+SCHEMA_VERSION = 36
 
 # All table definitions
 TABLES = """
@@ -283,9 +310,49 @@ CREATE TABLE IF NOT EXISTS workflow_versions (
     created_at TEXT NOT NULL,
     workspace_id TEXT DEFAULT 'default',
     content_hash TEXT DEFAULT '',
+    kind TEXT DEFAULT 'saved',
+    version_name TEXT DEFAULT '',
     PRIMARY KEY (workflow_id, version)
 );
 CREATE INDEX IF NOT EXISTS idx_wv_workflow ON workflow_versions(workflow_id);
+
+-- How many versions of each pipeline the keeping rules removed (v34).
+CREATE TABLE IF NOT EXISTS workflow_version_removals (
+    workflow_id     TEXT PRIMARY KEY,
+    removed         INTEGER NOT NULL DEFAULT 0,
+    last_removed_at TEXT
+);
+
+-- Reports people design themselves, and every time one went out (v36).
+CREATE TABLE IF NOT EXISTS saved_reports (
+    id                TEXT PRIMARY KEY,
+    workspace_id      TEXT NOT NULL DEFAULT 'default',
+    name              TEXT NOT NULL,
+    schedule_enabled  INTEGER NOT NULL DEFAULT 0,
+    data              JSON NOT NULL,
+    occurrence        TEXT DEFAULT '',
+    occurrence_status TEXT DEFAULT '',
+    attempts          INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at   TEXT,
+    last_sent_at      TEXT,
+    last_status       TEXT DEFAULT '',
+    last_error        TEXT DEFAULT '',
+    last_trigger      TEXT DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_saved_reports_workspace ON saved_reports(workspace_id);
+CREATE TABLE IF NOT EXISTS report_deliveries (
+    id           TEXT PRIMARY KEY,
+    report_id    TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT 'default',
+    status       TEXT NOT NULL,
+    triggered_by TEXT NOT NULL,
+    started_at   TEXT NOT NULL,
+    data         JSON NOT NULL,
+    snapshot     JSON
+);
+CREATE INDEX IF NOT EXISTS idx_report_deliveries_report ON report_deliveries(report_id, started_at);
 
 -- Schedules
 -- Schedules
@@ -539,6 +606,20 @@ CREATE TABLE IF NOT EXISTS connection_reports (
     FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_conn_reports_conn ON connection_reports(connection_id);
+
+-- Connection versions (v35): one row per change to a connection's settings.
+-- Secrets are kept only as keyed fingerprints (FP:v1:...), never the value.
+CREATE TABLE IF NOT EXISTS connection_versions (
+    connection_id  TEXT NOT NULL,
+    version        INTEGER NOT NULL,
+    workspace_id   TEXT DEFAULT 'default',
+    data           JSON NOT NULL,
+    created_by     TEXT DEFAULT 'user',
+    change_summary TEXT DEFAULT '',
+    kind           TEXT DEFAULT 'saved',
+    created_at     TEXT NOT NULL,
+    PRIMARY KEY (connection_id, version)
+);
 
 -- Lifecycle events
 -- Lifecycle events
@@ -937,6 +1018,8 @@ CREATE TABLE IF NOT EXISTS workflow_trash (
     created_at TEXT NOT NULL,
     workspace_id TEXT DEFAULT 'default',
     content_hash TEXT DEFAULT '',
+    kind TEXT DEFAULT 'saved',
+    version_name TEXT DEFAULT '',
     PRIMARY KEY (workflow_id, version)
 );
 CREATE TABLE IF NOT EXISTS workflow_trash_meta (
@@ -1492,6 +1575,30 @@ class Database:
                 )
                 conn.commit()
 
+            if previous_version < 34:
+                self._migrate_v34_version_kinds(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+                    ("schema_version", "34"),
+                )
+                conn.commit()
+
+            if previous_version < 35:
+                self._migrate_v35_connection_versions(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+                    ("schema_version", "35"),
+                )
+                conn.commit()
+
+            if previous_version < 36:
+                self._migrate_v36_saved_reports(conn)
+                conn.execute(
+                    "INSERT OR REPLACE INTO _meta (key, value) VALUES (?, ?)",
+                    ("schema_version", "36"),
+                )
+                conn.commit()
+
             # Self-healing additive column checks.
             # The version-gated migration above runs once. But there's
             # a sharp edge: if someone bumps SCHEMA_VERSION before
@@ -1540,6 +1647,17 @@ class Database:
             # v33 self-heal: the Bin tables are CREATE IF NOT EXISTS, so
             # re-running is free and covers a stamped-but-missing table.
             self._migrate_v33_workflow_trash(conn)
+            conn.commit()
+            # v34 self-heal: PRAGMA-guarded columns and CREATE IF NOT EXISTS,
+            # so re-running is free. It also runs after the v33 one above,
+            # which can create workflow_trash without the v34 columns.
+            self._migrate_v34_version_kinds(conn)
+            conn.commit()
+            # v35 self-heal: CREATE IF NOT EXISTS, free to re-run.
+            self._migrate_v35_connection_versions(conn)
+            conn.commit()
+            # v36 self-heal: CREATE IF NOT EXISTS, free to re-run.
+            self._migrate_v36_saved_reports(conn)
             conn.commit()
 
             # Final version stamp — covers the case where SCHEMA_VERSION
@@ -2603,6 +2721,104 @@ class Database:
             """
         )
 
+    def _migrate_v34_version_kinds(self, conn: sqlite3.Connection) -> None:
+        """v33 → v34: what kind of save made each version, and its name.
+
+        Adds ``kind`` and ``version_name`` to workflow_versions and to the
+        Bin's copy of it (workflow_trash, which must keep the same columns
+        because the Bin moves rows between the two), plus the
+        workflow_version_removals counter. Pure additive: existing rows get
+        the defaults ('saved', no name). PRAGMA-check, ALTER if missing, never
+        raise, the same pattern as v15.
+        """
+        for table in ("workflow_versions", "workflow_trash"):
+            try:
+                cols = {c["name"] for c in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+                if not cols:
+                    continue
+                if "kind" not in cols:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN kind TEXT DEFAULT 'saved'")
+                if "version_name" not in cols:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN version_name TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                # The TABLES block creates both tables with these columns on
+                # a fresh install; a table that is missing here has nothing
+                # to upgrade.
+                pass
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS workflow_version_removals (
+                workflow_id     TEXT PRIMARY KEY,
+                removed         INTEGER NOT NULL DEFAULT 0,
+                last_removed_at TEXT
+            );
+            """
+        )
+
+    def _migrate_v35_connection_versions(self, conn: sqlite3.Connection) -> None:
+        """v34 → v35: the connection version history.
+
+        Pure additive, no back-fill: a connection's first version is written
+        the first time it is saved after the upgrade, from its settings just
+        before that save. The same statement sits in the TABLES block for
+        fresh installs. See revoluzen_flow/connections/versions.py.
+        """
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS connection_versions (
+                connection_id  TEXT NOT NULL,
+                version        INTEGER NOT NULL,
+                workspace_id   TEXT DEFAULT 'default',
+                data           JSON NOT NULL,
+                created_by     TEXT DEFAULT 'user',
+                change_summary TEXT DEFAULT '',
+                kind           TEXT DEFAULT 'saved',
+                created_at     TEXT NOT NULL,
+                PRIMARY KEY (connection_id, version)
+            );
+            """
+        )
+
+    def _migrate_v36_saved_reports(self, conn: sqlite3.Connection) -> None:
+        """v35 → v36: reports people design and schedule.
+
+        Pure additive. The same statements sit in the TABLES block for fresh
+        installs. See revoluzen_flow/reports/builder/store.py.
+        """
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS saved_reports (
+                id                TEXT PRIMARY KEY,
+                workspace_id      TEXT NOT NULL DEFAULT 'default',
+                name              TEXT NOT NULL,
+                schedule_enabled  INTEGER NOT NULL DEFAULT 0,
+                data              JSON NOT NULL,
+                occurrence        TEXT DEFAULT '',
+                occurrence_status TEXT DEFAULT '',
+                attempts          INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at   TEXT,
+                last_sent_at      TEXT,
+                last_status       TEXT DEFAULT '',
+                last_error        TEXT DEFAULT '',
+                last_trigger      TEXT DEFAULT '',
+                created_at        TEXT NOT NULL,
+                updated_at        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_saved_reports_workspace ON saved_reports(workspace_id);
+            CREATE TABLE IF NOT EXISTS report_deliveries (
+                id           TEXT PRIMARY KEY,
+                report_id    TEXT NOT NULL,
+                workspace_id TEXT NOT NULL DEFAULT 'default',
+                status       TEXT NOT NULL,
+                triggered_by TEXT NOT NULL,
+                started_at   TEXT NOT NULL,
+                data         JSON NOT NULL,
+                snapshot     JSON
+            );
+            CREATE INDEX IF NOT EXISTS idx_report_deliveries_report ON report_deliveries(report_id, started_at);
+            """
+        )
+
     def _migrate_v31_sync_state(self, conn: sqlite3.Connection) -> None:
         """v30 → v31: add the `sync_state` table for incremental cursor tracking.
 
@@ -3249,6 +3465,12 @@ class Database:
             "lifecycle_events", "schema_contracts",
             # The pipeline Bin: deleted pipelines that can still be restored.
             "workflow_trash", "workflow_trash_meta",
+            # Connection history. Secrets are fingerprints only, keyed by this
+            # install's master key, so on another install every restore keeps
+            # the password the connection has there.
+            "connection_versions",
+            # Reports people designed, and the log of what went out.
+            "saved_reports", "report_deliveries",
         ]
         export = {"_version": SCHEMA_VERSION, "_tables": {}}
         for table in tables:

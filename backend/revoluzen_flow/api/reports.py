@@ -34,6 +34,7 @@ def _persist_report_to_storage(
     ext: str,
     scope: str,
     env: str,
+    description: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Write a generated report into the workspace storage tree so it
     appears in the Storage page (Files tab) for later re-download.
@@ -89,7 +90,7 @@ def _persist_report_to_storage(
             format=format_from_filename(stored),
             size_bytes=len(blob),
             tags=["report", f"scope:{scope}", f"env:{env}"],
-            description=(
+            description=description or (
                 f"Generated inventory report — scope={scope}, env={env}"
             ),
         )
@@ -499,6 +500,14 @@ _DOC_CATALOG: list[dict] = [
         "title": "Connections",
         "audience": "All users",
         "summary": "Create, test, scope by project. Connector status badges (Certified / Beta).",
+        "admin_only": False,
+        "plus_only": False,
+    },
+    {
+        "path": "user-guides/reports.md",
+        "title": "Reports",
+        "audience": "All users",
+        "summary": "Design the reports you need from real run, usage and build data, then send them on a schedule by email, Slack, Teams or webhook, and see whether each one went out.",
         "admin_only": False,
         "plus_only": False,
     },

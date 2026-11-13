@@ -88,7 +88,7 @@ export default function StoragePromoteDialog({
     }
     setBusy(true);
     try {
-      const result = await api.post<StorageTable>('/api/storage/promote-to-table', {
+      const result = await api.post<StorageTable & { prep_workflow_name?: string | null }>('/api/storage/promote-to-table', {
         object_id: object.id,
         schema_name: targetSchema,
         table_name: tableName.trim(),
@@ -96,8 +96,13 @@ export default function StoragePromoteDialog({
         column_map: columnMap,
         tags: [],
       });
+      // Promote also saves the table's preparation, a pipeline that can be
+      // opened from the table, changed and run to reload it.
       toast.success(
         `Created ${result.schema_name}.${result.name} (${result.row_count.toLocaleString()} rows)`,
+        result.prep_workflow_name
+          ? `Its preparation is saved as "${result.prep_workflow_name}". Open it from the table to change how the table is prepared.`
+          : undefined,
       );
       onPromoted(result);
     } catch (err) {

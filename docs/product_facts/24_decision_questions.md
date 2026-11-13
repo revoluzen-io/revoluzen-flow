@@ -150,7 +150,12 @@ with a manifest?
 
 - **REST/HTTP API source:** When no manifest exists for your API, or
   when the API requires custom logic the manifest format can't express
-  (e.g. GraphQL, SOAP, multi-step OAuth dance).
+  (e.g. GraphQL, multi-step OAuth dance).
+
+- **SOAP service or XML API:** Import the WSDL, or try the request, in
+  Insights → API Explorer and save it as a connector. The connector runs
+  through the SaaS Connector node. The HTTP Request node also reads XML
+  replies, for a one-off call.
 
 **When to write a new manifest instead:** If you're going to pull from
 this API more than once, invest 30 minutes to write an F0.1 v2
@@ -228,7 +233,7 @@ Transform.
    conversations) → Plus only (line 110)
 
 **If none of these apply**, OSS Free is the right answer. It includes
-the full execution engine, all 32 agent tools, 66 connectors, and
+the full execution engine, all 37 agent tools, 68 connectors, and
 unlimited pipelines/runs.
 
 ---

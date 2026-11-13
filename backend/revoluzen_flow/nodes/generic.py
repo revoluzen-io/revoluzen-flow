@@ -60,6 +60,10 @@ SOURCE_MAP: dict[str, StepType] = {
     # LocalTableSourceNode which reads {DATA_DIR}/tables/{ws}/{schema}/
     # {name}/part-*.parquet by name.
     "local_table": StepType.LOCAL_TABLE_SOURCE,
+    # 2026-11-11 — the File step: every format, including fixed-width text,
+    # COBOL copybook records, EBCDIC and PGP-encrypted files, from a local
+    # file, S3 / MinIO or an FTP / SFTP connection.
+    "file": StepType.FILE_SOURCE,
 }
 
 DEST_MAP: dict[str, StepType] = {
@@ -85,6 +89,8 @@ DEST_MAP: dict[str, StepType] = {
     "warehouse":   StepType.WAREHOUSE_SINK,
     # 2026-05-23 (Y3) — managed local Parquet table sink.
     "local_table": StepType.LOCAL_TABLE_SINK,
+    # 2026-11-11 — the File step: any format, optionally PGP-encrypted.
+    "file": StepType.FILE_SINK,
 }
 
 
@@ -120,6 +126,13 @@ def _dialect_source_params(params: dict[str, Any], dialect: str, ctx: ExecutionC
     from revoluzen_flow.connectors.jdbc import _safe_table
 
     routed = {**params, "dialect": dialect}
+    if params.get("source_mode") == "procedure":
+        # 2026-11-11: this used to run whatever was left in the Query box.
+        raise ValueError(
+            "Source: Stored Procedure mode works with SQL Server, MySQL and "
+            "PostgreSQL connections. For this connection, call the procedure "
+            "from a SQL query or an Execute SQL step."
+        )
     if (params.get("source_mode") or "query") == "table":
         table = str(params.get("table") or "").strip()
         schema = str(params.get("schema") or "").strip()

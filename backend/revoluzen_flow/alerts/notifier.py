@@ -15,6 +15,7 @@ import ssl
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
@@ -203,18 +204,70 @@ class NotificationService:
         msg["To"] = to
         msg["Subject"] = subject
 
+        self._smtp_send([to], msg.as_string())
+
+    def send_email_message(
+        self,
+        recipients: list[str],
+        subject: str,
+        text: str,
+        html: str,
+        attachments: list[tuple[str, bytes, str]] | None = None,
+    ) -> dict:
+        """Send one message with a plain and an HTML body, plus any
+        attachments, given as ``(filename, content, content_type)``.
+
+        Used by scheduled reports. Takes the mail server from the same place
+        as alerts, re-read on every send. Raises if nobody could be reached;
+        returns the addresses the server refused when only some were.
+        """
+        cfg = self._load_smtp_config()
+        self.smtp_host = cfg["host"]
+        self.smtp_port = cfg["port"]
+        self.smtp_user = cfg["user"]
+        self.smtp_pass = cfg["password"]
+        self.smtp_from = cfg["from_email"]
+        self.smtp_tls = cfg["tls"]
+
+        if not self.smtp_host:
+            raise RuntimeError(
+                "No mail server is set up. Add one in Settings > Notifications."
+            )
+
+        body = MIMEMultipart("alternative")
+        body.attach(MIMEText(text, "plain", "utf-8"))
+        body.attach(MIMEText(html, "html", "utf-8"))
+        if attachments:
+            msg = MIMEMultipart("mixed")
+            msg.attach(body)
+            for filename, content, content_type in attachments:
+                maintype, _, subtype = content_type.partition("/")
+                part = MIMEApplication(content, _subtype=subtype or "octet-stream")
+                part.add_header("Content-Disposition", "attachment", filename=filename)
+                msg.attach(part)
+        else:
+            msg = body
+        msg["From"] = self.smtp_from
+        msg["To"] = ", ".join(recipients)
+        # A line break in a header would start a new one.
+        msg["Subject"] = " ".join(subject.split())
+
+        return self._smtp_send(recipients, msg.as_string())
+
+    def _smtp_send(self, recipients: list[str], message: str) -> dict:
+        """Hand a finished message to the configured mail server. Returns
+        the addresses it refused; raises if it refused them all."""
         if self.smtp_tls:
             ctx = ssl.create_default_context()
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
                 server.starttls(context=ctx)
                 if self.smtp_user:
                     server.login(self.smtp_user, self.smtp_pass)
-                server.sendmail(self.smtp_from, [to], msg.as_string())
-        else:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
-                if self.smtp_user:
-                    server.login(self.smtp_user, self.smtp_pass)
-                server.sendmail(self.smtp_from, [to], msg.as_string())
+                return server.sendmail(self.smtp_from, recipients, message)
+        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
+            if self.smtp_user:
+                server.login(self.smtp_user, self.smtp_pass)
+            return server.sendmail(self.smtp_from, recipients, message)
 
     def _build_message(self, rule: AlertRule, context: dict) -> str:
         """Build notification message body.
@@ -362,18 +415,7 @@ class NotificationService:
         html_body = self._build_html_email(subject, body, context or {})
         msg.attach(MIMEText(html_body, "html"))
 
-        if self.smtp_tls:
-            ctx = ssl.create_default_context()
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
-                server.starttls(context=ctx)
-                if self.smtp_user:
-                    server.login(self.smtp_user, self.smtp_pass)
-                server.sendmail(self.smtp_from, recipients, msg.as_string())
-        else:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=10) as server:
-                if self.smtp_user:
-                    server.login(self.smtp_user, self.smtp_pass)
-                server.sendmail(self.smtp_from, recipients, msg.as_string())
+        self._smtp_send(recipients, msg.as_string())
 
     def _build_html_email(self, subject: str, body: str, context: dict | None = None) -> str:
         """Render the alert email as a structured HTML message.

@@ -81,16 +81,27 @@ def _reject_stacked_statements(clause: str, *, kind: str,
     return s
 
 
-def _get_connection_config(connection_id: str) -> tuple[dict, str] | None:
-    """Fetch connection config + type from app_state."""
+def _get_connection_config(
+    connection_id: str,
+    app_state: dict | None = None,
+    workspace_id: str | None = None,
+) -> tuple[dict, str] | None:
+    """Fetch connection config + type, with its linked credential merged.
+
+    ``app_state`` defaults to the running app's; a node that holds its own
+    (``ctx.app_state``) passes it so it reads the same stores it was given.
+    With ``workspace_id``, a connection from another workspace is not found.
+    """
     try:
-        from revoluzen_flow.main import app_state
+        if app_state is None:
+            from revoluzen_flow.main import app_state as _running_state
+            app_state = _running_state
         conn_store = app_state.get("connection_store")
         cred_store = app_state.get("credential_store")
         if not conn_store:
             return None
 
-        connection = conn_store.get(connection_id)
+        connection = conn_store.get(connection_id, workspace_id=workspace_id)
         if not connection:
             return None
 
@@ -466,6 +477,83 @@ def _sqlite_declared_to_fptype(declared: str):
 DEV_SAMPLE_ROWS = 1000
 
 
+# ── Stored procedures (2026-11-11) ─────────────────────────────────────────
+# The Database Source and Copy Data forms offered a Stored Procedure mode the
+# step never ran: the Database Source fell through to whatever was in its
+# Query box, and Copy Data asked for a table. A procedure now runs on the
+# databases that return its rows to a plain call; others say so.
+PROCEDURE_CONNECTION_TYPES = ("mssql", "mysql", "postgresql")
+
+
+_ARGS_HINT = 'the procedure arguments must be a JSON list, e.g. [42, "EU"], or names and values'
+_PARAM_NAME = _re.compile(r"^@?[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def procedure_args(value: Any) -> list | dict:
+    """Procedure arguments: a JSON list (in order) or object (by name), or its text."""
+    if value in (None, "", [], {}):
+        return []
+    if isinstance(value, str):
+        import json
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ValueError(_ARGS_HINT) from None
+    if not isinstance(value, (list, dict)):
+        raise ValueError(_ARGS_HINT)
+    return value
+
+
+def procedure_call(conn_type: str, schema: str, name: str, args: list | dict) -> tuple[str, tuple]:
+    """The call that runs a stored procedure and returns its rows, and its parameters.
+
+    SQL Server: `SET NOCOUNT ON; EXEC`, so row counts from inside the
+    procedure do not come back ahead of its rows. MySQL: `CALL`. PostgreSQL:
+    a function that returns a table, read with `SELECT * FROM`. Arguments
+    are bound as parameters, never put into the text; by name on SQL Server
+    (`@name = ?`) and PostgreSQL (`name => %s`). A dotted name with no
+    schema is read as schema.procedure.
+    """
+    name = str(name or "").strip()
+    schema = str(schema or "").strip()
+    if not name:
+        raise ValueError("choose the stored procedure to run")
+    parts = ([schema] if schema else []) + ([name] if schema else [p.strip() for p in name.split(".")])
+    if any(not p for p in parts):
+        raise ValueError(f"'{name}' is not a valid procedure name")
+    named = isinstance(args, dict)
+    if named:
+        bad = [k for k in args if not _PARAM_NAME.match(str(k))]
+        if bad:
+            raise ValueError(f"{bad[0]!r} is not a valid parameter name")
+    values = tuple(args.values()) if named else tuple(args)
+
+    if conn_type == "mssql":
+        qualified = ".".join("[" + p.replace("]", "]]") + "]" for p in parts)
+        if named:
+            marks = ", ".join(f"@{str(k).lstrip('@')} = ?" for k in args)
+        else:
+            marks = ", ".join(["?"] * len(values))
+        return f"SET NOCOUNT ON; EXEC {qualified}" + (f" {marks}" if marks else ""), values
+    if conn_type == "mysql":
+        if named:
+            raise ValueError("MySQL takes procedure arguments in order: give them as a JSON list")
+        qualified = ".".join("`" + p.replace("`", "``") + "`" for p in parts)
+        return f"CALL {qualified}({', '.join(['%s'] * len(values))})", values
+    if conn_type == "postgresql":
+        qualified = ".".join('"' + p.replace('"', '""') + '"' for p in parts)
+        if named:
+            marks = ", ".join(f'"{str(k).lstrip("@")}" => %s' for k in args)
+        else:
+            marks = ", ".join(["%s"] * len(values))
+        return f"SELECT * FROM {qualified}({marks})", values
+    raise ValueError(
+        "Stored Procedure mode works with SQL Server, MySQL and PostgreSQL "
+        "connections. For this connection, call the procedure from a SQL query "
+        "or an Execute SQL step."
+    )
+
+
 @register(StepType.DB_SOURCE)
 class DbSourceNode(BaseNode):
     """Database Source — read from any database via saved connection.
@@ -484,6 +572,9 @@ class DbSourceNode(BaseNode):
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
         connection_id = self.params.get("connection_id", "")
         source_mode = self.params.get("source_mode", "query")
+
+        if source_mode == "procedure":
+            return self._execute_procedure(ctx, connection_id)
 
         # Build the SQL query based on mode
         if source_mode == "table":
@@ -551,6 +642,7 @@ class DbSourceNode(BaseNode):
             return self._relation_from_rows(ctx, rows, columns)
 
         # Dev sample limit — dialect-aware.
+        odbc_max_rows: int | None = None
         if not ctx.full_run:
             # A Sample run's explicit cap wins over this node's default,
             # so every source in the run reads the same number of rows.
@@ -563,10 +655,18 @@ class DbSourceNode(BaseNode):
                 else (preview_cap if preview_cap else DEV_SAMPLE_ROWS)
             )
             up = query.upper()
-            already_capped = "LIMIT" in up or " TOP " in up or " TOP(" in up
+            already_capped = "LIMIT" in up or " TOP " in up or " TOP(" in up or "FETCH FIRST" in up
             if limit > 0 and not already_capped:
-                if conn_type in ("mssql", "sqlserver"):
+                from revoluzen_flow.connections.vendor_db import VENDOR_DB_TYPES, sample_query
+                if conn_type == "odbc":
+                    # There is no one way to say LIMIT over ODBC, so a sample
+                    # run reads the first rows and stops.
+                    odbc_max_rows = limit
+                elif conn_type in ("mssql", "sqlserver", "synapse"):
                     query = f"SELECT TOP {limit} * FROM ({query}) AS __sample"
+                elif conn_type in VENDOR_DB_TYPES:
+                    # Teradata has no LIMIT and Db2 says FETCH FIRST.
+                    query = sample_query(conn_type, query, limit)
                 else:
                     query = f"SELECT * FROM ({query}) AS __sample LIMIT {limit}"
 
@@ -580,7 +680,7 @@ class DbSourceNode(BaseNode):
         # direct-connect path until later phases of the rollout.
         rows, columns = self._execute_real(
             conn_type, config, query,
-            ctx=ctx, connection_id=connection_id,
+            ctx=ctx, connection_id=connection_id, max_rows=odbc_max_rows,
         )
 
         relation = self._relation_from_rows(ctx, rows, columns)
@@ -591,6 +691,41 @@ class DbSourceNode(BaseNode):
             self._save_sync_cursor(ctx, watermark_col, len(rows), relation)
 
         return relation
+
+    def _execute_procedure(self, ctx: ExecutionContext, connection_id: str) -> duckdb.DuckDBPyRelation:
+        """Stored Procedure mode: run the procedure and read the rows it returns.
+
+        No incremental or sample wrapper goes around the call: `EXEC` and
+        `CALL` cannot sit inside a SELECT. A sample run keeps its first rows
+        instead.
+        """
+        if not connection_id:
+            raise ValueError("DB Source: Stored Procedure mode needs a saved connection.")
+        result = _get_connection_config(connection_id)
+        if not result:
+            raise ValueError(f"DB Source: connection '{connection_id}' not found")
+        config, conn_type = result
+        try:
+            args = procedure_args(self.params.get("proc_args"))
+            statement, values = procedure_call(
+                conn_type, self.params.get("schema") or "", self.params.get("procedure") or "", args,
+            )
+        except ValueError as exc:
+            raise ValueError(f"DB Source: {exc}") from None
+
+        rows, columns = self._execute_real(
+            conn_type, config, statement, ctx=ctx, connection_id=connection_id, params=values,
+        )
+        if not ctx.full_run:
+            preview_cap = getattr(ctx, "sample_row_limit", None)
+            limit = int(
+                self.params.get("sample_rows")
+                if self.params.get("sample_rows") is not None
+                else (preview_cap if preview_cap else DEV_SAMPLE_ROWS)
+            )
+            if limit > 0:
+                rows = rows[:limit]
+        return self._relation_from_rows(ctx, rows, columns)
 
     def _execute_mongodb(self, config: dict) -> tuple[list[tuple], list[str]]:
         source_mode = self.params.get("source_mode", "query")
@@ -756,7 +891,9 @@ class DbSourceNode(BaseNode):
 
     def _execute_real(self, conn_type: str, config: dict, query: str,
                       ctx: 'ExecutionContext | None' = None,
-                      connection_id: str | None = None) -> tuple[list[tuple], list[str]]:
+                      connection_id: str | None = None,
+                      params: tuple = (),
+                      max_rows: int | None = None) -> tuple[list[tuple], list[str]]:
         """Execute query against a real database. Returns (rows, columns).
 
         ctx + connection_id enable connection pooling (Critical #5).
@@ -773,16 +910,62 @@ class DbSourceNode(BaseNode):
             return self._query_sqlite(config, query, ctx=ctx, connection_id=connection_id)
         elif conn_type == "postgresql":
             return self._query_postgresql(host, port, database, user, password, schema, query,
-                                           ctx=ctx, connection_id=connection_id)
+                                           ctx=ctx, connection_id=connection_id, params=params)
         elif conn_type == "mysql":
             return self._query_mysql(host, port, database, user, password, query,
-                                     ctx=ctx, connection_id=connection_id)
-        elif conn_type == "mssql":
+                                     ctx=ctx, connection_id=connection_id, params=params)
+        elif conn_type in ("mssql", "synapse"):
+            # 2026-11-11: Azure Synapse SQL pools speak SQL Server's protocol.
             return self._query_mssql(config, host, port, database, user, password, query,
-                                     ctx=ctx, connection_id=connection_id)
+                                     ctx=ctx, connection_id=connection_id, params=params)
+        elif conn_type in ("db2", "sap_hana", "teradata"):
+            return self._query_vendor(conn_type, config, query, params=params)
+        elif conn_type == "odbc":
+            return self._query_odbc(config, query, params=params, max_rows=max_rows)
         else:
             raise ValueError(f"DB Source: unsupported connection type '{conn_type}'. "
-                             f"Use postgresql, mysql, mssql, or sqlite.")
+                             f"Use postgresql, mysql, mssql, synapse, sqlite, db2, sap_hana, "
+                             f"teradata or an ODBC database.")
+
+    def _query_odbc(self, config: dict, query: str, params: tuple = (),
+                    max_rows: int | None = None) -> tuple[list[tuple], list[str]]:
+        """Any database with an ODBC driver (2026-11-11). See connections/odbc.py."""
+        from revoluzen_flow.connections import odbc
+
+        try:
+            return odbc.read(config, query, params=params, max_rows=max_rows)
+        except ValueError as exc:
+            raise ValueError(f"DB Source: ODBC: {exc}") from None
+
+    def _query_vendor(self, conn_type: str, config: dict, query: str,
+                      params: tuple = ()) -> tuple[list[tuple], list[str]]:
+        """Db2, SAP HANA and Teradata (2026-11-11), through the vendor's driver.
+
+        These connections could be saved and browsed, but this step refused
+        them. The driver is an add-on; a missing one says so plainly.
+        """
+        from revoluzen_flow.connections import vendor_db
+        from revoluzen_flow.connections.addons import addon_message, addon_missing
+
+        if addon_missing(conn_type):
+            raise ValueError(f"DB Source: {addon_message(conn_type)}")
+        try:
+            conn = vendor_db.connect(conn_type, config)
+        except ValueError as exc:
+            raise ValueError(f"DB Source: {vendor_db.LABELS[conn_type]}: {exc}") from None
+        try:
+            cur = conn.cursor()
+            cur.execute(query, params) if params else cur.execute(query)
+            if not cur.description:
+                return [], []
+            columns = [desc[0] for desc in cur.description]
+            rows = [tuple(vendor_db.plain_value(v) for v in row) for row in cur.fetchall()]
+            return rows, columns
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001 — closing must not hide the read's own error
+                pass
 
     def _query_sqlite(self, config: dict, query: str, ctx=None, connection_id=None) -> tuple[list[tuple], list[str]]:
         """SQLite query path. Pool semantics: SQLite connections are NOT
@@ -828,7 +1011,7 @@ class DbSourceNode(BaseNode):
                 conn.close()
 
     def _query_postgresql(self, host, port, database, user, password, schema, query,
-                          ctx=None, connection_id=None):
+                          ctx=None, connection_id=None, params: tuple = ()):
         """Postgres query path. Uses the connection pool when:
           - ctx and connection_id are provided
           - app_state has a 'connection_pool' entry (installed at startup)
@@ -870,7 +1053,7 @@ class DbSourceNode(BaseNode):
                 )
                 _cancel_cb = register_connection_cancel(run_id, conn)
                 try:
-                    cur.execute(query)
+                    cur.execute(query, params) if params else cur.execute(query)
                     columns = [desc[0] for desc in cur.description] if cur.description else []
                     rows = cur.fetchall()
                     return rows, columns
@@ -897,7 +1080,7 @@ class DbSourceNode(BaseNode):
             _cancel_cb = register_connection_cancel(run_id, conn)
             try:
                 cur = conn.cursor()
-                cur.execute(query)
+                cur.execute(query, params) if params else cur.execute(query)
                 columns = [desc[0] for desc in cur.description] if cur.description else []
                 rows = cur.fetchall()
                 return rows, columns
@@ -905,8 +1088,21 @@ class DbSourceNode(BaseNode):
                 unregister_connection_cancel(run_id, _cancel_cb)
                 conn.close()
 
+    @staticmethod
+    def _drain_results(cur) -> None:
+        """Read past any further result sets a MySQL CALL leaves behind.
+
+        A procedure call ends with a status result. Left unread on a pooled
+        connection, it makes the next query on it fail out of sync.
+        """
+        try:
+            while cur.nextset():
+                pass
+        except Exception:  # noqa: BLE001
+            pass
+
     def _query_mysql(self, host, port, database, user, password, query,
-                     ctx=None, connection_id=None):
+                     ctx=None, connection_id=None, params: tuple = ()):
         """MySQL query path. Uses connection pool when available — same
         pattern as Postgres. See DESIGN_CONNECTION_POOLING.md."""
         import pymysql  # type: ignore
@@ -929,9 +1125,10 @@ class DbSourceNode(BaseNode):
             )
             try:
                 cur = conn.cursor()
-                cur.execute(query)
+                cur.execute(query, params) if params else cur.execute(query)
                 columns = [desc[0] for desc in cur.description] if cur.description else []
                 rows = cur.fetchall()
+                self._drain_results(cur)
                 return rows, columns
             except Exception:
                 try: pool.invalidate_connection(connection_id)
@@ -941,15 +1138,30 @@ class DbSourceNode(BaseNode):
             conn = factory("mysql", {})
             try:
                 cur = conn.cursor()
-                cur.execute(query)
+                cur.execute(query, params) if params else cur.execute(query)
                 columns = [desc[0] for desc in cur.description] if cur.description else []
                 rows = cur.fetchall()
+                self._drain_results(cur)
                 return rows, columns
             finally:
                 conn.close()
 
+    @staticmethod
+    def _mssql_has_rows(cur, query: str) -> bool:
+        """Move to the first result that has rows; False if a procedure returned none.
+
+        Only a procedure call (built by `procedure_statement`) is moved on:
+        it can return empty results ahead of its rows. A plain query is read
+        as before.
+        """
+        if not query.startswith("SET NOCOUNT ON; EXEC "):
+            return True
+        while cur.description is None and cur.nextset():
+            pass
+        return cur.description is not None
+
     def _query_mssql(self, config, host, port, database, user, password, query,
-                     ctx=None, connection_id=None):
+                     ctx=None, connection_id=None, params: tuple = ()):
         """MSSQL query path. Uses connection pool when available — same
         pattern as Postgres / MySQL. ODBC connection setup is the most
         expensive of the four dialects (driver init + auth handshake),
@@ -995,7 +1207,9 @@ class DbSourceNode(BaseNode):
             )
             try:
                 cur = conn.cursor()
-                cur.execute(query)
+                cur.execute(query, params) if params else cur.execute(query)
+                if not self._mssql_has_rows(cur, query):
+                    return [], []
                 columns = [desc[0] for desc in cur.description] if cur.description else []
                 rows = cur.fetchall()
                 return rows, columns
@@ -1013,7 +1227,9 @@ class DbSourceNode(BaseNode):
             conn = factory("mssql", {})
             try:
                 cur = conn.cursor()
-                cur.execute(query)
+                cur.execute(query, params) if params else cur.execute(query)
+                if not self._mssql_has_rows(cur, query):
+                    return [], []
                 columns = [desc[0] for desc in cur.description] if cur.description else []
                 try:
                     rows = cur.fetchall()
@@ -1073,9 +1289,9 @@ class DbSourceNode(BaseNode):
             # 2026-05-30 (P2): sync_mode is the first-class incremental
             # contract. "full_refresh" = re-read every row every run;
             # "incremental" = WHERE watermark_column > last_cursor and
-            # auto-persist the new max via SyncStateStore; "cdc" = stub
-            # for log-based replication (use the dedicated cdc_source
-            # node — DB Source's cdc mode is a UI affordance only).
+            # auto-persist the new max via SyncStateStore. 2026-11-11: the
+            # "cdc" option is gone. It never read change logs: a step saved
+            # with it reads every row, the same as full_refresh, and still does.
             "sync_mode": "full_refresh",
             "watermark_column": "",
             "watermark_value": "",
@@ -1089,16 +1305,26 @@ class DbSourceNode(BaseNode):
              "tab": "Source",
              "description": "Select a saved connection. Leave empty for DuckDB in-memory."},
             {"name": "source_mode", "type": "select", "label": "Mode",
-             "options": ["query", "table"], "default": "query", "tab": "Source",
-             "description": "query = write SQL, table = pick a table."},
+             "options": ["query", "table", "procedure"], "default": "query", "tab": "Source",
+             "description": "query = write SQL, table = pick a table, "
+                            "procedure = run a stored procedure (SQL Server, MySQL, PostgreSQL)."},
             # Query mode
             {"name": "query", "type": "sql", "label": "SQL Query", "tab": "Source",
              "show_when": {"source_mode": ["query"]},
              "description": "Full SQL query to execute."},
+            # Procedure mode (2026-11-11)
+            {"name": "procedure", "type": "text", "label": "Procedure", "tab": "Source",
+             "placeholder": "GetOrders",
+             "show_when": {"source_mode": ["procedure"]},
+             "description": "The stored procedure to run; on PostgreSQL, a function that returns a table."},
+            {"name": "proc_args", "type": "json", "label": "Arguments", "tab": "Source",
+             "show_when": {"source_mode": ["procedure"]},
+             "description": 'A JSON list in order, e.g. [42, "EU"], or by name, e.g. {"@StartDate": "2025-01-01"} '
+                            "(SQL Server and PostgreSQL)."},
             # Table mode
             {"name": "schema", "type": "text", "label": "Schema", "tab": "Source",
              "placeholder": "public",
-             "show_when": {"source_mode": ["table"]}},
+             "show_when": {"source_mode": ["table", "procedure"]}},
             {"name": "table", "type": "text", "label": "Table", "tab": "Source",
              "placeholder": "orders",
              "show_when": {"source_mode": ["table"]}},
@@ -1114,14 +1340,12 @@ class DbSourceNode(BaseNode):
             # Incremental
             {"name": "sync_mode", "type": "select", "label": "Sync Mode",
              "tab": "Incremental",
-             "options": ["full_refresh", "incremental", "cdc"],
+             "options": ["full_refresh", "incremental"],
              "default": "full_refresh",
              "description": (
                  "full_refresh = re-read every row each run. "
                  "incremental = read only rows newer than the last cursor "
-                 "(auto-tracked between runs in the sync_state table). "
-                 "cdc = use the dedicated CDC Source node for log-based "
-                 "replication; this option is informational here."
+                 "(auto-tracked between runs in the sync_state table)."
              )},
             {"name": "watermark_column", "type": "text", "label": "Cursor Column",
              "tab": "Incremental",

@@ -231,10 +231,24 @@ const HOW_TO_GUIDES = [
       {
         title: 'Editing a Published Pipeline',
         steps: [
-          'Auto-save is intentionally suspended on published pipelines so live scheduled runs can\'t be broken by exploratory edits.',
-          'A **violet banner** appears above the editor toolbar reminding you that auto-save is off and any unsaved changes will be lost.',
-          'Test Node, Sample and Run all use the unsaved canvas, so you can check a change before keeping it.',
-          'Click **Save** in the editor when the change is ready. In DEV, the next scheduled run uses the latest saved version.',
+          'A published pipeline is locked. Schedules, endpoints and every other run nobody is watching stay on its published version, whatever you do in the Editor.',
+          'A **violet banner** above the editor toolbar says which version is live. Auto-save is off, so an edit made just to try something is not kept.',
+          'Test Node, Sample and Run all use what is on the canvas, so you can check a change before keeping it.',
+          'Click **Save** to keep your changes as a draft. The Pipelines list marks it **Draft changes**, and nothing changes for anything that runs on its own.',
+          'Click **Publish changes** to test the draft on a sample and put it live, or **Discard draft** to go back to what is live. A discarded draft stays in Versions.',
+          'A published pipeline cannot be archived or deleted until it is unpublished. Neither can a connection, credential, managed table, uploaded file, saved connector or pipeline that it uses.',
+        ],
+      },
+      {
+        title: 'Keep a Copy of Published Pipelines in Git',
+        steps: [
+          'An admin opens **Settings → Security & Diagnostics** and finds **Keep a copy of published pipelines in Git**.',
+          'Enter the https address of your repository, the branch, and an access token that can write to it. **Test connection** checks them without saving. The token is stored encrypted and is never shown again.',
+          'Turn the switch on and click **Save**. To add what is already published, click **Copy everything already published**.',
+          'From then on each publish makes a commit in your repository, with the person who published as its author and the note from the Publish dialog as the reason. Unpublish, Deploy and Roll back are recorded the same way.',
+          'Each pipeline gets a folder with `pipeline.json`, `depends-on.json` and `README.md`. Passwords, keys and tokens are never written, and Flow refuses the whole copy if it finds one.',
+          'The pipeline\'s page shows how its copy went. If Git cannot be reached the publish still happens, Flow tries again later, and **Try again now** does it straight away.',
+          'To put a pipeline back, import its `pipeline.json` on the Pipelines page, add the connections listed in `depends-on.json`, then test and publish it.',
         ],
       },
     ],
@@ -268,6 +282,18 @@ const HOW_TO_GUIDES = [
         ],
       },
       {
+        title: 'Track and Restore Connection Changes',
+        steps: [
+          'Every change to a connection keeps a version: its settings, linked credential, project, environment, roles, description and tags, with who changed it and when. Testing the connection keeps none.',
+          'Open the connection on the **Connections** page and choose **History** at the top.',
+          'Click a version to set it against the settings now, setting by setting. **Show every setting** lists the unchanged ones too.',
+          '**Restore version N…** puts the version back and saves it as a new version, so nothing is lost. It needs edit rights.',
+          'Passwords and keys are never kept in the history, only a fingerprint that tells whether two are the same. If the version had a different password, type it when restoring, or leave it blank to keep today\'s.',
+          'Before restoring, Flow lists the pipelines that use the connection and which of them are published or live in PROD. Their next runs use the restored settings.',
+          'Flow keeps the newest 50 versions of each connection and always the first. An administrator can change the number with `REVOLUZEN_FLOW_CONNECTION_VERSION_RETENTION`.',
+        ],
+      },
+      {
         title: 'Parameters & Variables',
         steps: [
           '**Parameters** are typed inputs you declare once and supply per run. Editor toolbar → **Parameters** → add a `name`, `type`, optional `default`, and `required`. Reference one in any field as `${param.<name>}` — e.g. set a CSV Source path to `/data/${param.dataset}.csv`. When a pipeline declares parameters, a small `${ }` button appears on text fields in the node config to insert a reference.',
@@ -284,6 +310,16 @@ const HOW_TO_GUIDES = [
           '**Port** auto-defaults to 21 for ftp/ftps and 22 for sftp — leave it at 0 to use the default, or set an explicit port.',
           '**Auth**: the connection holds a username and password, or for SFTP a PEM **Private Key** (RSA / Ed25519 / ECDSA are tried in turn).',
           '**Remote Path** is the file to read or write, for example `/uploads/orders.csv`. When writing, also choose the **File Format** (csv / json / parquet). The folder must already exist on the server: the upload does not create folders. Like every sink, input rows pass through unchanged so you can chain another step after it.',
+        ],
+      },
+      {
+        title: 'Read or Write Files on a Windows File Share',
+        steps: [
+          'On the **Connections** page, save a **Windows File Share (SMB)** connection: the **Server**, the **Share** (the part after the server in `\\\\fileserver01\\share`), an optional **Folder**, and the account\'s **Domain**, **User name** and **Password**. **Test connection** signs in and counts what is in the folder. It works the same whether Flow runs on Windows, Linux or Docker.',
+          '**Read**: drag a **Source** node and pick the connection. **File** is the path inside the connection\'s folder, for example `daily\\CUSTMAST.DAT`. `*` and `?` in the name read every matching file, in name order. Every format the File step reads works here, including fixed-width text, COBOL copybook records, EBCDIC and PGP-encrypted files.',
+          '**Write**: drag a **Destination** node, pick the connection and give the **Output File**. Missing folders are created. The file is copied under a temporary name and then renamed, so a program watching the folder never sees half a file.',
+          'A path that starts with `\\` starts at the top of the share. A full `\\\\server\\share\\...` path must name the connection\'s own server and share, so the password is only ever sent there.',
+          '**Start a pipeline when a file lands**: on the **Pipelines** page, click the pipeline\'s schedule, choose **A file arriving**, then **A Windows file share** and the connection. Each new file starts one run, with its full `\\\\server\\share\\...` path in the parameter you choose (use it as the Source step\'s **File**). A file still open in the program copying it in waits until it is closed.',
         ],
       },
       {
@@ -316,6 +352,19 @@ const HOW_TO_GUIDES = [
           'You get back a **runtime (v1) manifest** that the SaaS Connector node can use immediately — paths, methods, and pagination are inferred from the spec.',
           'Two sibling endpoints generate the richer **certification (v2)** manifest for review/curation: `/from-openapi` (from a spec) and `/from-samples` (from 1–5 example API responses). A v2 manifest that ships as `<id>.v2.json` auto-promotes the connector to the **Certified** tier.',
           'Generated connectors start at the **Generated** tier in the picker until reviewed — treat them as a fast first draft, then tighten streams + auth before relying on them.',
+        ],
+      },
+      {
+        title: 'Connect to a SOAP Service or an XML API',
+        steps: [
+          'Open **Insights → API Explorer**. For a SOAP service, enter its WSDL address and click **Load WSDL**, or paste or upload the WSDL. Then choose the operation under **Endpoint**.',
+          'The address, headers and request envelope are filled in for you. Enter the values below the body and send it. Optional values you leave blank are left out of the request.',
+          'For an XML API that is not SOAP, type its address and send the request. To send XML, set **Request body** to **XML**.',
+          'Check the reply. **XML** shows it formatted, **Table** shows the rows, and **Row path** chooses which repeating element is one row. If a SOAP service reports a fault, the fault appears in red above the reply.',
+          'On the **Connector** tab, generate a draft from **This request** and click **Save as Beta connector**. Passwords and keys are never saved in it: they become fields on the pipeline step, and a **Saved credential** can fill them.',
+          'In a pipeline, add a **SaaS Connector** node and choose the connector you saved. Each value in the envelope appears as a field on the step.',
+          'For a one-off call, use the **HTTP Request** node instead: set **Body Type** to XML and, if the reply is XML, say which element is one row in **Row Path**. Pick a saved connection there and the URL can be just a path.',
+          'An XML API you have saved as a **REST API** connection can also be read by the **Source** node: set **Row Path (XML)** to the element that is one row.',
         ],
       },
     ],
@@ -400,6 +449,24 @@ const HOW_TO_GUIDES = [
           'Set the **Table name** (auto-suggested from the filename). Optionally rename columns via the `old:new, old2:new2` field.',
           'Click **Promote to table**. The page switches to **Managed Tables** with the new table selected.',
           'Use it from a pipeline: drag a **Source** node and pick `connector_type=local_table` with `schema_name + table_name`, or use the **Managed Table Source** node directly.',
+        ],
+      },
+      {
+        title: 'Prepare a File and Load It into a Managed Table',
+        steps: [
+          'On the **Files** tab, click **Prep** on a row. The Editor opens in **Data Prep** with the file, a **Data Wrangler** step and a **Managed Table Sink**.',
+          'Add your steps in the Data Wrangler (filter, select, rename and so on). Set the target **Schema** and **Table** on the sink.',
+          'Click **Load to Managed Table**. Your steps are saved as a pipeline named after the table, then run, and the page returns to **Managed Tables**.',
+          'Loading the same table again adds a new version to that pipeline, so the table always has one preparation with its history.',
+        ],
+      },
+      {
+        title: 'See or Change How a Table Was Prepared',
+        steps: [
+          'On **Storage** → **Managed Tables**, the line under a table\'s name says **Prepared by** which pipeline, which version of it the table holds, and when it was loaded.',
+          'Click the pipeline\'s name, or the **wand** icon in the row, to open the preparation in **Data Prep**.',
+          'Change the steps and click **Load to Managed Table**. The row shows the new version, and the table\'s **History** tab lists the load.',
+          'A table loaded before preparations were saved shows **Make it editable**. Click it, or the wand, to save its steps as a pipeline. If it can\'t tell which file the table came from, it says what to do instead.',
         ],
       },
       {
@@ -503,12 +570,23 @@ const HOW_TO_GUIDES = [
       {
         title: 'Set Execution Timeouts & Overlap Protection',
         steps: [
-          'Open Save dialog and go to the **Execution** tab',
-          'Enable **Maximum Running Time** and choose a limit (e.g. 30 min)',
+          'In the editor, open **Pipeline actions** (⋮), choose **Save with details…** and go to the **Execution** tab',
+          'Enable **Maximum Running Time** and choose a limit (e.g. 30 min). A run still going at the limit is stopped and marked failed, so failure alerts go out; a step waiting on another system stops when that call returns',
+          'A pipeline started from another app also stops at its endpoint\'s timeout (5 minutes unless set), whichever limit is shorter',
           'Enable **Overlap Detection** and choose a policy:',
           '- **Skip**: Don\'t start a new run if previous is still running',
           '- **Queue**: Wait for the current run to finish, then start',
           '- **Cancel Previous**: Stop the running execution and start fresh',
+        ],
+      },
+      {
+        title: 'Stop a Running Pipeline',
+        steps: [
+          'In the **Editor**, the **Run** button turns into a red **Stop** while the pipeline runs; click it to stop that run',
+          'On the **Executions** page, open a running run and click **Stop**. On the **Pool** page, click **Stop** on a running worker, or on a run waiting for one',
+          'A step running a query stops at once. A step waiting on another system (a web request, an upload) stops when that call returns. A run still waiting for a worker leaves the queue without starting',
+          'Steps that finished keep what they wrote; a step that was writing when you stopped may have written part of its data',
+          'The run is recorded as **stopped**, not failed, with who stopped it, so no failure alert goes out. A pipeline this one started is stopped too',
         ],
       },
     ],
@@ -640,16 +718,6 @@ const HOW_TO_GUIDES = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>,
     guides: [
       {
-        title: 'Stop a Running Pipeline',
-        steps: [
-          'In the **Editor**, the **Run** button flips to a red **Stop** while the pipeline is executing — click it to send a cancel signal',
-          'On the **Workflows** page, the run icon on any row flips to a red square when that pipeline is running — click to stop',
-          'Already-running steps finish their current operation cleanly, then halt — no half-written rows or partial updates',
-          'You can stop your own runs anytime; admins can stop anyone\'s. The cancel call hits POST /api/ws/cancel/{workflow_id} under the hood',
-          'A toast confirms the stop signal was sent. Status flips back to its idle state once the executor acknowledges',
-        ],
-      },
-      {
         title: 'Two-Gate Approval Flow (DEV → Sandbox → PROD)',
         plus_only: true,
         steps: [
@@ -716,39 +784,66 @@ const HOW_TO_GUIDES = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="9" y1="18" x2="15" y2="18" /><line x1="10" y1="22" x2="14" y2="22" /><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" /></svg>,
     guides: [
       {
-        title: 'Download a Scoped Inventory Report',
-        // 2026-05-25 — moved here from "Approval & Deploy Flow" (Plus-only
-        // category) so the OSS-visible Insights → Reports feature has a
-        // matching how-to. The System scope row is admin-only at runtime
-        // and the report contents already adapt to caller permissions, so
-        // this guide is safe in the OSS lane.
+        title: 'Design a Report',
         steps: [
-          'Open **Insights → Reports** from the navigation bar.',
-          'Pick a scope: **System** (admin-only — installation-wide inventory across every project), **Project** (one project + its pipelines), **Pipeline** (one pipeline\'s config + runs), or **User** (your view)',
-          'When Project, Pipeline, or User is picked, choose the target from the dropdown',
-          '**DEV — Build phase**: drafts in development, your dev test runs, the connections + credentials you use, your personal productivity stats',
-          'Pick format (PDF or DOCX) and click **Download**',
-          'A copy of the generated report is **also saved to Storage → Files** with a `report` tag, so you can re-download or share it later without regenerating.',
+          'Open **Insights → Reports** and click **+ New report**, or pick a template under **Start from**.',
+          '**What goes in**: add the sections you want, such as Run summary, Failures, Usage, Environment or New builds, and put them in order. **A table you design** lets you choose the data, the grouping and the columns.',
+          '**Narrow it**: choose the period, the projects and pipelines, and whether to count every run or only automatic ones.',
+          'The preview shows your real numbers as you go. Name the report and click **Save report**.',
+          'Open a saved report any time for up-to-date numbers. **PDF** and **Word** download it, with a copy kept in **Storage → Files**.',
+        ],
+      },
+      {
+        title: 'Send a Report on a Schedule',
+        steps: [
+          'In the report\'s **Schedule and share**, type the email addresses it should go to. You can also post the headlines to Slack or Teams, or send the full report to a webhook.',
+          'Tick **Send this report automatically**, then choose daily, the days of the week, or a day of the month, and a time.',
+          'Choose **Only when runs failed** if you want it only when there is something wrong.',
+          'Email uses the mail server in **Settings → Notifications**, the same one alert rules use.',
+          'On the report, **Sent history** shows every send: when, who it went to, and the reason for anything that failed. **What was sent** shows the report as it went out.',
+          'If a scheduled send does not fully work, whoever made the report gets a notification in the bell.',
+        ],
+      },
+      {
+        title: 'Download the Installation Inventory',
+        steps: [
+          'Open **Insights → Reports** and click **Installation inventory** under **Start from**.',
+          'Choose **Whole installation** (admins only), **One project**, **One pipeline**, or **What I can see**.',
+          'Choose PDF or Word and click **Download**, or **View** to read it on screen. Passwords and keys are left out.',
+          'A copy is **also saved to Storage → Files** with a `report` tag.',
         ],
       },
       {
         title: 'Organize Pipelines with Projects & Tags',
         steps: [
-          'Create **Projects** to group related pipelines together',
+          'On the **Pipelines** page, the project panel on the left lists your projects and their folders. **New** at its top creates a project.',
+          'Click a project or folder to list only its pipelines. The address keeps your choice, so a reload or a shared link opens the same list.',
+          'A project\'s **⋯** menu adds a folder, edits, exports, pins or archives the project. Use **Move** on a pipeline\'s row to put it in a project or folder.',
           'Add **Tags** to pipelines for filtering (e.g. "etl", "daily", "finance")',
           'Use the tag filter on the Workflows page to quickly find pipelines',
           'Each project can have its own connections and variables',
         ],
       },
       {
+        title: 'Work on Several Pipelines at Once',
+        steps: [
+          'On the **Pipelines** page, **Home** is the first tab: the list of every pipeline. Click a pipeline in the list and it opens in a tab of its own on that page, in full: its preview, last run and actions. Up to ten can be open there; **Open**, at the right end of the tabs, picks another.',
+          '**Edit** on a row, or **Edit in Editor**, opens the pipeline in the Editor. Its tabs sit above the canvas, beside the Nodes panel, and hold only the pipelines you are building, up to ten. Click one to switch canvases; each keeps its test results and unsaved edits.',
+          'A run keeps going when you switch to another editor tab, and its results land in its own tab.',
+          'A dot on an editor tab marks unsaved changes. Closing that tab asks whether to save or discard them.',
+          'At the right end of the editor tabs, **New Pipeline** opens an empty canvas in a tab of its own, without leaving the Editor: describe the pipeline there, or pick **Use template**. **Open** brings in another saved pipeline.',
+        ],
+      },
+      {
         title: 'Version Control Your Pipelines',
         steps: [
-          'Every save that changes a pipeline adds a version. A save that changes nothing adds none.',
-          'On the **Pipelines** page, open the pipeline\'s **⋯** menu and choose **Version history**, or open the pipeline\'s details and click **Version history**.',
-          '**Compare** on a version lists the steps and connections the version after it added or removed.',
-          '**Restore** saves that version again as the newest one. The versions after it are kept, so you can switch back. It needs edit rights, and you confirm it first.',
-          'A restore is live at once: schedules, endpoints and other pipelines run the newest version, so a published pipeline\'s schedules use the restored one from their next run.',
-          'Flow keeps the newest 20 versions of each pipeline (an administrator can change this with `REVOLUZEN_FLOW_VERSION_RETENTION`). To get back an older one, open a run that used it under **Executions**, click **Open in Editor**, then **Save**.',
+          'Every save that changes a pipeline adds a version, with who saved it and what kind of save it was: **Save**, auto-save, a restore, or a review step. A save that changes nothing adds none.',
+          'On the **Pipelines** page, open the pipeline and choose **Versions** at the top of its tab, or pick **Version history** in its row\'s **⋯** menu.',
+          'Click a version to compare it with the current one. **On the canvas** marks each step added, changed or removed; click a step to see its settings in both versions. **List** shows every change as a list. Either version can be changed at the top.',
+          '**Open** shows a version read-only in a tab of its own. **New pipeline** copies it into a new draft in the same folder. The **⋯** menu names a version or downloads it as a file.',
+          '**Restore…** opens the version in the Editor as unsaved changes. Test it there, then **Save** to make it the newest version: nothing changes until you save, and the versions after it are kept, so you can switch back. It needs edit rights.',
+          'Each version shows how many runs used it, and the version that runs on schedule is marked.',
+          'Flow keeps every named or published version and the one live in PROD, plus the last 50 saves and the last 10 auto-saves. An administrator can change those two numbers with `REVOLUZEN_FLOW_VERSION_RETENTION` and `REVOLUZEN_FLOW_AUTOSAVE_RETENTION`. The Versions view says how many older ones have been removed.',
         ],
       },
       {
@@ -1411,8 +1506,8 @@ export default function HelpPage({
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <h3 className="text-sm font-bold text-amber-800 mb-1">Pipeline Rollback</h3>
                     <ol className="text-xs text-amber-700 space-y-1.5 ml-4 list-decimal">
-                      <li>Switch to DEV → Pipelines → open the pipeline's ⋯ menu → Version history</li>
-                      <li>Find the last known good version (Compare shows what each change did) → Restore, then confirm</li>
+                      <li>Switch to DEV → Pipelines → open the pipeline → Versions</li>
+                      <li>Pick the last known good version (the comparison shows what each change did) → Restore…, test it in the Editor, then Save</li>
                       <li>Re-deploy from PROD → Deployed → Pending Review</li>
                     </ol>
                   </div>

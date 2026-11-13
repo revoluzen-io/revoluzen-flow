@@ -5,7 +5,9 @@ Two related concerns live here:
 1. **Deprecated StepTypes** — enum values that exist for backward
    compatibility but should not be used in new workflows. A deprecated
    type usually has either no backend implementation or a planned
-   replacement that the operator should prefer.
+   replacement that the operator should prefer. A **retired** type has
+   left the enum altogether; old saves that still name one are rewritten
+   the same way before they are read.
 
 2. **Legacy-node migration** — workflows saved before the
    2026-05-22 generic-source/sink consolidation can carry concrete
@@ -60,14 +62,6 @@ class _Deprecation:
 # When a new deprecation lands here, also: (a) remove it from any
 # frontend palette entry, (b) add a release-notes line to changelog.md.
 DEPRECATED_STEP_TYPES: dict[str, _Deprecation] = {
-    "webhook_trigger": _Deprecation(
-        reason=(
-            "Inbound webhook receiver infrastructure (URL routing, "
-            "signature verification, replay protection) isn't in v1.0. "
-            "Pull-style integration via api_source is the canonical path."
-        ),
-        replaced_by="api_source",
-    ),
     "webhook_sink": _Deprecation(
         reason="Use the generic Destination node with connector_type='webhook'.",
         replaced_by="destination",
@@ -82,6 +76,30 @@ DEPRECATED_STEP_TYPES: dict[str, _Deprecation] = {
         injected_params={"connector_type": "csv"},
     ),
 }
+
+
+# ── Retired step types ────────────────────────────────────────────────────
+#
+# Types that are no longer StepType values at all. A saved pipeline that still
+# names one is rewritten on load, exactly like a deprecated type, before the
+# model reads it; without this it could not be opened.
+RETIRED_STEP_TYPES: dict[str, _Deprecation] = {
+    # Never had an implementation. Another system starts a pipeline through a
+    # published endpoint on the Triggers page, which can require signed calls
+    # (triggers/webhook_signing.py); a step on the canvas could not receive
+    # anything. Old steps become the API source they were rewritten to before.
+    "webhook_trigger": _Deprecation(
+        reason=(
+            "Retired: a pipeline is started by another system through a published "
+            "endpoint (Triggers page), which can require signed calls."
+        ),
+        replaced_by="api_source",
+    ),
+}
+
+
+def _replacement(step_type: str) -> _Deprecation | None:
+    return DEPRECATED_STEP_TYPES.get(step_type) or RETIRED_STEP_TYPES.get(step_type)
 
 
 # ── Legacy-node migration ─────────────────────────────────────────────────
@@ -169,9 +187,9 @@ def migrate_legacy_node_types(workflow_data: dict) -> dict:
         if not original_type:
             continue
 
-        # 1. Deprecation remap
-        if original_type in DEPRECATED_STEP_TYPES:
-            dep = DEPRECATED_STEP_TYPES[original_type]
+        # 1. Deprecation remap (retired types too)
+        dep = _replacement(original_type)
+        if dep is not None:
             if dep.replaced_by:
                 step["type"] = dep.replaced_by
                 if dep.injected_params:
@@ -273,6 +291,7 @@ def is_deprecated_step_type(step_type: str) -> bool:
 
 __all__ = [
     "DEPRECATED_STEP_TYPES",
+    "RETIRED_STEP_TYPES",
     "is_deprecated_step_type",
     "migrate_legacy_node_types",
 ]

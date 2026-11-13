@@ -16,6 +16,8 @@ CONNECTION_TYPES = [
     # ── Relational Databases ──
     "postgresql", "mysql", "mssql", "oracle", "sqlite", "mariadb",
     "db2", "sap_hana", "teradata", "informix", "cockroachdb",
+    # odbc: any database with an ODBC driver installed (2026-11-11).
+    "odbc",
     # ── NoSQL / Document / Graph ──
     "mongodb", "cassandra", "couchbase", "dynamodb", "cosmosdb",
     "neo4j", "arangodb", "firebase",
@@ -27,7 +29,8 @@ CONNECTION_TYPES = [
     # ── Object / Cloud Storage ──
     "s3", "gcs", "azure_blob", "adls_gen2", "minio",
     # ── File Systems ──
-    "ftp", "sftp", "hdfs", "local_file",
+    # smb: Windows file shares, read and written by the File step (2026-11-11).
+    "ftp", "sftp", "hdfs", "local_file", "smb",
     # ── Streaming / Messaging ──
     "kafka", "rabbitmq", "pulsar", "kinesis", "eventhub",
     "sqs", "pubsub", "nats",
@@ -39,7 +42,9 @@ CONNECTION_TYPES = [
     # OneDrive connectors stay for their file-flavored UX (browse +
     # download); microsoft_graph is the general-purpose REST surface
     # for any Graph endpoint.
-    "rest_api", "graphql", "odata", "soap", "microsoft_graph",
+    # SOAP services are not a connection type: import the WSDL in API Explorer
+    # and save the operation as a connector.
+    "rest_api", "graphql", "odata", "microsoft_graph",
     # ── SaaS / Business Apps ──
     # 2026-05-23 (T4 + U1/U2 + V1/V2): the Oracle / SAP product
     # families. `oracle_fusion` and `oracle_bip` replace the vague
@@ -72,16 +77,16 @@ CONNECTION_TYPES = [
 # Connector categories for UI grouping
 CONNECTION_CATEGORIES = {
     "Databases": ["postgresql", "mysql", "mssql", "oracle", "sqlite", "mariadb",
-                   "db2", "sap_hana", "teradata", "informix", "cockroachdb"],
+                   "db2", "sap_hana", "teradata", "informix", "cockroachdb", "odbc"],
     "NoSQL": ["mongodb", "cassandra", "couchbase", "dynamodb", "cosmosdb",
               "neo4j", "arangodb", "firebase"],
     "Data Warehouses": ["snowflake", "bigquery", "redshift", "databricks", "synapse",
                         "clickhouse", "duckdb", "trino", "presto", "athena"],
     "Cloud Storage": ["s3", "gcs", "azure_blob", "adls_gen2", "minio"],
-    "File Systems": ["ftp", "sftp", "hdfs", "local_file"],
+    "File Systems": ["ftp", "sftp", "hdfs", "local_file", "smb"],
     "Streaming": ["kafka", "rabbitmq", "pulsar", "kinesis", "eventhub",
                    "sqs", "pubsub", "nats"],
-    "APIs": ["rest_api", "graphql", "odata", "soap", "microsoft_graph"],
+    "APIs": ["rest_api", "graphql", "odata", "microsoft_graph"],
     "SaaS": ["salesforce", "hubspot", "zendesk", "jira", "servicenow",
              # 2026-05-23: Oracle / SAP product families.
              "oracle_fusion", "oracle_bip",
@@ -134,7 +139,7 @@ def resolve_connection_type(connection_type: str) -> str:
 
 # Types that support file format selection (CSV, JSON, Parquet, etc.)
 STORAGE_TYPES = {"s3", "gcs", "azure_blob", "adls_gen2", "minio",
-                 "ftp", "sftp", "hdfs", "local_file",
+                 "ftp", "sftp", "hdfs", "local_file", "smb",
                  "sharepoint", "onedrive", "gdrive", "dropbox", "box"}
 
 FILE_FORMATS = ["csv", "json", "parquet", "excel", "xml", "avro", "orc", "delta"]
@@ -149,7 +154,9 @@ WRITE_ONLY_TYPES = {
     # Notification destinations — push messages out only
     "slack", "teams", "smtp", "sendgrid", "twilio", "pagerduty",
 }
-READ_ONLY_TYPES: set[str] = set()  # placeholder; nothing strictly read-only yet
+# 2026-11-11: pipelines read these, but nothing writes to them (an ODBC
+# database, and Db2 / SAP HANA / Teradata through their add-on drivers).
+READ_ONLY_TYPES: set[str] = {"odbc", "db2", "sap_hana", "teradata"}
 
 
 def default_capabilities(connection_type: str) -> list[str]:

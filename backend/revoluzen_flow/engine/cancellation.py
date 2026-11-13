@@ -77,6 +77,11 @@ class CancellationToken:
     def __init__(self, run_id: str = ""):
         self.run_id = run_id
         self._cancelled = False
+        # Why the run was cancelled, in words for the run record ("Stopped
+        # by Priya", or the time limit's reason). The first reason wins.
+        self.reason = ""
+        # Set on cancel, so a wait (a retry's back-off) can end early.
+        self._event = threading.Event()
         self._lock = threading.RLock()
         self._callbacks: list[Callable[[], None]] = []
         # Optional bridge to the execution_manager's cooperative Event.
@@ -101,12 +106,19 @@ class CancellationToken:
         if self.is_cancelled:
             raise RunCancelled(self.run_id)
 
+    def wait(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` seconds; True as soon as the run is
+        cancelled. A retry's back-off uses it so Stop is not held up."""
+        if self.is_cancelled:
+            return True
+        return self._event.wait(timeout=max(0.0, float(timeout)))
+
     # ── Cancel ───────────────────────────────────────────────────────
 
-    def cancel(self) -> None:
+    def cancel(self, reason: str = "") -> None:
         """Flip the flag, sync the bound Event, and fire every
         registered driver-level cancel callback. Idempotent - calling
-        twice fires callbacks only once.
+        twice fires callbacks only once, and keeps the first reason.
 
         A callback that raises is logged and swallowed: one connector's
         cancel failure must not prevent the others from firing."""
@@ -114,6 +126,8 @@ class CancellationToken:
             if self._cancelled:
                 return
             self._cancelled = True
+            self.reason = reason or ""
+            self._event.set()
             if self._stop_event is not None:
                 self._stop_event.set()
             callbacks = list(self._callbacks)
@@ -213,15 +227,32 @@ def get_or_create_token(run_id: str) -> CancellationToken:
     return create_token(run_id)
 
 
-def cancel_run(run_id: str) -> bool:
+def cancel_run(run_id: str, reason: str = "", *, create: bool = False) -> bool:
     """Cancel a run by id. Returns True if a token existed (and was
-    cancelled), False if no token was registered for that run."""
+    cancelled), False if no token was registered for that run.
+
+    ``create=True`` cancels a run that has no token yet: one still waiting
+    for a pool slot. The executor picks up the cancelled token before its
+    first step, so the run ends at once instead of starting. Only pass it
+    for a run known to be queued or running, or the token outlives it."""
     with _registry_lock:
         tok = _registry.get(run_id)
-    if tok is None:
-        return False
-    tok.cancel()
+        if tok is None:
+            if not create:
+                return False
+            tok = CancellationToken(run_id)
+            _registry[run_id] = tok
+    tok.cancel(reason)
     return True
+
+
+def stopped_by_text(user=None) -> str:
+    """The reason a Stop records: "Stopped by Priya", from the signed-in
+    user's name or email, or a plain "Stopped from the app" without one."""
+    name = ""
+    if user is not None:
+        name = (getattr(user, "name", "") or getattr(user, "email", "") or "").strip()
+    return f"Stopped by {name}" if name else "Stopped from the app"
 
 
 def clear_token(run_id: str) -> None:

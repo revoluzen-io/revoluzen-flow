@@ -107,10 +107,16 @@ def test_registry_register_initial_loads_all_tools():
     than from the model's general knowledge.)
     (2026-11-03 — +test_pipeline_draft READ tool, so the Copilot can run
     its own draft and find the next fault instead of stopping at the first.)
+    (2026-11-11 — +get_pipeline_spec READ tool: the intent spec and its
+    contract verdict, so a repair keeps the pipeline's acceptance criteria.)
     """
     reg = ToolRegistry()
     register_initial_tools(reg)
-    assert len(reg) == 32
+    # 2026-11-11 — +suggest_join_keys READ tool (join keys from shared values).
+    # 2026-11-11 — +get_incidents READ tool (open incidents, what changed).
+    # 2026-11-11 — +list_quality_rule_sets READ tool (shared rule sets).
+    # 2026-11-11 — +lookup_business_terms READ tool (business glossary).
+    assert len(reg) == 37
     for name in (
         # Original 10 READ
         "get_user_role", "get_workspace_overview",
@@ -166,6 +172,11 @@ def test_registry_filter_by_tiers_excludes_writes_for_read_only():
         "list_storage",       # Storage inventory (2026-05-25)
         "list_steward_findings",  # Steward advisories (2026-06-16)
         "get_security_posture",   # Security & Diagnostics baseline (2026-10-26)
+        "get_pipeline_spec",      # Intent spec + contract verdict (2026-11-11)
+        "suggest_join_keys",      # Join keys from shared values (2026-11-11)
+        "get_incidents",          # Open incidents + what changed (2026-11-11)
+        "list_quality_rule_sets", # Shared quality rule sets (2026-11-11)
+        "lookup_business_terms",  # Business glossary (2026-11-11)
     }
     assert names == expected_read
 
@@ -180,7 +191,12 @@ def test_registry_filter_by_tiers_includes_safe_write_when_allowed():
     # 2026-07-21 — +draft_connector_from_openapi/_from_samples/test_connection.
     # 2026-10-26 — +get_security_posture (Security & Diagnostics baseline).
     # 2026-11-03 — +test_pipeline_draft (run a draft, report the result).
-    assert len(rw) == 31
+    # 2026-11-11 — +get_pipeline_spec (the intent spec and its verdict).
+    # 2026-11-11 — +suggest_join_keys (join keys from shared values).
+    # 2026-11-11 — +get_incidents (open incidents, what changed).
+    # 2026-11-11 — +list_quality_rule_sets (shared rule sets).
+    # 2026-11-11 — +lookup_business_terms (business glossary).
+    assert len(rw) == 36
 
 
 def test_rbac_unknown_role_allows_all_tiers_on_oss():
@@ -196,8 +212,13 @@ def test_rbac_unknown_role_allows_all_tiers_on_oss():
     """
     from revoluzen_flow.ai.rbac import allowed_tiers_for, authorize_tool_call
 
+    # 2026-11-13: this used "data_engineer" as its unknown role, but that is a
+    # REAL role (auth.deps._ROLE_RANK). Leaving it out of the RBAC matrix is what
+    # handed analysts and data engineers every Copilot tier. Use a role name that
+    # genuinely exists nowhere.
+
     # No license manager in test env → OSS → unknown role gets all tiers.
-    tiers = allowed_tiers_for("data_engineer", "dev")
+    tiers = allowed_tiers_for("legacy_custom_role", "dev")
     assert ToolTier.READ in tiers, (
         "Unknown role on OSS must include READ — see rbac.py module "
         "docstring and feedback_oss_no_admin_role.md"
@@ -208,7 +229,7 @@ def test_rbac_unknown_role_allows_all_tiers_on_oss():
     # Single-call authorize check.
     assert authorize_tool_call(
         tool_tier=ToolTier.READ,
-        user_role="data_engineer",
+        user_role="legacy_custom_role",
         environment="dev",
     ) is True
 
@@ -353,8 +374,14 @@ def test_initial_tools_count():
     +validate_pipeline + explain_step (2026-05-12), and +list_templates.
     2026-11-03: +test_pipeline_draft (READ — run a draft on sample data and
     report each step's status, so the agent can find the next fault itself).
+    2026-11-11: +get_pipeline_spec (READ — what the pipeline was asked to do
+    and how each acceptance criterion is checked), +suggest_join_keys (READ —
+    join keys ranked from the values both inputs share), +get_incidents
+    (READ — open incidents and what changed since the pipeline last worked),
+    +list_quality_rule_sets (READ — shared quality rule sets),
+    +lookup_business_terms (READ — the workspace's business glossary).
     """
-    assert len(INITIAL_TOOLS) == 32
+    assert len(INITIAL_TOOLS) == 37
 
 
 def test_list_pipelines_handler_returns_shape():

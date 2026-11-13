@@ -217,7 +217,7 @@ CONNECTOR_LABELS: dict[str, str] = {
     "gcs": "Google Cloud Storage", "minio": "MinIO",
     "sharepoint": "SharePoint", "onedrive": "OneDrive", "gdrive": "Google Drive",
     "dropbox": "Dropbox", "box": "Box", "ftp": "FTP / SFTP", "sftp": "SFTP", "gsheet": "Google Sheets",
-    "rest_api": "REST API", "graphql": "GraphQL", "odata": "OData", "soap": "SOAP",
+    "rest_api": "REST API", "graphql": "GraphQL", "odata": "OData",
     "microsoft_graph": "Microsoft Graph",
     "kafka": "Kafka", "rabbitmq": "RabbitMQ", "pulsar": "Apache Pulsar",
     "eventhub": "Azure Event Hubs", "kinesis": "AWS Kinesis",
@@ -246,7 +246,7 @@ _WAREHOUSE_TYPES: tuple[str, ...] = (
     "duckdb", "trino", "presto", "athena",
 )
 _REST_TYPES: tuple[str, ...] = (
-    "rest_api", "graphql", "odata", "soap",
+    "rest_api", "graphql", "odata",
     "salesforce", "hubspot", "zendesk", "jira", "servicenow", "sap", "sap_s4hana",
     "sap_successfactors", "netsuite", "dynamics365", "workday", "oracle_fusion", "oracle_bip",
     "oracle_api", "github", "shopify", "stripe", "notion", "asana", "custom",
@@ -322,8 +322,8 @@ _TECHNOLOGIES: tuple[Technology, ...] = (
     _tech("hubspot", "HubSpot", r"\bhubspot\b", ("hubspot",), "hubspot"),
     _tech("jira", "Jira", r"\bjira\b", ("jira",), "jira"),
     _tech("zendesk", "Zendesk", r"\bzendesk\b", ("zendesk",), "zendesk"),
-    _tech("rest_api", "REST API", r"rest\s*api|http\s*api|web\s*api", ("rest_api", "graphql", "odata", "soap"), "rest_api"),
-    _tech("api", "REST API", r"\bapi\b", ("rest_api", "graphql", "odata", "soap"), "rest_api"),
+    _tech("rest_api", "REST API", r"rest\s*api|http\s*api|web\s*api", ("rest_api", "graphql", "odata"), "rest_api"),
+    _tech("api", "REST API", r"\bapi\b", ("rest_api", "graphql", "odata"), "rest_api"),
     _tech("postgres", "PostgreSQL", r"\bpostgres(?:ql)?\b|\bpsql\b", ("postgresql",), "postgresql"),
     _tech("mysql", "MySQL", r"\bmysql\b", ("mysql",), "mysql"),
     _tech("mariadb", "MariaDB", r"\bmariadb\b", ("mariadb",), "mariadb"),

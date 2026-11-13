@@ -1,6 +1,7 @@
 """Unit tests for CredentialStore."""
 
 import pytest
+from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
 from revoluzen_flow.credentials.models import Credential
 from revoluzen_flow.credentials.store import CredentialStore
 
@@ -25,8 +26,8 @@ class TestCredentialStore:
         credential_store.create(sample_credential)
         result = credential_store.list_all()
         assert len(result) == 1
-        # Password should be masked
-        assert result[0]["config"]["password"] == "se***"
+        # Password should be masked, with no character of it shown
+        assert result[0]["config"]["password"] == SECRET_PLACEHOLDER
         # Non-sensitive fields should be plain
         assert result[0]["config"]["host"] == "localhost"
 
@@ -76,25 +77,27 @@ class TestCredentialStore:
 
 
 class TestConfigMasking:
+    # Until November 2026 the mask showed the first two characters ("lo***").
+    # Now no character of a secret is ever returned.
     def test_masks_password(self):
         result = CredentialStore._mask_config({"password": "longpassword"})
-        assert result["password"] == "lo***"
+        assert result["password"] == SECRET_PLACEHOLDER
 
     def test_masks_secret(self):
         result = CredentialStore._mask_config({"secret": "mysecret"})
-        assert result["secret"] == "my***"
+        assert result["secret"] == SECRET_PLACEHOLDER
 
     def test_masks_api_key(self):
         result = CredentialStore._mask_config({"api_key": "key123"})
-        assert result["api_key"] == "ke***"
+        assert result["api_key"] == SECRET_PLACEHOLDER
 
     def test_masks_token(self):
         result = CredentialStore._mask_config({"token": "tok456"})
-        assert result["token"] == "to***"
+        assert result["token"] == SECRET_PLACEHOLDER
 
     def test_short_secret_fully_masked(self):
         result = CredentialStore._mask_config({"password": "ab"})
-        assert result["password"] == "***"
+        assert result["password"] == SECRET_PLACEHOLDER
 
     def test_non_sensitive_unchanged(self):
         result = CredentialStore._mask_config({"host": "localhost", "port": 5432})

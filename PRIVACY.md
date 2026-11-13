@@ -23,6 +23,7 @@ All data is stored on your install's filesystem under `REVOLUZEN_FLOW_DATA_DIR` 
 | **User accounts** | Email, name, hashed password (PBKDF2 / Argon2), role, workspace membership, last-login timestamp | `users` table in SQLite |
 | **Pipeline definitions** | IR JSON for every workflow version you create, parameter values, schedule configs | `workflow_versions`, `schedules` tables |
 | **Connection credentials** | Connection metadata + **encrypted** credential values (Fernet AES-128-CBC + HMAC-SHA256) | `connections`, `credentials` tables + `secrets` vault |
+| **Connection history** | One version per change to a connection's settings, with who made it and when. Passwords and keys are never copied: each is kept as a one-way fingerprint (HMAC-SHA256 with a key derived from the install's master key) that can only tell whether two values are the same | `connection_versions` table |
 | **Execution history** | Per-run row counts, durations, step-level logs, error messages, lineage edges | `executions`, `execution_logs`, `step_logs` tables |
 | **Audit log** | Login events, pipeline publishes, credential changes, AI agent actions — append-only | `audit_log` table |
 | **AI traces** | Per-run tool calls, input/output hashes, PII-redaction counts, decision reasons (no raw prompts after redaction window) | `ai_traces` table |
@@ -65,12 +66,14 @@ What is deleted automatically:
 | **Deleted pipelines** in the Bin | Deleting a pipeline moves it to the Bin, with its saved versions, where it can be restored. A daily job removes it for good 30 days after it was deleted. **Delete forever** and **Empty Bin** remove it at once. | `REVOLUZEN_FLOW_BIN_RETENTION_DAYS=30` (any positive number; `0` = never removed automatically) |
 | AI **agent traces** | **Off by default** — traces are kept forever. Set a number of days and a daily sweep deletes traces older than that. | `REVOLUZEN_FLOW_TRACE_RETENTION_DAYS=90` (any positive number; `0` = keep forever) |
 
-Two stores are bounded **by count, not by age** — the oldest entries are
+These stores are bounded **by count, not by age** — the oldest entries are
 discarded once the limit is reached:
 
 | What | Default | Control |
 |---|---|---|
-| Pipeline versions kept per pipeline | 20 | `REVOLUZEN_FLOW_VERSION_RETENTION` |
+| Pipeline saves kept per pipeline (named, published and review versions are always kept) | 50 | `REVOLUZEN_FLOW_VERSION_RETENTION` |
+| Pipeline auto-saves kept per pipeline | 10 | `REVOLUZEN_FLOW_AUTOSAVE_RETENTION` |
+| Connection versions kept per connection (the first version is always kept; deleting a connection deletes its history) | 50 | `REVOLUZEN_FLOW_CONNECTION_VERSION_RETENTION` |
 | Backups kept | 5 | `REVOLUZEN_FLOW_BACKUP_RETENTION` |
 
 Sign-in sessions expire on their own schedule

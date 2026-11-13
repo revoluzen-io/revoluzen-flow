@@ -608,6 +608,13 @@ def _file_columns(path: str, file_format: str) -> list[dict[str, str]]:
     reader = readers.get(file_format)
     if reader is None or not os.path.isfile(path):
         return []
+    # Column names go into the model's context. Read as a CSV, the master
+    # key's single line IS a column name, so the instance's own secrets are
+    # never inspected here, whatever the security mode.
+    from revoluzen_flow.main import app_state
+    from revoluzen_flow.security import sql_sandbox
+    if sql_sandbox.is_protected_file(path, app_state.get("data_dir")):
+        return []
     import duckdb
 
     con = duckdb.connect(":memory:")

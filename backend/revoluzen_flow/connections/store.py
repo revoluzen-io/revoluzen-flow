@@ -15,6 +15,13 @@ import urllib.request
 from datetime import datetime, timezone
 from copy import deepcopy
 
+from .inline_secrets import (
+    decrypt_config,
+    drop_placeholders,
+    encrypt_config,
+    keep_unchanged_secrets,
+    mask_config,
+)
 from .models import Connection, ConnectionReport, ReportParameter, RunReportResult
 
 logger = logging.getLogger(__name__)
@@ -71,16 +78,61 @@ def get_store() -> "ConnectionStore":
 
 
 class ConnectionStore:
-    """Connection and report store backed by SQLite."""
+    """Connection and report store backed by SQLite.
+
+    Passwords and keys typed into a connection's own settings are encrypted
+    at rest, like Credentials (see ``inline_secrets``). ``get`` returns them
+    decrypted for server-side use; ``list_all`` and every API response
+    return them masked.
+    """
 
     def __init__(self, db=None):
         self._db = db
         if db:
             self._seed_if_empty()
 
+    def _get_encryptor(self):
+        """The always-on encryptor from app_state, the one Credentials use.
+
+        None only when REVOLUZEN_FLOW_DISABLE_ENCRYPTION=1 (test-only) or
+        before startup has populated app_state; secrets are then stored as
+        typed, the same fallback as CredentialStore.
+        """
+        try:
+            from revoluzen_flow.main import app_state
+            return app_state.get("encryptor")
+        except Exception:
+            return None
+
     def set_db(self, db):
         self._db = db
         self._seed_if_empty()
+
+    # ── Version history (see versions.py) ──
+
+    @property
+    def versions(self):
+        from .versions import ConnectionVersions
+        return ConnectionVersions(self._db)
+
+    def _snapshot(self, connection: Connection):
+        """What the history would keep of ``connection`` now; None if that
+        cannot be worked out (the save goes ahead without a version)."""
+        try:
+            from .versions import snapshot
+            return snapshot(connection, self._get_encryptor())
+        except Exception:  # noqa: BLE001
+            logger.warning("Connection %s: could not read it for its version history", connection.id, exc_info=True)
+            return None
+
+    def _record_version(self, connection: Connection, **kwargs) -> int | None:
+        """Keep a version after a save. A failure here never undoes the save:
+        it is logged, and the next save records the change."""
+        try:
+            return self.versions.record(connection, self._get_encryptor(), **kwargs)
+        except Exception:  # noqa: BLE001
+            logger.warning("Connection %s: the change was saved but no version was kept", connection.id, exc_info=True)
+            return None
 
     def _seed_if_empty(self):
         """Seed with example data if no connections exist.
@@ -101,6 +153,7 @@ class ConnectionStore:
 
     def _save_connection(self, connection: Connection):
         data = connection.model_dump(mode="json")
+        data["config"] = encrypt_config(data.get("config") or {}, connection.type, self._get_encryptor())
         self._db.insert_json(
             "connections", connection.id, data,
             name=connection.name,
@@ -122,7 +175,9 @@ class ConnectionStore:
 
     # ── Connections CRUD ──
 
-    def create(self, connection: Connection) -> Connection:
+    def create(self, connection: Connection, *, actor: str | None = None) -> Connection:
+        """Save a new connection and keep it as version 1 of its history,
+        noting ``actor`` (the signed-in user's name) as its author."""
         # Store-layer uniqueness (May 6 2026) — auto-suffix the name if
         # another connection in the same workspace already uses it.
         # Catches every entry path (API create / import / programmatic).
@@ -138,7 +193,11 @@ class ConnectionStore:
                 connection.name = ensure_unique_name(connection.name, existing_names)
         except Exception:  # noqa: BLE001
             pass
+        # A placeholder copied from a masked response has no stored value
+        # behind it on a new connection; never save it as the password.
+        connection.config = drop_placeholders(connection.config)
         self._save_connection(connection)
+        self._record_version(connection, created_by=actor or "user", note="Created")
         return connection
 
     def get(
@@ -152,14 +211,21 @@ class ConnectionStore:
         to a different workspace returns None — callers should
         surface that as 404, not 403, so tenant boundaries don't
         leak through error codes.
+
+        Secrets come back decrypted, for the server-side callers that
+        hand them to a driver. Never return this object's config to a
+        client as it is: use ``inline_secrets.connection_response``.
         """
         data = self._db.get_json("connections", connection_id)
         if data is None:
             return None
-        conn = Connection(**data)
-        if workspace_id is not None and (conn.workspace_id or "default") != workspace_id:
+        if workspace_id is not None and (data.get("workspace_id") or "default") != workspace_id:
             return None
-        return conn
+        data["config"] = decrypt_config(
+            data.get("config") or {}, data.get("type"), self._get_encryptor(),
+            connection_id=connection_id,
+        )
+        return Connection(**data)
 
     def list_all(
         self,
@@ -174,6 +240,9 @@ class ConnectionStore:
         column so cross-tenant rows never reach the Python filter
         layer. The legacy filters (conn_type, project_id, scope)
         still apply on top of the workspace scope.
+
+        Secrets are masked: nothing that lists connections needs them,
+        and this list goes straight to the API.
         """
         if workspace_id is not None:
             items = self._db.list_json(
@@ -193,6 +262,7 @@ class ConnectionStore:
                 continue
             if project_id and c.get("project_id") is not None and c.get("project_id") != project_id:
                 continue
+            c["config"] = mask_config(c.get("config") or {}, c.get("type"))
             # Count reports
             c["report_count"] = self._db.count(
                 "connection_reports", "connection_id = ?", (c["id"],)
@@ -205,6 +275,10 @@ class ConnectionStore:
         connection_id: str,
         updates: dict,
         workspace_id: str | None = None,
+        *,
+        actor: str | None = None,
+        note: str = "",
+        kind: str = "saved",
     ) -> Connection | None:
         """Apply a partial update to a connection.
 
@@ -222,10 +296,19 @@ class ConnectionStore:
 
         Other keys still ignore None (e.g. name, type), since clearing
         them would put the connection into an invalid state.
+
+        A ``config`` that carries the masked placeholder for a secret keeps
+        the stored secret there; a new value replaces it.
+
+        A change to anything the history records (see ``versions.py``) keeps
+        a new version, by ``actor`` with ``note``; a save that changes none of
+        it (a connection test writing its result) keeps none.
         """
         connection = self.get(connection_id, workspace_id=workspace_id)
         if not connection:
             return None
+        before = self._snapshot(connection)
+        before_at = connection.updated_at.isoformat() if connection.updated_at else None
         _NULLABLE_KEYS = ("project_id", "credential_id", "environment")
         for key, value in updates.items():
             # Refuse to let the request body reassign the workspace —
@@ -237,9 +320,17 @@ class ConnectionStore:
             if value is None and key not in _NULLABLE_KEYS:
                 # Backward-compat: skip None for non-nullable keys.
                 continue
+            if key == "config" and isinstance(value, dict):
+                # The edit form sends each stored secret back as the
+                # placeholder it was shown, unless the user replaced it.
+                value = keep_unchanged_secrets(value, connection.config)
             setattr(connection, key, value)
         connection.updated_at = datetime.now(timezone.utc)
         self._save_connection(connection)
+        self._record_version(
+            connection, before=before, before_at=before_at,
+            created_by=actor or "user", note=note, kind=kind,
+        )
         return connection
 
     def delete(
@@ -260,6 +351,11 @@ class ConnectionStore:
             (connection_id,),
         )
         result = self._db.delete_row("connections", connection_id)
+        if result:
+            try:
+                self.versions.delete_all(connection_id)
+            except Exception:  # noqa: BLE001
+                logger.warning("Connection %s: deleted, but its version history was not", connection_id, exc_info=True)
         return result
 
     def count(self) -> int:

@@ -42,7 +42,7 @@ it('selecting a reference routes to it without fetching anything', () => {
 it('opens the selected reference in import without fetching or sending requests', () => {
   window.location.hash = '#author?reference=github';
   render(<ApiExplorerPage />);
-  expect(screen.getByRole('region', { name: 'OpenAPI import' })).toBeVisible();
+  expect(screen.getByRole('region', { name: 'API specification import' })).toBeVisible();
   expect(screen.getByText('GitHub API reference')).toBeVisible();
   expect(screen.getByText('No specification loaded yet')).toBeVisible();
   expect(screen.getByLabelText('Request URL')).toHaveValue('');

@@ -65,11 +65,38 @@ def emit_run_notification(
     if s not in ("success", "error", "failed"):
         return
 
+    # Every terminal run outcome passes through here (manual and API runs,
+    # schedules, event triggers), so incidents are opened, repeated and
+    # resolved from the same signal. Before the store checks below: an
+    # install with no users to notify still tracks its incidents.
+    try:
+        from revoluzen_flow.incidents.service import record_run_outcome
+        from revoluzen_flow.main import app_state as _app_state
+
+        record_run_outcome(
+            _app_state,
+            workflow_id=workflow_id,
+            workflow_name=workflow_name,
+            execution_id=execution_id,
+            status=s,
+            workspace_id=workspace_id,
+            triggered_by=triggered_by,
+            error_message=error_message,
+            failed_step=failed_step,
+        )
+    except Exception:  # noqa: BLE001 — incidents never affect a run's outcome
+        logger.debug("incident recording failed", exc_info=True)
+
     if notification_store is None or user_store is None:
         return
 
     # Read on the bell, where the other pages show this trigger as API too.
-    trigger_word = "API" if triggered_by == "api" else triggered_by
+    trigger_word = {
+        "api": "API",
+        "webhook": "signed webhook",
+        "file_arrival": "file arrival",
+        "after_pipeline": "after another pipeline",
+    }.get(triggered_by, triggered_by)
 
     if s == "success":
         ntype = "run_succeeded"
@@ -151,8 +178,8 @@ def emit_lifecycle_notification(
         message = f"{actor} published this pipeline. It can now be scheduled."
     elif e == "revoked":
         ntype = "pipeline_revoked"
-        title = f"{workflow_name or 'Pipeline'} revoked"
-        message = f"{actor} revoked this pipeline back to draft. Schedules will not fire."
+        title = f"{workflow_name or 'Pipeline'} unpublished"
+        message = f"{actor} unpublished this pipeline, so it is a draft again and its schedules are paused."
     else:
         return
 

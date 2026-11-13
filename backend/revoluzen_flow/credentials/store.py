@@ -6,7 +6,12 @@ Free and Plus. The previous Plus-gated path that left OSS Free credentials
 in plaintext is gone.
 
 Tolerates legacy plaintext rows on read so existing OSS installs upgrade
-without manual migration: the next save re-encrypts each row.
+without manual migration: the next save re-encrypts each row, and a pass at
+server start encrypts what is still in clear.
+
+Which values are secret, and how they are encrypted and masked, is decided
+in ``sensitive_fields.py`` (November 2026): by name, by the form's
+"sensitive" switch, or because the value is already stored encrypted.
 """
 
 from __future__ import annotations
@@ -15,7 +20,18 @@ import json
 from datetime import datetime, timezone
 from copy import deepcopy
 
+from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
+
 from .models import Credential
+from .sensitive_fields import (
+    decrypt_config,
+    encrypt_config,
+    field_key,
+    keep_unchanged_secrets,
+    marked_fields,
+    mask_config,
+    sensitive_fields,
+)
 
 
 class CredentialStore:
@@ -52,12 +68,14 @@ class CredentialStore:
             return None
 
     def _save(self, credential: Credential):
+        # Keep only the marked fields still in the config, in the form's spelling.
+        credential.sensitive_fields = marked_fields(credential.sensitive_fields, credential.config)
         data = credential.model_dump(mode="json")
 
         # Revoluzen Flow: encrypt sensitive fields before saving
         encryptor = self._get_encryptor()
         if encryptor:
-            data["config"] = encryptor.encrypt_config(data.get("config", {}))
+            data["config"] = encrypt_config(data.get("config", {}), credential.sensitive_fields, encryptor)
 
         self._db.insert_json(
             "credentials", credential.id, data,
@@ -70,6 +88,9 @@ class CredentialStore:
         )
 
     def create(self, credential: Credential) -> Credential:
+        # A placeholder copied from a masked response has nothing stored
+        # behind it on a new credential; never save it as the secret.
+        credential.config = keep_unchanged_secrets(credential.config, {}, {})
         self._save(credential)
         return credential
 
@@ -101,8 +122,11 @@ class CredentialStore:
                 cred_ws = c.get("workspace_id") or "default"
                 if cred_ws != workspace_id:
                     continue
-            # Mask sensitive config fields
-            c["config"] = self._mask_config(c.get("config", {}))
+            # Mask sensitive config fields, and say which they are so the
+            # form can show its switches.
+            config = c.get("config") or {}
+            c["config"] = mask_config(config, c.get("sensitive_fields"))
+            c["sensitive_fields"] = sensitive_fields(config, c.get("sensitive_fields"))
             result.append(c)
         return sorted(result, key=lambda x: x.get("name", ""))
 
@@ -130,10 +154,10 @@ class CredentialStore:
             if cred_ws != workspace_id:
                 return None
 
-        # Revoluzen Flow: decrypt sensitive fields
+        # Revoluzen Flow: decrypt every value stored encrypted, whatever its name
         encryptor = self._get_encryptor()
         if encryptor:
-            data["config"] = encryptor.decrypt_config(data.get("config", {}))
+            data["config"] = decrypt_config(data.get("config", {}), encryptor)
 
         return Credential(**data)
 
@@ -149,6 +173,7 @@ class CredentialStore:
         if not credential:
             return None
         stored = self.get(credential_id, workspace_id=workspace_id)
+        kept_secret: set[str] = set()
         for key, value in updates.items():
             # Refuse to cross workspace boundary via an update body —
             # workspace membership of a credential is immutable once set
@@ -157,9 +182,16 @@ class CredentialStore:
             if key == "workspace_id":
                 continue
             if key == "config" and isinstance(value, dict):
+                kept_secret = {k for k, v in value.items() if v == SECRET_PLACEHOLDER and k in credential.config}
                 value = self._keep_unchanged_secrets(value, credential.config, stored.config)
             if value is not None and hasattr(credential, key):
                 setattr(credential, key, value)
+        if kept_secret:
+            # A secret kept as it was stays secret, whatever marks came with the
+            # edit: the value was never shown, so it is never stored in clear.
+            credential.sensitive_fields = sorted(
+                set(credential.sensitive_fields) | {field_key(k) for k in kept_secret}
+            )
         credential.updated_at = datetime.now(timezone.utc)
         self._save(credential)
         return self.get(credential_id, workspace_id=workspace_id)
@@ -168,23 +200,11 @@ class CredentialStore:
     def _keep_unchanged_secrets(cls, incoming: dict, plain: dict, stored: dict) -> dict:
         """Treat a value the edit form was shown as "leave this as it is".
 
-        The form pre-fills each field with what the API returned: a masked
-        value, or the stored ciphertext for fields the mask doesn't cover.
-        Saving those as they are would replace the real secret with the
-        placeholder.
+        The form pre-fills each stored secret with the placeholder the API
+        returned. Saving that as it is would replace the real secret with the
+        placeholder; see ``sensitive_fields.keep_unchanged_secrets``.
         """
-        kept = dict(incoming)
-        for key, value in incoming.items():
-            if key not in plain:
-                continue
-            shown = (
-                stored.get(key),
-                cls._mask_config({key: stored.get(key)})[key],
-                cls._mask_config({key: plain[key]})[key],
-            )
-            if value in shown:
-                kept[key] = plain[key]
-        return kept
+        return keep_unchanged_secrets(incoming, plain, stored)
 
     def delete(self, credential_id: str, workspace_id: str | None = None) -> bool:
         # Pre-check via get so cross-tenant delete is a no-op + 404
@@ -206,13 +226,7 @@ class CredentialStore:
         return self._db.count("credentials")
 
     @staticmethod
-    def _mask_config(config: dict) -> dict:
-        """Mask password/secret/key fields in config."""
-        masked = {}
-        sensitive_keys = {"password", "secret", "secret_access_key", "api_key", "token", "private_key"}
-        for k, v in config.items():
-            if isinstance(v, str) and k.lower() in sensitive_keys:
-                masked[k] = "***" if len(v) <= 4 else v[:2] + "***"
-            else:
-                masked[k] = v
-        return masked
+    def _mask_config(config: dict, marked: list[str] | None = None) -> dict:
+        """Replace every secret in ``config`` with the placeholder. No
+        character of a secret is ever shown."""
+        return mask_config(config, marked)

@@ -63,7 +63,7 @@ class ExecutionRecord(BaseModel):
     steps_failed: int = 0
     error_message: str | None = None
     failed_step: str | None = None
-    triggered_by: str = "manual"  # manual | schedule | event
+    triggered_by: str = "manual"  # manual | schedule | api | webhook | file_arrival | after_pipeline | ...
     step_logs: list[StepLog] = Field(default_factory=list)
     # Full IR of the workflow at the moment this run started. Stored so
     # "Rerun" and "Open in Editor" can replay the exact pipeline that ran
@@ -118,6 +118,18 @@ class ExecutionRecord(BaseModel):
     # endpoint (`pool.py::_enrich_history_row`) reads `peak_memory_mb` and
     # `cpu_seconds` from this bag to populate the compute columns.
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+#: Runs that happened by themselves: not someone pressing Run while building.
+PRODUCTION_TRIGGERS = frozenset({
+    "schedule", "webhook", "replay", "api", "pipeline", "file_arrival", "after_pipeline",
+})
+
+
+def is_production_trigger(triggered_by: str | None) -> bool:
+    """Replay rows read "replay:<exec_id_prefix>", so those match by prefix."""
+    trigger = (triggered_by or "").lower()
+    return trigger in PRODUCTION_TRIGGERS or trigger.startswith("replay")
 
 
 class ExecutionStore:
@@ -223,6 +235,44 @@ class ExecutionStore:
             order_by=f"started_at DESC LIMIT {limit}",
         )
 
+    def version_run_stats(
+        self,
+        workflow_id: str,
+        workspace_id: str | None = None,
+        limit: int = 5000,
+    ) -> dict[int, dict]:
+        """Runs of one pipeline grouped by the saved version each one ran:
+        ``{version: {"runs": n, "last_status": ..., "last_started_at": ...}}``.
+
+        Runs that recorded no version (rows from before the field existed)
+        are left out. Reads the newest ``limit`` runs.
+        """
+        sql = (
+            "SELECT json_extract(data, '$.workflow_version') AS v, status, started_at "
+            "FROM executions WHERE workflow_id = ?"
+        )
+        params: list = [workflow_id]
+        if workspace_id is not None:
+            sql += " AND workspace_id = ?"
+            params.append(workspace_id)
+        sql += " ORDER BY julianday(started_at) DESC, id DESC LIMIT ?"
+        params.append(int(limit))
+        out: dict[int, dict] = {}
+        for row in self._db.fetchall(sql, tuple(params)):
+            v = row["v"]
+            if not isinstance(v, int):
+                continue
+            entry = out.get(v)
+            if entry is None:
+                out[v] = {
+                    "runs": 1,
+                    "last_status": row["status"] or "",
+                    "last_started_at": row["started_at"] or "",
+                }
+            else:
+                entry["runs"] += 1
+        return out
+
     def list_by_project(
         self,
         project_id: str,
@@ -252,7 +302,12 @@ class ExecutionStore:
         Charts used to bucket the newest rows of the run list, which is capped,
         so a busy workspace lost everything older than its last few hundred
         runs while the headline beside the chart still counted them. Counting
-        here has no such limit and reads no run bodies.
+        here has no such limit.
+
+        Each slot also carries the summed ``duration_ms`` of its runs that
+        recorded one, and how many did (``timed``), so the Dashboard's average
+        duration has a trend line like its other headline numbers: the same
+        runs its average counts (successful, with a duration), by slot.
         """
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         where = ["started_at >= ?"]
@@ -263,13 +318,22 @@ class ExecutionStore:
         if project_id:
             where.append("project_id = ?")
             params.append(project_id)
+        dur = "CAST(json_extract(data, '$.duration_ms') AS REAL)"
         rows = self._db.fetchall(
-            "SELECT substr(started_at, 1, 15) AS slot, status, COUNT(*) AS count "
+            "SELECT substr(started_at, 1, 15) AS slot, status, COUNT(*) AS count, "
+            f"SUM(CASE WHEN {dur} > 0 THEN {dur} ELSE 0 END) AS duration_ms, "
+            f"SUM(CASE WHEN {dur} > 0 THEN 1 ELSE 0 END) AS timed "
             f"FROM executions WHERE {' AND '.join(where)} GROUP BY slot, status",
             params,
         )
         # Rows store UTC, so the slot is the start of a UTC ten-minute window.
-        return [{"at": f"{r['slot']}0:00Z", "status": r["status"], "count": r["count"]} for r in rows]
+        return [
+            {
+                "at": f"{r['slot']}0:00Z", "status": r["status"], "count": r["count"],
+                "duration_ms": round(float(r["duration_ms"] or 0), 1), "timed": int(r["timed"] or 0),
+            }
+            for r in rows
+        ]
 
     def get_stats(self, hours: int = 24, workspace_id: str | None = None) -> dict:
         """Get execution statistics for the monitor dashboard.
@@ -327,8 +391,6 @@ class ExecutionStore:
         # `manual` trigger today; they're also excluded — a backfill
         # window failing is a backfill problem, not a production-
         # health problem.
-        PRODUCTION_TRIGGERS = {"schedule", "webhook", "replay", "api", "pipeline"}
-
         cats: dict[str, int] = {
             "success": 0, "failed": 0, "running": 0,
             "queued": 0, "cancelled": 0, "skipped": 0, "unknown": 0,
@@ -340,9 +402,7 @@ class ExecutionStore:
         for e in recent:
             normalized = normalize_status(e.get("status"))
             cats[normalized] += 1
-            trig = (e.get("triggered_by") or "").lower()
-            # Replay rows look like "replay:<exec_id_prefix>" — match by prefix.
-            if trig in PRODUCTION_TRIGGERS or trig.startswith("replay"):
+            if is_production_trigger(e.get("triggered_by")):
                 sched_cats[normalized] += 1
 
         total = len(recent)
