@@ -49,7 +49,13 @@ interface Props {
   workflowId: string | null;
   workflowName: string;
   onClose: () => void;
-  onPublished?: () => void;
+  onPublished?: (result?: { published_version?: number }) => void;
+}
+
+/** Said after a publish. The copy to Git happens in the background. */
+function publishedMessage(workflowName: string, result: any): string {
+  const live = `"${workflowName}" is now live`;
+  return result?.git?.status === 'queued' ? `${live}. A copy is being saved to Git.` : live;
 }
 
 export default function PublishTestModal({ open, workflowId, workflowName, onClose, onPublished }: Props) {
@@ -64,6 +70,8 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
   const [bizPurpose, setBizPurpose] = useState('');
   const [readme, setReadme] = useState('');
   const [tagsText, setTagsText] = useState('');
+  // Why this is going live. Kept with the version, and in the Git commit.
+  const [note, setNote] = useState('');
 
   const runTest = useCallback(async () => {
     if (!workflowId) return;
@@ -88,6 +96,7 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
       setPhase('testing');
       setResult(null);
       setErrorMsg('');
+      setNote('');
     }
   }, [open, workflowId, runTest]);
 
@@ -111,10 +120,10 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
     if (!workflowId) return;
     setPhase('publishing');
     try {
-      await api.publishWorkflow(workflowId);
+      const published = await api.publishWorkflow(workflowId, note.trim());
       setPhase('published');
-      toast.success('Pipeline published', `"${workflowName}" is now live`);
-      if (onPublished) onPublished();
+      toast.success('Pipeline published', publishedMessage(workflowName, published));
+      if (onPublished) onPublished(published);
       // Close after a beat so the user sees the success state.
       setTimeout(onClose, 800);
     } catch (e: any) {
@@ -150,10 +159,10 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
         readme,
         tags: tagsText.split(',').map((t) => t.trim()).filter(Boolean),
       });
-      await api.publishWorkflow(workflowId);
+      const published = await api.publishWorkflow(workflowId, note.trim());
       setPhase('published');
-      toast.success('Pipeline published', `"${workflowName}" is now live`);
-      if (onPublished) onPublished();
+      toast.success('Pipeline published', publishedMessage(workflowName, published));
+      if (onPublished) onPublished(published);
       setTimeout(onClose, 800);
     } catch (e: any) {
       setPhase('documenting');
@@ -169,7 +178,8 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
       try {
         // Lazy import to avoid a circular dep through the store.
         import('../stores/workflowStore').then(({ useWorkflowStore }) => {
-          useWorkflowStore.getState().loadWorkflow(wf);
+          // Its own tab: if it is open already, that tab comes forward.
+          useWorkflowStore.getState().openInEditor(wf);
           navigateTo('editor');
           onClose();
         });
@@ -315,6 +325,23 @@ export default function PublishTestModal({ open, workflowId, workflowName, onClo
                   />
                 </div>
                 {errorMsg && <div className="text-xs text-red-600">{errorMsg}</div>}
+              </div>
+            )}
+
+            {/* Why it is going live: kept with the version and in the Git commit. */}
+            {(phase === 'success' || phase === 'documenting') && (
+              <div>
+                <label htmlFor="publish-note" className="block text-xs font-semibold text-slate-600 mb-1">
+                  What changed and why <span className="text-slate-500 font-normal">(optional)</span>
+                </label>
+                <input
+                  id="publish-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={500}
+                  placeholder="e.g. Finance asked for refunds to be left out"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300 outline-none"
+                />
               </div>
             )}
 

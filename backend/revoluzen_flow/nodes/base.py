@@ -23,7 +23,11 @@ class BaseNode(ABC):
     description: str = ""
 
     def __init__(self, params: dict[str, Any]):
-        self.params = params
+        # A secret typed into the step is stored encrypted, and this is where
+        # it is read back: every run path builds its node here. The node gets
+        # its own copy, so the pipeline and its run record stay encrypted.
+        from revoluzen_flow.ir.step_secrets import open_step_params
+        self.params = open_step_params(params)
 
     @abstractmethod
     def execute(self, ctx: "ExecutionContext") -> duckdb.DuckDBPyRelation:

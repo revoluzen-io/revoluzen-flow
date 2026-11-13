@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { api } from '../api/client';
 import { toast } from './Toast';
@@ -409,6 +409,21 @@ export default function ChatPanel() {
   // pipeline-design reasoning. See AgentChatPanel for the same UI.
   const [deepMode, setDeepMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // The message box grows with what is typed, up to about half the panel's
+  // height, and scrolls beyond that, so a long request stays readable while
+  // it is written. Measured again when the panel opens, since the box is
+  // drawn anew then.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const box = composerRef.current;
+    if (!box) return;
+    box.style.height = 'auto';
+    const panel = box.closest<HTMLElement>('[data-revoluzen-flow-panel="chat"]');
+    const cap = Math.max(140, Math.round((panel?.clientHeight || window.innerHeight) * 0.45));
+    const wanted = box.scrollHeight + (box.offsetHeight - box.clientHeight);
+    box.style.height = `${Math.min(wanted, cap)}px`;
+    box.style.overflowY = wanted > cap ? 'auto' : 'hidden';
+  }, [input, chatOpen]);
 
   // Panel width + drag-to-resize. The chat is the RIGHT-hand panel, so its
   // handle is on its LEFT edge: dragging it LEFT grows the panel and RIGHT
@@ -580,7 +595,9 @@ export default function ChatPanel() {
   /** Build the pipeline from graph */
   const handleBuildPipeline = useCallback(() => {
     const wf = graphToWorkflow(guided.pNodes, guided.pEdges);
-    loadWorkflow({ workflow: { id: null, ...wf }, version: 1 });
+    // The built pipeline opens in a tab of its own (or the empty tab on
+    // screen), so a pipeline being edited is not replaced.
+    if (!useWorkflowStore.getState().openInEditor({ workflow: { id: null, ...wf }, version: 1 })) return;
     const sources = guided.pNodes.filter(n => n.category === 'source').map(s => s.label).join(', ');
     const outputs = guided.pNodes.filter(n => n.category === 'output').map(o => o.label).join(', ');
     const store = useWorkflowStore.getState();
@@ -600,9 +617,16 @@ export default function ChatPanel() {
 
   // ── Standard hooks ──
 
+  // A conversation follows its newest message, at the bottom. The start
+  // screen (no messages yet) reads from the top instead, so Quick Start and
+  // "How can I help?" are never scrolled half out of view.
+  const atStart = chatMessages.length === 0 && !guided.active;
+  const emptyCanvas = nodes.length === 0;
   useEffect(() => {
-    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
-  }, [chatMessages, guided, guidedChat]);
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo(0, atStart ? 0 : el.scrollHeight);
+  }, [chatMessages, guided, guidedChat, atStart, emptyCanvas]);
 
   useEffect(() => {
     api.aiStatus().then((r) => setAiAvailable(r.ai_available)).catch(() => setAiAvailable(false));
@@ -1092,51 +1116,51 @@ export default function ChatPanel() {
         </div>
       </div>
 
-      {/* Templates + Guided Builder button (when canvas empty) */}
-      {showTemplates && (
-        <div className="p-3 border-b border-slate-100 shrink-0" style={{ background: dark ? '#0f1726' : 'linear-gradient(180deg, #fafbff, white)' }}>
-          <div className="text-sm uppercase tracking-wider text-slate-600 mb-2.5 font-bold flex items-center gap-1.5">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
-            Quick Start
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {TEMPLATES.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => useTemplate(t.key)}
-                className="text-left p-2.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group bg-white"
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-base">{t.icon}</span>
-                  <span className="text-[12px] font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">{t.label}</span>
-                </div>
-                <div className="text-sm text-slate-600 leading-snug">{t.desc}</div>
-              </button>
-            ))}
-          </div>
-          {/* Guided Builder CTA */}
-          <button
-            onClick={startGuidedMode}
-            className="mt-2.5 w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group"
-          >
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #818cf8, #6366f1)' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-              </svg>
-            </div>
-            <div className="text-left">
-              <div className="text-[12px] font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">Guided Builder</div>
-              <div className="text-sm text-slate-600 leading-snug">Step-by-step wizard &mdash; pick source, transforms, output</div>
-            </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2.5" className="shrink-0 ml-auto group-hover:stroke-indigo-600 transition-colors">
-              <path d="M5 12h14m-7-7 7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      )}
-
-      {/* Messages area */}
+      {/* Messages area. On an empty canvas it opens with Quick Start
+          (templates and the Guided Builder), which scrolls with the rest, so
+          a short window never pushes the message box out of view. */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
+        {showTemplates && (
+          <div className="-mx-3 -mt-3 p-3 border-b border-slate-100" style={{ background: dark ? '#0f1726' : 'linear-gradient(180deg, #fafbff, white)' }}>
+            <div className="text-sm uppercase tracking-wider text-slate-600 mb-2.5 font-bold flex items-center gap-1.5">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>
+              Quick Start
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {TEMPLATES.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => useTemplate(t.key)}
+                  className="text-left p-2.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:shadow-md transition-all group bg-white"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-base">{t.icon}</span>
+                    <span className="text-[12px] font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">{t.label}</span>
+                  </div>
+                  <div className="text-sm text-slate-600 leading-snug">{t.desc}</div>
+                </button>
+              ))}
+            </div>
+            {/* Guided Builder CTA */}
+            <button
+              onClick={startGuidedMode}
+              className="mt-2.5 w-full flex items-center gap-3 p-3 rounded-xl border-2 border-dashed border-indigo-200 hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group"
+            >
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-sm" style={{ background: 'linear-gradient(135deg, #818cf8, #6366f1)' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+                </svg>
+              </div>
+              <div className="text-left">
+                <div className="text-[12px] font-bold text-slate-800 group-hover:text-indigo-700 transition-colors">Guided Builder</div>
+                <div className="text-sm text-slate-600 leading-snug">Step-by-step wizard &mdash; pick source, transforms, output</div>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2.5" className="shrink-0 ml-auto group-hover:stroke-indigo-600 transition-colors">
+                <path d="M5 12h14m-7-7 7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+        )}
         {/* Empty-state — concrete clickable prompts instead of marketing copy.
             Each one is a one-tap shortcut to a real assistant capability so the
             user discovers what the panel actually does without reading docs.
@@ -1450,32 +1474,64 @@ export default function ChatPanel() {
 
       {/* Input area */}
       <div className="p-3 border-t border-slate-200/60 shrink-0" style={{ background: dark ? '#0f1726' : 'linear-gradient(180deg, white, #fafbff)' }}>
-        <div className="flex gap-2 items-end">
-          <div className="flex-1 relative">
-            <textarea
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                if (e.target.value === '/') setShowHelperMenu(true);
-                else if (!e.target.value.startsWith('/')) setShowHelperMenu(false);
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={guided.active ? 'Type or use the buttons above...' : 'Describe your pipeline...'}
-              rows={2}
-              className="w-full text-sm text-slate-700 bg-white border border-slate-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-300 placeholder:text-slate-500 shadow-sm"
-            />
+        {/* One box holds the message and its tools, so the text gets the
+            panel's full width; the box grows with it (composerRef above). */}
+        <div className="rounded-xl border border-slate-300 bg-white shadow-sm transition-colors focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-200">
+          <textarea
+            ref={composerRef}
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (e.target.value === '/') setShowHelperMenu(true);
+              else if (!e.target.value.startsWith('/')) setShowHelperMenu(false);
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={guided.active ? 'Type or use the buttons above...' : 'Describe your pipeline...'}
+            aria-label="Message the Assistant"
+            rows={3}
+            className="block w-full text-sm leading-5 text-slate-700 bg-transparent px-3 pt-2.5 pb-1 resize-none focus:outline-none focus-visible:!outline-none placeholder:text-slate-500"
+          />
+          <div className="flex items-center gap-2 pl-3 pr-1.5 pb-1.5">
+            {/* Deep-mode toggle (2026-05-22). Off by default; opt in for
+                hard reasoning questions about pipelines. Slower per turn
+                (cloud ~30-60 s, local Ollama 2-5 min) but skips fast-lane
+                shortcuts and widens the context budget. */}
+            <label
+              className="flex items-center gap-1 text-xs text-slate-600 cursor-pointer select-none"
+              title={
+                deepMode
+                  ? 'Deep mode is ON — slower per turn but reasons over the full pipeline context.'
+                  : 'Turn on deep mode for hard reasoning questions. Slower per turn.'
+              }
+            >
+              <input
+                type="checkbox"
+                checked={deepMode}
+                onChange={(e) => setDeepMode(e.target.checked)}
+                className="accent-indigo-500"
+              />
+              Deep
+              {deepMode && (
+                <span className="ml-0.5 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 border border-amber-200">
+                  Slow
+                </span>
+              )}
+            </label>
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={!input.trim() || sending}
+              aria-label="Send"
+              title="Send (Enter)"
+              className="ml-auto w-8 h-8 rounded-lg text-white flex items-center justify-center disabled:opacity-30 transition-all shadow-sm hover:shadow-md shrink-0"
+              style={{ background: input.trim() && !sending ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : '#cbd5e1' }}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
           </div>
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || sending}
-            className="w-9 h-9 rounded-xl text-white flex items-center justify-center disabled:opacity-30 transition-all shadow-sm hover:shadow-md shrink-0"
-            style={{ background: input.trim() && !sending ? 'linear-gradient(135deg, #6366f1, #4f46e5)' : '#cbd5e1' }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13" />
-              <polygon points="22 2 15 22 11 13 2 9 22 2" />
-            </svg>
-          </button>
         </div>
         <div className="flex items-center gap-1.5 mt-2 px-1 flex-wrap">
           <kbd className="text-[12px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono border border-slate-300 font-semibold">Enter</kbd>
@@ -1483,32 +1539,6 @@ export default function ChatPanel() {
           <span className="text-sm text-slate-500 mx-1">&middot;</span>
           <kbd className="text-[12px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded font-mono border border-slate-300 font-semibold">Shift+Enter</kbd>
           <span className="text-sm text-slate-600">new line</span>
-          <span className="ml-auto" />
-          {/* Deep-mode toggle (2026-05-22). Off by default; opt in for
-              hard reasoning questions about pipelines. Slower per turn
-              (cloud ~30-60 s, local Ollama 2-5 min) but skips fast-lane
-              shortcuts and widens the context budget. */}
-          <label
-            className="flex items-center gap-1 text-xs text-slate-600 cursor-pointer select-none ml-1"
-            title={
-              deepMode
-                ? 'Deep mode is ON — slower per turn but reasons over the full pipeline context.'
-                : 'Turn on deep mode for hard reasoning questions. Slower per turn.'
-            }
-          >
-            <input
-              type="checkbox"
-              checked={deepMode}
-              onChange={(e) => setDeepMode(e.target.checked)}
-              className="accent-indigo-500"
-            />
-            Deep
-            {deepMode && (
-              <span className="ml-0.5 px-1 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-amber-100 text-amber-800 border border-amber-200">
-                Slow
-              </span>
-            )}
-          </label>
         </div>
       </div>
     </div>

@@ -69,17 +69,9 @@ const NAV_ITEMS: NavItem[] = [
       </svg>
     ),
   },
-  // ── Author (DEV: Projects → Workflows → Editor) ──
-  {
-    page: 'projects',
-    label: 'Projects',
-    devOnly: true,
-    icon: (
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-      </svg>
-    ),
-  },
+  // Projects has no top-bar entry since 2026-11-10: projects and their
+  // folders are the panel on the Pipelines page (Workflows), so one screen
+  // holds a project's folders and its pipelines. `#projects` redirects there.
   // ── Workflows group: Pipelines / Editor / Executions ──
   // Hover-dropdown grouping introduced May 9 2026. The parent's `page`
   // field is the default landing page when the user clicks the parent

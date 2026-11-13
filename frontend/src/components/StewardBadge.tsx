@@ -109,6 +109,7 @@ const KIND_LABEL: Record<string, string> = {
   // Architecture (Archeologist - 1.1)
   duplicate_source:        'Duplicate source',
   duplicate_pipeline:      'Duplicate pipeline',
+  repeated_logic:          'Repeated logic',
   redundant_transfer:      'Redundant transfer',
   lineage_cascade:         'Lineage cascade',
   // Connector (Connector-health - 1.1.x)

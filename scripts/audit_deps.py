@@ -95,7 +95,6 @@ IMPORT_TO_DIST = {
     "redis": "redis",
     "requests": "requests",
     "teradatasql": "teradatasql",
-    "zeep": "zeep",
     "cassandra": "cassandra-driver",
     "numpy": "numpy",
     "anyio": "anyio",

@@ -301,7 +301,7 @@ export function dqRuleIssues(rules: unknown): DqRuleIssue[] {
  * Keys that start with an underscore belong to the editor and the engine.
  */
 export const DQ_RULE_KEYS: readonly string[] = ['column', 'op', 'value'];
-export const DQ_PARAM_KEYS: readonly string[] = ['rules', 'mode', 'quality_threshold', 'include_score', 'include_profile'];
+export const DQ_PARAM_KEYS: readonly string[] = ['rules', 'rule_sets', 'mode', 'quality_threshold', 'include_score', 'include_profile'];
 
 const unreadKeys = (target: unknown, read: readonly string[]): string[] =>
   target && typeof target === 'object' && !Array.isArray(target)
@@ -363,7 +363,7 @@ export function ignoredParamIssues(params: unknown): Array<DqRuleIssue & { field
       : {
           level: 'warning' as const,
           field: key,
-          message: `"${key}" is not read by this step, which reads rules, mode, quality_threshold, include_score and include_profile.`,
+          message: `"${key}" is not read by this step, which reads rules, rule_sets, mode, quality_threshold, include_score and include_profile.`,
         },
   );
 }

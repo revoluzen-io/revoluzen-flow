@@ -23,6 +23,7 @@ import PageHeader from '../shared/PageHeader';
 import StatusPill from '../shared/StatusPill';
 import { usePageContext } from '../../hooks/usePageContext';
 import { toast } from '../Toast';
+import { uiConfirm } from '../../ui/dialog';
 import { triggerLabel } from '../../utils/triggerLabel';
 
 /* 2026-06-03 — copy-to-clipboard helper for the read-only env-var
@@ -261,6 +262,26 @@ export default function ExecutionPoolPage({
     } catch { /* ignore */ }
     setLoading(false);
   }, []);
+
+  // Stop a running run, or one waiting for a worker. A job's id is its run
+  // id, and the run is recorded as stopped with who stopped it.
+  const stopRun = async (jobId: string, name: string) => {
+    if (!jobId) return;
+    const ok = await uiConfirm({
+      title: `Stop ${name || 'this run'}?`,
+      message: 'A step running a query stops at once; a step waiting on another system stops when that call returns. Data already written stays written.',
+      confirmLabel: 'Stop run',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.cancelPoolJob(jobId);
+      toast.info('Stopping…', 'The run will show as stopped in a moment.');
+    } catch (err: any) {
+      toast.error('Stop failed', err?.message || 'Could not stop the run.');
+    }
+    refresh();
+  };
 
   const refreshAllocation = useCallback(async () => {
     if (isFree) return;  // Free has no PROD/DEV split to manage.
@@ -796,7 +817,7 @@ export default function ExecutionPoolPage({
                 label="Total"
                 value={String(counters.total_completed || 0)}
                 valueSuffix="completed"
-                footer={`${counters.total_errors || 0} errors · ${counters.success_rate || 0}% success`}
+                footer={`${counters.total_errors || 0} errors${counters.total_cancelled ? ` · ${counters.total_cancelled} stopped` : ''} · ${counters.success_rate || 0}% success`}
               />
             </div>
           </section>
@@ -992,6 +1013,16 @@ export default function ExecutionPoolPage({
                                   ) : null;
                                 })()}
                               </div>
+                              {w.current_job_id && (
+                                <button
+                                  type="button"
+                                  onClick={() => stopRun(w.current_job_id, w.current_workflow_name)}
+                                  className="mt-1.5 text-[11px] font-semibold text-red-600 hover:text-red-800"
+                                  title="Stop this run"
+                                >
+                                  Stop
+                                </button>
+                              )}
                             </>
                           ) : (
                             <div className="text-xs text-slate-500 mt-1">Idle</div>
@@ -1053,6 +1084,14 @@ export default function ExecutionPoolPage({
                       <span className="ml-auto tabular-nums text-amber-800 font-semibold shrink-0">
                         {formatDuration(w.waiting_ms || 0)}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => stopRun(w.job_id, w.workflow_name)}
+                        className="text-red-600 hover:text-red-800 font-semibold shrink-0"
+                        title="Take this run out of the queue without starting it"
+                      >
+                        Stop
+                      </button>
                     </li>
                   ))}
                 </ul>

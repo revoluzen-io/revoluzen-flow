@@ -112,7 +112,7 @@ const TYPE_META: Record<string, { label: string; color: string; bg: string; icon
     ),
   },
   pipeline_revoked: {
-    label: 'Revoked',
+    label: 'Unpublished',
     color: 'text-amber-700',
     bg: 'bg-amber-100',
     icon: (

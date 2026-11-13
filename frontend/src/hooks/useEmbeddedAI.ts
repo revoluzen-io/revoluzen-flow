@@ -167,8 +167,8 @@ export function useEmbeddedAI() {
         window: { params: { function: 'ROW_NUMBER' }, explanation: 'ROW_NUMBER window function', fields_filled: ['function'] },
         gdrive_source: { params: { format: 'auto' }, explanation: 'Auto-detect format from Google Drive', fields_filled: ['format'] },
         gdrive_sink: { params: { format: 'csv' }, explanation: 'Write CSV to Google Drive', fields_filled: ['format'] },
-        kafka_source: { params: { format: 'json', auto_offset_reset: 'earliest' }, explanation: 'Read JSON from Kafka, start from earliest', fields_filled: ['format', 'auto_offset_reset'] },
-        kafka_sink: { params: { format: 'json' }, explanation: 'Write JSON to Kafka', fields_filled: ['format'] },
+        kafka_source: { params: { start_from: 'oldest' }, explanation: 'First run starts at the oldest message Kafka keeps', fields_filled: ['start_from'] },
+        kafka_sink: { params: { compression: 'none' }, explanation: 'Send each row as one uncompressed JSON message', fields_filled: ['compression'] },
         ftp_source: { params: { format: 'csv', path: '/' }, explanation: 'Read CSV from FTP root', fields_filled: ['format', 'path'] },
         ftp_sink: { params: { format: 'csv', path: '/output/' }, explanation: 'Write CSV to FTP', fields_filled: ['format', 'path'] },
       };

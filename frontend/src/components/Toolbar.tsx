@@ -2,7 +2,7 @@
 import { useWorkflowStore } from '../stores/workflowStore';
 import { api } from '../api/client';
 import { toast } from './Toast';
-import { navigateTo } from '../router';
+import { navigateTo, navigateToSubRoute } from '../router';
 import SaveDialog from './SaveDialog';
 import SaveAsTemplateDialog from './SaveAsTemplateDialog';
 import UnsavedChangesModal from './UnsavedChangesModal';
@@ -26,11 +26,11 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
   const {
     workflowName, version, isRunning, runWorkflow,
     chatOpen, setChatOpen,
-    nodes, edges, workflowId, ensureWorkflow, loadWorkflow,
+    nodes, edges, workflowId, ensureWorkflow, openTabs,
     setValidationErrors: setStoreValidationErrors,
     isDirty,
     parameters: pipelineParameters,
-    status, setStatus,
+    status, hasUnpublishedChanges, markPublished,
     editorSurface,
   } = useWorkflowStore();
   const isFileDataPrep = editorSurface === 'file_data_prep';
@@ -43,7 +43,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         closeTarget: 'storage' as const,
         saveLabel: 'Save Draft Recipe',
         runLabel: 'Load to Managed Table',
-        runTitle: 'Run the prep recipe and write the managed table',
+        runTitle: 'Save these steps as the table\'s preparation, then run them and write the managed table',
         savedToast: 'Data prep recipe saved',
       }
     : isPipelineDataPrep
@@ -353,7 +353,9 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         // CRITICAL — discard the file's `id` so the canvas is treated
         // as a fresh unsaved workflow and Run routes through the
         // ephemeral executor (see audit notes in workflowStore.ts).
-        loadWorkflow({
+        // An imported pipeline opens in a tab of its own (or the empty tab on
+        // screen), never over a pipeline being edited.
+        const opened = useWorkflowStore.getState().openInEditor({
           workflow: {
             id: null,
             name,
@@ -364,6 +366,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
           },
           version: 1,
         });
+        if (!opened) return;
         useWorkflowStore.getState().setDirty(true);
         const importedSurface = useWorkflowStore.getState().editorSurface;
         const importedIsFilePrep = importedSurface === 'file_data_prep';
@@ -439,6 +442,31 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     toast.error('Validation failed', `${errors.length} ${errors.length === 1 ? 'issue' : 'issues'} found — check highlighted nodes`);
   };
 
+  // "Load to Managed Table" saves the preparation first, so the table has a
+  // pipeline behind it to open and change, and the load is recorded against
+  // a version. A published preparation, an older version put back by Restore
+  // or a past run on the canvas waits for an explicit Save, as everywhere
+  // else; the load then uses the canvas as it is. False means do not load.
+  const savingPreparation = useRef(false);
+  const savePreparationBeforeLoad = async (): Promise<boolean> => {
+    if (savingPreparation.current) return false;
+    savingPreparation.current = true;
+    try {
+      const st = useWorkflowStore.getState();
+      const isNew = !st.workflowId;
+      const id = await st.ensureWorkflow({
+        allowCreate: isNew || (st.status !== 'published' && st.restoredFrom == null && !st.pastRunId),
+      });
+      // Null on a new one: the name prompt was cancelled, so nothing is saved.
+      return !isNew || !!id;
+    } catch (err) {
+      toast.error('The table was not loaded', `Its preparation could not be saved: ${(err as Error)?.message || 'please try again'}`);
+      return false;
+    } finally {
+      savingPreparation.current = false;
+    }
+  };
+
   /** Run the pipeline after validation has passed. Shared by the direct
    *  Run path (no declared parameters) and the Run-with-parameters dialog.
    *  `issues` are warnings-only at this point (errors already blocked). */
@@ -447,6 +475,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     if (issues.length > 0) {
       toast.warning('Warnings', `${issues.length} warning${issues.length > 1 ? 's' : ''} found, running anyway.`);
     }
+    if (isFileDataPrep && !(await savePreparationBeforeLoad())) return;
     await runWorkflow(true, parameterValues);
     if (isFileDataPrep) {
       const latest = useWorkflowStore.getState();
@@ -454,8 +483,10 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
       const hasError = results.some((r: any) => r?.status === 'error');
       const allCanvasNodesSucceeded = latest.nodes.length > 0 && latest.nodes.every((n) => n.data?.status === 'success');
       if (!hasError && allCanvasNodesSucceeded) {
-        try { localStorage.setItem('revoluzen_flow_storage_tab', 'tables'); } catch { /* ignore */ }
-        navigateTo('storage');
+        if (latest.workflowId) {
+          toast.success('Table loaded', `Its preparation is saved as "${latest.workflowName}". Open it from the table to change it.`);
+        }
+        navigateToSubRoute('storage', 'tables');
       }
     }
   };
@@ -528,7 +559,11 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
     setStoreValidationErrors({});
     try {
       const ok = await ensureNamedAndPersist();
-      if (ok) toast.success(surfaceCopy.savedToast);
+      if (ok && useWorkflowStore.getState().hasUnpublishedChanges) {
+        toast.success('Saved as a draft', 'The published version keeps running until you publish this.');
+      } else if (ok) {
+        toast.success(surfaceCopy.savedToast);
+      }
     } catch {
       toast.error('Save failed', 'Could not save pipeline to server');
     }
@@ -547,6 +582,19 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
    * updates the page state — no router library needed.
    */
   const navigateToWorkflows = () => navigateTo(surfaceCopy.closeTarget);
+
+  // Close the pipeline on screen: its tab closes and the next open one comes
+  // forward. With none left, or for a data prep (which belongs to Storage or
+  // Connections), the editor hands back to where it came from.
+  const closeOnScreenPipeline = () => {
+    const st = useWorkflowStore.getState();
+    if (st.activeTabKey) st.closeTab(st.activeTabKey);
+    else st.resetWorkflow();
+    if (surfaceCopy.closeTarget !== 'pipelines' || useWorkflowStore.getState().openTabs.length === 0) {
+      navigateToWorkflows();
+    }
+  };
+  const otherOpenTabs = Math.max(0, openTabs.length - 1);
 
   // Always raise a confirmation popup on Close — whether or not the
   // workflow is dirty. When clean the modal collapses to a simple
@@ -574,10 +622,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
       }
       toast.success(surfaceCopy.savedToast);
       setShowUnsavedModal(false);
-      // Wipe per-pipeline state so re-entering the editor lands on a
-      // blank canvas instead of re-rendering the just-closed pipeline.
-      useWorkflowStore.getState().resetWorkflow();
-      navigateToWorkflows();
+      closeOnScreenPipeline();
     } catch {
       toast.error('Save failed', 'Could not save pipeline. Stay here and try again, or discard to leave without saving.');
     } finally {
@@ -587,13 +632,11 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
 
   const handleModalDiscard = () => {
     // User accepted losing edits — clear dirty flag so the
-    // beforeunload guard (added in App.tsx) doesn't fire again,
-    // AND reset the per-pipeline state so re-entering the editor
-    // starts fresh.
+    // beforeunload guard doesn't fire again, then close the pipeline's
+    // tab (its state goes with it).
     useWorkflowStore.getState().setDirty(false);
-    useWorkflowStore.getState().resetWorkflow();
     setShowUnsavedModal(false);
-    navigateToWorkflows();
+    closeOnScreenPipeline();
   };
 
   // Keyboard: Ctrl+W / Cmd+W → close, Ctrl+S / Cmd+S → quick save.
@@ -954,14 +997,14 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
             if (!workflowId) return;
             try {
               await api.cancelExecution(workflowId);
-              toast.info('Cancelling…', 'Stop signal sent. Running steps will finish current operation, then halt.');
+              toast.info('Stopping…', 'A query stops at once; a step waiting on another system stops when that call returns.');
             } catch (e: any) {
-              toast.error('Cancel failed', e?.message || 'Could not send stop signal.');
+              toast.error('Stop failed', e?.message || 'Could not stop the run.');
             }
           }}
           className="px-4 py-2 text-white text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 shadow-sm"
           style={{ background: 'linear-gradient(135deg, #dc2626, #991b1b)' }}
-          title="Stop the running pipeline (cancels execution)"
+          title="Stop this pipeline's run. It is recorded as stopped, with your name."
         >
           <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
             <rect x="6" y="6" width="12" height="12" rx="1" />
@@ -1063,7 +1106,9 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         // reads as the lifecycle action, without a second filled button
         // on the row. Run is now the only filled control in the editor.
         className="px-3 min-[1920px]:px-4 py-2 text-sm font-semibold rounded-lg transition-colors flex items-center gap-1.5 bg-white text-amber-700 border border-amber-300 hover:bg-amber-50 hover:border-amber-400 shadow-sm disabled:opacity-50"
-        title="Validate, test on a sample, and publish"
+        title={status === 'published' && (hasUnpublishedChanges || isDirty)
+          ? 'Validate, test on a sample, and put these changes live'
+          : 'Validate, test on a sample, and publish'}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M22 2L11 13" />
@@ -1074,7 +1119,9 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
             its label at every width, so it was the one that could not
             fit and wrapped onto a second line on its own — the row was
             about 60px too wide and this word is 60px. */}
-        <span className="hidden min-[1440px]:inline">Publish</span>
+        <span className="hidden min-[1440px]:inline">
+          {status === 'published' && (hasUnpublishedChanges || isDirty) ? 'Publish changes' : 'Publish'}
+        </span>
       </button>
       )}
 
@@ -1166,7 +1213,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         workflowId={publishTestId}
         workflowName={useWorkflowStore.getState().workflowName}
         onClose={() => setPublishTestId(null)}
-        onPublished={() => setStatus('published')}
+        onPublished={(result) => markPublished(result?.published_version)}
       />
       <SaveAsTemplateDialog
         open={saveTplState.open}
@@ -1210,7 +1257,7 @@ export default function Toolbar({ tier = 'free', environment = 'dev' }: { tier?:
         saving={savingForClose}
         workflowName={workflowName}
         itemLabel={isFileDataPrep ? 'data prep recipe' : 'pipeline'}
-        returnLabel={isFileDataPrep ? 'Storage' : isPipelineDataPrep ? 'Connections' : 'the Workflows list'}
+        returnLabel={isFileDataPrep ? 'Storage' : isPipelineDataPrep ? 'Connections' : otherOpenTabs > 0 ? 'your other open pipelines' : 'the Workflows list'}
         saveActionLabel={isFileDataPrep ? 'Save Draft Recipe & Close' : 'Save & Close'}
         closeActionLabel={surfaceCopy.closeLabel}
         onSaveAndClose={handleModalSaveAndClose}

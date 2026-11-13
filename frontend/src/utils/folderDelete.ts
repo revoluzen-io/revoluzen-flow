@@ -1,5 +1,5 @@
 /**
- * Deleting a folder, as the Projects page does it.
+ * Deleting a folder, as the project panel on the Pipelines page does it.
  *
  * The server will not guess what to do with the pipelines inside a folder:
  * `DELETE /folders/{id}` on a folder that holds pipelines answers 409 unless it is
@@ -47,7 +47,7 @@ function nameList(names: string[], max = 3): string {
 /**
  * Shown instead of the confirm when published pipelines are in the folder. The
  * Pipelines page offers Delete only for a draft, failed or archived pipeline (a
- * published one has to be revoked first), and the server refuses a folder delete
+ * published one has to be unpublished first), and the server refuses a folder delete
  * with `force` on the same grounds, so the screen says so up front.
  */
 export function folderPublishedNotice(name: string, published: string[]): { title: string; message: string } {
@@ -56,7 +56,7 @@ export function folderPublishedNotice(name: string, published: string[]): { titl
     title: `Folder "${name}" has published pipelines`,
     message:
       `${nameList(published)} ${one ? 'is' : 'are'} published, and a published pipeline cannot be deleted. ` +
-      `Revoke ${one ? 'it' : 'them'} first on the Pipelines page (row ⋯ menu → Revoke), or move ${one ? 'it' : 'them'} ` +
+      `Unpublish ${one ? 'it' : 'them'} first on the Pipelines page (row ⋯ menu → Unpublish), or move ${one ? 'it' : 'them'} ` +
       'out of the folder, then delete the folder.',
   };
 }

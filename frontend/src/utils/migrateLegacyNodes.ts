@@ -43,12 +43,13 @@ interface DeprecationEntry {
   injected_params?: Record<string, any>;
 }
 
-// Mirror of backend DEPRECATED_STEP_TYPES.
+// Mirror of backend DEPRECATED_STEP_TYPES and RETIRED_STEP_TYPES (the types
+// that have left the StepType enum but may still be in an old file).
 export const DEPRECATED_STEP_TYPES: Record<string, DeprecationEntry> = {
   webhook_trigger: {
     reason:
-      "Inbound webhook receiver infrastructure isn't in v1.0. " +
-      'Pull-style integration via api_source is the canonical path.',
+      'Retired: a pipeline is started by another system through a published ' +
+      'endpoint (Triggers page), which can require signed calls.',
     replaced_by: 'api_source',
   },
   webhook_sink: {

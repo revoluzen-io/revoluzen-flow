@@ -129,8 +129,24 @@ def _disambiguate_message(kind: str, items: list[dict[str, Any]], intent_name: s
 # ─────────────────────────────────────────────────────────────────────
 
 
+def _role_refusal(ctx: ToolContext, action: str) -> str | None:
+    """The reply when this action's Copilot role is switched off in the
+    workspace (ai/roles.py). Checked here, in the handlers, because every
+    chat path (fast router, slot fill, verb dispatch, action cards) ends in
+    one of them."""
+    try:
+        from revoluzen_flow.ai.roles import refusal
+        return refusal(action, ctx.workspace_id or ctx.tenant_id or "default")
+    except Exception:  # noqa: BLE001
+        logger.warning("Copilot role check skipped for %s", action, exc_info=True)
+        return None
+
+
 async def direct_test_connection(prompt: str, ctx: ToolContext) -> str:
     """Test a saved connection by ID, in-process. No LLM, no HTTP re-entry."""
+    refused = _role_refusal(ctx, "test_connection")
+    if refused:
+        return refused
     target = resolve_target(ctx, "connection", prompt)
     if target is None:
         items = [it for it in ctx.visible_items if (it.get("kind") or "") == "connection"]
@@ -201,6 +217,9 @@ async def direct_run_pipeline(prompt: str, ctx: ToolContext) -> str:
     user clicks Confirm, which calls the existing
     ``POST /api/execution/workflow/{id}`` endpoint.
     """
+    refused = _role_refusal(ctx, "run_pipeline")
+    if refused:
+        return refused
     target = resolve_target(ctx, "pipeline", prompt)
     if target is None:
         items = [it for it in ctx.visible_items if (it.get("kind") or "") == "pipeline"]
@@ -265,6 +284,9 @@ async def direct_run_pipeline(prompt: str, ctx: ToolContext) -> str:
 async def direct_cancel_execution(prompt: str, ctx: ToolContext) -> str:
     """Build a confirmation preview for cancelling a running execution.
     Cancellation is reversible only by re-running, so we never auto-fire."""
+    refused = _role_refusal(ctx, "cancel_run")
+    if refused:
+        return refused
     target = resolve_target(ctx, "execution", prompt)
     if target is None:
         items = [it for it in ctx.visible_items if (it.get("kind") or "") == "execution"]
@@ -283,21 +305,24 @@ async def direct_cancel_execution(prompt: str, ctx: ToolContext) -> str:
     from revoluzen_flow.ai.interactive_cards import confirm_card
     options = [
         {
-            "label": "Confirm cancel",
+            "label": "Stop run",
             "style": "danger",
             "action": {
                 "kind": "execute",
-                "endpoint": f"/api/info/cancel/{workflow_id}",
+                # The same Stop as the editor's. This used to post to
+                # /api/info/cancel/..., which does not exist.
+                "endpoint": f"/api/workflows/{workflow_id}/cancel",
                 "method": "POST",
             },
         },
         {"label": "Keep running", "action": {"kind": "ask", "prompt": ""}},
     ]
     return confirm_card(
-        title=f"Cancel run: {name}",
+        title=f"Stop run: {name}",
         summary=(
-            f"Cancel the in-flight run of **{name}**? Steps already started "
-            f"may finish; subsequent steps won't begin. This is irreversible."
+            f"Stop the run of **{name}**? A step running a query stops at once; "
+            f"a step waiting on another system stops when that call returns. "
+            f"Data already written stays written."
         ),
         tier="high_impact_write",
         options=options,

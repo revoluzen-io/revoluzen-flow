@@ -184,7 +184,9 @@ def _compute_folder_delete_impact(folder_id: str, workspace_id: str):
             continue
         if wf_row.get("folder_id") in doomed_folder_ids:
             affected_workflow_ids.append(wf_id)
-            if wf_row.get("status") == PipelineStatus.PUBLISHED.value:
+            # By its live version too: a published pipeline being tested
+            # says "testing" for a moment and is still published.
+            if wf_row.get("status") == PipelineStatus.PUBLISHED.value or wf_row.get("published_version") is not None:
                 published.append({"id": wf_id, "name": wf_row.get("name") or wf_id})
 
     return folder, doomed_folder_ids, affected_workflow_ids, descendants, published
@@ -291,7 +293,7 @@ async def delete_folder(
                 "code": "published_pipelines_in_folder",
                 "message": (
                     f"This folder holds {len(published)} published {plural} ({shown}). "
-                    "A published pipeline cannot be deleted: revoke it first, or "
+                    "A published pipeline cannot be deleted: unpublish it first, or "
                     "use move_to_root=true to keep the pipelines in the project."
                 ),
                 "published_workflow_count": len(published),
@@ -323,6 +325,16 @@ async def delete_folder(
                 # folder); the user can retry.
                 continue
     elif force and affected_workflow_ids:
+        # A published pipeline outside this folder may run one inside it.
+        from revoluzen_flow.ir.published_refs import published_calling_pipeline, refusal
+        for wf_id in affected_workflow_ids:
+            callers = [
+                c for c in published_calling_pipeline(wf_store, workspace_id, wf_id)
+                if c["id"] not in affected_workflow_ids
+            ]
+            if callers:
+                inside = wf_store.get(wf_id, workspace_id=workspace_id)
+                raise HTTPException(409, refusal("The pipeline", inside.workflow.name if inside else wf_id, callers))
         # Into the Bin, like any other delete: "delete them with the folder"
         # stays recoverable until the Bin's retention window ends. The
         # deleted_workflow_count in the response counts them as before.

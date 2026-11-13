@@ -16,10 +16,11 @@ def make_store(tmp_path) -> ExecutionStore:
     return ExecutionStore(db=Database(str(tmp_path / "runs.db")))
 
 
-def add(store, minutes_ago, status="success", workspace="default", project="default"):
+def add(store, minutes_ago, status="success", workspace="default", project="default", duration_ms=0):
     store.record(ExecutionRecord(
         workflow_id="w1", workspace_id=workspace, project_id=project, status=status,
         started_at=datetime.now(timezone.utc) - timedelta(minutes=minutes_ago),
+        duration_ms=duration_ms,
     ))
 
 
@@ -60,6 +61,21 @@ def test_stays_inside_the_workspace_and_project(tmp_path):
     add(store, 5, project="finance")
     assert total(store.run_counts(24, workspace_id="default")) == 2
     assert total(store.run_counts(24, workspace_id="default", project_id="sales")) == 1
+
+
+def test_each_slot_carries_the_time_its_runs_took(tmp_path):
+    # The Dashboard's average duration draws a trend line from these: the
+    # summed duration of the runs that recorded one, and how many did.
+    store = make_store(tmp_path)
+    add(store, 5, duration_ms=1200)
+    add(store, 5, duration_ms=800)
+    add(store, 5)  # recorded no duration: not in the average
+    add(store, 5, status="error", duration_ms=300)
+    rows = store.run_counts(24, workspace_id="default")
+    of = lambda status, key: sum(r[key] for r in rows if r["status"] == status)  # noqa: E731
+    assert of("success", "count") == 3
+    assert of("success", "duration_ms") == 2000.0 and of("success", "timed") == 2
+    assert of("error", "duration_ms") == 300.0 and of("error", "timed") == 1
 
 
 def test_a_slot_is_a_time_a_browser_can_read(tmp_path):

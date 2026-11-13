@@ -7,7 +7,9 @@
  * struct the engine interprets, never code it executes.
  */
 
-export type AssertionSubject = 'status' | 'elapsed_ms' | 'header' | 'json_path' | 'body_text';
+import { resolveXmlPath } from './apiXml';
+
+export type AssertionSubject = 'status' | 'elapsed_ms' | 'header' | 'json_path' | 'xml_path' | 'body_text';
 export type AssertionOperator =
   | 'equals' | 'not_equals' | 'contains' | 'less_than' | 'greater_than'
   | 'exists' | 'not_exists' | 'is_type' | 'length_at_least';
@@ -15,7 +17,7 @@ export type AssertionOperator =
 export interface Assertion {
   id: string;
   subject: AssertionSubject;
-  /** Header name, or a JSON path such as `$[0]["id"]`. Unused for status/elapsed/body. */
+  /** Header name, a JSON path such as `$[0]["id"]`, or an XML path such as `/orders/order[1]/sku`. Unused for status/elapsed/body. */
   target: string;
   operator: AssertionOperator;
   expected: string;
@@ -36,6 +38,8 @@ export interface ResponseUnderTest {
   headers: Record<string, string>;
   data: unknown;
   text: string;
+  /** What the reply is, when the server says: json, xml, csv, html, text, binary or empty. */
+  kind?: string;
 }
 
 export const blankAssertion = (): Assertion => ({
@@ -52,6 +56,7 @@ export const OPERATORS: Record<AssertionSubject, AssertionOperator[]> = {
   elapsed_ms: ['less_than', 'greater_than'],
   header: ['exists', 'not_exists', 'equals', 'not_equals', 'contains'],
   json_path: ['exists', 'not_exists', 'equals', 'not_equals', 'contains', 'is_type', 'length_at_least'],
+  xml_path: ['exists', 'not_exists', 'equals', 'not_equals', 'contains', 'length_at_least'],
   body_text: ['contains', 'not_equals', 'equals'],
 };
 
@@ -60,6 +65,7 @@ export const SUBJECT_LABELS: Record<AssertionSubject, string> = {
   elapsed_ms: 'Response time (ms)',
   header: 'Response header',
   json_path: 'JSON path',
+  xml_path: 'XML path',
   body_text: 'Body text',
 };
 
@@ -79,6 +85,11 @@ export const OPERATOR_LABELS: Record<AssertionOperator, string> = {
 export const UNARY_OPERATORS: AssertionOperator[] = ['exists', 'not_exists'];
 
 const TYPE_NAMES = ['string', 'number', 'boolean', 'object', 'array', 'null'];
+
+/** Checks that need a name or path as well as an expected value. */
+export function needsTarget(subject: AssertionSubject): boolean {
+  return subject === 'header' || subject === 'json_path' || subject === 'xml_path';
+}
 
 function typeOf(value: unknown): string {
   if (value === null) return 'null';
@@ -167,7 +178,8 @@ function subjectValue(assertion: Assertion, response: ResponseUnderTest): { foun
     case 'elapsed_ms':
       return { found: true, value: response.elapsed_ms };
     case 'body_text':
-      return { found: true, value: response.data != null ? display(response.data) : response.text };
+      // XML and CSV keep their text alongside the parsed form, and that text is the body.
+      return { found: true, value: response.data != null && !response.text ? display(response.data) : response.text };
     case 'header': {
       const wanted = assertion.target.trim().toLowerCase();
       const hit = Object.entries(response.headers ?? {}).find(([name]) => name.toLowerCase() === wanted);
@@ -175,13 +187,18 @@ function subjectValue(assertion: Assertion, response: ResponseUnderTest): { foun
     }
     case 'json_path':
       return resolvePath(response.data, assertion.target.trim());
+    case 'xml_path': {
+      const { found, value, matches } = resolveXmlPath(response.data, assertion.target.trim());
+      // A count is about how many elements matched, even when only one did.
+      return { found, value: assertion.operator === 'length_at_least' ? matches : value };
+    }
     default:
       return { found: false, value: undefined };
   }
 }
 
 export function describeAssertion(assertion: Assertion): string {
-  const subject = assertion.subject === 'header' || assertion.subject === 'json_path'
+  const subject = needsTarget(assertion.subject)
     ? `${SUBJECT_LABELS[assertion.subject]} ${assertion.target || '—'}`
     : SUBJECT_LABELS[assertion.subject];
   const operator = OPERATOR_LABELS[assertion.operator];
@@ -229,7 +246,7 @@ export function runAssertions(assertions: Assertion[], response: ResponseUnderTe
 
 /** Assertions the user has not finished filling in — skipped rather than failed. */
 export function isIncomplete(assertion: Assertion): boolean {
-  if ((assertion.subject === 'header' || assertion.subject === 'json_path') && !assertion.target.trim()) return true;
+  if (needsTarget(assertion.subject) && !assertion.target.trim()) return true;
   return !UNARY_OPERATORS.includes(assertion.operator) && assertion.expected === '';
 }
 

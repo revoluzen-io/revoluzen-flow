@@ -31,39 +31,65 @@ def _req_name(token: str) -> str:
     return (m.group(1).lower().replace("_", "-")) if m else ""
 
 
+def _norm_extra(extra: str) -> str:
+    return re.sub(r"[-_.]+", "-", extra.strip().lower())
+
+
+def _req_extras(token: str) -> set[str]:
+    """The extras a requirement asks for: `uvicorn[standard]` -> {"standard"}."""
+    m = re.match(r"^\s*[A-Za-z0-9_.\-]+\s*\[([^\]]*)\]", token)
+    return {_norm_extra(e) for e in m.group(1).split(",") if e.strip()} if m else set()
+
+
+def _marker_extras(marker: str) -> set[str]:
+    """The extras a Requires-Dist marker is guarded by: `extra == "dev"`."""
+    return {_norm_extra(e) for e in re.findall(r"""\bextra\s*==\s*["']([^"']+)["']""", marker)}
+
+
 def shipped_closure(requirements_path: str) -> set[str]:
     """Top-level names in the requirements file + transitive Requires-Dist,
-    normalised (lower, - for _). Empty set = no filtering (list everything)."""
+    normalised (lower, - for _). Empty set = no filtering (list everything).
+
+    2026-11-11: a requirement behind an extra (`; extra == "dev"`) ships only
+    when that extra is asked for, in the requirements file (`uvicorn[standard]`)
+    or by a dependency (`google-api-core[grpc]`). Ignoring the markers listed
+    pytest, ruff and coverage as bundled once a driver with a `dev` extra was
+    installed."""
     if not requirements_path or not os.path.isfile(requirements_path):
         return set()
-    roots: list[str] = []
+    roots: list[tuple[str, set[str]]] = []
     with open(requirements_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith(("#", "-r", "-e", "--")):
                 continue
             line = line.split("#", 1)[0].split(";", 1)[0]
-            # Drop [extras]
-            line = re.sub(r"\[.*?\]", "", line)
-            name = _req_name(line)
+            extras = _req_extras(line)
+            name = _req_name(re.sub(r"\[.*?\]", "", line))
             if name:
-                roots.append(name)
-    seen: set[str] = set()
+                roots.append((name, extras))
+    seen: dict[str, set[str]] = {}
     stack = list(roots)
     while stack:
-        name = stack.pop()
-        if name in seen:
+        name, extras = stack.pop()
+        known = seen.get(name)
+        if known is not None and extras <= known:
             continue
-        seen.add(name)
+        active = (known or set()) | extras
+        seen[name] = active
         try:
             reqs = im.metadata(name).get_all("Requires-Dist") or []
         except Exception:
             continue
         for r in reqs:
-            dep = _req_name(re.sub(r"\[.*?\]", "", r))
-            if dep and dep not in seen:
-                stack.append(dep)
-    return seen
+            req, _, marker = r.partition(";")
+            needed = _marker_extras(marker)
+            if needed and not (needed & active):
+                continue
+            dep = _req_name(re.sub(r"\[.*?\]", "", req))
+            if dep:
+                stack.append((dep, _req_extras(req)))
+    return set(seen)
 
 
 _CLOSURE = shipped_closure(req_file)

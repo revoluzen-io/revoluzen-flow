@@ -47,7 +47,9 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
+
+from revoluzen_flow.auth.deps import current_workspace_id  # server mode: no anonymous internals
 
 router = APIRouter(prefix="/api/health", tags=["health"])
 
@@ -261,7 +263,7 @@ def _tracemalloc_top(n: int = 10) -> list[dict[str, Any]]:
         return [{"error": str(exc)}]
 
 
-@router.get("/memory")
+@router.get("/memory", dependencies=[Depends(current_workspace_id)])
 async def memory_snapshot(request: Request, trace: bool = False) -> dict:
     """Instrumentation snapshot — the Stage 0 baseline source of truth.
 

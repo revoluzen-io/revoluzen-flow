@@ -31,6 +31,8 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
 import { toast } from '../Toast';
 import ResizeHandle from '../shared/ResizeHandle';
+import StorageProfileView from './StorageProfileView';
+import TableMonitorControls, { type TableMonitor, type TableTestRun } from './TableMonitorControls';
 
 interface StorageObject {
   id: string;
@@ -91,7 +93,7 @@ export default function StoragePreviewDrawer({
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [schema, setSchema] = useState<SchemaResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'preview' | 'schema' | 'tests'>('preview');
+  const [view, setView] = useState<'preview' | 'schema' | 'profile' | 'tests' | 'history'>('preview');
   // N3 / V7 — tests tab state. Only relevant when resourceKind ===
   // 'table'; we still declare the state unconditionally so the hooks
   // order stays stable across renders.
@@ -109,6 +111,10 @@ export default function StoragePreviewDrawer({
     ran_at: string;
   } | null>(null);
   const [testsRunning, setTestsRunning] = useState(false);
+  // 2026-11-11 — table monitors: when the tests run on their own, and the
+  // newest result from any trigger.
+  const [monitor, setMonitor] = useState<TableMonitor>({ after_load: false, every_minutes: null });
+  const [lastRun, setLastRun] = useState<TableTestRun | null>(null);
   // F2 (2026-05-30) — provenance card data
   const [provenance, setProvenance] = useState<{
     source_file: { id: string; name: string } | null;
@@ -152,6 +158,8 @@ export default function StoragePreviewDrawer({
     setSchema(null);
     setTableTests([]);
     setTestsRunResult(null);
+    setMonitor({ after_load: false, every_minutes: null });
+    setLastRun(null);
     setProvenance(null);
     const previewUrl = resourceKind === 'table'
       ? `/api/storage/tables/${object.id}/preview?limit=100`
@@ -187,8 +195,21 @@ export default function StoragePreviewDrawer({
           accepted_values?: unknown[];
           to_table?: string;
           to_column?: string;
-        }> }>(`/api/storage/tables/${object.id}/tests`)
-        .then((data) => { if (alive) setTableTests(data.tests || []); })
+        }>; monitor?: TableMonitor; last_test_run?: TableTestRun | null }>(`/api/storage/tables/${object.id}/tests`)
+        .then((data) => {
+          if (!alive) return;
+          const tests = data.tests || [];
+          setTableTests(tests);
+          if (data.monitor) setMonitor(data.monitor);
+          const last = data.last_test_run || null;
+          setLastRun(last);
+          // Show the newest result against each test, when it was a run of
+          // these same tests (not of a list edited since).
+          if (last && last.results.length === tests.length
+              && last.results.every((r, i) => r.test_type === tests[i].test_type)) {
+            setTestsRunResult(last);
+          }
+        })
         .catch(() => { /* tab stays empty; harmless */ });
 
       // F2 (2026-05-30) — fetch the unified provenance card. One call
@@ -359,11 +380,11 @@ export default function StoragePreviewDrawer({
             tab only shows for managed tables (V7 / N3). */}
         <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shadow-sm">
           {(resourceKind === 'table'
-            ? (['preview', 'schema', 'tests'] as const)
-            : (['preview', 'schema'] as const)
+            ? (['preview', 'schema', 'profile', 'tests', 'history'] as const)
+            : (['preview', 'schema', 'profile'] as const)
           ).map((v) => {
             const active = view === v;
-            const disabled = v === 'schema' && isDocument;
+            const disabled = (v === 'schema' || v === 'profile') && isDocument;
             return (
               <button
                 key={v}
@@ -376,9 +397,9 @@ export default function StoragePreviewDrawer({
                       ? 'text-slate-300 cursor-not-allowed'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent'
                 }`}
-                title={disabled ? 'Schema view is for tabular files only' : undefined}
+                title={disabled ? 'This view is for tabular files only' : v === 'profile' ? 'What is in each column: empty values, distinct values, ranges, the most common value' : undefined}
               >
-                {v === 'preview' ? 'Preview' : v === 'schema' ? 'Schema' : (
+                {v === 'preview' ? 'Preview' : v === 'schema' ? 'Schema' : v === 'profile' ? 'Profile' : v === 'history' ? 'History' : (
                   <>
                     Tests
                     {tableTests.length > 0 && (
@@ -540,6 +561,10 @@ export default function StoragePreviewDrawer({
               No schema available — this file isn't tabular.
             </div>
           )
+        ) : view === 'profile' ? (
+          <StorageProfileView id={object.id} kind={resourceKind} />
+        ) : view === 'history' ? (
+          <LoadHistory object={object} />
         ) : (
           /* V7 / N3 — Tests tab content. */
           <div className="p-5 space-y-4">
@@ -561,6 +586,7 @@ export default function StoragePreviewDrawer({
                         {},
                       );
                       setTestsRunResult(res);
+                      if (res) setLastRun({ ...res, trigger: 'manual' });
                     } catch (err) {
                       toast.error(`Run tests failed: ${(err as Error).message || err}`);
                     } finally {
@@ -574,6 +600,15 @@ export default function StoragePreviewDrawer({
                 </button>
               )}
             </div>
+
+            {tableTests.length > 0 && (
+              <TableMonitorControls
+                tableId={object.id}
+                monitor={monitor}
+                lastRun={lastRun}
+                onChange={setMonitor}
+              />
+            )}
 
             {/* V7 round 2 — inline editor. "+ Add test" toggles a
                 small form below; the existing list re-renders after
@@ -610,7 +645,7 @@ export default function StoragePreviewDrawer({
                     <option value="unique">unique — column has no duplicates</option>
                     <option value="accepted_values">accepted_values — column ∈ list</option>
                     <option value="relationships">relationships — FK to another table</option>
-                    <option value="freshness">freshness — table updated recently</option>
+                    <option value="freshness">freshness — table loaded recently</option>
                     <option value="row_count_anomaly">row_count_anomaly — count within bounds</option>
                   </select>
                 </div>
@@ -621,8 +656,8 @@ export default function StoragePreviewDrawer({
                     onChange={(e) => setNewTestSeverity(e.target.value as 'fail' | 'warn')}
                     className="flex-1 px-2 py-1 text-xs rounded border border-slate-300"
                   >
-                    <option value="fail">fail — block the run on violation</option>
-                    <option value="warn">warn — log only, continue</option>
+                    <option value="fail">fail — report it to the Steward and the admins</option>
+                    <option value="warn">warn — show it on this table only</option>
                   </select>
                 </div>
                 {newTestType !== 'freshness' && newTestType !== 'row_count_anomaly' && (
@@ -820,8 +855,9 @@ export default function StoragePreviewDrawer({
                 {' '}<code className="px-1 rounded bg-slate-100 text-slate-700">not_null</code>,
                 {' '}<code className="px-1 rounded bg-slate-100 text-slate-700">unique</code>,
                 {' '}<code className="px-1 rounded bg-slate-100 text-slate-700">accepted_values</code>, or
-                {' '}<code className="px-1 rounded bg-slate-100 text-slate-700">relationships</code> assertion on this managed table.
-                Tests run via the <strong>Run tests</strong> button and report pass/fail with violation counts.
+                {' '}<code className="px-1 rounded bg-slate-100 text-slate-700">relationships</code> assertion on this managed table,
+                or a freshness or row-count check on the whole table.
+                Tests run from the <strong>Run tests</strong> button, and can also run after every load or on a schedule.
               </div>
             ) : (
               <ul className="space-y-1.5">
@@ -917,6 +953,82 @@ export default function StoragePreviewDrawer({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Load history (managed tables) ──────────────────────────────────────
+
+interface TableLoadRow {
+  at: string;
+  version?: number | null;
+  rows?: number | null;
+  mode?: string;
+  run_id?: string | null;
+  source?: string;
+}
+
+/** A managed table's last loads, newest first, each with the version of the
+ *  preparation that produced it. StoragePage passes them in on `object`. */
+function LoadHistory({ object }: { object: StorageObject }) {
+  const extra = object as unknown as { load_history?: TableLoadRow[]; prep_workflow_name?: string | null; pipeline_id?: string | null };
+  const loads = extra.load_history || [];
+  const name = extra.prep_workflow_name;
+  const pipelineId = extra.pipeline_id;
+  if (loads.length === 0) {
+    return (
+      <div className="p-6 text-sm text-slate-500">
+        No loads recorded yet. Each time a pipeline writes this table, the load is listed here with the version of the pipeline that wrote it.
+      </div>
+    );
+  }
+  return (
+    <div className="p-5 space-y-3" data-testid="table-load-history">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="text-sm font-bold text-slate-800">
+          Last {loads.length} load{loads.length === 1 ? '' : 's'}
+        </div>
+        {name && pipelineId && (
+          <a
+            href={`#editor/${pipelineId}`}
+            className="ml-auto text-xs font-semibold text-indigo-700 hover:text-indigo-900 hover:underline"
+            title="Open the preparation in the Editor. Change it there, then run it to reload the table."
+          >
+            Edit the preparation: {name}
+          </a>
+        )}
+      </div>
+      <table className="w-full text-xs border border-slate-200 rounded-lg overflow-hidden">
+        <thead className="bg-slate-50 text-slate-600">
+          <tr>
+            <th className="text-left px-3 py-2 font-semibold">Loaded</th>
+            <th className="text-left px-3 py-2 font-semibold">Preparation version</th>
+            <th className="text-right px-3 py-2 font-semibold">Rows</th>
+            <th className="text-left px-3 py-2 font-semibold">Mode</th>
+            <th className="text-left px-3 py-2 font-semibold">Run</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {loads.map((load, i) => (
+            <tr key={`${load.at}-${i}`} className={i === 0 ? 'bg-emerald-50/50' : ''}>
+              <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                {new Date(load.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                {i === 0 && <span className="ml-2 text-[10px] font-bold uppercase tracking-wide text-emerald-700">Latest</span>}
+              </td>
+              <td className="px-3 py-2 text-slate-700">
+                {load.version != null ? <span className="font-mono">v{load.version}</span> : <span className="text-slate-400">Unsaved canvas</span>}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                {load.rows != null ? load.rows.toLocaleString() : '—'}
+              </td>
+              <td className="px-3 py-2 text-slate-600">{load.mode || '—'}</td>
+              <td className="px-3 py-2 font-mono text-slate-500" title={load.run_id || undefined}>
+                {load.run_id ? load.run_id.slice(0, 8) : load.source === 'promote' ? <span className="font-sans">Promote</span> : '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

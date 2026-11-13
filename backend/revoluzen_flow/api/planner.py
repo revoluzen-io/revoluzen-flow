@@ -42,7 +42,7 @@ from revoluzen_flow.ai.draft_choices import (
     read_workspace_inventory,
     source_columns,
 )
-from revoluzen_flow.auth.deps import current_user_optional, current_workspace_id
+from revoluzen_flow.auth.deps import current_user_optional, current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.planner.rule_planner import RulePlanner
 from revoluzen_flow.planner.templates import TEMPLATES, create_from_template
 from revoluzen_flow.planner.ai_client import ai_generate_pipeline, ai_generate_text, is_ai_available
@@ -164,7 +164,7 @@ async def list_templates():
     return TEMPLATES
 
 
-@router.post("/templates/{template_key}")
+@router.post("/templates/{template_key}", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def use_template(
     template_key: str,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -672,7 +672,7 @@ def _point_at_uploaded_files(steps: list, workspace_id: str) -> None:
                 step.params["path"] = newest_by_name[named]
 
 
-@router.post("/apply-draft")
+@router.post("/apply-draft", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def apply_draft(
     body: ApplyDraftRequest,
     request: Request,

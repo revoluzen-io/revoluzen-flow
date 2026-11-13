@@ -85,7 +85,9 @@ source.
 
 **S3 Sink / Kafka Sink / API Sink / Email Sink / Delta Sink** — OSS.
 
-**Managed Table Sink** — OSS (2026-05-23). Write to a managed Parquet table by `schema.name`. Three write modes: `replace` (drop existing parts, write fresh part-000), `append` (timestamp-suffixed new part file alongside existing), `merge` (upsert by `merge_on` key columns; rewrites to a single part). Pairs with Managed Table Source for cheap intra-workspace data sharing.
+**Managed Table Sink** — OSS (2026-05-23). Write to a managed Parquet table by `schema.name`. Three write modes: `replace` (drop existing parts, write fresh part-000), `append` (timestamp-suffixed new part file alongside existing), `merge` (upsert by `merge_on` key columns; rewrites to a single part). Pairs with Managed Table Source for cheap intra-workspace data sharing. Each write records the pipeline and the version of it that wrote the table, plus a history of the last 20 loads (shown on Storage → Managed Tables). **+ New schema…** in its Schema list names a schema that does not exist yet; the first run creates it.
+
+**Pipeline Output** — OSS (2026-11-10). Save the result as one file (CSV, Parquet or JSON) in Storage → Pipeline Outputs, under the pipeline. Needs only a name; every run replaces the file, so re-runs and backfills are safe. Passes its input on unchanged.
 
 **Vector Sink** — Plus. Pinecone, Weaviate, Qdrant integrations.
 

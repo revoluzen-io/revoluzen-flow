@@ -18,16 +18,31 @@ async def _handler(inputs: dict[str, Any], ctx: ToolContext) -> dict[str, Any]:
             for r in store.list_all(workspace_id=workspace_id):
                 if only_enabled and not r.get("enabled", True):
                     continue
-                schedules.append({
+                entry = {
                     "id": r.get("id", ""),
                     "workflow_id": r.get("workflow_id", ""),
                     "workflow_name": r.get("workflow_name", ""),
                     "schedule_type": r.get("schedule_type", ""),
-                    "cron": r.get("cron", ""),
+                    "cron": r.get("cron") or r.get("cron_expression", ""),
                     "enabled": bool(r.get("enabled", True)),
                     "last_run_at": r.get("last_run_at", ""),
                     "next_run_at": r.get("next_run_at", ""),
-                })
+                }
+                # Event triggers: what they wait for, and what they last saw.
+                if r.get("schedule_type") == "file_arrival":
+                    entry.update({
+                        "file_location": r.get("file_location", ""),
+                        "file_folder": r.get("file_folder", ""),
+                        "file_pattern": r.get("file_pattern", ""),
+                        "status_message": r.get("status_message", ""),
+                    })
+                elif r.get("schedule_type") == "after_pipeline":
+                    entry.update({
+                        "after_workflow_id": r.get("after_workflow_id", ""),
+                        "after_outcome": r.get("after_outcome", ""),
+                        "status_message": r.get("status_message", ""),
+                    })
+                schedules.append(entry)
     except Exception:
         schedules = []
     return {
@@ -41,9 +56,11 @@ DEFINITION = ToolDefinition(
     name="list_schedules",
     tier=ToolTier.READ,
     description=(
-        "List the schedules in the current workspace. Returns id, workflow_id, "
-        "workflow_name, schedule_type (cron/interval/once), cron expression, enabled "
-        "flag, last_run_at, next_run_at. Use when the user asks about scheduled jobs, "
+        "List the schedules and triggers in the current workspace. Returns id, workflow_id, "
+        "workflow_name, schedule_type (cron/interval/daily/weekly, or file_arrival for a "
+        "file arriving in a folder, or after_pipeline for running after another pipeline), "
+        "cron expression, enabled flag, last_run_at, next_run_at, and for triggers what "
+        "they watch or wait for. Use when the user asks about scheduled jobs, triggers, "
         "automation, or wants to know what's running and when."
     ),
     input_schema={

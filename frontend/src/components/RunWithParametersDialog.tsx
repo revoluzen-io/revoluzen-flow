@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from 'react';
 import type { WorkflowParameter } from '../stores/workflowStore';
+import { isSecretParameter, isStoredSecret } from '../utils/storedSecrets';
 
 interface RunWithParametersDialogProps {
   open: boolean;
@@ -56,10 +57,11 @@ export default function RunWithParametersDialog({
 
   useEffect(() => {
     if (open) {
-      // Reset to declared defaults whenever the dialog opens.
+      // Reset to declared defaults whenever the dialog opens. A stored secret
+      // starts empty: left empty, the server uses the stored value.
       const seed: Record<string, string> = {};
       for (const p of parameters) {
-        seed[p.name] = p.default === null || p.default === undefined ? '' : String(p.default);
+        seed[p.name] = p.default === null || p.default === undefined || isStoredSecret(p.default) ? '' : String(p.default);
       }
       setValues(seed);
       setTouched(new Set());
@@ -69,7 +71,7 @@ export default function RunWithParametersDialog({
   if (!open) return null;
 
   const missingRequired = parameters
-    .filter((p) => p.required && !values[p.name])
+    .filter((p) => p.required && !values[p.name] && !isStoredSecret(p.default))
     .map((p) => p.name);
 
   const canRun = missingRequired.length === 0;
@@ -117,7 +119,7 @@ export default function RunWithParametersDialog({
         {/* Body */}
         <div className="px-5 py-4 overflow-auto flex-1 space-y-3">
           {parameters.map((p) => {
-            const isMissing = p.required && !values[p.name] && touched.has(p.name);
+            const isMissing = p.required && !values[p.name] && !isStoredSecret(p.default) && touched.has(p.name);
             return (
               <div key={p.name}>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -144,16 +146,19 @@ export default function RunWithParametersDialog({
                   </select>
                 ) : (
                   <input
-                    type="text"
+                    type={isSecretParameter(p) ? 'password' : 'text'}
+                    autoComplete={isSecretParameter(p) ? 'new-password' : undefined}
                     value={values[p.name] || ''}
                     onChange={(e) => {
                       setValues((v) => ({ ...v, [p.name]: e.target.value }));
                       setTouched((s) => new Set([...s, p.name]));
                     }}
                     placeholder={
-                      p.default !== null && p.default !== undefined
-                        ? `default: ${String(p.default)}`
-                        : (p.type === 'json' ? '{"k": "v"}' : '')
+                      isStoredSecret(p.default)
+                        ? 'Stored value (leave empty to use it)'
+                        : p.default !== null && p.default !== undefined
+                          ? `default: ${isSecretParameter(p) ? 'set' : String(p.default)}`
+                          : (p.type === 'json' ? '{"k": "v"}' : '')
                     }
                     className={`w-full px-3 py-1.5 font-mono text-[12px] rounded border focus:outline-none ${
                       isMissing

@@ -62,12 +62,12 @@ FRONTEND_FORM_TYPES: frozenset[str] = frozenset({
     # Object / cloud storage
     "s3", "gcs", "azure_blob", "adls_gen2", "minio",
     # File systems
-    "ftp", "sftp", "hdfs", "local_file",
+    "ftp", "sftp", "hdfs", "local_file", "smb",
     # Streaming / messaging
     "kafka", "rabbitmq", "pulsar", "kinesis", "eventhub",
     "sqs", "pubsub", "nats",
     # APIs
-    "rest_api", "graphql", "odata", "soap", "microsoft_graph",
+    "rest_api", "graphql", "odata", "microsoft_graph",
     # SaaS / business apps
     "salesforce", "hubspot", "zendesk", "jira", "servicenow",
     "sap", "netsuite", "dynamics365", "workday",
@@ -157,6 +157,11 @@ def _source_runtime_types() -> set[str]:
         "snowflake": "database", "bigquery": "database",
         "redshift": "database", "databricks": "database",
         "clickhouse": "database", "duckdb": "database",
+        # 2026-11-11: the Database Source reads these (connections/vendor_db.py).
+        "db2": "database", "sap_hana": "database", "teradata": "database",
+        # Synapse goes through the SQL Server path, an ODBC database through
+        # its own driver (2026-11-11).
+        "synapse": "database", "odbc": "database",
         # APIs
         "rest_api": "rest_api",
         # Object storage
@@ -165,6 +170,8 @@ def _source_runtime_types() -> set[str]:
         "kafka": "kafka",
         # Files
         "ftp": "ftp",
+        # 2026-11-11: Windows file shares are read by the File step.
+        "smb": "file",
         # Collaboration
         "sharepoint": "sharepoint", "onedrive": "onedrive",
         "gsheet": "gsheet",
@@ -189,9 +196,13 @@ def _sink_runtime_types() -> set[str]:
         "snowflake": "warehouse", "bigquery": "warehouse",
         "redshift": "warehouse", "databricks": "warehouse",
         "clickhouse": "database",
+        # 2026-11-11: written through the SQL Server path.
+        "synapse": "database",
         "rest_api": "rest_api",
         "s3": "s3", "azure_blob": "azure_blob", "gcs": "gcs",
         "kafka": "kafka",
+        # 2026-11-11: the File step writes to Windows file shares.
+        "smb": "file",
         "sharepoint": "sharepoint", "onedrive": "onedrive",
         "smtp": "email", "sendgrid": "email",
         "delta": "delta",

@@ -33,7 +33,7 @@ A project has:
 | Field | Meaning |
 |---|---|
 | `id` | System-assigned unique identifier (hex) |
-| `name` | Human-readable name — shown on the Projects page and in the project switcher |
+| `name` | Human-readable name — shown in the project panel on the Pipelines page and in the editor's project ribbon |
 | `description` | Free-text explanation of what the project is for |
 | `color` / `icon` | Visual accent used by the project chip throughout the UI |
 | `workspace_id` | The workspace the project belongs to (a project cannot move between workspaces) |
@@ -78,8 +78,8 @@ Most users outgrow Default quickly. The moment you have two or more distinct bod
 
 ### 4.1 Via the UI
 
-1. Navigate to **Projects** in the sidebar.
-2. Click **+ New Project** in the top-right.
+1. Open **Pipelines** in the sidebar. The project panel is on the left of the list; on a narrow screen, click **Projects** above the list to open it.
+2. Click **New** at the top of the panel.
 3. Fill in:
    - **Name** (required) — e.g. `Sales Analytics`
    - **Description** (recommended) — one sentence explaining the scope
@@ -87,7 +87,7 @@ Most users outgrow Default quickly. The moment you have two or more distinct bod
    - **Icon** — one of the preset icons
 4. Click **Create**.
 
-The project appears in the list immediately.
+The project appears in the panel immediately. Click it to list its pipelines. Its **⋯** menu adds a folder, edits or exports the project, pins it to the top of the panel, or archives it.
 
 ### 4.2 Via the API
 
@@ -118,8 +118,8 @@ Response:
 ### 4.3 What happens on creation
 
 - A row is written to the `projects` table in the workspace's SQLite store.
-- The project is immediately visible on the Projects page.
-- New pipelines can be assigned to it from the Editor's Save dialog.
+- The project is immediately visible in the project panel on the Pipelines page.
+- A pipeline started with **New Pipeline** while the project (or one of its folders) is picked in the panel is saved there. Pipelines can also be assigned to it from the Editor's Save dialog, or moved in with **Move** on their row.
 
 ---
 
@@ -128,7 +128,7 @@ Response:
 Editable fields: `name`, `description`, `color`, `icon`, `metadata`.
 Read-only fields: `id`, `workspace_id`, `created_at`.
 
-**Via UI:** open the project, click the pencil icon, edit fields, click **Save**.
+**Via UI:** on the Pipelines page, pick the project in the panel and click **Edit project** above the list (or choose **Edit project** in its **⋯** menu), change the fields, click **Save**.
 
 **Via API:**
 
@@ -161,7 +161,7 @@ Before deleting a project:
 
 ### 6.2 Delete
 
-**Via UI:** open the project, click **Delete**, confirm the destructive action dialog.
+**Via UI:** in the project panel on the Pipelines page, open the project's **⋯** menu and choose **Archive project**. Archived projects are listed under **Archived projects** at the bottom of the panel: **Restore** brings one back, and **Delete now** removes it for good after you confirm.
 
 **Via API:**
 
@@ -181,7 +181,7 @@ Response:
 Pipelines that still reference the deleted project's ID will:
 
 - Still execute (the project ID is stored as a string; the pipeline doesn't need the project to exist).
-- Disappear from the Projects page (their project no longer exists).
+- Are listed under **Unassigned** in the project panel (their project no longer exists).
 - Continue to appear on the Pipelines page.
 
 Recover them by editing each pipeline and assigning it to a valid project, or by cloning into a new project.
@@ -297,5 +297,6 @@ See `edition-matrix.md` at the repository root for the canonical capability spli
 
 | Date | Change |
 |---|---|
+| 2026-11-10 | Projects moved into the project panel on the Pipelines page; the separate Projects page is gone, and old `#projects` links open the panel. |
 | 2026-05-09 | Rewritten for OSS-only audience; Plus features (members, approval workflow, RBAC) consolidated to section 10. |
 | 2026-04-22 | Initial publication against Revoluzen Flow schema v19. |

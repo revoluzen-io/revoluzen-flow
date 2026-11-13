@@ -72,7 +72,7 @@ filter for "just architecture stuff" or "just data quality":
 | **Node**         | Step-level transforms, join/filter/cast behaviour                          | `empty_output` *, `join_explosion`, `join_collapse`, `filter_dropped_all`, `cast_failure` |
 | **Connector**    | Source/sink **transport**: auth, rate limit, reachability                  | `connector_auth_failure` *, `connector_rate_limit` *, `connector_unreachable` *, `credential_near_expiry` * |
 | **Data**         | Schema, freshness, volume, quality                                         | `schema_drift` *, `null_spike` *, `duplicate_key_spike` *, `volume_anomaly` *, `freshness_miss` *, `partition_missing` * |
-| **Architecture** | Structural / design-level — duplicate extraction, redundant transfer, lineage cascade | `duplicate_source` *, `duplicate_pipeline` *, `redundant_transfer`, `lineage_cascade` |
+| **Architecture** | Structural / design-level — duplicate extraction, repeated logic, redundant transfer, lineage cascade | `duplicate_source` *, `duplicate_pipeline` *, `repeated_logic` *, `redundant_transfer`, `lineage_cascade` |
 | **Governance**   | PII movement, credential sprawl, environment crossing                      | `pii_leak` *, `credential_sprawl`, `env_crossing` *, `unapproved_destination` * |
 | **Cost**         | Cost drift, runaway compute, warehouse waste                               | `cost_drift`, `warehouse_waste` *, `cost_recommendation` |
 
@@ -188,6 +188,13 @@ typical workspaces) to run on every `/api/steward/findings` request.
 - **Duplicate pipeline** — two or more pipelines have effectively
   identical shape (same source signature set + same sink signature
   set). Often an accident — two people built equivalent flows.
+- **Repeated logic** (`repeated_logic`, 2026-11-11,
+  `steward/repeated_logic.py`) — the same step (transform SQL, filter,
+  join, aggregate, Data Quality rules and other logic steps) in two or more
+  pipelines, compared without labels, positions, case or spacing. Steps
+  whose settings are only a few characters are left out. The finding says
+  what to make it into: a shared rule set for Data Quality rules, one
+  pipeline the others call with a Run Pipeline step, or a managed table.
 
 ### What it deliberately does NOT flag
 

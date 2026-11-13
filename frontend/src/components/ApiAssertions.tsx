@@ -1,11 +1,16 @@
 import { Plus, Trash2, Check, X, Minus } from 'lucide-react';
 import {
   OPERATORS, OPERATOR_LABELS, SUBJECT_LABELS, TYPE_OPTIONS, UNARY_OPERATORS,
-  blankAssertion, isIncomplete,
+  blankAssertion, isIncomplete, needsTarget,
   type Assertion, type AssertionOutcome, type AssertionSubject,
 } from '../utils/apiAssertions';
 
 const SUBJECTS = Object.keys(SUBJECT_LABELS) as AssertionSubject[];
+const TARGET_HINT: Partial<Record<AssertionSubject, string>> = {
+  header: 'content-type',
+  json_path: '$[0]["id"]',
+  xml_path: '/orders/order[1]/sku',
+};
 
 export default function ApiAssertions({ rows, onChange, outcomes, hasResponse }: {
   rows: Assertion[];
@@ -40,14 +45,13 @@ export default function ApiAssertions({ rows, onChange, outcomes, hasResponse }:
     </div>
 
     {rows.length === 0 && <p className="api-assert-empty">
-      Add a check to assert on the next response — status code, response time, a header, or a value at a JSON path.
+      Add a check to assert on the next response — status code, response time, a header, or a value at a JSON or XML path.
     </p>}
 
     <ul className="api-assert-list">
       {rows.map((row, index) => {
         const outcome = results.get(row.id);
         const skipped = isIncomplete(row);
-        const needsTarget = row.subject === 'header' || row.subject === 'json_path';
         const unary = UNARY_OPERATORS.includes(row.operator);
         return <li key={row.id} className="api-assert-row">
           <span className={`api-assert-state ${!hasResponse || skipped ? 'is-idle' : outcome?.passed ? 'is-pass' : 'is-fail'}`}
@@ -61,8 +65,8 @@ export default function ApiAssertions({ rows, onChange, outcomes, hasResponse }:
               {SUBJECTS.map(s => <option key={s} value={s}>{SUBJECT_LABELS[s]}</option>)}
             </select>
 
-            {needsTarget && <input aria-label={`Check ${index + 1} target`} className="api-field-input"
-              placeholder={row.subject === 'header' ? 'content-type' : '$[0]["id"]'}
+            {needsTarget(row.subject) && <input aria-label={`Check ${index + 1} target`} className="api-field-input"
+              placeholder={TARGET_HINT[row.subject]}
               value={row.target} onChange={e => update(row.id, { target: e.target.value })} />}
 
             <select aria-label={`Check ${index + 1} operator`} value={row.operator}

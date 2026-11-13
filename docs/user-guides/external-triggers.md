@@ -4,8 +4,10 @@ This guide is for integrators wiring Revoluzen Flow pipelines into CI jobs, peer
 
 There are two ways to invoke a Revoluzen Flow pipeline from outside the product:
 
-1. **Published endpoint with an API key** — for other applications, CI jobs and SaaS webhooks. Set it up on the **Workflows → Triggers** page.
+1. **Published endpoint** — for other applications, CI jobs and webhooks. Callers prove who they are with an API key, a signature made with a shared secret, or both. Set it up on the **Workflows → Triggers** page.
 2. **Authenticated API** — for tools that already hold a signed-in user's session token.
+
+To start a pipeline when a file lands in a folder, or when another pipeline finishes, no outside call is needed: see [Scheduling and triggers](pipelines.md#7-scheduling-and-triggers).
 
 Both can pass parameter values that the pipeline uses at runtime. Both run through the same path as the **Run** button, so the run is admitted to the pool, recorded on the Executions page and followed by the usual alerts.
 
@@ -18,9 +20,9 @@ The caller needs no user login. It calls a stable URL and proves it may do so wi
 ### Set it up
 
 1. Open **Workflows → Triggers**, or choose **Run from another app** in a pipeline's row menu on the Pipelines page.
-2. Click **New endpoint**, pick a saved pipeline and check the URL path.
-3. Click **New API key**. The full key is shown once, so copy it before you close the dialog.
-4. Copy the command under **Ready-to-use command**. It holds the real URL and a body built from the pipeline's parameters. Choose **curl** for macOS, Linux and Git Bash, or **PowerShell** for Windows.
+2. Click **New endpoint**, pick a saved pipeline, check the URL path, and choose how callers prove who they are: **An API key**, **A signature (for webhooks)**, or **No check**.
+3. For a key, click **New API key**. For a signature, Flow makes the secret when you create the endpoint. Either is shown once, so copy it before you close the dialog.
+4. Copy the command under **Ready-to-use command**. It holds the real URL and a body built from the pipeline's parameters, and for a signed endpoint the lines that sign the call. Choose **curl** for macOS, Linux and Git Bash (the signing needs `openssl`), or **PowerShell** for Windows.
 
 ### Call it
 
@@ -68,17 +70,24 @@ A run that starts and then fails still returns `200`. Its `status` is `error`, t
 |---|---|
 | `200` | The call was handled. Read `status` in the body for the outcome of the run. |
 | `400` | The body is not a JSON object, or a parameter is unknown, missing or of the wrong type. The message names it, and nothing runs. |
-| `401` | No API key was sent. |
+| `401` | No API key was sent, or a signed call's headers are missing, its signature does not match, or it is too old. |
 | `403` | The key is wrong, revoked, expired or from another workspace, or the caller's address is not on the key's allowlist. |
 | `404` | No endpoint has this path, or its pipeline was deleted. |
 | `405` | The endpoint accepts a different HTTP method. |
+| `409` | A signed call's `webhook-id` was already accepted, so no second run started. |
 | `423` | The pipeline is deactivated or archived. |
 | `429` | Too many calls. The limit is per key and per endpoint, and per endpoint when no key is required. |
 | `503` | The endpoint is turned off. |
 
-### Endpoints without a key
+### Signed calls (webhooks)
 
-Turning off **Require an API key** lets anyone who can reach the server start the pipeline. Parameter values are substituted as plain text, so a value placed in SQL could change the query. For that reason an endpoint without a key is refused, when you publish it and again on every call, if its pipeline has a `${param.x}` or `{{ }}` expression in a SQL field. The API's `allow_templated_sql_public` flag overrides this, and that is not recommended.
+A signed endpoint needs no key. The sender signs each call with the secret Flow made, in the open Standard Webhooks format, which has libraries for most languages: a `webhook-id` for the message, a `webhook-timestamp`, and a `webhook-signature` over both and the body. Flow refuses a call whose signature does not match (wrong secret, or the body was changed on the way), one more than 5 minutes from its clock, and a message id it has already accepted, so a captured call cannot be sent again. The run shows as **Webhook** on the Executions page.
+
+The secret is kept encrypted and shown only when it is made. **Make a new secret**, under the command for that endpoint, replaces it at once: calls signed with the old one are refused from then on. The exact format, with a Python example, is in the [API reference](../api.md#signed-calls).
+
+### Endpoints without a key or signature
+
+Choosing **No check** lets anyone who can reach the server start the pipeline. Parameter values are substituted as plain text, so a value placed in SQL could change the query. For that reason an endpoint with neither a key nor a signature is refused, when you publish it and again on every call, if its pipeline has a `${param.x}` or `{{ }}` expression in a SQL field. The API's `allow_templated_sql_public` flag overrides this, and that is not recommended.
 
 ---
 

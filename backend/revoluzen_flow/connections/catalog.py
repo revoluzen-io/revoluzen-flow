@@ -442,23 +442,22 @@ def _duckdb_catalog(config: dict[str, Any]) -> Catalog:
 
 @register("clickhouse", ProviderMeta(category="warehouse", auth="basic", tier="tier1"))
 def _clickhouse_catalog(config: dict[str, Any]) -> Catalog:
+    # 2026-11-11: browsing used clickhouse-driver on the native port (9000),
+    # but the connection form saves the HTTP port (8123) and runs use
+    # clickhouse-connect, so browsing could not connect. One driver now.
+    from revoluzen_flow.connections.warehouse_clients import clickhouse_client
     try:
-        from clickhouse_driver import Client  # type: ignore
-    except ImportError:
-        return _unsupported("clickhouse-driver not installed (pip install clickhouse-driver)")
-    client = Client(
-        host=config.get("host", "localhost"),
-        port=int(config.get("port", 9000)),
-        user=_resolve_user(config, "default"),
-        password=config.get("password", ""),
-        database=config.get("database") or "default",
-        connect_timeout=DEFAULT_TIMEOUT,
-    )
-    rows = client.execute(
-        "SELECT database, name, engine FROM system.tables "
-        "WHERE database NOT IN ('system','INFORMATION_SCHEMA','information_schema') "
-        "ORDER BY 1,2"
-    )
+        client = clickhouse_client(config, timeout=DEFAULT_TIMEOUT)
+    except RuntimeError as exc:  # the driver is missing
+        return _unsupported(str(exc))
+    try:
+        rows = client.query(
+            "SELECT database, name, engine FROM system.tables "
+            "WHERE database NOT IN ('system','INFORMATION_SCHEMA','information_schema') "
+            "ORDER BY 1,2"
+        ).result_rows
+    finally:
+        client.close()
     items: list[CatalogItem] = []
     for db, name, engine in rows:
         kind = "view" if "View" in str(engine) else "table"
@@ -507,31 +506,56 @@ def _mongodb_catalog(config: dict[str, Any]) -> Catalog:
 #                        Search & Cache
 # ════════════════════════════════════════════════════════════════════
 
+def _es_base_url(config: dict[str, Any]) -> str:
+    """The cluster address from the form's Host URL (scheme and port included)."""
+    from urllib.parse import urlsplit
+
+    raw = str(config.get("host") or config.get("url") or config.get("endpoint") or "localhost").strip()
+    if not raw.startswith(("http://", "https://")):
+        raw = f"{config.get('scheme') or 'http'}://{raw}"
+    parts = urlsplit(raw)
+    if parts.port is None and config.get("port"):
+        # Rows saved before the form took a full URL keep the port apart.
+        raw = f"{parts.scheme}://{parts.hostname}:{int(config['port'])}{parts.path}"
+    return raw.rstrip("/")
+
+
 def _es_catalog(config: dict[str, Any], default_port: int) -> Catalog:
-    try:
-        from elasticsearch import Elasticsearch  # type: ignore
-    except ImportError:
-        return _unsupported("elasticsearch client not installed (pip install elasticsearch)")
-    host = config.get("host", "localhost")
-    port = int(config.get("port", default_port))
-    scheme = config.get("scheme", "http")
-    user = config.get("user") or config.get("username")
-    password = config.get("password")
-    es_kwargs: dict[str, Any] = {"hosts": [f"{scheme}://{host}:{port}"], "request_timeout": DEFAULT_TIMEOUT}
-    if user:
-        es_kwargs["basic_auth"] = (user, password or "")
-    es = Elasticsearch(**es_kwargs)
-    try:
-        items: list[CatalogItem] = []
-        for idx in es.indices.get_alias(index="*").keys():
-            if not str(idx).startswith("."):
-                items.append(CatalogItem(name=str(idx), kind="index", parent=""))
-        return _build(items)
-    finally:
-        try:
-            es.close()
-        except Exception:
-            pass
+    """The indices of an Elasticsearch or OpenSearch cluster, over plain HTTP.
+
+    2026-11-11: this used the elasticsearch package, which no install ships,
+    and joined the form's full URL to a port again ("http://https://h:9200:9200").
+    Test connection already used plain HTTP; browsing now does too.
+    """
+    import requests  # type: ignore
+
+    from revoluzen_flow.connections.runtime import resolve_verify_ssl
+    from revoluzen_flow.connections.vendor_db import truthy
+
+    base = _es_base_url(config)
+    headers = {"Accept": "application/json"}
+    auth = None
+    if config.get("api_key"):
+        headers["Authorization"] = f"ApiKey {config['api_key']}"
+    elif config.get("user") or config.get("username"):
+        auth = (str(config.get("user") or config.get("username")), str(config.get("password") or ""))
+    verify = resolve_verify_ssl(None) if truthy(config.get("ssl_verify"), default=True) else False
+    reply = requests.get(
+        f"{base}/_cat/indices", params={"format": "json", "h": "index,docs.count,store.size,health"},
+        headers=headers, auth=auth, timeout=DEFAULT_TIMEOUT, verify=verify,
+    )
+    if reply.status_code in (401, 403):
+        return _unsupported(f"The cluster did not accept the sign-in (HTTP {reply.status_code}).")
+    if reply.status_code != 200:
+        return _unsupported(f"The cluster answered HTTP {reply.status_code} when listing indices.")
+    items: list[CatalogItem] = []
+    for row in reply.json() or []:
+        name = str(row.get("index") or "")
+        if name and not name.startswith("."):
+            items.append(CatalogItem(name=name, kind="index", parent="", metadata={
+                "docs": row.get("docs.count"), "size": row.get("store.size"), "health": row.get("health"),
+            }))
+    return _build(sorted(items, key=lambda item: item.name))
 
 
 _SEARCH_META = ProviderMeta(category="search_cache", auth="basic", tier="tier1")
@@ -590,23 +614,58 @@ def _redis_catalog(config: dict[str, Any]) -> Catalog:
 
 @register("kafka", ProviderMeta(category="streaming", auth="basic", tier="tier1"))
 def _kafka_catalog(config: dict[str, Any]) -> Catalog:
+    # 2026-11-11: the brokers and the sign-in come from the same helper as the
+    # Kafka steps, so a cluster that needs a sign-in can be browsed. The Kafka
+    # add-on installs confluent-kafka, which this used to ignore.
+    from revoluzen_flow.connections.kafka_settings import (
+        ClientErrors, KafkaSettingsError, error_text, kafka_settings,
+    )
+
+    if not (config.get("brokers") or config.get("bootstrap_servers")) and config.get("host"):
+        config = {**config, "brokers": f"{config['host']}:{int(config.get('port') or 9092)}"}
+    try:
+        settings = kafka_settings(config, who="Kafka")
+    except KafkaSettingsError as exc:
+        return _unsupported(str(exc))
+
+    def topic_list(names) -> Catalog:
+        return _build([CatalogItem(name=t, kind="topic", parent="")
+                       for t in sorted(names) if not t.startswith("__")])
+
+    try:
+        from confluent_kafka.admin import AdminClient  # type: ignore
+    except ImportError:
+        pass
+    else:
+        client_errors = ClientErrors(settings)
+        try:
+            admin = AdminClient({
+                **settings.confluent(),
+                "socket.timeout.ms": DEFAULT_TIMEOUT * 1000,
+                "error_cb": client_errors,
+            })
+            return topic_list(admin.list_topics(timeout=DEFAULT_TIMEOUT).topics)
+        except Exception as exc:  # noqa: BLE001 — the client's own error types
+            return _unsupported(
+                f"Could not list the topics at {settings.brokers}: {client_errors.explain(error_text(exc))}"
+            )
+
     try:
         from kafka import KafkaAdminClient  # type: ignore
     except ImportError:
-        return _unsupported("kafka-python not installed (pip install kafka-python)")
-    bootstrap = (
-        config.get("bootstrap_servers")
-        or config.get("brokers")
-        or f"{config.get('host', 'localhost')}:{int(config.get('port', 9092))}"
-    )
-    admin = KafkaAdminClient(
-        bootstrap_servers=bootstrap,
-        request_timeout_ms=DEFAULT_TIMEOUT * 1000,
-    )
+        from revoluzen_flow.connections.addons import addon_message
+        return _unsupported(addon_message("kafka"))
     try:
-        items = [CatalogItem(name=t, kind="topic", parent="")
-                 for t in sorted(admin.list_topics()) if not t.startswith("__")]
-        return _build(items)
+        admin = KafkaAdminClient(
+            **settings.kafka_python(),
+            request_timeout_ms=DEFAULT_TIMEOUT * 1000,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return _unsupported(f"Could not list the topics at {settings.brokers}: {settings.hide(exc)}")
+    try:
+        return topic_list(admin.list_topics())
+    except Exception as exc:  # noqa: BLE001
+        return _unsupported(f"Could not list the topics at {settings.brokers}: {settings.hide(exc)}")
     finally:
         try:
             admin.close()
@@ -888,7 +947,8 @@ def _bigquery_catalog(config: dict[str, Any]) -> Catalog:
         from google.cloud import bigquery  # type: ignore
         from google.oauth2 import service_account  # type: ignore
     except ImportError:
-        return _unsupported("google-cloud-bigquery not installed (pip install revoluzen-flow[bigquery])")
+        from revoluzen_flow.connections.addons import driver_message
+        return _unsupported(driver_message("BigQuery", "google-cloud-bigquery"))
     project = config.get("project_id") or config.get("project")
     if not project:
         return _unsupported("BigQuery requires 'project_id' on the connection")
@@ -1094,7 +1154,6 @@ _STUB_CATALOG: dict[str, ProviderMeta] = {
     "nats":       ProviderMeta(category="streaming", auth="basic", tier="tier2"),
     # APIs
     "odata":      ProviderMeta(category="api", auth="basic", tier="tier1"),
-    "soap":       ProviderMeta(category="api", auth="basic", tier="tier2"),
     # SaaS (mostly OAuth2)
     "salesforce": ProviderMeta(category="saas", auth="oauth2", tier="tier1"),
     "hubspot":    ProviderMeta(category="saas", auth="oauth2", tier="tier1"),

@@ -37,6 +37,8 @@ _ACTIVE_DETECTORS: list[dict[str, str]] = [
      "description": "Near-identical pipelines that likely duplicate work."},
     {"kind": FindingKind.ORPHANED_TABLE.value, "label": "Unused managed table", "mode": "state",
      "description": "A managed table no pipeline reads or writes (likely leftover)."},
+    {"kind": FindingKind.REPEATED_LOGIC.value, "label": "Repeated logic", "mode": "state",
+     "description": "The same step (SQL, filter, join, Data Quality rules) copied into several pipelines."},
     # ── Connector reliability ──
     {"kind": FindingKind.CONNECTOR_AUTH_FAILURE.value, "label": "Connector auth failure", "mode": "state",
      "description": "A connection failed authentication on its last test."},

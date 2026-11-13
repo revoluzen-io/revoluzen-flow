@@ -74,6 +74,11 @@ _CONNECTOR_CAPABILITIES: dict[str, list[str]] = {
     "servicenow": _READ_ONLY_CAPS, "workday": _READ_ONLY_CAPS,
     "netsuite": _READ_ONLY_CAPS, "dynamics365": _READ_ONLY_CAPS,
     "sap": _READ_ONLY_CAPS, "sap_hana": _READ_ONLY_CAPS,
+    # 2026-11-11: pipelines read Db2 and Teradata (connections/vendor_db.py);
+    # nothing writes to them, so they are not listed as writable.
+    "db2": _READ_ONLY_CAPS, "teradata": _READ_ONLY_CAPS,
+    # An ODBC database is read through its driver; nothing writes to it.
+    "odbc": _READ_ONLY_CAPS,
     # Everything else falls through to read+write below.
 }
 
@@ -91,7 +96,7 @@ _CONNECTOR_CATEGORIES: dict[str, str] = {
     "postgresql": "relational", "mysql": "relational", "mssql": "relational",
     "oracle": "relational", "sqlite": "relational", "mariadb": "relational",
     "db2": "relational", "sap_hana": "relational", "teradata": "relational",
-    "informix": "relational", "cockroachdb": "relational",
+    "informix": "relational", "cockroachdb": "relational", "odbc": "relational",
     # NoSQL
     "mongodb": "nosql", "cassandra": "nosql", "couchbase": "nosql",
     "dynamodb": "nosql", "cosmosdb": "nosql", "neo4j": "nosql",
@@ -106,13 +111,13 @@ _CONNECTOR_CATEGORIES: dict[str, str] = {
     "adls_gen2": "object_storage", "minio": "object_storage",
     # File systems
     "ftp": "filesystem", "sftp": "filesystem", "hdfs": "filesystem",
-    "local_file": "filesystem",
+    "local_file": "filesystem", "smb": "filesystem",
     # Streaming
     "kafka": "streaming", "rabbitmq": "streaming", "pulsar": "streaming",
     "kinesis": "streaming", "eventhub": "streaming", "sqs": "streaming",
     "pubsub": "streaming", "nats": "streaming",
     # APIs
-    "rest_api": "api", "graphql": "api", "odata": "api", "soap": "api",
+    "rest_api": "api", "graphql": "api", "odata": "api",
     "microsoft_graph": "api",
     # SaaS
     "salesforce": "saas", "hubspot": "saas", "zendesk": "saas",

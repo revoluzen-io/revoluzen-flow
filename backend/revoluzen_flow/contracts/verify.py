@@ -20,6 +20,8 @@ from typing import Any
 from revoluzen_flow.ir.schema import StepRunResult, WorkflowRunResult
 
 from .schema import (
+    CONTRACT_FIELDS_ADDED_LATER,
+    GUARANTEE_FIELDS_ADDED_LATER,
     BlastRadius,
     ClauseResult,
     ContractVerification,
@@ -67,12 +69,18 @@ def _check(
             "success", run.status,
         )
 
+    # Why the engine could not measure a fact, when it tried and could not
+    # (a column the output does not have). Said instead of the generic
+    # "not provided", which reads as a bug in Flow rather than in the clause.
+    unmeasured = (facts.get("unmeasured") or {}) if facts else {}
+
     # Evidence-backed guarantees (values from `facts`, fail-closed if absent).
     if t == GuaranteeType.NO_DUPLICATE_KEY:
         counts = (facts.get("duplicate_key_counts") or {}) if facts else {}
         dup = counts.get(g.key) if g.key else facts.get("duplicate_count") if facts else None
         if dup is None:
-            return result(False, f"required fact 'duplicate_key_counts[{g.key}]' not provided")
+            why = unmeasured.get(f"no_duplicate_key:{g.key}")
+            return result(False, why or f"required fact 'duplicate_key_counts[{g.key}]' not provided")
         ok = int(dup) == 0
         return result(ok, "no duplicate keys" if ok else f"{dup} duplicate(s) on '{g.key}'", 0, int(dup))
 
@@ -91,6 +99,21 @@ def _check(
     if t == GuaranteeType.FRESHNESS_MAX_AGE:
         if g.max_age_seconds is None:
             return result(False, "guarantee misconfigured (max_age_seconds)")
+        if g.time_column:
+            # Measured on the output itself: how old its newest value is.
+            ages = (facts.get("column_age_seconds") or {}) if facts else {}
+            age = ages.get(g.time_column)
+            if age is None:
+                why = unmeasured.get(f"freshness_max_age:{g.time_column}")
+                return result(False, why or f"required fact 'column_age_seconds[{g.time_column}]' not provided")
+            age = round(float(age))
+            ok = age <= g.max_age_seconds
+            return result(
+                ok,
+                f"newest '{g.time_column}' is {age}s old <= {g.max_age_seconds}s" if ok
+                else f"stale: newest '{g.time_column}' is {age}s old > {g.max_age_seconds}s",
+                g.max_age_seconds, age,
+            )
         age = facts.get("source_age_seconds") if facts else None
         if age is None:
             return result(False, "required fact 'source_age_seconds' not provided")
@@ -147,6 +170,34 @@ def _receipt_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canon.encode("utf-8")).hexdigest()
 
 
+def _contract_canonical(contract: ExecutionContract) -> dict[str, Any]:
+    """The contract as a receipt hashes it.
+
+    Fields added after receipts existed are dropped while they are empty,
+    so a contract that does not use them dumps exactly as it did before
+    they were added, and receipts made back then still recompute.
+    """
+    data = contract.model_dump(mode="json")
+    for key in CONTRACT_FIELDS_ADDED_LATER:
+        if data.get(key) is None:
+            data.pop(key, None)
+    for g in data.get("guarantees") or []:
+        for key in GUARANTEE_FIELDS_ADDED_LATER:
+            if g.get(key) is None:
+                g.pop(key, None)
+    return data
+
+
+def contract_digest(contract: ExecutionContract) -> str:
+    """A fingerprint of what a contract promises.
+
+    Two contracts with the same guarantees and settings have the same
+    digest. The publish gate compares it with the one on a receipt to know
+    whether that verdict was judged against the contract as it stands.
+    """
+    return _receipt_hash(_contract_canonical(contract))
+
+
 def _receipt_payload(
     contract: ExecutionContract,
     run_id: str,
@@ -158,11 +209,14 @@ def _receipt_payload(
     provenance: Provenance | None = None,
     blast_radius: list[BlastRadius] | None = None,
     attribution: list[StepAttribution] | None = None,
+    spec_version: int | None = None,
+    spec_digest: str | None = None,
+    contract_digest: str | None = None,
 ) -> dict[str, Any]:
     """The canonical object a receipt hashes over. Shared by ``verify_contract``
     (to produce a hash) and ``chain.verify_chain`` (to recompute one)."""
     payload = {
-        "contract": contract.model_dump(mode="json"),
+        "contract": _contract_canonical(contract),
         "run_id": run_id,
         "verdict": verdict,
         "clauses": [c.model_dump(mode="json") for c in clauses],
@@ -182,6 +236,13 @@ def _receipt_payload(
         payload["blast_radius"] = [b.model_dump(mode="json") for b in blast_radius]
     if attribution:
         payload["attribution"] = [a.model_dump(mode="json") for a in attribution]
+    # Same rule for the requirement and the contract fingerprint.
+    if spec_version is not None:
+        payload["spec_version"] = spec_version
+    if spec_digest:
+        payload["spec_digest"] = spec_digest
+    if contract_digest:
+        payload["contract_digest"] = contract_digest
     return payload
 
 
@@ -325,10 +386,12 @@ def verify_contract(
     # what it promised is not news.
     radius = list(blast_radius or [])
     attribution = _attribute_failures(run, clauses, upstream, labels) if verdict == "failed" else []
+    judged_against = contract_digest(contract)
 
     receipt = _receipt_hash(
         _receipt_payload(contract, rid, verdict, clauses, ts, prev_hash,
-                         resumed_from, provenance, radius, attribution)
+                         resumed_from, provenance, radius, attribution,
+                         contract.spec_version, contract.spec_digest, judged_against)
     )
 
     return ContractVerification(
@@ -343,4 +406,7 @@ def verify_contract(
         provenance=provenance,
         blast_radius=radius,
         attribution=attribution,
+        spec_version=contract.spec_version,
+        spec_digest=contract.spec_digest,
+        contract_digest=judged_against,
     )

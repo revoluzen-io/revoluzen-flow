@@ -25,9 +25,43 @@ from revoluzen_flow.auth.deps import (
     current_workspace_id,
     require_admin,
     require_auth,
+    require_min_rank_when_identified,
 )
+from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
+
+# The config holds the SMTP password and webhook URLs (which are bearer
+# credentials for Slack/Teams/Discord), and whoever controls SMTP receives
+# every password-reset email. Signed-in callers need admin rank; anonymous
+# callers are refused in server mode and keep the laptop flow in local mode.
+_CONFIG_ADMIN = Depends(require_min_rank_when_identified("admin"))
+_WEBHOOK_KEYS = ("slack_webhook", "discord_webhook", "teams_webhook", "webhook_url")
+
+
+def _masked(cfg: dict[str, Any]) -> dict[str, Any]:
+    """The config as the API returns it: secrets replaced by the placeholder."""
+    out = dict(cfg)
+    for k in _WEBHOOK_KEYS:
+        if out.get(k):
+            out[k] = SECRET_PLACEHOLDER
+    smtp = dict(out.get("smtp") or {})
+    if smtp.get("password"):
+        smtp["password"] = SECRET_PLACEHOLDER
+    out["smtp"] = smtp
+    return out
+
+
+def _keep_stored_secrets(updates: dict[str, Any]) -> dict[str, Any]:
+    """A placeholder sent back means "unchanged": restore the stored value."""
+    stored = _read_config()
+    for k in _WEBHOOK_KEYS:
+        if updates.get(k) == SECRET_PLACEHOLDER:
+            updates[k] = stored.get(k, "")
+    smtp = updates.get("smtp")
+    if isinstance(smtp, dict) and smtp.get("password") == SECRET_PLACEHOLDER:
+        updates["smtp"] = {**smtp, "password": (stored.get("smtp") or {}).get("password", "")}
+    return updates
 
 
 def _resolve_user_id(request: Request) -> str:
@@ -46,6 +80,12 @@ def _resolve_user_id(request: Request) -> str:
     user = current_user_optional(request)
     if user is not None:
         return user.id
+
+    # The first-user fallback is a laptop convenience. On a server it handed
+    # the owner's inbox to anyone, read and delete (2026-11-13 pen test).
+    from revoluzen_flow import runtime_config
+    if runtime_config.IS_SERVER_MODE:
+        raise HTTPException(401, "Authentication required")
 
     from revoluzen_flow.main import app_state
     user_store = app_state.get("user_store")
@@ -195,7 +235,7 @@ class NotificationConfigUpdate(BaseModel):
     smtp: dict | None = None
 
 
-@router.get("/config")
+@router.get("/config", dependencies=[_CONFIG_ADMIN])
 async def get_notification_config():
     """Read the workspace-wide notification config.
 
@@ -206,11 +246,15 @@ async def get_notification_config():
     user couldn't fix email delivery without first re-logging-in to
     a system that has no real auth). Plus tier reinstates the admin
     gate via its own router overlay.
+
+    2026-11-13: that openness reached server mode too — an anonymous GET
+    returned the SMTP password in clear. Now: anonymous only in local mode,
+    admin rank when signed in, and secrets always masked.
     """
-    return _read_config()
+    return _masked(_read_config())
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[_CONFIG_ADMIN])
 async def put_notification_config(
     body: NotificationConfigUpdate,
     _ws: str = Depends(current_workspace_id),
@@ -228,7 +272,7 @@ async def put_notification_config(
     the Plus admin gate is unchanged and still sits on top.
     """
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    return _write_config(updates)
+    return _masked(_write_config(_keep_stored_secrets(updates)))
 
 
 # ─────────────────────────────────────────────────────────────────────────

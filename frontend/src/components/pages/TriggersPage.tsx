@@ -22,7 +22,9 @@ import { navigateTo, readHashQuery } from '../../router';
 import type { Page } from '../../types';
 import {
   API_KEY_PLACEHOLDER,
+  SIGNING_SECRET_PLACEHOLDER,
   buildCommand,
+  callerCheckLabel,
   isValidPath,
   pathFromName,
   publishedUrl,
@@ -35,11 +37,38 @@ interface PublishedEndpoint {
   workflow_id: string;
   path: string;
   name: string;
+  method?: string;
   require_api_key: number | boolean;
+  /** Each call must be signed with the endpoint's secret (a webhook). */
+  require_signature?: number | boolean;
+  signature_tolerance_seconds?: number;
   is_active: number | boolean;
   request_count: number;
   last_called_at: number;
+  /** Only in the reply that made the secret, and only that once. */
+  signing_secret?: string;
 }
+
+/** How callers prove they may start the pipeline. */
+type CallerCheck = 'key' | 'signature' | 'none';
+
+const CALLER_CHECKS: { value: CallerCheck; label: string; body: string }[] = [
+  {
+    value: 'key',
+    label: 'An API key',
+    body: 'Recommended for scripts and other applications. Callers send a key you create on this page.',
+  },
+  {
+    value: 'signature',
+    label: 'A signature (for webhooks)',
+    body: 'Each call is signed with a secret Flow makes and shows you once. A changed call, a call sent twice, or one more than 5 minutes old is refused.',
+  },
+  {
+    value: 'none',
+    label: 'No check',
+    body: 'Anyone who can reach this server can start the pipeline.',
+  },
+];
 
 interface ApiKey {
   id: string;
@@ -187,7 +216,7 @@ function NewEndpointDialog({ pipelines, initialPipelineId, takenPaths, onClose, 
   const [pipelineId, setPipelineId] = useState(initialPipelineId);
   const [path, setPath] = useState('');
   const [pathEdited, setPathEdited] = useState(false);
-  const [requireKey, setRequireKey] = useState(true);
+  const [check, setCheck] = useState<CallerCheck>('key');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -210,7 +239,8 @@ function NewEndpointDialog({ pipelines, initialPipelineId, takenPaths, onClose, 
         workflow_id: pipelineId,
         path: cleanPath,
         name: pipeline?.name || '',
-        require_api_key: requireKey,
+        require_api_key: check === 'key',
+        require_signature: check === 'signature',
       });
       onCreated(created);
     } catch (err: any) {
@@ -263,22 +293,27 @@ function NewEndpointDialog({ pipelines, initialPipelineId, takenPaths, onClose, 
               </p>
             )}
           </div>
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={requireKey}
-              onChange={(e) => setRequireKey(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>
-              <span className="block text-sm font-semibold text-slate-700">Require an API key</span>
-              <span className="block text-xs text-slate-500 mt-0.5">
-                {requireKey
-                  ? 'Recommended. Only callers holding a key from this page can start the pipeline.'
-                  : 'Without a key, anyone who can reach this server can start the pipeline.'}
-              </span>
-            </span>
-          </label>
+          <fieldset>
+            <legend className="block text-xs font-semibold text-slate-600 mb-1.5">How callers prove who they are</legend>
+            <div className="space-y-2">
+              {CALLER_CHECKS.map((option) => (
+                <label key={option.value} className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="caller-check"
+                    value={option.value}
+                    checked={check === option.value}
+                    onChange={() => setCheck(option.value)}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-700">{option.label}</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">{option.body}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </>
       )}
       {error && (
@@ -397,6 +432,48 @@ function NewKeyDialog({ onClose, onCreated }: {
   );
 }
 
+function SigningSecretDialog({ path, secret, onClose }: {
+  path: string;
+  secret: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    if (await copyText(secret)) {
+      setCopied(true);
+    } else {
+      toast.error('Copy failed', 'Your browser blocked the clipboard. Select the secret and copy it by hand.');
+    }
+  };
+  return (
+    <DialogFrame title="Copy the signing secret" description={`Calls to /api/published/${path} must be signed with it.`}>
+      <div role="alert" className="px-3 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900">
+        This is the only time the secret is shown. Give it to the application that sends the calls and store it somewhere safe. If you lose it, make a new one.
+      </div>
+      <div>
+        <label htmlFor="trigger-new-secret" className="block text-xs font-semibold text-slate-600 mb-1.5">Signing secret</label>
+        <input
+          id="trigger-new-secret"
+          type="text"
+          readOnly
+          value={secret}
+          onFocus={(e) => e.target.select()}
+          className={`${INPUT} font-mono text-xs`}
+        />
+      </div>
+      <p className="text-xs text-slate-500">
+        The sender signs each call with it using the Standard Webhooks format, which libraries exist for in most languages. The command on this page shows how, in a terminal.
+      </p>
+      <div className="flex justify-end gap-2 pt-1">
+        <button type="button" onClick={handleCopy} className={SECONDARY_BUTTON}>
+          {copied ? 'Copied' : 'Copy secret'}
+        </button>
+        <button type="button" onClick={onClose} className={PRIMARY_BUTTON} style={PRIMARY_BUTTON_STYLE}>Done</button>
+      </div>
+    </DialogFrame>
+  );
+}
+
 export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
   environment?: 'dev' | 'prod';
   tier?: string;
@@ -414,6 +491,10 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
   const [keyDialogOpen, setKeyDialogOpen] = useState(false);
   // The full key exists only here, for this visit: the server keeps a hash.
   const [sessionKey, setSessionKey] = useState<CreatedKey | null>(null);
+  // Signing secrets made during this visit, by endpoint. The server keeps
+  // them encrypted and never sends them again.
+  const [sessionSecrets, setSessionSecrets] = useState<Record<string, string>>({});
+  const [secretShown, setSecretShown] = useState<{ path: string; secret: string } | null>(null);
   const commandRef = useRef<HTMLDivElement>(null);
 
   const refreshCounts = useCallback(async () => {
@@ -510,15 +591,41 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
   const selectedParameters = selected ? (parametersByPipeline[selected.workflow_id] ?? []) : [];
   const selectedPipeline = selected ? pipelineById.get(selected.workflow_id) : undefined;
   const selectedNeedsKey = !!selected?.require_api_key;
+  const selectedNeedsSignature = !!selected?.require_signature;
+  const selectedSecret = selected ? sessionSecrets[selected.id] : undefined;
 
   const commandFor = (endpoint: PublishedEndpoint, chosenShell: CommandShell = shell) => buildCommand({
     origin: window.location.origin,
     path: endpoint.path,
     requireApiKey: !!endpoint.require_api_key,
     apiKey: sessionKey?.api_key,
+    requireSignature: !!endpoint.require_signature,
+    signingSecret: sessionSecrets[endpoint.id],
     parameters: parametersByPipeline[endpoint.workflow_id] ?? [],
     shell: chosenShell,
   });
+
+  const rememberSecret = (endpoint: PublishedEndpoint, secret: string) => {
+    setSessionSecrets((prev) => ({ ...prev, [endpoint.id]: secret }));
+    setSecretShown({ path: endpoint.path, secret });
+  };
+
+  const newSigningSecret = async (endpoint: PublishedEndpoint) => {
+    const ok = await uiConfirm({
+      title: `Make a new secret for /${endpoint.path}?`,
+      message: 'Calls signed with the current secret are refused from the moment you confirm. Give the new one to the sender straight away.',
+      confirmLabel: 'Make a new secret',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      const updated = await api.post<PublishedEndpoint>(`/api/gateway/endpoints/${endpoint.id}/signing-secret`);
+      if (updated?.signing_secret) rememberSecret(endpoint, updated.signing_secret);
+      await refreshCounts();
+    } catch (err: any) {
+      toast.error('Could not make a new secret', err?.message || 'Try again.');
+    }
+  };
 
   const copyCommand = async (endpoint: PublishedEndpoint) => {
     if (await copyText(commandFor(endpoint))) {
@@ -580,6 +687,7 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
 
   const handleEndpointCreated = async (endpoint: PublishedEndpoint) => {
     setEndpointDialog(null);
+    if (endpoint.signing_secret) rememberSecret(endpoint, endpoint.signing_secret);
     toast.success('Endpoint created', `/${endpoint.path} is ready to call.`);
     await Promise.all([refreshCounts(), loadParameters([endpoint.workflow_id])]);
     setSelectedId(endpoint.id);
@@ -639,6 +747,13 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
               You can view endpoints and API keys here. Creating or changing them needs a data engineer or administrator role.
             </p>
           )}
+          <p className="text-xs text-slate-500" data-testid="other-triggers-pointer">
+            To start a pipeline when a file arrives in a folder, or when another pipeline finishes, open{' '}
+            <button type="button" onClick={() => navigateTo('pipelines')} className="font-semibold text-blue-700 hover:underline">
+              Pipelines
+            </button>{' '}
+            and choose Schedule on its row.
+          </p>
 
           <Section
             title="Endpoints"
@@ -661,7 +776,7 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
                     <tr>
                       <th className="px-4 py-2.5 text-left">Pipeline</th>
                       <th className="px-3 py-2.5 text-left">URL path</th>
-                      <th className="px-3 py-2.5 text-left">Key required</th>
+                      <th className="px-3 py-2.5 text-left">Callers prove it with</th>
                       <th className="px-3 py-2.5 text-right">Calls</th>
                       <th className="px-3 py-2.5 text-left">Last called</th>
                       <th className="px-3 py-2.5 text-left">On/Off</th>
@@ -686,10 +801,10 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
                             </span>
                           </td>
                           <td className="px-3 py-2.5 text-xs font-mono text-slate-700 whitespace-nowrap">/api/published/{endpoint.path}</td>
-                          <td className="px-3 py-2.5 text-xs font-semibold">
-                            {endpoint.require_api_key
-                              ? <span className="text-emerald-600">Yes</span>
-                              : <span className="text-amber-600" title="Anyone who can reach this server can call it.">No</span>}
+                          <td className="px-3 py-2.5 text-xs font-semibold whitespace-nowrap">
+                            {endpoint.require_api_key || endpoint.require_signature
+                              ? <span className="text-emerald-600">{callerCheckLabel(endpoint)}</span>
+                              : <span className="text-amber-600" title="Anyone who can reach this server can call it.">No check</span>}
                           </td>
                           <td className={`px-3 py-2.5 text-right tabular-nums font-semibold ${endpoint.request_count > 0 ? 'text-blue-600' : 'text-slate-800'}`}>
                             {endpoint.request_count}
@@ -800,16 +915,40 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
                       <dt className="w-16 shrink-0 font-semibold text-slate-700">Address</dt>
                       <dd>The address tells Revoluzen Flow which pipeline to start.</dd>
                     </div>
-                    <div className="flex gap-2">
-                      <dt className="w-16 shrink-0 font-semibold text-slate-700">Key</dt>
-                      <dd>
-                        {!selectedNeedsKey
-                          ? 'This endpoint needs no key, so anyone who can reach this server can start the pipeline.'
-                          : sessionKey
-                            ? `The X-API-Key header proves the caller may start it. This command holds the key "${sessionKey.name}" you just created, so treat it like a password.`
-                            : `The X-API-Key header proves the caller may start it. Replace ${API_KEY_PLACEHOLDER} with a key you saved when you created it. A key is only shown once, so create a new one if you no longer have it.`}
-                      </dd>
-                    </div>
+                    {(selectedNeedsKey || !selectedNeedsSignature) && (
+                      <div className="flex gap-2">
+                        <dt className="w-16 shrink-0 font-semibold text-slate-700">Key</dt>
+                        <dd>
+                          {!selectedNeedsKey
+                            ? 'This endpoint needs no key, so anyone who can reach this server can start the pipeline.'
+                            : sessionKey
+                              ? `The X-API-Key header proves the caller may start it. This command holds the key "${sessionKey.name}" you just created, so treat it like a password.`
+                              : `The X-API-Key header proves the caller may start it. Replace ${API_KEY_PLACEHOLDER} with a key you saved when you created it. A key is only shown once, so create a new one if you no longer have it.`}
+                        </dd>
+                      </div>
+                    )}
+                    {selectedNeedsSignature && (
+                      <div className="flex gap-2" data-testid="signature-explained">
+                        <dt className="w-16 shrink-0 font-semibold text-slate-700">Signature</dt>
+                        <dd>
+                          <span>
+                            {selectedSecret
+                              ? 'This command holds the secret you just made, so treat it like a password. '
+                              : `Replace ${SIGNING_SECRET_PLACEHOLDER} with the secret shown when it was made. `}
+                            Each call carries a new message id, the time, and a signature of both with the body. A changed call, the same message sent twice, or a call more than {Math.round((selected?.signature_tolerance_seconds || 300) / 60)} minutes old is refused. The command needs openssl, or use PowerShell.
+                          </span>
+                          {canManage && (
+                            <button
+                              type="button"
+                              onClick={() => selected && newSigningSecret(selected)}
+                              className="ml-1 font-semibold text-blue-700 hover:underline"
+                            >
+                              Make a new secret
+                            </button>
+                          )}
+                        </dd>
+                      </div>
+                    )}
                     <div className="flex gap-2">
                       <dt className="w-16 shrink-0 font-semibold text-slate-700">Values</dt>
                       <dd>
@@ -917,6 +1056,13 @@ export default function TriggersPage({ environment = 'dev', tier = 'free' }: {
         <NewKeyDialog
           onClose={() => setKeyDialogOpen(false)}
           onCreated={(key) => { setSessionKey(key); void refreshCounts(); }}
+        />
+      )}
+      {secretShown && (
+        <SigningSecretDialog
+          path={secretShown.path}
+          secret={secretShown.secret}
+          onClose={() => setSecretShown(null)}
         />
       )}
     </div>

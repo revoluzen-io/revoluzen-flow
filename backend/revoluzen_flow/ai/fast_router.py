@@ -430,7 +430,10 @@ async def _render_list_projects(prompt: str, ctx: ToolContext) -> str:
         return _wrap_error("list projects", out["_error"])
     projects = out.get("projects", []) or []
     if not projects:
-        return "You have no projects in this workspace yet. Create one from the Projects page."
+        return (
+            "You have no projects in this workspace yet. Create one with **New** in the "
+            "project panel on the Pipelines page."
+        )
     lines = [f"You have **{len(projects)} projects**:"]
     for p in projects[:25]:
         lines.append(f"- **{p.get('name', '(untitled)')}** ({p.get('id', '')})")
@@ -2962,21 +2965,32 @@ _INTENTS: tuple[FastIntent, ...] = (
             "previous version", "older version",
             "version control", "pipeline rollback",
             "undo deploy", "undo publish",
+            "connection history", "connection versions",
+            "connection version", "restore a connection",
         ),
         static_answer=(
-            "Every save / publish creates a new pipeline version. Past "
-            "versions stay in the trace store — they're never overwritten.\n\n"
-            "From a pipeline's detail view, click the **History** tab to "
-            "see every version with timestamp, author, and a diff against "
-            "the previous one. Click any version to **preview** it on the "
-            "canvas without changing the live one.\n\n"
-            "**Rollback**: pick a version → *Restore as current*. That "
-            "creates a new version (n+1) whose IR matches the old one — "
-            "the rollback itself is auditable, you don't lose the "
-            "intermediate history.\n\n"
-            "Executions reference the exact version they ran against — "
-            "click any run on the Executions page to see *which IR was "
-            "used*. Replay always uses the original IR, never \"latest\"."
+            "Every save that changes a pipeline adds a version, with who "
+            "saved it, when, and whether it was a Save, an auto-save, a "
+            "restore or a review step.\n\n"
+            "Open the pipeline on the **Pipelines** page and choose "
+            "**Versions** at the top of its tab. Click a version to compare "
+            "it with the current one, **on the canvas** or as a **list** of "
+            "every setting before and after. **Open** shows a version "
+            "read-only in a tab of its own.\n\n"
+            "**Restore…** puts a version in the Editor as unsaved changes: "
+            "test it, then **Save** to make it the newest version. The "
+            "versions after it are kept, so a restore can be undone. **New "
+            "pipeline** copies a version into a new draft instead.\n\n"
+            "Each run records the version it ran: the Versions view shows "
+            "how many runs used each one, and the run on the Executions page "
+            "shows its version. In Flow Enterprise, the version live in PROD "
+            "is marked, and Rollback switches PROD to an earlier one.\n\n"
+            "Connections keep versions too: open a connection on the "
+            "**Connections** page and choose **History**. Pick a version to "
+            "set it against the settings now, and **Restore version N…** to "
+            "put it back; the restore is saved as a new version. Passwords "
+            "are never kept in the history, so a restore keeps today's "
+            "password unless you type the old one."
             + _ask_chips(
                 ("Open Workflows", "open workflows"),
                 ("Show recent failures", "show me recent pipeline failures"),

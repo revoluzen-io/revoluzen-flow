@@ -74,12 +74,28 @@ class ContractBlockedWrite(RuntimeError):
     problem this exists to solve: a green run and bad data.
     """
 
-    def __init__(self, step_id: str, violations: list[PrecommitViolation]):
+    def __init__(
+        self,
+        step_id: str,
+        violations: list[PrecommitViolation],
+        step_label: str | None = None,
+        *,
+        row_count: int | None = None,
+        columns: list[str] | None = None,
+    ):
         self.step_id = step_id
         self.violations = violations
+        # What the refused write would have written. The step's result keeps
+        # them, so the run's receipt judges the other guarantees on the data
+        # that was refused: an empty result still has its columns, and they
+        # used to read as "missing" because nothing had been written.
+        self.row_count = row_count
+        self.columns = list(columns) if columns is not None else None
         lines = "; ".join(str(v) for v in violations)
+        # The step as people see it on the canvas; its internal id meant
+        # nothing to them ("blocked the write at 'b6bn99md'").
         super().__init__(
-            f"Execution Contract blocked the write at '{step_id}': {lines}. "
+            f"Execution Contract blocked the write at '{step_label or step_id}': {lines}. "
             f"The destination was left unchanged."
         )
 

@@ -236,6 +236,18 @@ your destination. Confirming the shape of what you were about to write is
 faster than inspecting the destination afterwards, and it is the habit that
 catches the "wrong column, right row count" class of mistake.
 
+To make the check part of every run, add a **Data Quality** step: rules such as
+"amount is 0 or more" or "email is not empty", and what to do with a row that
+breaks one (drop it, stop the run, tag it, or send it down a separate path).
+Rules that several pipelines need belong in a **shared rule set**: in the
+step's settings, **Save this step's rules as a shared set**, then pick the set
+in the other pipelines' Data Quality steps. A fix to the set (**Edit set**)
+reaches every pipeline that uses it from its next run, published ones
+included, and the screen says how many that is before it saves. Each save
+keeps the rules it replaced as an earlier version, a run's error names the set
+and the version it checked, and a set that a saved pipeline uses cannot be
+deleted.
+
 ### 5.5 Schedule it
 
 Once it runs correctly by hand, give it a schedule from the pipeline row.
@@ -409,6 +421,46 @@ Open any run from **Executions**.
 4. **Check the host, not the pipeline,** if several failed at once —
    `revoluzen doctor`.
 
+### Incidents
+
+When a scheduled, triggered or API run fails, **Executions → Incidents** opens
+an incident for that pipeline. Later failures add to it, and the next
+successful unattended run closes it. Runs started from the editor do not
+count, because they may be samples of a draft.
+
+An incident shows what you would otherwise piece together by hand:
+
+- the kind of failure: a passing problem (timeout, rate limit), an outside
+  system that was unreachable or refused the login, the data, the
+  configuration, or a crash;
+- the step that failed, what it reads from and what it feeds;
+- when the pipeline last worked, and every version saved since;
+- a timeline of failures, notes and anything Flow tried.
+
+**Ask the Copilot** starts a diagnosis from the incident: the Copilot can read
+it, including what changed since the pipeline last worked.
+
+When several pipelines fail for one reason, the tab says so above the list:
+the failed steps use the same connection and fail the same way (a warehouse
+that refused its login), or they stop with the same error once names and
+numbers are set aside (a column that an upstream table dropped). Fix the cause
+once instead of opening each incident.
+
+The Steward looks across pipelines too: the same step (a SQL transform, a
+filter, a join, a set of Data Quality rules) copied into several pipelines is
+reported as **Repeated logic**, with what to make it into: a shared rule set,
+or one pipeline the others call with a Run Pipeline step.
+
+### Resuming failed runs by policy
+
+An admin can turn on **Settings → Resume failed runs automatically**. A
+failure a retry can plausibly fix (a passing problem or an outside system,
+and optionally unclassified failures) is then resumed from where it stopped,
+after a wait, up to the number of attempts set, and each attempt is recorded
+on the incident. The pipeline is never changed, and data, configuration and
+crash failures are never resumed, because they would fail the same way. Off
+by default.
+
 ---
 
 ## 11. Execution Contracts
@@ -432,9 +484,10 @@ destination is left exactly as it was. Those are the ones worth having:
 - these columns must be present
 
 Everything else — every step succeeded, no duplicate keys, the destination
-acknowledged the write, the source was fresh enough — can only be judged once
-the run is over. Those are verified afterwards and recorded. Useful, but they
-report damage rather than prevent it.
+acknowledged the write, the newest row is recent enough — can only be judged
+once the run is over. Those are verified afterwards and recorded. Useful, but
+they report damage rather than prevent it. Duplicate keys and the age of the
+newest row are measured from the output itself at the end of the run.
 
 The authoring dialog separates the two, because choosing between them is the
 whole decision.
@@ -446,15 +499,47 @@ what the run did to its destination (*"replaced with 0 rows, was 3"*), and which
 step the rows went missing at. Receipts are hash-chained, so a removed or
 edited receipt is detectable.
 
-### Adding one
+### Start from the spec
 
-**Pipelines → the Contract column → Add a guarantee.** When it asks you to say
-what the guarantee means, use your own words — the receipt shows your wording
-first, and *"a regional rollup with no regions is not a result"* is something you
-can act on at 3am in a way that `no_empty_output` is not.
+**Pipelines → the Contract column → + Spec** opens the **Requirement** tab: what
+the pipeline is for, in the words of whoever asked for it. The goal (the
+pipeline's business purpose), the business owner, who uses the output, where the
+data comes from, what should change when it works, and the acceptance criteria:
+how to tell it worked.
+
+Each criterion is a sentence plus how it is checked. Pick a check — never
+empty, at least or at most N rows, close to an expected count, has these
+columns, one row per key, newest row no older than — or leave it to a person.
+**Save and make contract** turns every criterion with a check into a guarantee.
+Criteria left to a person are listed as such; a criterion missing a setting is
+reported and left out, because a clause without its number fails every run.
+
+The spec is saved with every version of the pipeline, and with the copy in your
+Git repository when you publish. Editing it does not count as a change to
+publish and does not undo a passing test, because it changes what the pipeline
+is held to, not what it runs. Every receipt names the spec version it was
+judged against.
+
+### Adding a guarantee by hand
+
+The **Contract** tab adds guarantees directly. When it asks you to say what the
+guarantee means, use your own words — the receipt shows your wording first, and
+*"a regional rollup with no regions is not a result"* is something you can act
+on at 3am in a way that `no_empty_output` is not. Making the contract from the
+spec again replaces only the guarantees that came from the spec; the ones you
+added here stay.
 
 Start with one guarantee on your most destructive pipeline — the one whose
 destination is set to replace. That is where a contract earns its keep.
+
+### Publishing a version that broke its contract
+
+Publishing needs a passing test, but a test runs on a sample, and a sample
+cannot be held to a row count. So if this exact version's last real run broke
+its contract, **Publish is refused** and says which promise broke. Fix the
+pipeline, or change the contract, and run it again. A failure on an earlier
+version does not block a fix, and a verdict against a contract you have since
+changed no longer counts.
 
 ---
 
@@ -467,6 +552,23 @@ Managed tables appear under **Storage**, can be previewed in the UI, and can be
 read back by other pipelines through **Managed Table Source**. They are a real
 destination, not a scratch area: row counts, write modes and contracts apply to
 them exactly as to an external database.
+
+Before building on a file or table, open its **Profile** tab: for each column,
+how many values are empty, how many are distinct (and whether every value is
+unique, which makes it a candidate key), the smallest and largest, the most
+common value, and the average for numbers. These are the statistics the Data
+Profile step produces. Anything over 100,000 rows is profiled on a random
+sample, and the tab says how many rows it read.
+
+A table's **Tests** tab holds checks on its data: no empty values, no
+duplicates, only allowed values, every value present in another table, loaded
+recently enough, and a row count within bounds or close to the previous load.
+They can run on their own, not only when you press **Run tests**: after every
+load, in the background, and every 15 minutes, hour, 6 hours or day. The
+periodic check is what notices a table that stopped being loaded at all. A
+failed test becomes a Steward finding and a notification to the admins, unless
+its severity is *warn*, which keeps it on the table. The details are in
+[Storage](storage.md#tests-and-monitors).
 
 Reach for them for intermediate results between pipelines, for quarantined rows
 from a Data Quality branch, for outputs only Revoluzen Flow consumes, and while

@@ -11,10 +11,14 @@ const TRIGGER_LABELS: Record<string, string> = {
   schedule: 'Scheduled',
   test: 'Pre-publish test',
   api: 'API',
+  // A signed call to a published endpoint.
   webhook: 'Webhook',
   backfill: 'Backfill',
   // Started by an Execute Pipeline step in another pipeline.
   pipeline: 'Pipeline',
+  // Event triggers set up in the Schedule dialog.
+  file_arrival: 'File arrived',
+  after_pipeline: 'After another pipeline',
   // The Editor's live run goes over a WebSocket.
   websocket: 'Editor',
   executor: 'Editor',

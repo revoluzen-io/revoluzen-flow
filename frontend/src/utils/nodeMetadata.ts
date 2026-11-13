@@ -45,11 +45,13 @@ export const NO_INPUT_NODES: ReadonlySet<string> = new Set([
   'ftp_source', 'gsheet_source', 'delta_source', 'file_source',
   'sharepoint_source', 'onedrive_source', 'gdrive_source', 'dropbox_source',
   'box_source', 'azure_blob_source', 'adls_gen2_source', 'gcs_source',
-  'webhook_trigger', 'http_request',
+  'http_request',
   // 2026-05-22 — Microsoft Graph (generic) source.
   'microsoft_graph_source',
   // 2026-05-23 (Y3) — managed local table source.
   'local_table_source',
+  // Connectors read from the API they describe.
+  'saas_connector', 'rest_connector',
 ]);
 
 /** Explicit overrides for nodes that don't fit "1 in, 1 out". */
@@ -110,6 +112,8 @@ export const SIDE_EFFECT_CLASS: Record<string, SideEffectClass> = {
   output: 'passthrough', destination: 'passthrough',
   // 2026-05-23 (Y3): managed local Parquet sink — passthrough.
   local_table_sink: 'passthrough',
+  // 2026-11-10: one file in Storage → Pipeline Outputs, replaced each run.
+  pipeline_output: 'passthrough',
   // Transforming — output reflects the side effect
   http_request: 'transforming',
   copy_data: 'transforming',

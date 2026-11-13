@@ -39,9 +39,9 @@ Bounded tool-use loop with hard caps:
 
 ### The agent tools (canonical count: code in `backend/revoluzen_flow/ai/tools/`)
 
-The tool count derived from the codebase is **32 tools** organised in three tiers (plus 2 opt-in web tools, registered only when the operator enables web access). The SOURCE OF TRUTH is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` — the counts below went stale twice by being retyped, so check the code before quoting them. The breakdown:
+The tool count derived from the codebase is **37 tools** organised in three tiers (plus 2 opt-in web tools, registered only when the operator enables web access). The SOURCE OF TRUTH is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` — the counts below went stale twice by being retyped, so check the code before quoting them. The breakdown:
 
-**23 READ tier** (permissive RBAC, no confirmation, standard audit):
+**29 READ tier** (permissive RBAC, no confirmation, standard audit):
 
 - `get_user_role` — caller's role + env + tier
 - `get_workspace_overview` — top-level workspace counts
@@ -55,6 +55,7 @@ The tool count derived from the codebase is **32 tools** organised in three tier
 - `list_catalog` — available node types + connectors
 - `list_templates` — built-in starters + user-saved templates
 - `summarize_pipeline` — plain-English summary of a pipeline
+- `get_pipeline_spec` — what a pipeline was asked to do: its goal, business owner, consumers, sources, acceptance criteria (and whether the contract or a person checks each), expected outcome, and the last contract verdict on the current version. Added 2026-11-11 so a repair keeps the criteria the pipeline was built to
 - `validate_pipeline` — validation errors + warnings for a pipeline, or for a draft when given a `draft_id`. Two passes: the IR validator Publish and Run gate on, plus a column check that catches a step referring to a column its input does not have. Reports `columns_checked: false` when it could not read the sources, rather than implying a clean bill
 - `explain_step` — what one step does, how it is configured, and every option that step type accepts with its choices, default and meaning. Added 2026-11-03 after three recorded model runs fixed a renamed join column by writing the new name into `join_key`, when the step needed `key_mode: mapped_keys`
 - `inspect_step_columns` — the columns a step receives, as names and types only, plus what the parameters of the repairable step types mean (`ai/step_params.py`). Runs a one-row preview of upstream steps, and refuses if any of them could have a side effect
@@ -66,7 +67,11 @@ The tool count derived from the codebase is **32 tools** organised in three tier
 - `get_next_scheduled` — upcoming schedule fires
 - `get_installation_health` — installation health score + prioritised punch list (inline credentials, undeployed pipelines, top failing pipelines, 24h success rate, headline totals) in one call
 - `get_security_posture` — the Settings → Security & Diagnostics baseline for THIS install: each control's status, the scope of what was actually tested, and for failures the exact fix. Added 2026-10-26; before it, security questions were answered from the model's general knowledge rather than from the install.
-- `list_steward_findings` — Steward advisories (duplicates, governance, connector health)
+- `list_steward_findings` — Steward advisories (duplicates, repeated logic, governance, connector health)
+- `suggest_join_keys` — for a Join step, the column pairs whose values overlap in both inputs, ranked with names and types; returns counts and column names, never values. Added 2026-11-11
+- `get_incidents` — the pipelines failing now (open incidents), the groups of them that share one cause (the same connection or the same error), and for one incident: the failed step, the kind of failure, when it last worked, the versions saved since, and what the auto-recover policy tried. Added 2026-11-11
+- `list_quality_rule_sets` — the workspace's shared quality rule sets (named Data Quality rules many pipelines use) with the columns each checks, so a draft picks a set instead of retyping its rules. Added 2026-11-11
+- `lookup_business_terms` — the workspace's business glossary (its own terms and metrics, with definitions, other names and SQL). The terms a request mentions are also put in front of the Copilot and every pipeline draft without a call. Added 2026-11-11
 
 **7 SAFE_WRITE tier** (standard RBAC, inline preview, idempotency cache):
 
@@ -81,6 +86,8 @@ The tool count derived from the codebase is **32 tools** organised in three tier
 - `draft_connector_from_openapi` — drafts a connector from a spec or URL
 - `draft_connector_from_samples` — drafts a connector from 1–5 sample responses
 - `test_connection` — tests a saved connection (no secrets reach the LLM)
+
+**Copilot roles** (2026-11-11, `ai/roles.py`): the tools fall into four roles that an admin switches on or off per workspace in **Settings → Copilot roles**: **Discover** (read connections, catalog, pipelines, storage, columns, specs, rule sets, the glossary; suggest join keys), **Build** (draft and change pipelines, connectors, alert rules, reports), **Test** (validate a draft, test-run it, test a connection) and **Operate** (runs, schedules, incidents, health, findings; start or stop a run). All are on by default. A role that is off removes its tools, including the quick run, stop and test actions, and the Copilot is told which roles are off so it says so. Help, the workspace overview, history recall and the user's own role always stay. Roles never let the Copilot do more than the person's own rank allows.
 
 **Not every tool is offered on every turn.** `ai/tool_selector.py` narrows
 the candidate set to 8 (local models) or 14 (cloud) per request, because

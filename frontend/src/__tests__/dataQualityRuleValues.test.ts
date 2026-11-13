@@ -387,7 +387,7 @@ describe('keys the step does not read', () => {
     const [issue] = ignoredParamIssues({ rules: [], mode: 'drop', description: 'nightly check' });
     expect(issue.field).toBe('description');
     expect(issue.message).toBe(
-      '"description" is not read by this step, which reads rules, mode, quality_threshold, include_score and include_profile.',
+      '"description" is not read by this step, which reads rules, rule_sets, mode, quality_threshold, include_score and include_profile.',
     );
     expect(ignoredParamIssues({ rules: [], mode: 'drop' })).toEqual([]);
   });

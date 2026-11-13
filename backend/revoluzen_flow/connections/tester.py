@@ -27,6 +27,15 @@ def _suggestion_for(error: Exception, conn_type: str) -> str:
     """Return a human-friendly fix suggestion based on the exception."""
     msg = str(error).lower()
 
+    # 2026-11-12: librdkafka reports a failed TLS handshake after its call has
+    # timed out, so this goes before the time-out advice.
+    if conn_type == "kafka" and ("certificate" in msg or "ssl handshake" in msg):
+        return (
+            "The brokers' certificate was not accepted, or the brokers asked for a client "
+            "certificate. If your company signs the brokers' certificates, paste its CA "
+            "certificate into the connection. If the brokers ask for a client certificate, "
+            "paste it with its private key."
+        )
     if "login failed" in msg or "18456" in msg:
         return "SQL Server login failed. Verify the username/password are correct, the SQL login exists, and SQL Server allows mixed-mode authentication (not Windows-only). For local SQL Server Express, the 'sa' account is disabled by default."
     if "password" in msg or "authentication" in msg or "access denied" in msg or "auth" in msg:
@@ -137,12 +146,34 @@ class ConnectionTester:
         "kafka": "_test_kafka",
         "ftp": "_test_ftp",
         "sftp": "_test_ftp",   # protocol-aware: _test_ftp branches on `protocol`
+        "smb": "_test_smb",    # Windows file shares, 2026-11-11
         "smtp": "_test_smtp",
         "slack": "_test_slack",
         "graphql": "_test_graphql",
         "redis": "_test_redis",
         "mongodb": "_test_mongodb",
         "elasticsearch": "_test_elasticsearch",
+        # 2026-11-11: these said "No tester implemented". The add-on check
+        # in test_connection runs first when the driver is missing.
+        "db2": "_test_vendor_db",
+        "sap_hana": "_test_vendor_db",
+        "teradata": "_test_vendor_db",
+        # 2026-11-11: warehouses and cloud storage also said "No tester
+        # implemented". Each signs in the way runs and browsing do
+        # (connections/warehouse_clients.py) and starts no compute.
+        "snowflake": "_test_snowflake",
+        "bigquery": "_test_bigquery",
+        "redshift": "_test_redshift",
+        "databricks": "_test_databricks",
+        "clickhouse": "_test_clickhouse",
+        "oracle": "_test_oracle",
+        "synapse": "_test_synapse",
+        "azure_blob": "_test_azure_blob",
+        "adls_gen2": "_test_adls_gen2",
+        "gcs": "_test_gcs",
+        # OpenSearch answers Elasticsearch's /_cluster/health.
+        "opensearch": "_test_elasticsearch",
+        "odbc": "_test_odbc",
     }
 
     def test_connection(self, conn_type: str, config: dict) -> dict:
@@ -166,6 +197,12 @@ class ConnectionTester:
                 "suggestion": str | None,
             }
         """
+        # 2026-11-11: an add-on connector without its driver says so first,
+        # instead of "No tester implemented" or a raw import error.
+        from revoluzen_flow.connections.addons import addon_label, addon_missing
+        if addon_missing(conn_type):
+            return _addon_unavailable(addon_label(conn_type))
+
         method_name = self._TESTERS.get(conn_type.lower())
         if not method_name:
             return {
@@ -178,10 +215,334 @@ class ConnectionTester:
 
         method = getattr(self, method_name)
         try:
+            if method_name == "_test_vendor_db":
+                return method(conn_type.lower(), config)
             return method(config)
         except Exception as exc:
             logger.exception("Unexpected error testing %s connection", conn_type)
             return _fail(f"Unexpected error testing {conn_type} connection", exc, conn_type)
+
+    # ── Db2, SAP HANA, Teradata (2026-11-11) ──
+
+    def _test_vendor_db(self, conn_type: str, config: dict) -> dict:
+        """Connect through the vendor driver and run the database's cheapest query."""
+        from revoluzen_flow.connections import vendor_db
+
+        label = vendor_db.LABELS[conn_type]
+        host = config.get("host") or ""
+        start = time.time()
+        try:
+            conn = vendor_db.connect(conn_type, config, timeout=DEFAULT_TIMEOUT)
+        except ValueError as exc:
+            return _fail(f"{label}: {exc}", exc, conn_type)
+        except Exception as exc:  # noqa: BLE001 — drivers raise their own error types
+            return _fail(f"{label} connection failed to {host}", exc, conn_type)
+        latency = _elapsed_ms(start)
+        try:
+            cur = conn.cursor()
+            cur.execute(vendor_db.PROBE_SQL[conn_type])
+            cur.fetchall()
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"Connected to {label} at {host}, but a test query failed", exc, conn_type)
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return _ok(f"Connected to {label} at {host}", latency)
+
+    # ── Warehouses and cloud storage (2026-11-11) ──
+
+    @staticmethod
+    def _cloud_failure(label: str, where: str, exc: Exception, conn_type: str) -> dict:
+        """A failed sign-in, or the plain add-on message when the driver is missing."""
+        if isinstance(exc, RuntimeError) and "needs an add-on" in str(exc):
+            return _addon_unavailable(label)
+        if type(exc).__name__ == "DefaultCredentialsError":
+            return _fail(
+                f"{label}: no service account key is saved",
+                "Paste the service account key JSON into the connection. This computer has no "
+                "Google sign-in of its own to use instead.",
+                conn_type,
+            )
+        return _fail(f"{label} connection failed{where}", exc, conn_type)
+
+    def _test_snowflake(self, config: dict) -> dict:
+        """Sign in and ask the version, naming no warehouse so nothing is billed;
+        then check the form's warehouse exists for this role."""
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        account = str(config.get("account") or "")
+        start = time.time()
+        try:
+            conn = wc.snowflake_connect(config, timeout=DEFAULT_TIMEOUT, use_warehouse=False)
+        except Exception as exc:  # noqa: BLE001 — drivers raise their own error types
+            return self._cloud_failure("Snowflake", f" to account {account}", exc, "snowflake")
+        latency = _elapsed_ms(start)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT CURRENT_VERSION()")
+            row = cur.fetchone()
+            warehouse = str(config.get("warehouse") or "").strip()
+            if warehouse:
+                cur.execute("SHOW WAREHOUSES LIKE '" + warehouse.replace("\\", "\\\\").replace("'", "\\'") + "'")
+                if not cur.fetchall():
+                    return _fail(
+                        f"Signed in to Snowflake, but the warehouse {warehouse} was not found",
+                        f"No warehouse named {warehouse} that this user's role can use.",
+                        "snowflake",
+                    )
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"Signed in to Snowflake account {account}, but a check failed", exc, "snowflake")
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return _ok(f"Connected to Snowflake account {account}", latency,
+                   server_version=str(row[0]) if row else "unknown")
+
+    def _test_bigquery(self, config: dict) -> dict:
+        """List one dataset (a free metadata call), and look up the default dataset if set."""
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        start = time.time()
+        try:
+            client = wc.bigquery_client(config)
+            datasets = list(client.list_datasets(max_results=1, timeout=DEFAULT_TIMEOUT))
+            dataset = str(config.get("dataset") or "").strip()
+            if dataset:
+                client.get_dataset(dataset, timeout=DEFAULT_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            project = config.get("project") or config.get("project_id") or ""
+            return self._cloud_failure("BigQuery", f" for project {project}" if project else "", exc, "bigquery")
+        return _ok(f"Connected to BigQuery project {client.project}", _elapsed_ms(start),
+                   datasets_seen=len(datasets))
+
+    def _test_redshift(self, config: dict) -> dict:
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        host, port = config.get("host") or "", config.get("port") or 5439
+        database = config.get("database") or "dev"
+        start = time.time()
+        try:
+            conn = wc.redshift_connect(config, timeout=DEFAULT_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            return self._cloud_failure("Redshift", f" to {host}:{port}", exc, "redshift")
+        latency = _elapsed_ms(start)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT version()")
+            row = cur.fetchone()
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"Connected to Redshift at {host}, but a test query failed", exc, "redshift")
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return _ok(f"Connected to Redshift at {host}:{port}/{database}", latency,
+                   server_version=str(row[0]) if row else "unknown")
+
+    def _test_databricks(self, config: dict) -> dict:
+        """Check the token and the SQL warehouse through Databricks' REST API.
+
+        Opening a SQL session would start a stopped warehouse, which costs
+        money and takes minutes; asking the API about it does not.
+        """
+        import re
+
+        import httpx
+
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        host, token = wc.databricks_host(config), wc.databricks_token(config)
+        http_path = str(config.get("http_path") or "").strip()
+        if not (host and token and http_path):
+            return _fail("Databricks needs the workspace URL, the SQL warehouse HTTP path and an access token",
+                         "A setting is empty.", "databricks")
+        headers = {"Authorization": f"Bearer {token}"}
+        warehouse = re.search(r"/warehouses/([A-Za-z0-9]+)", http_path)
+        start = time.time()
+        try:
+            with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+                if warehouse:
+                    kind = "SQL warehouse"
+                    reply = client.get(f"https://{host}/api/2.0/sql/warehouses/{warehouse.group(1)}", headers=headers)
+                else:
+                    kind = "cluster"
+                    cluster_id = http_path.rstrip("/").rsplit("/", 1)[-1]
+                    reply = client.get(f"https://{host}/api/2.0/clusters/get",
+                                       params={"cluster_id": cluster_id}, headers=headers)
+        except httpx.HTTPError as exc:
+            return _fail(f"Databricks connection failed to {host}", exc, "databricks")
+        latency = _elapsed_ms(start)
+        if reply.status_code in (401, 403):
+            return _fail(f"Databricks did not accept the access token (HTTP {reply.status_code})",
+                         "authentication failed", "databricks")
+        if reply.status_code in (400, 404):
+            return _fail(f"Signed in to Databricks, but the {kind} in the HTTP path was not found",
+                         f"HTTP {reply.status_code} for {http_path}", "databricks")
+        if reply.status_code != 200:
+            return _fail(f"Databricks answered HTTP {reply.status_code}", reply.text[:200], "databricks")
+        body = reply.json() or {}
+        name = body.get("name") or body.get("cluster_name") or ""
+        state = str(body.get("state") or "unknown").lower()
+        return _ok(f"Connected to Databricks at {host}: {kind} {name} is {state}".replace("  ", " "),
+                   latency, state=state)
+
+    def _test_clickhouse(self, config: dict) -> dict:
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        host = config.get("host") or "localhost"
+        start = time.time()
+        try:
+            client = wc.clickhouse_client(config, timeout=DEFAULT_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            return self._cloud_failure("ClickHouse", f" to {host}", exc, "clickhouse")
+        latency = _elapsed_ms(start)
+        try:
+            version = str(getattr(client, "server_version", "") or "unknown")
+        finally:
+            try:
+                client.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return _ok(f"Connected to ClickHouse at {host}", latency, server_version=version)
+
+    def _test_oracle(self, config: dict) -> dict:
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        host, port = config.get("host") or "localhost", config.get("port") or 1521
+        service = config.get("service_name") or config.get("sid") or ""
+        start = time.time()
+        try:
+            conn = wc.oracle_connect(config, timeout=DEFAULT_TIMEOUT)
+        except Exception as exc:  # noqa: BLE001
+            return self._cloud_failure("Oracle", f" to {host}:{port}", exc, "oracle")
+        latency = _elapsed_ms(start)
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM DUAL")
+            cur.fetchall()
+            version = str(getattr(conn, "version", "") or "unknown")
+        except Exception as exc:  # noqa: BLE001
+            return _fail(f"Connected to Oracle at {host}, but a test query failed", exc, "oracle")
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        return _ok(f"Connected to Oracle at {host}:{port}/{service}", latency, server_version=version)
+
+    def _test_synapse(self, config: dict) -> dict:
+        """Azure Synapse SQL pools speak SQL Server's protocol, so the SQL Server test applies."""
+        result = self._test_mssql(config)
+        for key in ("message", "error"):
+            if isinstance(result.get(key), str):
+                result[key] = result[key].replace("MSSQL", "Azure Synapse").replace("SQL Server at", "Azure Synapse at")
+        return result
+
+    def _test_azure_blob(self, config: dict) -> dict:
+        """Open the connection's container and read one name from it."""
+        import itertools
+
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        container = str(config.get("container") or "").strip()
+        account = config.get("account_name") or ""
+        start = time.time()
+        try:
+            service = wc.azure_blob_service(config)
+            if container:
+                blobs = service.get_container_client(container).list_blobs(results_per_page=1, timeout=DEFAULT_TIMEOUT)
+                list(itertools.islice(blobs, 1))
+            else:
+                list(itertools.islice(service.list_containers(results_per_page=1, timeout=DEFAULT_TIMEOUT), 1))
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "ResourceNotFoundError":
+                return _fail(f"Signed in to Azure, but the container {container} was not found", exc, "azure_blob")
+            return self._cloud_failure("Azure Blob Storage", f" to {account}" if account else "", exc, "azure_blob")
+        where = f"container {container}" if container else "the storage account"
+        return _ok(f"Opened {where}" + (f" in {account}" if account else ""), _elapsed_ms(start))
+
+    def _test_adls_gen2(self, config: dict) -> dict:
+        """Open the connection's file system (container) and read one path from it."""
+        import itertools
+
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        container = str(config.get("container") or config.get("filesystem") or "").strip()
+        account = config.get("account_name") or ""
+        start = time.time()
+        try:
+            service = wc.datalake_service(config)
+            if container:
+                paths = service.get_file_system_client(container).get_paths(
+                    recursive=False, max_results=1, timeout=DEFAULT_TIMEOUT)
+                list(itertools.islice(paths, 1))
+            else:
+                list(itertools.islice(service.list_file_systems(results_per_page=1, timeout=DEFAULT_TIMEOUT), 1))
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "ResourceNotFoundError":
+                return _fail(f"Signed in to Azure, but the file system {container} was not found", exc, "adls_gen2")
+            return self._cloud_failure("Azure Data Lake Storage", f" to {account}" if account else "", exc, "adls_gen2")
+        where = f"file system {container}" if container else "the storage account"
+        return _ok(f"Opened {where}" + (f" in {account}" if account else ""), _elapsed_ms(start))
+
+    def _test_gcs(self, config: dict) -> dict:
+        """Read one object name from the connection's bucket."""
+        import itertools
+
+        from revoluzen_flow.connections import warehouse_clients as wc
+
+        bucket = str(config.get("bucket") or "").strip()
+        if not bucket:
+            return _fail("Google Cloud Storage needs a bucket name", "The bucket is empty.", "gcs")
+        start = time.time()
+        try:
+            if wc.gcs_uses_hmac(config):
+                from revoluzen_flow.triggers.file_listing import list_gcs
+                list_gcs(str(config.get("prefix") or ""), config)
+            else:
+                client = wc.gcs_client(config)
+                blobs = client.list_blobs(bucket, prefix=config.get("prefix") or None,
+                                          max_results=1, timeout=DEFAULT_TIMEOUT)
+                list(itertools.islice(blobs, 1))
+        except Exception as exc:  # noqa: BLE001
+            if type(exc).__name__ == "NotFound":
+                return _fail(f"Signed in to Google Cloud, but the bucket {bucket} was not found", exc, "gcs")
+            return self._cloud_failure("Google Cloud Storage", f" to bucket {bucket}", exc, "gcs")
+        return _ok(f"Opened bucket {bucket}", _elapsed_ms(start))
+
+    def _test_odbc(self, config: dict) -> dict:
+        """Connect through the named ODBC driver and ask it to list tables."""
+        from revoluzen_flow.connections import odbc
+
+        driver = str(config.get("driver") or config.get("dsn") or "").strip()
+        start = time.time()
+        try:
+            conn = odbc.connect(config, timeout=DEFAULT_TIMEOUT)
+        except ValueError as exc:
+            return _fail(f"ODBC: {exc}", exc, "odbc")
+        except Exception as exc:  # noqa: BLE001 — drivers raise their own error types
+            return _fail(f"ODBC connection through {driver} failed", exc, "odbc")
+        latency = _elapsed_ms(start)
+        try:
+            dbms = odbc.describe(conn)
+            try:
+                tables = len(odbc.list_tables(conn, limit=500))
+            except Exception:  # noqa: BLE001 — some drivers cannot list tables
+                tables = None
+        finally:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+        details = {"server_version": dbms or "unknown"}
+        if tables is not None:
+            details["tables_count"] = tables
+        return _ok(f"Connected to {dbms or 'the database'} through {driver}", latency, **details)
 
     # ── PostgreSQL ──
 
@@ -457,7 +818,10 @@ class ConnectionTester:
         # version only sent Bearer when api_key/token was set, regardless
         # of the picker. That made Basic Auth / OAuth2 / custom-header
         # tests false-negative even when the credentials were correct.
-        headers: dict[str, str] = {"User-Agent": "Revoluzen Flow/0.6.0", "Accept": "application/json"}
+        from revoluzen_flow.common.http_reply import accept_header
+
+        # JSON first, but an API that only answers in XML is reachable too.
+        headers: dict[str, str] = {"User-Agent": "Revoluzen Flow/0.6.0", "Accept": accept_header("auto")}
         auth_type = (config.get("auth_type") or "").strip().lower()
 
         # Z29 — honor the ssl_verify toggle from the frontend form.
@@ -696,17 +1060,31 @@ class ConnectionTester:
     # ── Kafka ──
 
     def _test_kafka(self, config: dict) -> dict:
-        # Try confluent_kafka first, then kafka-python
-        brokers = config.get("brokers") or config.get("bootstrap_servers") or config.get("host", "localhost:9092")
-        if isinstance(brokers, list):
-            brokers = ",".join(brokers)
+        # Try confluent_kafka first, then kafka-python. Both get the brokers
+        # and, with SASL_PLAINTEXT or SASL_SSL, the sign-in (2026-11-11: the
+        # sign-in used to be left out, so a secured cluster always failed).
+        from revoluzen_flow.connections.kafka_settings import (
+            ClientErrors, KafkaSettingsError, error_text, kafka_settings,
+        )
+
+        try:
+            settings = kafka_settings(config, who="Kafka")
+        except KafkaSettingsError as exc:
+            return _fail(str(exc), exc, "kafka")
+        brokers = settings.brokers
+        # A refused sign-in reaches this callback; list_topics only times out.
+        client_errors = ClientErrors(settings)
 
         # Try confluent_kafka
         try:
             from confluent_kafka.admin import AdminClient  # type: ignore
 
             start = time.time()
-            admin = AdminClient({"bootstrap.servers": brokers, "socket.timeout.ms": DEFAULT_TIMEOUT * 1000})
+            admin = AdminClient({
+                **settings.confluent(),
+                "socket.timeout.ms": DEFAULT_TIMEOUT * 1000,
+                "error_cb": client_errors,
+            })
             metadata = admin.list_topics(timeout=DEFAULT_TIMEOUT)
             latency = _elapsed_ms(start)
 
@@ -723,7 +1101,9 @@ class ConnectionTester:
         except ImportError:
             pass
         except Exception as exc:
-            return _fail(f"Kafka connection failed to {brokers}", exc, "kafka")
+            # The password never goes back to the browser, even if a client
+            # repeats it.
+            return _fail(f"Kafka connection failed to {brokers}", client_errors.explain(error_text(exc)), "kafka")
 
         # Fallback: kafka-python
         try:
@@ -731,7 +1111,7 @@ class ConnectionTester:
 
             start = time.time()
             consumer = KafkaConsumer(
-                bootstrap_servers=brokers.split(","),
+                **settings.kafka_python(),
                 request_timeout_ms=DEFAULT_TIMEOUT * 1000,
                 api_version_auto_timeout_ms=DEFAULT_TIMEOUT * 1000,
             )
@@ -749,7 +1129,7 @@ class ConnectionTester:
         except ImportError:
             return _addon_unavailable("Kafka")
         except Exception as exc:
-            return _fail(f"Kafka connection failed to {brokers}", exc, "kafka")
+            return _fail(f"Kafka connection failed to {brokers}", settings.hide(exc), "kafka")
 
     # ── FTP ──
 
@@ -842,6 +1222,34 @@ class ConnectionTester:
                     ssh.close()
                 except Exception:  # noqa: BLE001
                     pass
+
+    # ── Windows file share (SMB) ──
+
+    def _test_smb(self, config: dict) -> dict:
+        """Sign in with the saved account and list the connection's folder,
+        the same way a run reaches the share (connections/file_share.py)."""
+        from revoluzen_flow.connections import file_share
+
+        start = time.time()
+        try:
+            result = file_share.check(config, timeout=max(DEFAULT_TIMEOUT, file_share.TEST_TIMEOUT))
+        except file_share.ShareError as exc:
+            return {
+                "success": False,
+                "message": "Could not open the Windows file share",
+                "details": {},
+                "error": str(exc),
+                "suggestion": (
+                    "Check the server, share, folder and sign-in. The account needs permission to "
+                    "read the folder, and to write to it if pipelines save files there."
+                ),
+            }
+        count = f"{result['entries']}{'+' if result['more'] else ''}"
+        return _ok(
+            f"Opened {result['where']} ({count} files and folders)",
+            _elapsed_ms(start),
+            files_in_folder=result["entries"],
+        )
 
     # ── SMTP ──
 
@@ -1941,8 +2349,12 @@ class ConnectionTester:
         try:
             req = urllib.request.Request(url, method="GET", headers=headers)
             ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
+            # 2026-11-11: certificates were never checked, whatever the form's
+            # "Verify SSL" box said. Now only an unticked box skips the check.
+            from revoluzen_flow.connections.vendor_db import truthy
+            if not truthy(config.get("ssl_verify"), default=True):
+                ctx.check_hostname = False
+                ctx.verify_mode = ssl.CERT_NONE
             resp = urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT, context=ctx)
             latency = _elapsed_ms(start)
 

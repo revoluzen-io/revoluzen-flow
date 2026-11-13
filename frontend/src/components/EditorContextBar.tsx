@@ -132,14 +132,22 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
 
   // Save indicator state (moved from Toolbar). Tracks the last
   // dirty→clean transition so we can show "Saved just now / Xm ago".
+  // Only within one tab: picking another tab (or opening a pipeline into a
+  // new one) also turns "dirty" into "clean" when the unsaved one goes off
+  // screen, and that is not a save. It made a pipeline nobody had touched
+  // since September say "Saved just now" the moment it was opened.
+  const activeTabKey = useWorkflowStore((s) => s.activeTabKey);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
-  const prevDirtyRef = useRef(isDirty);
+  const prevSaveRef = useRef({ tab: activeTabKey, dirty: isDirty });
   useEffect(() => {
-    if (prevDirtyRef.current && !isDirty) {
+    const prev = prevSaveRef.current;
+    if (prev.tab !== activeTabKey) {
+      setLastSavedAt(null);
+    } else if (prev.dirty && !isDirty) {
       setLastSavedAt(new Date());
     }
-    prevDirtyRef.current = isDirty;
-  }, [isDirty]);
+    prevSaveRef.current = { tab: activeTabKey, dirty: isDirty };
+  }, [isDirty, activeTabKey]);
   // Tick once a minute so the relative-time label stays fresh.
   const [, _setSaveTick] = useState(0);
   useEffect(() => {
@@ -360,8 +368,9 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
         </div>
       </div>
 
-      {/* CENTER — Pipeline Name chip */}
-      <div className={`flex items-center gap-2 min-w-0 px-3 py-1.5 rounded-xl border shadow-sm ${
+      {/* CENTER — Pipeline Name chip. Its width rules are in globals.css (.editor-context > :nth-child(2)):
+          it grows from 240px and never gets narrower than what it holds, so a narrow canvas wraps the row. */}
+      <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border shadow-sm ${
         dark ? 'bg-white/[0.06] border-white/[0.1]' : 'bg-white border-slate-300'
       }`}>
         {/* The "Pipeline Name" caption is dropped when embedded in the
@@ -397,9 +406,11 @@ export default function EditorContextBar({ embedded = false }: { embedded?: bool
             }`}
           />
         ) : (
+          // min-w: on a narrow canvas the name gave way to the fixed "Past run" chip beside it and read "Pa";
+          // it keeps about sixteen characters, and the row wraps instead.
           <button
             onClick={() => setEditing(true)}
-            className={`text-base font-semibold rounded-md transition-colors truncate max-w-[260px] flex items-center gap-1.5 ${
+            className={`text-base font-semibold rounded-md transition-colors truncate min-w-[8rem] max-w-[260px] flex items-center gap-1.5 ${
               dark ? 'text-slate-200 hover:text-white' : 'text-slate-800 hover:text-slate-900'
             }`}
             title={nameTitle}

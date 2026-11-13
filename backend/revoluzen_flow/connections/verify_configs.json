@@ -67,7 +67,7 @@
     "datadog", "splunk", "newrelic",
     "pinecone", "firebase", "gcs", "kinesis", "sqs", "eventhub", "pubsub",
     "oracle_api", "oracle_fusion", "oracle_bip", "sap_s4hana", "sap_successfactors",
-    "odata", "soap",
+    "odata",
     "informix", "sap_hana", "teradata",
     "memcached", "custom",
     "slack", "smtp", "sendgrid", "twilio", "pagerduty", "teams",

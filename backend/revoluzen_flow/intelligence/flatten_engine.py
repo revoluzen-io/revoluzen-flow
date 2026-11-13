@@ -284,7 +284,9 @@ class FlattenEngine:
 
     def _flatten_xml(self, raw_data: str) -> FlattenResult:
         """Flatten XML into tabular form."""
-        root = ElementTree.fromstring(raw_data)
+        from revoluzen_flow.common.safe_xml import parse_xml
+
+        root = parse_xml(raw_data)
 
         # Find record elements (most frequent child of root)
         child_tags = defaultdict(list)

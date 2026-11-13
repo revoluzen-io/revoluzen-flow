@@ -89,6 +89,20 @@ def test_deprecated_step_types_are_real_enum_values():
     )
 
 
+def test_retired_step_types_have_left_the_enum_and_still_migrate():
+    """A retired type is gone from StepType, so nothing can declare it again
+    without an implementation, but a saved pipeline naming one still opens."""
+    from revoluzen_flow.ir.migrations import RETIRED_STEP_TYPES, migrate_legacy_node_types
+
+    enum_values = {st.value for st in StepType}
+    assert "webhook_trigger" in RETIRED_STEP_TYPES
+    for retired, dep in RETIRED_STEP_TYPES.items():
+        assert retired not in enum_values, f"{retired} is retired but still a StepType"
+        assert dep.replaced_by in enum_values
+        migrated = migrate_legacy_node_types({"steps": [{"id": "s", "type": retired, "params": {}}]})
+        assert migrated["steps"][0]["type"] == dep.replaced_by
+
+
 def test_deprecation_replacement_points_to_real_enum_value():
     """A `replaced_by` target must itself be a real (currently registered)
     step type — otherwise migration produces broken workflows."""

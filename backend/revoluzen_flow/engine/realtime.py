@@ -143,7 +143,9 @@ class RealtimeExecutor:
         )
 
         import duckdb  # method-scoped (Stage 2.5b)
+        from revoluzen_flow.security import sql_sandbox
         conn = duckdb.connect(":memory:")
+        sql_sandbox.apply(conn, workflow, self.data_dir)  # same sandbox as the executor
         ctx = ExecutionContext(conn=conn, data_dir=self.data_dir)
         t0 = time.perf_counter()
 

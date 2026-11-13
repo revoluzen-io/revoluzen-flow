@@ -68,6 +68,10 @@ def _compile_source(step: dict, _input: Optional[str]) -> Optional[str]:
     if query:
         return f"/* source: {t} */\n{query}"
     path = p.get("path") or p.get("file_path") or p.get("file")
+    if t == "file_source" and (
+        str(p.get("format") or "") in ("fixed_width", "copybook") or p.get("pgp_decrypt") in (True, "true")
+    ):
+        return None  # read by Flow's own readers, not by one SQL scan
     if t in ("csv_source", "file_source") and path:
         return f"/* source: {t} */\nSELECT * FROM read_csv_auto('{path}')"
     if t == "parquet_source" and path:

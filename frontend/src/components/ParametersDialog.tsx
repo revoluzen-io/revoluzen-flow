@@ -12,6 +12,7 @@
 
 import { useEffect, useState } from 'react';
 import { useWorkflowStore, type WorkflowParameter } from '../stores/workflowStore';
+import { SECRET_PLACEHOLDER, isSecretParameter, isStoredSecret, parameterNameSaysSecret } from '../utils/storedSecrets';
 
 interface ParametersDialogProps {
   open: boolean;
@@ -28,6 +29,11 @@ function _coerceDefault(raw: string, type: WorkflowParameter['type']): WorkflowP
   if (type === 'float') return Number.isFinite(Number(raw)) ? parseFloat(raw) : raw;
   if (type === 'bool') return raw.toLowerCase() === 'true';
   return raw;
+}
+
+/** Typing over a stored secret replaces it: the dots never become part of the new value. */
+function _typedOverStored(next: string, current: WorkflowParameter['default']): string {
+  return isStoredSecret(current) ? next.split(SECRET_PLACEHOLDER[0]).join('') : next;
 }
 
 export default function ParametersDialog({ open, onClose }: ParametersDialogProps) {
@@ -89,7 +95,7 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl mx-4 max-h-[85vh] flex flex-col"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -130,6 +136,7 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
                   <th className="text-left pb-2 w-1/4">Default</th>
                   <th className="text-left pb-2">Description</th>
                   <th className="text-center pb-2 w-[70px]">Required</th>
+                  <th className="text-center pb-2 w-[60px]">Secret</th>
                   <th className="w-[24px]"></th>
                 </tr>
               </thead>
@@ -183,9 +190,10 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
                         </select>
                       ) : (
                         <input
-                          type="text"
+                          type={isSecretParameter(p) ? 'password' : 'text'}
+                          autoComplete={isSecretParameter(p) ? 'new-password' : undefined}
                           value={p.default === null || p.default === undefined ? '' : String(p.default)}
-                          onChange={(e) => updateRow(i, { default: _coerceDefault(e.target.value, p.type) })}
+                          onChange={(e) => updateRow(i, { default: _coerceDefault(_typedOverStored(e.target.value, p.default), p.type) })}
                           placeholder={p.type === 'json' ? '{"k": "v"}' : ''}
                           className="w-full px-2 py-1 font-mono text-[12px] rounded border border-slate-200 focus:border-indigo-400 focus:outline-none"
                         />
@@ -207,6 +215,28 @@ export default function ParametersDialog({ open, onClose }: ParametersDialogProp
                         onChange={(e) => updateRow(i, { required: e.target.checked })}
                         className="accent-indigo-600"
                       />
+                    </td>
+                    <td className="py-2 text-center">
+                      {(p.type === 'string' || p.type === 'json') && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Keep the default of ${p.name || 'this parameter'} secret`}
+                          checked={isSecretParameter(p)}
+                          disabled={parameterNameSaysSecret(p.name)}
+                          title={
+                            parameterNameSaysSecret(p.name)
+                              ? 'This name always counts as a secret'
+                              : 'Keep the default encrypted and show it as dots'
+                          }
+                          // Switching off cannot reveal a stored value, so it
+                          // clears the default for the value to be typed again.
+                          onChange={(e) => updateRow(i, {
+                            secret: e.target.checked,
+                            default: !e.target.checked && isStoredSecret(p.default) ? null : p.default,
+                          })}
+                          className="accent-indigo-600 disabled:opacity-60"
+                        />
+                      )}
                     </td>
                     <td className="py-2">
                       <button

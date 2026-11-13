@@ -58,7 +58,13 @@ def build_mssql_odbc_conn_str(config: dict[str, Any], pyodbc_module: Any, timeou
     raw_user = config.get("user") or config.get("username")
     password = config.get("password") or ""
     windows_auth = _truthy(config.get("windows_auth")) or (not raw_user and not password)
-    auth_clause = "Trusted_Connection=yes;" if windows_auth else f"UID={raw_user or 'sa'};PWD={password};"
+    # 2026-11-11: values with ; { } went in as typed, so a password holding a
+    # semicolon broke the string (or added settings). They now go in braces.
+    from revoluzen_flow.connections.odbc import odbc_value
+    auth_clause = (
+        "Trusted_Connection=yes;" if windows_auth
+        else f"UID={odbc_value(raw_user or 'sa')};PWD={odbc_value(password)};"
+    )
 
     trust_cert = "yes" if (_truthy(config.get("trust_server_certificate")) or "18" in driver) else "no"
     encrypt = _encrypt_value(config.get("encrypt"), driver)
@@ -66,7 +72,7 @@ def build_mssql_odbc_conn_str(config: dict[str, Any], pyodbc_module: Any, timeou
     return (
         f"DRIVER={{{driver}}};"
         f"SERVER={host},{port};"
-        f"DATABASE={database};"
+        f"DATABASE={odbc_value(database)};"
         f"{auth_clause}"
         f"Encrypt={encrypt};TrustServerCertificate={trust_cert};"
         f"Connection Timeout={timeout};"

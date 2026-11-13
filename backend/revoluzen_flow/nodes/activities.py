@@ -7,8 +7,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-import urllib.request
+import re
 import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,17 @@ if TYPE_CHECKING:
     import duckdb
 
 from revoluzen_flow.common.duckdb_compat import fetch_scalar
+from revoluzen_flow.common.http_reply import accept_header, decode_text, describe_binary, reply_kind
+from revoluzen_flow.common.safe_xml import XmlReply, local_name, parse_xml, raise_for_soap_fault
+from revoluzen_flow.connections.http_auth import (
+    HTTP_CONNECTION_TYPES,
+    connection_base_url,
+    request_auth,
+    same_site,
+    ssl_context_for,
+    with_query,
+    without_query,
+)
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -51,8 +64,55 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         )
 
 
-def _no_redirect_opener() -> "urllib.request.OpenerDirector":
-    return urllib.request.build_opener(_NoRedirectHandler())
+def _no_redirect_opener(ssl_context=None) -> "urllib.request.OpenerDirector":
+    handlers: list = [_NoRedirectHandler()]
+    if ssl_context is not None:
+        # The step's connection was saved with Verify SSL turned off.
+        handlers.append(urllib.request.HTTPSHandler(context=ssl_context))
+    return urllib.request.build_opener(*handlers)
+
+
+# The API Source form names its pagination styles differently from the step.
+_PAGINATION_ALIASES = {"page_number": "page", "offset_limit": "offset", "link_header": "link"}
+_LINK_NEXT = re.compile(r'<([^>]+)>\s*;\s*rel="?next"?', re.I)
+
+
+def _set_query(url: str, name: str, value: Any) -> str:
+    """The URL with one query parameter set, replacing an earlier value."""
+    parts = urllib.parse.urlsplit(url)
+    pairs = [(k, v) for k, v in urllib.parse.parse_qsl(parts.query, keep_blank_values=True) if k != name]
+    pairs.append((name, str(value)))
+    return urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(pairs)))
+
+
+def _query_value(url: str, name: str) -> str | None:
+    for key, value in urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query, keep_blank_values=True):
+        if key == name:
+            return value
+    return None
+
+
+# A DuckDB type name as DuckDB prints it, e.g. BIGINT, VARCHAR[] or
+# STRUCT("lat" VARCHAR, lng DOUBLE). Anything else is not put into SQL.
+_TYPE_NAME = re.compile(r'^[A-Za-z0-9_ ,()\[\]"]+$')
+
+
+def _empty_like(conn: duckdb.DuckDBPyConnection, columns: list) -> duckdb.DuckDBPyRelation | None:
+    """An empty table with these [name, type] columns, or None if they don't fit."""
+    parts = []
+    for item in columns:
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            return None
+        name, kind = str(item[0]), str(item[1])
+        quoted = '"' + name.replace('"', '""') + '"'
+        parts.append(f"CAST(NULL AS {kind}) AS {quoted}" if _TYPE_NAME.match(kind) else f"NULL AS {quoted}")
+    if not parts:
+        return None
+    try:
+        return conn.sql(f"SELECT {', '.join(parts)} WHERE false")
+    except Exception:  # noqa: BLE001 — a type this DuckDB cannot read
+        untyped = ", ".join('NULL AS "' + str(i[0]).replace('"', '""') + '"' for i in columns)
+        return conn.sql(f"SELECT {untyped} WHERE false")
 
 
 # ── Sources ──
@@ -75,7 +135,7 @@ class ApiSourceNode(BaseNode):
         method = "GET"
         body = ""
 
-        pagination = self.params.get("pagination", "none")
+        pagination = self._pagination_style()
 
         # R1b (2026-05-30) — Incremental sync support. When
         # sync_mode=incremental, substitute the stored watermark for
@@ -101,6 +161,7 @@ class ApiSourceNode(BaseNode):
                 }
 
         # Priority: connection_id > url > file_path
+        self._app_state = getattr(ctx, "app_state", None) or None
         if connection_id:
             rows = self._fetch_via_connection(connection_id, method, path, headers_extra, body, pagination)
         elif url:
@@ -114,6 +175,14 @@ class ApiSourceNode(BaseNode):
             raise ValueError("API Source: provide a connection, URL, or file_path")
 
         if not rows:
+            # 2026-11-11: an incremental run with nothing new hands on the
+            # columns of the last run that had rows. A table with only an
+            # "empty" column made the next step fail on its first column.
+            if sync_mode == "incremental":
+                remembered = self._remembered_columns(ctx)
+                empty = _empty_like(ctx.conn, remembered) if remembered else None
+                if empty is not None:
+                    return empty
             return ctx.conn.sql("SELECT NULL AS empty WHERE false")
 
         # R1b — after a successful fetch, stamp the new watermark.
@@ -128,8 +197,33 @@ class ApiSourceNode(BaseNode):
                 self._save_api_cursor(ctx, cursor_field, rows)
 
         # Load rows into DuckDB
-        return ctx.conn.sql("SELECT * FROM rows_list", params={"rows_list": rows}) if False else \
-            self._rows_to_relation(ctx.conn, rows)
+        relation = self._rows_to_relation(ctx.conn, rows)
+        if sync_mode == "incremental":
+            self._remember_columns(ctx, relation)
+        return relation
+
+    def _remembered_columns(self, ctx: ExecutionContext) -> list | None:
+        """The [name, type] columns of this step's last incremental run with rows."""
+        try:
+            from revoluzen_flow.engine.sync_state_store import sync_state_store
+            workflow_id = getattr(ctx, "workflow_id", None) or ""
+            step_id = self.params.get("_step_id", "") or ""
+            if not (workflow_id and step_id):
+                return None
+            return sync_state_store.get_columns(workflow_id, step_id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _remember_columns(self, ctx: ExecutionContext, relation: duckdb.DuckDBPyRelation) -> None:
+        try:
+            from revoluzen_flow.engine.sync_state_store import sync_state_store
+            workflow_id = getattr(ctx, "workflow_id", None) or ""
+            step_id = self.params.get("_step_id", "") or ""
+            if workflow_id and step_id:
+                columns = [[name, str(kind)] for name, kind in zip(relation.columns, relation.types)]
+                sync_state_store.save_columns(workflow_id, step_id, columns)
+        except Exception:  # noqa: BLE001 — never fail the run over this
+            pass
 
     def _load_api_cursor(self, ctx: ExecutionContext) -> str | None:
         """R1b helper — read the persisted cursor for this step."""
@@ -178,7 +272,7 @@ class ApiSourceNode(BaseNode):
                               pagination: str = "none") -> list[dict]:
         """Fetch data using a saved Connection + Credential."""
         from revoluzen_flow.nodes.db_source import _get_connection_config
-        result = _get_connection_config(connection_id)
+        result = _get_connection_config(connection_id, getattr(self, "_app_state", None))
         if not result:
             raise ValueError(f"API Source: connection '{connection_id}' not found")
 
@@ -186,14 +280,10 @@ class ApiSourceNode(BaseNode):
         # 2026-05-23 (T4 + U1/U2 + V1/V2): the Oracle / SAP product
         # families are HTTP-flavoured connections that route through the
         # same API Source generic node.
-        if conn_type not in (
-            "rest_api", "graphql",
-            "oracle_api", "oracle_fusion", "oracle_bip",
-            "sap_s4hana", "sap_successfactors",
-        ):
+        if conn_type not in HTTP_CONNECTION_TYPES:
             raise ValueError(f"API Source: connection type '{conn_type}' is not an API connection")
 
-        base_url = config.get("base_url", "").rstrip("/")
+        base_url = connection_base_url(config).rstrip("/")
         if not base_url:
             raise ValueError("API Source: connection has no base_url configured")
 
@@ -203,22 +293,13 @@ class ApiSourceNode(BaseNode):
         else:
             full_url = base_url
 
-        # Build headers with auth from connection/credential
-        headers = {"Accept": "application/json", "User-Agent": "Revoluzen Flow/0.6.0"}
-        auth_type = config.get("auth_type", "bearer")
-        if auth_type == "basic":
-            import base64
-            user = config.get("username") or config.get("user", "")
-            pwd = config.get("password", "")
-            b64 = base64.b64encode(f"{user}:{pwd}".encode()).decode()
-            headers["Authorization"] = f"Basic {b64}"
-        elif config.get("api_key"):
-            key_header = config.get("api_key_header", "Authorization")
-            key_prefix = config.get("api_key_prefix", "Bearer")
-            headers[key_header] = f"{key_prefix} {config['api_key']}"
-        elif config.get("token"):
-            headers["Authorization"] = f"Bearer {config['token']}"
+        # Sign in the way the connection says, as its Test button does: all
+        # seven sign-in types of the connection form, plus its custom headers.
+        auth_headers, auth_query = request_auth(config, allow_private_env=API_SOURCE_ALLOW_PRIVATE_ENV)
+        headers = {"Accept": accept_header("auto"), "User-Agent": "Revoluzen Flow/0.6.0", **auth_headers}
         headers.update(headers_extra)
+        full_url = with_query(full_url, auth_query)
+        self._ssl_context = ssl_context_for(config)
 
         if pagination != "none":
             return self._fetch_paginated(full_url, method, headers, body)
@@ -227,7 +308,7 @@ class ApiSourceNode(BaseNode):
     def _fetch_url(self, url: str, method: str, headers_extra: dict, body: str,
                    pagination: str = "none") -> list[dict]:
         """Fetch data from a direct URL (no saved connection)."""
-        headers = {"Accept": "application/json", "User-Agent": "Revoluzen Flow/0.6.0"}
+        headers = {"Accept": accept_header("auto"), "User-Agent": "Revoluzen Flow/0.6.0"}
         headers.update(headers_extra)
         if pagination != "none":
             return self._fetch_paginated(url, method, headers, body)
@@ -253,12 +334,16 @@ class ApiSourceNode(BaseNode):
         except SsrfBlockedError as exc:
             raise ValueError(f"API Source: URL blocked by SSRF policy: {exc}") from exc
 
+        # A key can travel in the query string, so messages leave it out.
+        shown = without_query(url)
         last_error = None
         for attempt in range(max_retries + 1):
             try:
                 req = urllib.request.Request(url, method=method, headers=headers, data=data)
-                with _no_redirect_opener().open(req, timeout=timeout) as resp:
-                    raw = json.loads(resp.read().decode("utf-8"))
+                with _no_redirect_opener(getattr(self, "_ssl_context", None)).open(req, timeout=timeout) as resp:
+                    raw = self._read_reply(resp.read(), resp.headers.get("Content-Type", ""))
+                if isinstance(raw, XmlReply):
+                    return raw.rows(str(self.params.get("row_path") or ""))
                 return self._normalize_response(raw)
             except urllib.error.HTTPError as exc:
                 last_error = exc
@@ -270,74 +355,181 @@ class ApiSourceNode(BaseNode):
                         wait = float(retry_after) if retry_after else retry_delay * (2 ** attempt)
                         _time.sleep(min(wait, 60))
                         continue
-                raise ValueError(f"API Source: HTTP {exc.code} from {url}: {exc.reason}") from exc
+                raise ValueError(f"API Source: HTTP {exc.code} from {shown}: {exc.reason}") from exc
             except urllib.error.URLError as exc:
                 last_error = exc
                 if attempt < max_retries:
                     _time.sleep(retry_delay * (2 ** attempt))
                     continue
-                raise ValueError(f"API Source: cannot reach {url}: {exc.reason}") from exc
+                raise ValueError(f"API Source: cannot reach {shown}: {exc.reason}") from exc
 
         raise ValueError(f"API Source: failed after {max_retries} retries: {last_error}")
 
+    @staticmethod
+    def _read_reply(body: bytes, content_type: str) -> Any:
+        """JSON as data, or an XML document. Anything else is an error that says what came back."""
+        kind = reply_kind(content_type, body)
+        if kind == "xml":
+            root = parse_xml(body)
+            if local_name(root.tag).lower() == "html":
+                raise ValueError("API Source: the reply is a web page, not data. Check the address and sign-in.")
+            raise_for_soap_fault(root)
+            return XmlReply(root)
+        try:
+            return json.loads(decode_text(body, content_type))
+        except ValueError:
+            pass
+        what = {
+            "html": "a web page",
+            "binary": f"a file ({describe_binary(content_type, body)})",
+            "empty": "empty",
+        }.get(kind, "neither JSON nor XML")
+        raise ValueError(f"API Source: the reply is {what}, so there are no rows to read. Check the address and sign-in.")
+
+    @staticmethod
+    def _page_value(raw: Any, *names: str) -> Any:
+        """The first of these fields in a page: a key of a JSON reply, or an element of an XML one."""
+        for name in names:
+            if not name:
+                continue
+            value = raw.text_of(name) if isinstance(raw, XmlReply) else raw.get(name)
+            if value:
+                return value
+        return None
+
+    def _pagination_style(self) -> str:
+        """How the step pages, as the step form means it (2026-11-11).
+
+        The form keeps the style under Operation = Paginate, shows
+        "page_number" there until another is chosen without saving it, and
+        leaves an earlier style behind when Operation goes back to Fetch.
+        A step saved through the API without an Operation keeps its style.
+        """
+        operation = str(self.params.get("operation") or "").strip().lower()
+        style = str(self.params.get("pagination") or "").strip()
+        if operation and operation != "paginate":
+            return "none"
+        if operation == "paginate" and not style:
+            style = "page_number"
+        return _PAGINATION_ALIASES.get(style, style) or "none"
+
+    @staticmethod
+    def _page_rows(raw: Any, data_key: str, row_path: str) -> tuple[list, bool]:
+        """The records on one page, and whether they came from a list of records."""
+        if isinstance(raw, XmlReply):
+            return raw.rows(row_path), True
+        if isinstance(raw, list):
+            return raw, True
+        if isinstance(raw, dict):
+            if data_key and data_key in raw:
+                value = raw[data_key]
+                if isinstance(value, list):
+                    return value, True
+                return ([] if value is None else [value]), False
+            for key in ("data", "results", "items", "records", "rows", "values"):
+                if isinstance(raw.get(key), list):
+                    return raw[key], True
+            return [raw], False
+        return [], False
+
     def _fetch_paginated(self, url: str, method: str, headers: dict,
                          body: str) -> list[dict]:
-        """Fetch all pages using configured pagination strategy."""
-        pagination = self.params.get("pagination", "none")
-        max_pages = int(self.params.get("max_pages", 100))
-        data_key = self.params.get("data_key", "")
+        """Fetch all pages using the configured paging style.
 
+        2026-11-11, found live: offset paging repeated one offset; a page
+        shorter than Page Size ended the reading although the API's own page
+        size can be smaller; a reply that is a bare list was never paged.
+        Now a page ends the reading when it is empty, or shorter than the
+        largest page the API has sent; the offset moves on by the rows
+        received; and an API that sends the same page twice stops the step
+        instead of repeating rows.
+        """
+        pagination = self._pagination_style()
         if pagination == "none":
             return self._do_request(url, method, headers, body)
 
+        max_pages = int(self.params.get("max_pages") or 100)
+        data_key = str(self.params.get("data_key") or "")
+        row_path = str(self.params.get("row_path") or "")
+        page_size = int(self.params.get("page_size") or 100)
+
+        # Ask for Page Size rows a page where the API takes a size parameter:
+        # Limit Parameter ("limit") with offset paging, Page Size Parameter
+        # (none unless set) with page paging. A size typed in the URL wins.
+        if pagination == "offset":
+            size_param = str(self.params.get("limit_param", "limit") or "").strip()
+        elif pagination == "page":
+            size_param = str(self.params.get("page_size_param") or "").strip()
+        else:
+            size_param = ""
+        if size_param and _query_value(url, size_param) is None:
+            url = _set_query(url, size_param, page_size)
+
+        offset_param = str(self.params.get("offset_param") or "offset")
+        page_param = str(self.params.get("page_param") or "page")
         all_rows: list[dict] = []
         current_url = url
+        offset = 0
         page = 1
+        largest = 0
+        previous: list | None = None
 
-        for _ in range(max_pages):
+        for number in range(max_pages):
             raw = self._do_request_raw(current_url, method, headers, body)
-            if not isinstance(raw, dict):
-                all_rows.extend(raw if isinstance(raw, list) else [])
+            rows, listed = self._page_rows(raw, data_key, row_path)
+            if not rows or (number and not listed):
+                # Nothing more, or a later page with no list of records in it.
                 break
-
-            # Extract data from response
-            rows = self._extract_data(raw, data_key)
-            if not rows:
-                break
+            if previous is not None and rows == previous:
+                raise ValueError(
+                    "API Source: the API sent the same page twice, so reading stopped "
+                    "rather than repeat rows. Check the paging settings, such as the "
+                    "offset or page parameter name."
+                )
+            previous = rows
             all_rows.extend(rows)
+            if not listed:
+                break  # a single record: nothing to page through
+            short = len(rows) < largest
+            largest = max(largest, len(rows))
 
             # Determine next page
             if pagination == "link":
-                # Follow next link (Link header or response body)
-                next_url = raw.get("next") or raw.get("next_page") or raw.get("nextLink")
+                # Follow next link (response body, else the Link header)
+                next_url = self._page_value(raw, "next", "next_page", "nextLink") if not isinstance(raw, list) else None
+                if not next_url:
+                    match = _LINK_NEXT.search(getattr(self, "_last_headers", {}).get("Link", ""))
+                    next_url = match.group(1) if match else None
                 if not next_url:
                     break
+                next_url = urllib.parse.urljoin(current_url, str(next_url))
+                # The request carries the connection's sign-in, so it stays on its site.
+                if not same_site(next_url, url):
+                    raise ValueError("API Source: the next page is on a different site, so it was not followed.")
                 current_url = next_url
             elif pagination == "offset":
-                page_size = int(self.params.get("page_size", 100))
-                offset_param = self.params.get("offset_param", "offset")
-                if len(rows) < page_size:
+                if short:
                     break
-                sep = "&" if "?" in url else "?"
-                current_url = f"{url}{sep}{offset_param}={page * page_size}"
+                offset += len(rows)
+                current_url = _set_query(current_url, offset_param, offset)
             elif pagination == "cursor":
                 cursor_field = self.params.get("cursor_field", "cursor")
                 cursor_param = self.params.get("cursor_param", "cursor")
-                cursor_val = raw.get(cursor_field) or raw.get("next_cursor")
+                cursor_val = self._page_value(raw, cursor_field, "next_cursor") if not isinstance(raw, list) else None
                 if not cursor_val:
                     break
-                sep = "&" if "?" in url else "?"
-                current_url = f"{url}{sep}{cursor_param}={cursor_val}"
+                current_url = _set_query(url, cursor_param, cursor_val)
             elif pagination == "page":
-                page_param = self.params.get("page_param", "page")
-                page_size = int(self.params.get("page_size", 100))
-                if len(rows) < page_size:
+                if short:
                     break
                 page += 1
-                sep = "&" if "?" in url else "?"
-                current_url = f"{url}{sep}{page_param}={page}"
+                current_url = _set_query(current_url, page_param, page)
             else:
                 break
+        else:
+            logger.warning(
+                "API Source: stopped after Max Pages (%s); the API may have more rows.", max_pages,
+            )
 
         return all_rows
 
@@ -369,8 +561,9 @@ class ApiSourceNode(BaseNode):
         for attempt in range(max_retries + 1):
             try:
                 req = urllib.request.Request(url, method=method, headers=headers, data=data)
-                with _no_redirect_opener().open(req, timeout=timeout) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
+                with _no_redirect_opener(getattr(self, "_ssl_context", None)).open(req, timeout=timeout) as resp:
+                    self._last_headers = dict(resp.headers.items())
+                    return self._read_reply(resp.read(), resp.headers.get("Content-Type", ""))
             except (urllib.error.HTTPError, urllib.error.URLError):
                 if attempt < max_retries:
                     _time.sleep(retry_delay * (2 ** attempt))
@@ -516,7 +709,7 @@ class ApiSourceNode(BaseNode):
             "connection_id": "", "url": "", "file_path": "",
             "path": "", "headers": {},
             "pagination": "none", "max_pages": 100,
-            "page_size": 100, "data_key": "",
+            "page_size": 100, "data_key": "", "row_path": "",
             "offset_param": "offset", "page_param": "page",
             "cursor_field": "cursor", "cursor_param": "cursor",
             "max_retries": 3, "retry_delay": 1, "timeout": 30,
@@ -539,6 +732,9 @@ class ApiSourceNode(BaseNode):
             {"name": "data_key", "type": "text", "label": "Data Key", "tab": "Source",
              "placeholder": "data, results, items",
              "description": "JSON key containing the array of records. Auto-detected if empty."},
+            {"name": "row_path", "type": "text", "label": "Row Path (XML)", "tab": "Source",
+             "placeholder": "//order",
+             "description": "For an API that answers in XML: the element that is one row. Empty finds the repeating element."},
             {"name": "file_path", "type": "text", "label": "Local JSON (testing)", "tab": "Source",
              "placeholder": "sample.json"},
             # Pagination tab
@@ -564,6 +760,19 @@ class ApiSourceNode(BaseNode):
             {"name": "cursor_param", "type": "text", "label": "Cursor Parameter (in URL)",
              "default": "cursor", "tab": "Pagination",
              "show_when": {"pagination": ["cursor"]}},
+            # 2026-11-11: the form saves these too; listed so their meaning is known.
+            {"name": "operation", "type": "select", "label": "Operation",
+             "options": ["fetch", "paginate"], "tab": "Pagination",
+             "description": "fetch = one request; paginate = read every page using the settings below. "
+                            "Without it, a step pages when it names a Pagination Strategy."},
+            {"name": "limit_param", "type": "text", "label": "Limit Parameter",
+             "default": "limit", "tab": "Pagination",
+             "show_when": {"pagination": ["offset", "offset_limit"]},
+             "description": "Sends Page Size with each request, e.g. limit. Empty sends none."},
+            {"name": "page_size_param", "type": "text", "label": "Page Size Parameter",
+             "tab": "Pagination",
+             "show_when": {"pagination": ["page", "page_number"]},
+             "description": "Optional, e.g. per_page: sends Page Size with each request."},
             # Reliability tab
             {"name": "max_retries", "type": "number", "label": "Max Retries",
              "default": 3, "tab": "Reliability",
@@ -1751,6 +1960,58 @@ def _quote_ident(name: str, conn_type: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
+def _table_parts(table: Any, schema: Any = "") -> list[str]:
+    """The parts of a table name: the step's Schema, then the table.
+
+    2026-11-11: the sink ignored its Schema field and quoted `sales.orders`
+    as one name, so it wrote a table literally called "sales.orders" in the
+    default schema. With no Schema, a dotted name is read as schema.table
+    (or database.schema.table on SQL Server). With a Schema, the table is
+    taken whole.
+    """
+    table = str(table or "").strip()
+    schema = str(schema or "").strip()
+    parts = [table] if schema else [p.strip() for p in table.split(".")]
+    if not table or any(not p for p in parts):
+        raise ValueError(f"DB Sink: '{table}' is not a valid table name.")
+    return ([schema] if schema else []) + parts
+
+
+def _bindable_rows(rows: list[tuple], conn_type: str) -> list[tuple]:
+    """Rows with values every database driver can take as parameters.
+
+    2026-11-11: a nested value (a DuckDB STRUCT, LIST or MAP arrives as a
+    dict or list) stopped the write with a driver error. It is now written
+    as JSON text, into the text column the table gets for it. A UUID or an
+    interval becomes text; SQLite also cannot take a Decimal.
+    """
+    import datetime as _dt
+    import decimal as _decimal
+    import uuid as _uuid
+
+    def as_json(value: Any) -> Any:
+        # Numbers stay numbers and dates become ISO text inside the JSON.
+        if isinstance(value, _decimal.Decimal):
+            return int(value) if value == value.to_integral_value() else float(value)
+        if isinstance(value, (_dt.date, _dt.time)):
+            return value.isoformat()
+        return str(value)
+
+    def fix(value: Any) -> Any:
+        if isinstance(value, (dict, list, tuple)):
+            return json.dumps(value, default=as_json, ensure_ascii=False)
+        if isinstance(value, (_uuid.UUID, _dt.timedelta)):
+            return str(value)
+        if conn_type == "sqlite" and isinstance(value, _decimal.Decimal):
+            return float(value)
+        return value
+
+    needs = (dict, list, tuple, _uuid.UUID, _dt.timedelta) + ((_decimal.Decimal,) if conn_type == "sqlite" else ())
+    if not any(isinstance(v, needs) for row in rows for v in row):
+        return rows
+    return [tuple(fix(v) for v in row) for row in rows]
+
+
 def _validate_merge_columns(keys: list[str], columns: list[str]) -> None:
     """Fail loudly when a merge key is not in the incoming relation.
 
@@ -1843,6 +2104,7 @@ class DbSinkNode(BaseNode):
             raise ValueError("DB Sink has no input data")
 
         table = self.params.get("table", "output_table")
+        table_parts = _table_parts(table, self.params.get("schema"))
         mode = self.params.get("mode", "create")  # create | append | truncate | merge
         connection_id = self.params.get("connection_id", "")
         merge_on = _as_column_list(self.params.get("merge_on"))
@@ -1862,8 +2124,11 @@ class DbSinkNode(BaseNode):
         # If no connection specified, write to DuckDB in-memory
         if not connection_id:
             sink_data = ctx.register_scoped("__sink_data", source)
+            qtable = ".".join(_quote_ident(p, "duckdb") for p in table_parts)
             if mode == "append":
-                ctx.conn.sql(f'INSERT INTO "{table}" SELECT * FROM {sink_data}')
+                # The first append makes the table, as merge already did.
+                ctx.conn.sql(f'CREATE TABLE IF NOT EXISTS {qtable} AS SELECT * FROM {sink_data} WHERE 1=0')
+                ctx.conn.sql(f'INSERT INTO {qtable} SELECT * FROM {sink_data}')
             elif mode == "merge":
                 # Same delete-then-insert as the real-database path, so the
                 # in-memory target behaves identically. Without this branch
@@ -1871,19 +2136,19 @@ class DbSinkNode(BaseNode):
                 # discarded every existing row — the opposite of an upsert.
                 _validate_merge_columns(merge_on, list(source.columns))
                 ctx.conn.sql(
-                    f'CREATE TABLE IF NOT EXISTS "{table}" AS '
+                    f'CREATE TABLE IF NOT EXISTS {qtable} AS '
                     f'SELECT * FROM {sink_data} WHERE 1=0'
                 )
                 pred = " AND ".join(
                     f'tgt."{k}" IS NOT DISTINCT FROM src."{k}"' for k in merge_on
                 )
                 ctx.conn.sql(
-                    f'DELETE FROM "{table}" tgt WHERE EXISTS '
+                    f'DELETE FROM {qtable} tgt WHERE EXISTS '
                     f'(SELECT 1 FROM {sink_data} src WHERE {pred})'
                 )
-                ctx.conn.sql(f'INSERT INTO "{table}" SELECT * FROM {sink_data}')
+                ctx.conn.sql(f'INSERT INTO {qtable} SELECT * FROM {sink_data}')
             else:
-                ctx.conn.sql(f'CREATE OR REPLACE TABLE "{table}" AS SELECT * FROM {sink_data}')
+                ctx.conn.sql(f'CREATE OR REPLACE TABLE {qtable} AS SELECT * FROM {sink_data}')
             return source
 
         # Real database write
@@ -1900,7 +2165,7 @@ class DbSinkNode(BaseNode):
         types = source.types  # DuckDB type objects
         rows = ctx.conn.sql(f"SELECT * FROM {sink_export}").fetchall()
 
-        self._write_real(conn_type, config, table, columns, rows, mode, types,
+        self._write_real(conn_type, config, table_parts, columns, rows, mode, types,
                          merge_on=merge_on)
         return source
 
@@ -1921,8 +2186,14 @@ class DbSinkNode(BaseNode):
             self._write_postgresql(host, port, database, user, password, schema, table, columns, rows, mode, types, merge_on)
         elif conn_type == "mysql":
             self._write_mysql(host, port, database, user, password, table, columns, rows, mode, types, merge_on)
-        elif conn_type == "mssql":
+        elif conn_type in ("mssql", "synapse"):
+            # 2026-11-11: Azure Synapse SQL pools take SQL Server's protocol and SQL.
             self._write_mssql(host, port, database, user, password, table, columns, rows, mode, types, merge_on)
+        elif conn_type == "odbc":
+            raise ValueError(
+                "DB Sink: an ODBC database can be read but not written to. Write to it "
+                "with an Execute SQL step, or through the database's own connector."
+            )
         else:
             raise ValueError(f"DB Sink: unsupported connection type '{conn_type}'")
 
@@ -1997,7 +2268,11 @@ class DbSinkNode(BaseNode):
         """Generic write using DB-API 2.0 connection with proper type inference."""
         cur = conn.cursor()
         q = lambda ident: _quote_ident(ident, conn_type)  # noqa: E731
-        qtable = q(table)
+        # `table` is the parts from _table_parts, or a name (Copy Data, tests).
+        parts = list(table) if isinstance(table, (list, tuple)) else _table_parts(table)
+        qtable = ".".join(q(p) for p in parts)
+        raw_table = ".".join(parts)
+        rows = _bindable_rows(rows, conn_type)
         col_names = ", ".join(q(c) for c in columns)
         placeholders = ", ".join([placeholder] * len(columns))
         insert_sql = f'INSERT INTO {qtable} ({col_names}) VALUES ({placeholders})'
@@ -2037,6 +2312,9 @@ class DbSinkNode(BaseNode):
                 cur.executemany(insert_sql, rows)
 
         elif mode == "append":
+            # 2026-11-11: the first append makes the table, as merge already
+            # did. It used to fail because the table did not exist yet.
+            self._ensure_table(cur, qtable, col_defs, conn_type, raw_table)
             if rows:
                 cur.executemany(insert_sql, rows)
 
@@ -2059,7 +2337,7 @@ class DbSinkNode(BaseNode):
             # index on the keys is still worth having for the DELETE's sake.
             keys = list(merge_on or [])
             _validate_merge_columns(keys, columns)
-            self._ensure_table(cur, qtable, col_defs, conn_type, table)
+            self._ensure_table(cur, qtable, col_defs, conn_type, raw_table)
             if rows:
                 key_idx = [columns.index(k) for k in keys]
                 key_rows = [tuple(r[i] for i in key_idx) for r in rows]

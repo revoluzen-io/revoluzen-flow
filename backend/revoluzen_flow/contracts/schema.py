@@ -67,6 +67,22 @@ class Guarantee(BaseModel):
     # result object, because the engine computes them out-of-band)
     key: str | None = None            # no_duplicate_key
     max_age_seconds: int | None = None  # freshness_max_age
+    # freshness_max_age measured on this column of the output: the age of
+    # its newest value. Without it, the clause needs `source_age_seconds`
+    # from whoever ran the pipeline.
+    time_column: str | None = None
+    # The spec criterion this guarantee was made from (ir/spec.py). None for
+    # a guarantee someone wrote into the contract by hand, which making the
+    # contract from the spec again leaves alone.
+    criterion: str | None = None
+
+
+# Fields added after receipts were already in the field. The receipt hashes
+# over the contract, so these are left out of that canonical form while they
+# are empty: a receipt made before they existed then recomputes to its
+# stored hash. See verify._contract_canonical.
+CONTRACT_FIELDS_ADDED_LATER = ("spec_version", "spec_digest")
+GUARANTEE_FIELDS_ADDED_LATER = ("time_column", "criterion")
 
 
 class ExecutionContract(BaseModel):
@@ -80,6 +96,11 @@ class ExecutionContract(BaseModel):
     output: str | None = None          # e.g. "SQL Server / employee_timesheet"
     default_output_step: str | None = None
     guarantees: list[Guarantee] = Field(default_factory=list)
+    # When the contract was made from the pipeline's spec: the pipeline
+    # version that spec was read from, and the spec's digest. Every receipt
+    # copies both, so a verdict names the requirement it was judged against.
+    spec_version: int | None = None
+    spec_digest: str | None = None
 
 
 class ClauseResult(BaseModel):
@@ -207,6 +228,13 @@ class ContractVerification(BaseModel):
     # their stored hash (see verify._receipt_payload).
     blast_radius: list[BlastRadius] = Field(default_factory=list)
     attribution: list[StepAttribution] = Field(default_factory=list)
+    # Which requirement and which contract this verdict was judged against.
+    # Hashed into the receipt only when set, like the two lists above.
+    # `contract_digest` lets the publish gate tell a verdict on the contract
+    # as it stands from one on a contract that has since been changed.
+    spec_version: int | None = None
+    spec_digest: str | None = None
+    contract_digest: str | None = None
 
     @property
     def verified(self) -> bool:
@@ -227,6 +255,9 @@ class ContractVerification(BaseModel):
                 lines.append(f"- engine: {p.engine_version}  ")
             if p.trigger:
                 lines.append(f"- trigger: {p.trigger}  ")
+        if self.spec_digest:
+            version = f"version {self.spec_version}, " if self.spec_version is not None else ""
+            lines.append(f"- spec: {version}`{self.spec_digest[:12]}`  ")
         lines.append("")
         causes = {a.guarantee: a for a in self.attribution}
         for c in self.clauses:

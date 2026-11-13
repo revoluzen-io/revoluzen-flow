@@ -130,6 +130,15 @@ class StorageTable(BaseModel):
     prep_recipe: list[dict[str, Any]] | None = None
     prep_source_object_id: str | None = None
     prep_workflow_id: str | None = None
+    # 2026-11-10: which saved version of that pipeline wrote the data now in
+    # the table, and when, so the Storage page can say "Prepared by X,
+    # version N" and flag a preparation edited since. ``load_history`` keeps
+    # the last LOAD_HISTORY_LIMIT writes, newest first, each
+    # {at, workflow_id, version, run_id, mode, rows}. The version is None
+    # for a run of a canvas that was never saved.
+    prep_workflow_version: int | None = None
+    prep_loaded_at: datetime | None = None
+    load_history: list[dict[str, Any]] = Field(default_factory=list)
     # N3 (2026-05-26) — Declarative tests on managed tables. Each entry:
     #   {test_type: 'not_null' | 'unique' | 'accepted_values' | 'relationships',
     #    columns: ['col_name', ...],
@@ -140,8 +149,20 @@ class StorageTable(BaseModel):
     # each rule to a DuckDB SQL probe against the table's Parquet parts and
     # returns pass/fail with a row-count violation summary.
     tests: list[dict[str, Any]] = Field(default_factory=list)
+    # 2026-11-11 — table monitors (datastore/table_monitor.py). The tests
+    # above, run without anyone pressing Run: after every load into the
+    # table, and/or every N minutes, which is what catches a table that
+    # stopped being refreshed. ``last_test_run`` is the newest result,
+    # {ran_at, trigger, passed, failed, results}. Off unless set.
+    monitor_after_load: bool = False
+    monitor_every_minutes: int | None = None
+    last_test_run: dict[str, Any] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+#: How many past writes a managed table remembers in ``load_history``.
+LOAD_HISTORY_LIMIT = 20
 
 
 class StorageColumn(BaseModel):

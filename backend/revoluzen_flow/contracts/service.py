@@ -32,6 +32,8 @@ def verify_run(
     destination_verified: bool | None = None,
     duplicate_key_counts: dict[str, int] | None = None,
     source_age_seconds: float | None = None,
+    column_age_seconds: dict[str, float] | None = None,
+    unmeasured: dict[str, str] | None = None,
     prev_hash: str | None = None,
     now: datetime | None = None,
     pipeline_hash: str | None = None,
@@ -66,6 +68,10 @@ def verify_run(
         facts["duplicate_key_counts"] = duplicate_key_counts
     if source_age_seconds is not None:
         facts["source_age_seconds"] = source_age_seconds
+    if column_age_seconds:
+        facts["column_age_seconds"] = column_age_seconds
+    if unmeasured:
+        facts["unmeasured"] = unmeasured
 
     return verify_contract(
         contract, run,

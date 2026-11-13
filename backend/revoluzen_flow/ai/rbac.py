@@ -85,6 +85,14 @@ _RBAC_MATRIX: dict[str, dict[str, set[ToolTier]]] = {
 # Legacy role aliases — match revoluzen_flow.auth.deps role rank table.
 _RBAC_MATRIX["lead"] = _RBAC_MATRIX["admin"]
 _RBAC_MATRIX["member"] = _RBAC_MATRIX["developer"]
+# Every role in auth.deps._ROLE_RANK must appear here. analyst,
+# data_engineer and workspace_admin were missing, so on OSS they fell into
+# the unknown-role branch and got ALL tiers — an analyst (below developer)
+# could invoke high-impact write tools through the Copilot (2026-11-13 pen
+# test). Map each to the closest existing row by rank.
+_RBAC_MATRIX["analyst"] = _RBAC_MATRIX["viewer"]
+_RBAC_MATRIX["data_engineer"] = _RBAC_MATRIX["developer"]
+_RBAC_MATRIX["workspace_admin"] = _RBAC_MATRIX["admin"]
 
 
 def authorize_tool_call(

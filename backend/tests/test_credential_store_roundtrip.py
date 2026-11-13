@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
 from revoluzen_flow.credentials.models import Credential
 from revoluzen_flow.credentials.store import CredentialStore
 from revoluzen_flow.security.encryptor import Encryptor, fresh_encryptor_for_tests
@@ -112,8 +113,7 @@ def test_an_update_never_hands_back_the_plain_secret(store):
     credential = _saved(store)
     updated = store.update(credential.id, {"name": "Renamed"})
     assert PASSWORD not in str(updated.config)
-    assert store._mask_config(updated.config)["password"].endswith("***")
-    assert not store._mask_config(updated.config)["password"].startswith(PASSWORD[:2])
+    assert store._mask_config(updated.config)["password"] == SECRET_PLACEHOLDER
 
 
 def test_a_row_already_encrypted_several_times_is_repaired(store, encryptor):

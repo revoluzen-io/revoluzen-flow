@@ -3,6 +3,7 @@ import {
   isIncomplete, resolvePath, runAssertions, describeAssertion,
   type Assertion, type ResponseUnderTest,
 } from '../utils/apiAssertions';
+import { resolveXmlPath } from '../utils/apiXml';
 
 const response: ResponseUnderTest = {
   status: 200,
@@ -17,6 +18,54 @@ const check = (patch: Partial<Assertion>): Assertion => ({
 });
 
 const run = (patch: Partial<Assertion>) => runAssertions([check(patch)], response)[0];
+
+describe('XML paths', () => {
+  const xml: ResponseUnderTest = {
+    status: 200, elapsed_ms: 10, headers: {}, kind: 'xml', text: '<orders><order id="1"/></orders>',
+    data: { orders: { count: '2', order: [{ '@id': '1', sku: 'A', price: { '@currency': 'USD', '#text': '10' } }, { '@id': '2', sku: 'B', note: null }] } },
+  };
+  const runXml = (patch: Partial<Assertion>) => runAssertions([check({ subject: 'xml_path', ...patch })], xml)[0];
+
+  it('finds elements, attributes and positions, by local name', () => {
+    expect(resolveXmlPath(xml.data, '/orders/count').value).toBe('2');
+    expect(resolveXmlPath(xml.data, '//order[2]/sku').value).toBe('B');
+    expect(resolveXmlPath(xml.data, '/orders/order/@id').value).toEqual(['1', '2']);
+    expect(resolveXmlPath(xml.data, '//sku').matches).toEqual(['A', 'B']);
+    expect(resolveXmlPath(xml.data, 'ns:sku').matches).toEqual(['A', 'B']);
+    expect(resolveXmlPath(xml.data, '/orders/order[1]/price').value).toBe('10');
+    expect(resolveXmlPath(xml.data, '/orders/order[1]/price/@currency').value).toBe('USD');
+  });
+
+  it('treats an empty element as present and blank', () => {
+    expect(resolveXmlPath(xml.data, '//note')).toMatchObject({ found: true, value: '' });
+  });
+
+  it('reports absence, and cannot walk into inherited properties', () => {
+    for (const path of ['/orders/missing', '//__proto__', '/orders/constructor', '', '/orders/order[']) {
+      expect(resolveXmlPath(xml.data, path).found).toBe(false);
+    }
+  });
+
+  it('runs as a check', () => {
+    expect(runXml({ target: '/orders/order[1]/sku', operator: 'equals', expected: 'A' }).passed).toBe(true);
+    expect(runXml({ target: '/orders/order[1]/sku', operator: 'equals', expected: 'Z' }).actual).toBe('A');
+    expect(runXml({ target: '//missing', operator: 'exists', expected: '' }).passed).toBe(false);
+  });
+
+  it('counts how many elements matched, even when only one did', () => {
+    expect(runXml({ target: '//order', operator: 'length_at_least', expected: '2' }).passed).toBe(true);
+    expect(runXml({ target: '/orders/order[1]', operator: 'length_at_least', expected: '2' }).passed).toBe(false);
+    expect(runXml({ target: '/orders/order[1]', operator: 'length_at_least', expected: '2' }).actual).toBe('1 items');
+  });
+
+  it('checks body text against the XML itself', () => {
+    expect(runXml({ subject: 'body_text', operator: 'contains', expected: '<order id="1"/>' }).passed).toBe(true);
+  });
+
+  it('skips a check with no path yet', () => {
+    expect(isIncomplete(check({ subject: 'xml_path', target: ' ', operator: 'exists', expected: '' }))).toBe(true);
+  });
+});
 
 describe('resolvePath', () => {
   it('walks index and quoted-key tokens', () => {

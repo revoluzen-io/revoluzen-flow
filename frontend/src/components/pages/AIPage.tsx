@@ -30,6 +30,7 @@ import ActivityPage from './ActivityPage';
 import TrustPage from './TrustPage';
 import ReportsPage from './ReportsPage';
 import ApiExplorerPage from './ApiExplorerPage';
+import GlossaryPanel from '../glossary/GlossaryPanel';
 import { getAgentStatus, type AgentStatus } from '../../api/agent';
 import { getOllamaStatus, type OllamaStatus } from '../../api/ollama';
 import { usePageContext } from '../../hooks/usePageContext';
@@ -196,7 +197,7 @@ function ActiveProviderSummary({ dark }: { dark: boolean }) {
   );
 }
 
-type AITab = 'settings' | 'activity' | 'reports' | 'trust' | 'author';
+type AITab = 'settings' | 'activity' | 'reports' | 'trust' | 'author' | 'glossary';
 
 // Each sub-tab maps to a top-level page id so clicking a tab updates the
 // URL hash. Refresh / share-URL / browser-back then preserve the tab.
@@ -214,6 +215,7 @@ const TAB_TO_PAGE = {
   reports: 'reports',
   trust: 'trust',
   author: 'author',
+  glossary: 'glossary',
 } as const;
 
 interface Props {
@@ -290,9 +292,21 @@ export default function AIPage({
       ),
     },
     {
+      id: 'glossary',
+      label: 'Glossary',
+      title: 'Business glossary',
+      subtitle: 'Your terms and metrics. The Copilot uses them when a request does.',
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg>
+      ),
+    },
+    {
       id: 'reports',
       label: 'Reports',
-      subtitle: 'Snapshot the live state of your installation as a PDF or Word document.',
+      subtitle: 'Design the reports you need, and send them on a schedule.',
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -369,8 +383,9 @@ export default function AIPage({
         {/* Cap reading-column at 1300px so Insights sections (Activity / Trust /
             Reports / Provider) feel composed on wide screens but use enough
             horizontal space to be comfortably readable on 1920px monitors. */}
-        <div className={`w-full mx-auto ${tab === 'author' ? 'max-w-[1560px]' : 'max-w-[1300px]'}`}>
+        <div className={`w-full mx-auto ${tab === 'author' || tab === 'reports' ? 'max-w-[1560px]' : 'max-w-[1300px]'}`}>
           {tab === 'activity' && <ActivityPage embedded />}
+          {tab === 'glossary' && <GlossaryPanel dark={dark} />}
 
           {tab === 'trust' && <TrustPage embedded />}
 

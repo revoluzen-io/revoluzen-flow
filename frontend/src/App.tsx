@@ -38,7 +38,6 @@ const ExtractionPage = lazy(() => import('./components/pages/ExtractionPage'));
 const CredentialsPage = lazy(() => import('./components/pages/CredentialsPage'));
 const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
 const ConnectionsPage = lazy(() => import('./components/pages/ConnectionsPage'));
-const ProjectsPage = lazy(() => import('./components/pages/ProjectsPage'));
 const HelpPage = lazy(() => import('./components/pages/HelpPage'));
 const TrustPage = lazy(() => import('./components/pages/TrustPage'));
 // CertMatrixPage folded into Insights → Trust (2026-06-17) as an expandable
@@ -65,8 +64,11 @@ const OllamaRecommendationBanner = lazy(() => import('./components/OllamaRecomme
 import Toast, { toast } from './components/Toast';
 const FloatingAgentWidget = lazy(() => import('./components/agent/FloatingAgentWidget'));
 import CopyrightFooter from './components/CopyrightFooter';
-import { useWorkflowStore } from './stores/workflowStore';
+import { useWorkflowStore, describeTab, forgetSavedTabs } from './stores/workflowStore';
+import { forgetViewTabs } from './stores/pipelineViewTabs';
 import EditorContextBar from './components/EditorContextBar';
+import OpenPipelineTabs from './components/editor/OpenPipelineTabs';
+import PublishedBanner from './components/editor/PublishedBanner';
 import { api } from './api/client';
 // 2026-05-23 (P0 Day 2): canAccessAdmin / canAccessAdminInEnv /
 // hasPermission dropped from the import — they were only used by the
@@ -85,7 +87,7 @@ import { canAccessProd } from './auth/permissions';
 // the `as any` casts on Sidebar / Search go away.
 import type { Page } from './types';
 import { VALID_PAGES, DEFAULT_PAGE } from './types';
-import { navigateTo as routerNavigateTo, navigateToSubRoute, readCurrentPage } from './router';
+import { navigateTo as routerNavigateTo, navigateToSubRoute, navigateWithQuery, readCurrentPage, readSubRoute } from './router';
 type Environment = 'dev' | 'prod';
 type Tier = 'free' | 'plus';
 
@@ -147,7 +149,9 @@ export default function App() {
   // banner "Published — autosave suspended" can react when either
   // changes. The banner only renders when both are true.
   const editorWorkflowStatus = useWorkflowStore((s) => s.status);
-  const editorIsDirty = useWorkflowStore((s) => s.isDirty);
+  // Each open pipeline is a tab. The canvas and its panels start afresh for
+  // each tab, so nothing from one pipeline shows in another.
+  const editorTabKey = useWorkflowStore((s) => s.activeTabKey) || 'none';
 
   // Check license tier on mount, on tab focus, and on visibility change.
   //
@@ -290,7 +294,7 @@ export default function App() {
   // The deps include `page` and `tier` so the redirect fires when the
   // user navigates into Admin from DEV (old code only fired on env
   // change, which missed the click-Admin-from-DEV path).
-  const DEV_ONLY_PAGES: Page[] = ['editor', 'projects'];
+  const DEV_ONLY_PAGES: Page[] = ['editor'];
   useEffect(() => {
     localStorage.setItem('revoluzen_flow_env', environment);
     if (environment === 'prod' && DEV_ONLY_PAGES.includes(page)) {
@@ -390,13 +394,65 @@ export default function App() {
   // in "default" because the toolbar's picker has no signal about where
   // the user came from. Editing an existing pipeline already carries its
   // project_id in the loaded IR, so we leave it alone.
+  // A new pipeline started from the Pipelines page already carries its
+  // project (and folder), so only a canvas with none takes it from here.
   useEffect(() => {
     if (page !== 'editor') return;
-    const { workflowId, setProjectId } = useWorkflowStore.getState();
-    if (!workflowId) {
+    const { workflowId, projectId, setProjectId } = useWorkflowStore.getState();
+    if (!workflowId && !projectId) {
       setProjectId(activeProjectId);
     }
   }, [page, activeProjectId]);
+
+  // The editor's address names the pipeline on screen (#editor/<id>), so a
+  // link, a bookmark, a reload or Back opens that pipeline in its tab. With
+  // no id the editor shows the tab used last, or an empty canvas.
+  useEffect(() => {
+    if (page !== 'editor') return;
+    const syncAddress = () => {
+      if (readCurrentPage() !== 'editor') return;
+      const s = useWorkflowStore.getState();
+      if (!s.activeTabKey) return;
+      const want = s.workflowId && !s.pastRunId ? `#editor/${s.workflowId}` : '#editor';
+      if (window.location.hash !== want) history.replaceState(null, '', want);
+    };
+    const follow = async () => {
+      if (readCurrentPage() !== 'editor') return;
+      await useWorkflowStore.getState().ensureEditorTab(readSubRoute());
+      syncAddress();
+    };
+    void follow();
+    window.addEventListener('hashchange', follow);
+    // A tab picked, a first save or a tab closed: the address follows.
+    const unsubscribe = useWorkflowStore.subscribe((s, prev) => {
+      if (s.activeTabKey !== prev.activeTabKey || s.workflowId !== prev.workflowId || s.pastRunId !== prev.pastRunId) {
+        syncAddress();
+      }
+    });
+    return () => {
+      window.removeEventListener('hashchange', follow);
+      unsubscribe();
+    };
+  }, [page]);
+
+  // Leaving or reloading the app with unsaved edits in any open pipeline,
+  // on screen or in another tab, asks first. A past run has nothing to lose.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      const s = useWorkflowStore.getState();
+      const dirty =
+        s.openTabs.some((t) => {
+          const v = describeTab(t, s);
+          return v.isDirty && !v.pastRunId;
+        }) || (!s.activeTabKey && s.isDirty && !s.pastRunId);
+      if (!dirty) return;
+      e.preventDefault();
+      // Chrome needs returnValue set; Firefox uses preventDefault alone.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   // Hash-based routing.
   // First segment selects the Page; everything after the first slash
@@ -413,6 +469,15 @@ export default function App() {
       const raw = window.location.hash.replace('#', '') || DEFAULT_PAGE;
       const path = raw.split('?')[0];
       const first = path.split('/')[0];
+      // 2026-11-10: the Projects page became the project panel on the
+      // Pipelines page. Old links and bookmarks still land: `#projects` opens
+      // the list, `#projects/<id>` opens it on that project.
+      if (first === 'projects') {
+        const id = path.split('/')[1];
+        history.replaceState(null, '', `#pipelines${id ? `?project=${encodeURIComponent(id)}` : ''}`);
+        setPage('pipelines');
+        return;
+      }
       if (VALID_PAGES.includes(first as Page)) {
         setPage(readCurrentPage());
       }
@@ -463,7 +528,7 @@ export default function App() {
       connections: 'connections',
       credentials: 'credentials',
       dashboard: 'dashboard',
-      projects: 'projects',
+      projects: 'pipelines',
       settings: 'settings',
       help: 'help',
       alerts: 'notifications',
@@ -473,6 +538,7 @@ export default function App() {
       reports: 'reports',
       trust: 'trust',
       activity: 'activity',
+      glossary: 'glossary',
       ai: 'ai',
       account: 'account',
       'cert-matrix': 'cert-matrix',
@@ -554,21 +620,43 @@ export default function App() {
     // workflow-store dirty flag first and let the user save or explicitly
     // discard before we wipe state.
     try {
-      const { isDirty, workflowId, ensureWorkflow } = useWorkflowStore.getState();
-      if (isDirty && workflowId) {
+      // Every open pipeline with unsaved edits, on screen or in another tab.
+      const st = useWorkflowStore.getState();
+      const dirtyTabs = st.openTabs
+        .map((t) => describeTab(t, st))
+        .filter((v) => v.isDirty && v.workflowId && !v.pastRunId);
+      const looseDirty = !st.activeTabKey && st.isDirty && !!st.workflowId && !st.pastRunId;
+      const count = dirtyTabs.length + (looseDirty ? 1 : 0);
+      if (count > 0) {
         const choice = await uiConfirm({
           title: 'You have unsaved changes',
-          message: 'Save your pipeline before logging out? Unsaved canvas edits will be lost otherwise.',
+          message: count === 1
+            ? 'Save your pipeline before logging out? Unsaved canvas edits will be lost otherwise.'
+            : `Save your ${count} pipelines with unsaved changes before logging out? Their unsaved edits will be lost otherwise.`,
           confirmLabel: 'Save & log out',
           cancelLabel: 'Discard & log out',
         });
         if (choice) {
-          try { await ensureWorkflow({ allowCreate: true }); } catch { /* still log out even if save failed */ }
+          if (looseDirty) {
+            try { await st.ensureWorkflow({ allowCreate: true }); } catch { /* still log out even if save failed */ }
+          }
+          for (const v of dirtyTabs) {
+            try {
+              // Saving works on the pipeline on screen, so each comes forward in turn.
+              if (await useWorkflowStore.getState().activateTab(v.key)) {
+                await useWorkflowStore.getState().ensureWorkflow({ allowCreate: true });
+              }
+            } catch { /* still log out even if a save failed */ }
+          }
         }
       }
     } catch {
       /* if the store throws, fall through to logout regardless */
     }
+    // The saved lists of open tabs name pipelines; the next person to sign in
+    // on this browser should not see them.
+    forgetSavedTabs();
+    forgetViewTabs();
     try {
       await api.logout();
     } catch {
@@ -884,10 +972,16 @@ export default function App() {
     );
   }
 
-  const handleSelectProject = (id: string, name?: string) => {
+  // The project panel on the Pipelines page decides which project the app is
+  // looking at; Executions, Connections, Credentials and Storage follow it.
+  const handleScopeChange = (id: string | null, name: string) => {
     setActiveProjectId(id);
-    setActiveProjectName(name || id);
-    navigate('pipelines');
+    setActiveProjectName(id ? (name || id) : '');
+  };
+  // "Projects" on a page's blue project bar: back to the project panel, on
+  // the same project.
+  const goToProjectPanel = () => {
+    navigateWithQuery('pipelines', activeProjectId ? { project: activeProjectId } : {});
   };
 
   const clearProject = () => {
@@ -897,32 +991,38 @@ export default function App() {
 
   const handleOnboardingComplete = async (projectName: string, template?: string) => {
     setShowOnboarding(false);
-    // Persist the project so it survives reload and appears on the
-    // Projects page. We only attempt the API call when a session token
+    // Persist the project so it survives reload and appears in the
+    // project panel. We only attempt the API call when a session token
     // exists — that covers the normal first-run path (bootstrap user
     // signed in) and avoids a noisy 401 toast on an anonymous preview.
     const trimmed = projectName.trim() || 'My First Project';
     setActiveProjectName(trimmed);
+    let createdProjectId: string | null = null;
     if (localStorage.getItem('revoluzen_flow_token')) {
       try {
         const created = await api.createProject({ name: trimmed });
         setActiveProjectId(created.id);
         setActiveProjectName(created.name);
+        createdProjectId = created.id;
       } catch (err: any) {
-        toast.error('Could not create project', err?.message || 'Try again from the Projects page.');
+        toast.error('Could not create project', err?.message || 'Try again with New in the project panel on the Pipelines page.');
       }
     }
     if (template) {
       navigate('editor');
       setTimeout(() => useWorkflowStore.getState().useTemplate(template), 300);
     } else {
-      navigate('projects');
+      navigateWithQuery('pipelines', createdProjectId ? { project: createdProjectId } : {});
     }
   };
 
   const handleSearchAction = (action: string) => {
     switch (action) {
-      case 'new_project': navigate('projects'); break;
+      // Global search sends 'new-project'; older callers sent 'new_project'.
+      case 'new_project':
+      case 'new-project':
+        navigateWithQuery('pipelines', { new: 'project' });
+        break;
       case 'new_pipeline': navigate('templates'); break;
       case 'run_workflow': useWorkflowStore.getState().runWorkflow(); break;
       // 2026-05-19 (P2 #11 of PAGE_BY_PAGE_AUDIT.md): the dark-mode
@@ -1117,30 +1217,8 @@ export default function App() {
                 </span>
               </div>
             )}
-            {/* 2026-05-28 — Published-pipeline edit banner.
-                Reported in internal testing: dragged a node onto a published
-                pipeline canvas to test, didn't click Save, auto-save
-                silently committed the half-baked change to the live
-                version, the scheduled run later failed with "Unknown
-                error" + alert email. Auto-save is now suspended on
-                published pipelines (see Canvas.tsx line ~440); this
-                banner explains the suspension so the user understands
-                why their edits aren't persisting and what to do. */}
-            {environment !== 'prod' && editorWorkflowStatus === 'published' && (
-              <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-200 flex items-center gap-2 shrink-0">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-violet-600 shrink-0">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-                <span className="text-xs font-medium text-violet-800">
-                  <strong>Published pipeline.</strong> Auto-save is suspended so live runs aren't broken by exploratory edits.
-                  {editorIsDirty
-                    ? ' You have unsaved changes. Test and Run use them as they are; click Save when they are ready, and the next scheduled run uses them.'
-                    : ' Scheduled runs use the latest version you Save.'}
-                </span>
-              </div>
-            )}
+            {/* A published pipeline is locked: Save makes a draft beside it. */}
+            {environment !== 'prod' && editorWorkflowStatus === 'published' && <PublishedBanner />}
             <Toolbar tier={tier} environment={environment} />
             {/* Editor row — nodes | (canvas + preview) | chat. Chat moved
                 to the right (May 10 2026) so it aligns with the floating
@@ -1164,16 +1242,21 @@ export default function App() {
                   not the full window — resizing either side panel
                   resizes the bar with them. */}
               <div data-testid="editor-canvas-column" className="flex-1 flex flex-col overflow-hidden min-w-0 isolate relative">
+                {/* The pipelines open in the editor, one tab each, with Open
+                    and New Pipeline at the right end: above the canvas and
+                    beside the Nodes panel, the way the Pipelines page's tabs
+                    sit beside its project panel. */}
+                <OpenPipelineTabs canCreate={environment !== 'prod'} />
                 <EditorContextBar />
                 <div className="flex-1 flex overflow-hidden relative">
-                  <Canvas />
-                  {codeEditorOpen && <CodeEditorPanel />}
+                  <Canvas key={editorTabKey} />
+                  {codeEditorOpen && <CodeEditorPanel key={editorTabKey} />}
                   {/* Brand mark — pinned to the bottom-left of the canvas
                       column so it stays visible even when a side panel
                       covers the global CopyrightFooter. */}
                   <CanvasCopyrightMark />
                 </div>
-                <PreviewPanel />
+                <PreviewPanel key={editorTabKey} />
               </div>
               {/* AI Copilot — DOCKED on the right of the editor (restored
                   2026-06-17 per user request). The Editor keeps its own
@@ -1187,20 +1270,19 @@ export default function App() {
             </div>
             {!codeEditorOpen && (
               <PanelErrorBoundary name="Config panel">
-                <ConfigPanel />
+                <ConfigPanel key={editorTabKey} />
               </PanelErrorBoundary>
             )}
           </>
         )}
-        {page === 'projects' && <ProjectsPage onSelectProject={handleSelectProject} environment={environment} tier={tier} />}
-        {page === 'pipelines' && <PipelinesPage onOpenEditor={() => navigate('editor')} projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
+        {page === 'pipelines' && <PipelinesPage onOpenEditor={() => navigate('editor')} projectId={activeProjectId} projectName={activeProjectName} onScopeChange={handleScopeChange} environment={environment} tier={tier} />}
         {page === 'templates' && <TemplatesPage onOpenEditor={() => navigate('editor')} environment={environment} tier={tier} />}
-        {page === 'executions' && <ExecutionsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
+        {page === 'executions' && <ExecutionsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={goToProjectPanel} environment={environment} tier={tier} />}
         {page === 'triggers' && <TriggersPage environment={environment} tier={tier} />}
         {/* Schedules removed — scheduling is pipeline-level via Quick Schedule */}
         {/* AlertsPage removed — alerts are pipeline-level, history in Notifications */}
-        {page === 'credentials' && <CredentialsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
-        {page === 'connections' && <ConnectionsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
+        {page === 'credentials' && <CredentialsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={goToProjectPanel} environment={environment} tier={tier} />}
+        {page === 'connections' && <ConnectionsPage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={goToProjectPanel} environment={environment} tier={tier} />}
         {page === 'dashboard' && <DashboardPage onNavigate={(p) => navigate(p as Page)} userName={user?.name} environment={environment} tier={tier} />}
         {/* Reports → AI hub (Reports tab). Standalone reports route still works (legacy bookmarks). */}
         {page === 'reports' && <AIPage environment={environment} tier={tier} user={user} initialTab="reports" />}
@@ -1208,7 +1290,7 @@ export default function App() {
         {page === 'notifications' && <NotificationsPage environment={environment} tier={tier} />}
         {page === 'pool' && <ExecutionPoolPage environment={environment} tier={tier} />}
         {/* 2026-05-23 (Y4) — workspace datastore (Files / Managed Tables / Outputs). */}
-        {page === 'storage' && <StoragePage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={() => { clearProject(); navigate('projects'); }} environment={environment} tier={tier} />}
+        {page === 'storage' && <StoragePage projectId={activeProjectId} projectName={activeProjectName} onClearProject={clearProject} onGoToProjects={goToProjectPanel} environment={environment} tier={tier} />}
         {/* Intelligence page removed */}
         {/* Monitor removed — Dashboard covers operational overview */}
         {page === 'lineage' && <LineagePage environment={environment} tier={tier} />}
@@ -1223,6 +1305,7 @@ export default function App() {
         {page === 'trust' && <AIPage environment={environment} tier={tier} user={user} initialTab="trust" />}
         {page === 'activity' && <AIPage environment={environment} tier={tier} user={user} initialTab="activity" />}
         {page === 'author' && <AIPage environment={environment} tier={tier} user={user} initialTab="author" />}
+        {page === 'glossary' && <AIPage environment={environment} tier={tier} user={user} initialTab="glossary" />}
         {/* #gallery was a separate tab of six spec links; it is now step one of
             the Explorer. Kept as a redirect so existing links still land. */}
         {page === 'gallery' && <AIPage environment={environment} tier={tier} user={user} initialTab="author" />}

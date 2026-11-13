@@ -54,6 +54,18 @@ class TestMessageClassification:
                      "Name or service not known", "DNS lookup failed"]:
             assert classify_error(msg) == FailureClass.DEPENDENCY, msg
 
+    def test_windows_socket_errors_are_classified(self):
+        # Windows words a refused connection its own way; a server that is down
+        # read as an unknown failure, so the incident said "unclassified" and
+        # auto-recover never tried again.
+        refused = "[WinError 10061] No connection could be made because the target machine actively refused it"
+        assert classify_error(refused) == FailureClass.DEPENDENCY
+        timed_out = ("[WinError 10060] A connection attempt failed because the connected party did not properly "
+                     "respond after a period of time, or established connection failed because connected host has failed to respond")
+        assert classify_error(timed_out) == FailureClass.TRANSIENT
+        dropped = "[WinError 10054] An existing connection was forcibly closed by the remote host"
+        assert classify_error(dropped) == FailureClass.TRANSIENT
+
     def test_5xx_classifications(self):
         # 500 = transient (try again), 503/504 = dependency (external down)
         assert classify_error("500 Internal Server Error") == FailureClass.TRANSIENT

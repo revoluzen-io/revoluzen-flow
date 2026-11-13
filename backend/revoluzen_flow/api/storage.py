@@ -34,9 +34,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from revoluzen_flow.auth.deps import current_workspace_id, require_admin, require_auth
+from revoluzen_flow.auth.deps import current_workspace_id, require_admin, require_auth, require_min_rank, require_min_rank_when_identified
 from revoluzen_flow.datastore.models import (
     CleanupRequest,
+    LOAD_HISTORY_LIMIT,
     OBJECT_KIND_FILE,
     OBJECT_KIND_OUTPUT,
     PromoteToTableRequest,
@@ -51,7 +52,9 @@ from revoluzen_flow.datastore.paths import (
     safe_schema_or_table_name,
     workspace_paths,
 )
-from revoluzen_flow.datastore.reader import infer_schema, preview_file, _json_safe
+from revoluzen_flow.datastore.reader import (
+    PROFILE_SAMPLE_ROWS, _json_safe, infer_schema, preview_file, profile_file, profile_relation,
+)
 from revoluzen_flow.datastore.store import get_store as get_datastore
 from revoluzen_flow.datastore.usage import compute_workspace_usage_cached
 
@@ -75,6 +78,22 @@ def _safe_workspace_id(request: Request) -> str:
 def _data_dir() -> str:
     from revoluzen_flow.main import app_state
     return app_state["data_dir"]
+
+
+def _refuse_if_published_uses(kind: str, name: str, workspace_id: str, *, path: str | None = None, table=None) -> None:
+    """409 when a published pipeline reads or writes this file or table."""
+    from revoluzen_flow.ir.published_refs import published_using_file, published_using_table, refusal
+    from revoluzen_flow.main import app_state
+
+    workflow_store = app_state.get("store")
+    if workflow_store is None:
+        return
+    pipelines = (
+        published_using_table(workflow_store, workspace_id, table.schema_name, table.name)
+        if table is not None else published_using_file(workflow_store, workspace_id, path or "")
+    )
+    if pipelines:
+        raise HTTPException(409, refusal(f"The {kind}", name, pipelines))
 
 
 def _abs_path_for(obj: StorageObject) -> str:
@@ -449,7 +468,7 @@ class StorageLocationProbe(BaseModel):
     data_dir: str
 
 
-@router.post("/location/test")
+@router.post("/location/test", dependencies=[Depends(require_min_rank_when_identified("admin"))])
 def test_storage_location(body: StorageLocationProbe, _ws: str = Depends(_safe_workspace_id)):
     """Validate a candidate data_dir without committing. UI calls this
     when the user clicks "Validate" to surface permission / disk-space
@@ -458,7 +477,7 @@ def test_storage_location(body: StorageLocationProbe, _ws: str = Depends(_safe_w
     return validate_path(body.data_dir)
 
 
-@router.put("/location")
+@router.put("/location", dependencies=[Depends(require_min_rank_when_identified("admin"))])
 def update_storage_location(body: StorageLocationUpdate, _ws: str = Depends(_safe_workspace_id)):
     """Persist a new data_dir override. The change takes effect on
     the next Revoluzen Flow restart — we intentionally don't hot-swap the
@@ -502,7 +521,7 @@ def update_storage_location(body: StorageLocationUpdate, _ws: str = Depends(_saf
     }
 
 
-@router.delete("/location")
+@router.delete("/location", dependencies=[Depends(require_min_rank_when_identified("admin"))])
 def clear_storage_location(_ws: str = Depends(_safe_workspace_id)):
     """Remove the persisted override; Revoluzen Flow will use the env var /
     default on next boot. Useful when the operator wants to undo a
@@ -999,6 +1018,34 @@ def preview(
         raise HTTPException(500, f"preview failed: {exc}")
 
 
+@router.get("/profile/{object_id}")
+def profile_object(
+    object_id: str,
+    workspace_id: str = Depends(_safe_workspace_id),
+    sample_rows: int = PROFILE_SAMPLE_ROWS,
+):
+    """Column statistics for an uploaded file or pipeline output: empty
+    values, distinct values, smallest and largest, the most common value,
+    and averages for numbers. What the Data Profile step reports, so a file
+    can be understood before a pipeline is built on it."""
+    obj = get_datastore().get_object(object_id, workspace_id=workspace_id)
+    if not obj:
+        raise HTTPException(404, "object not found")
+    fmt = obj.format or format_from_filename(obj.name)
+    if not fmt:
+        raise HTTPException(400, f"profile: unknown format for {obj.name!r}")
+    sample_rows = max(1_000, min(int(sample_rows or PROFILE_SAMPLE_ROWS), 1_000_000))
+    try:
+        return profile_file(_abs_path_for(obj), fmt, sample_rows=sample_rows)
+    except FileNotFoundError:
+        raise HTTPException(404, "file not found on disk (was it deleted manually?)")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("profile failed for %s", object_id)
+        raise HTTPException(500, f"profile failed: {exc}")
+
+
 # ── 4b. Raw download ──────────────────────────────────────────────────────
 
 
@@ -1197,6 +1244,7 @@ def soft_delete(
         raise HTTPException(404, "object not found")
     if obj.deleted_at:
         return obj.model_dump(mode="json")  # idempotent
+    _refuse_if_published_uses("file", obj.name, workspace_id, path=obj.path)
 
     paths = workspace_paths(_data_dir(), workspace_id).ensure()
     src_abs = _abs_path_for(obj)
@@ -1225,11 +1273,128 @@ def soft_delete(
 
 
 # ── 9. Promote-to-table ───────────────────────────────────────────────────
+#
+# 2026-11-10: every table made from a file has a PREPARATION, a saved
+# pipeline that does what the promote did (this file, the columns chosen,
+# into this table) in the shape Clean & promote scaffolds: Source → Data
+# Wrangler → Managed Table Sink. It opens in the Editor's Data Prep view and
+# can be changed and run at any time; the table records the version whose
+# result it holds. Promote saves it; a table promoted before this existed
+# gets one from POST /tables/{id}/preparation.
+
+
+def _wrangler_steps_for(column_map: dict[str, str]) -> list[dict[str, Any]]:
+    """Data Wrangler sub-steps that do what Promote's column choice did: keep
+    these columns in this order, then give the renamed ones their new names.
+    No choice made: no sub-steps, the file's columns as they are."""
+    import uuid
+
+    pairs = [(src, dest) for src, dest in (column_map or {}).items() if src and dest]
+    if not pairs:
+        return []
+    steps: list[dict[str, Any]] = [{
+        "id": f"sub_{uuid.uuid4().hex[:8]}",
+        "op": "select",
+        "enabled": True,
+        "label": "Keep columns",
+        "config": {"columns": [src for src, _ in pairs]},
+    }]
+    renames = {src: dest for src, dest in pairs if src != dest}
+    if renames:
+        steps.append({
+            "id": f"sub_{uuid.uuid4().hex[:8]}",
+            "op": "rename",
+            "enabled": True,
+            "label": "Rename columns",
+            "config": {"rename_map": renames},
+        })
+    return steps
+
+
+def _save_preparation(
+    request: Request,
+    workspace_id: str,
+    obj: StorageObject,
+    table: StorageTable,
+    column_map: dict[str, str] | None,
+    *,
+    recipe: list[dict[str, Any]] | None = None,
+) -> tuple[str, int, str] | None:
+    """Save the preparation pipeline for a table made from a file.
+
+    Returns ``(workflow_id, version, name)``, or None when the pipeline store
+    is not running. The preparation Promote made for this same table gets a
+    new version (earlier ones stay restorable). Any other pipeline that
+    writes the table is never touched: the table is given a new preparation
+    of its own instead.
+
+    ``recipe`` is the steps a table kept from a Data Prep that was never
+    saved; it is used as they are, in place of ``column_map``. Promote does
+    not own such a pipeline, so promoting again will not rewrite it.
+    """
+    from revoluzen_flow.auth.deps import current_user_optional
+    from revoluzen_flow.datastore.scaffold import build_file_cleanup_workflow
+    from revoluzen_flow.ir.schema import Workflow
+    from revoluzen_flow.main import app_state
+
+    wf_store = app_state.get("store")
+    if wf_store is None:
+        return None
+    blob = build_file_cleanup_workflow(
+        workspace_id=workspace_id,
+        file_name=obj.name,
+        file_path=obj.path,
+        file_format=obj.format or format_from_filename(obj.name),
+        target_schema=table.schema_name,
+        target_table=table.name,
+        project_id=obj.project_id,
+        source_object_id=obj.id,
+    )
+    for step in blob["steps"]:
+        if step.get("type") == "data_wrangler":
+            step["params"]["steps"] = list(recipe) if recipe is not None else _wrangler_steps_for(column_map or {})
+    # Named for the table: one file can make several tables.
+    blob["name"] = f"{table.schema_name}.{table.name} data prep"
+    blob["description"] = (
+        f"How {table.schema_name}.{table.name} is prepared from {obj.name}. "
+        "Change it here and run it to reload the table."
+    )
+    if recipe is None:
+        blob["metadata"] = {**(blob.get("metadata") or {}), "promoted_table_id": table.id}
+
+    user = current_user_optional(request)
+    saved_by = (getattr(user, "name", None) or getattr(user, "email", None) or "user") if user else "user"
+
+    current = None
+    if table.prep_workflow_id:
+        try:
+            current = wf_store.get(table.prep_workflow_id, workspace_id=workspace_id)
+        except Exception:  # noqa: BLE001
+            current = None
+    if current is not None and (current.workflow.metadata or {}).get("promoted_table_id") == table.id:
+        fresh = Workflow(**{**blob, "id": current.workflow.id, "project_id": current.workflow.project_id})
+        wf = current.workflow.model_copy(update={
+            "steps": fresh.steps,
+            "connections": fresh.connections,
+            "metadata": {**(current.workflow.metadata or {}), **blob["metadata"]},
+        })
+        version = wf_store.save(wf, change_summary=f"Promoted {obj.name} again", created_by=saved_by)
+        return wf.id, version.version, wf.name
+
+    owner = {"owner_id": user.id, "owner_name": user.name or user.email} if user else {}
+    wf = Workflow(**{**blob, "project_id": obj.project_id or "default", **owner})
+    version = wf_store.save(
+        wf,
+        change_summary=f"Saved by Promote: {obj.name} into {table.schema_name}.{table.name}",
+        created_by=saved_by,
+    )
+    return wf.id, version.version, wf.name
 
 
 @router.post("/promote-to-table")
 def promote_to_table(
     body: PromoteToTableRequest,
+    request: Request,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Promote a file to a managed Parquet table under tables/{ws}/.
@@ -1333,7 +1498,188 @@ def promote_to_table(
         for idx, (name, typ) in enumerate(columns)
     ]
     store.save_columns(cols, table_id=table.id)
-    return table.model_dump(mode="json")
+
+    # The table's preparation (see the note above). A failure here leaves
+    # the promote itself done; the table just has nothing to edit yet.
+    try:
+        prep = _save_preparation(request, workspace_id, obj, table, body.column_map)
+    except Exception:  # noqa: BLE001
+        logger.exception("promote: saving the preparation for %s failed", table.id)
+        prep = None
+    if prep is None:
+        return table.model_dump(mode="json")
+    wf_id, wf_version, wf_name = prep
+    loaded_at = datetime.now(timezone.utc)
+    table.prep_workflow_id = wf_id
+    table.prep_workflow_version = wf_version
+    table.prep_loaded_at = loaded_at
+    table.load_history = ([{
+        "at": loaded_at.isoformat(),
+        "workflow_id": wf_id,
+        "version": wf_version,
+        "run_id": None,
+        "mode": "replace",
+        "rows": int(row_count),
+        "source": "promote",
+    }] + list(table.load_history or []))[:LOAD_HISTORY_LIMIT]
+    store.save_table(table)
+    response = table.model_dump(mode="json")
+    response["prep_workflow_name"] = wf_name
+    response["prep_workflow_latest_version"] = wf_version
+    return response
+
+
+def _file_columns(obj: StorageObject) -> list[str]:
+    """The columns a file has, read the way Promote reads it."""
+    import duckdb
+    from revoluzen_flow.datastore.reader import _open_relation  # type: ignore[attr-defined]
+
+    fmt = obj.format or format_from_filename(obj.name)
+    conn = duckdb.connect()
+    try:
+        return list(_open_relation(conn, _abs_path_for(obj), fmt).columns)
+    finally:
+        conn.close()
+
+
+def _find_recipe_source(
+    store: Any, workspace_id: str, table: StorageTable,
+) -> tuple[StorageObject | None, str]:
+    """The file a table's kept steps were applied to, when nothing recorded it.
+
+    A table loaded from a Data Prep that was never saved kept its steps but
+    not its file. Data Prep suggests the table's name from the file's, so the
+    file with that name comes first; failing that, the file holding all the
+    table's columns. More than one match is a question only the user can
+    answer, so nothing is guessed.
+
+    Returns ``(file, what it was matched by)``, or ``(None, why not)``.
+    """
+    from revoluzen_flow.datastore.scaffold import suggest_table_name
+
+    files = store.list_objects(workspace_id, kind="file")
+    by_name = [o for o in files if suggest_table_name(o.name) == table.name]
+    if len(by_name) == 1:
+        return by_name[0], "its name"
+
+    table_cols = {c.name for c in store.list_columns(table_id=table.id)}
+    matches: list[StorageObject] = []
+    for candidate in by_name or files:
+        try:
+            if table_cols and table_cols <= set(_file_columns(candidate)):
+                matches.append(candidate)
+        except Exception:  # noqa: BLE001 - a file that cannot be read is not the one
+            continue
+    if len(matches) == 1:
+        return matches[0], "its columns"
+
+    target = f"{table.schema_name}.{table.name}"
+    if matches:
+        names = ", ".join(sorted(o.name for o in matches)[:5])
+        return None, (
+            f"More than one file could have made this table ({names}). "
+            f"In Storage, use Prep on the right file and load it into {target}."
+        )
+    return None, (
+        "No file in Storage matches this table, so there is nothing to prepare it from. "
+        f"Upload the file again, use Prep on it and load it into {target}."
+    )
+
+
+def _load_time(load: dict[str, Any] | None) -> datetime | None:
+    """When a load_history entry ran, or None if it does not say."""
+    try:
+        return datetime.fromisoformat(str((load or {}).get("at")))
+    except ValueError:
+        return None
+
+
+@router.post("/tables/{table_id}/preparation", dependencies=[Depends(require_min_rank("developer"))])
+def make_table_editable(
+    table_id: str,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Give a table made from a file the preparation it lacks.
+
+    A table loaded from a Data Prep that was never saved kept its steps, and
+    gets them back as a pipeline, on the file they were applied to.
+
+    A table promoted before Promote saved a preparation has no steps. Its
+    preparation keeps the table's columns, in their order, when the file
+    still has them all; the table then holds exactly what version 1 produces.
+    When some are missing (they were renamed at promote time, and the renames
+    were not kept), the preparation keeps the file's columns and the response
+    says so, so the renames can be added before it is run.
+    """
+    store = get_datastore()
+    table = store.get_table(table_id, workspace_id=workspace_id)
+    if not table:
+        raise HTTPException(404, "table not found")
+    if table.prep_workflow_id:
+        from revoluzen_flow.main import app_state
+        wf_store = app_state.get("store")
+        if wf_store is not None and wf_store.get(table.prep_workflow_id, workspace_id=workspace_id):
+            raise HTTPException(409, "This table already has a preparation.")
+
+    recipe = table.prep_recipe if isinstance(table.prep_recipe, list) else None
+    source_id = (
+        (table.prep_source_object_id or table.created_from_object_id)
+        if recipe is not None
+        else (table.created_from_object_id or table.prep_source_object_id)
+    )
+    warning = None
+    if source_id or recipe is None:
+        obj = store.get_object(source_id, workspace_id=workspace_id) if source_id else None
+    else:
+        obj, matched = _find_recipe_source(store, workspace_id, table)
+        if obj is None:
+            raise HTTPException(400, matched)
+        warning = (
+            f"Nothing recorded which file this table came from, so {obj.name} was picked by {matched}. "
+            "If it came from another file, change the first step before you run it."
+        )
+    if obj is None or obj.deleted_at:
+        raise HTTPException(
+            400,
+            "The file this table was made from is no longer in Storage, so there is nothing to prepare it from.",
+        )
+
+    # The table holds what version 1 produces, unless columns were renamed
+    # at promote time and the renames were not kept.
+    holds_version = True
+    column_map: dict[str, str] = {}
+    if recipe is None:
+        table_cols = [c.name for c in sorted(store.list_columns(table_id=table.id), key=lambda c: c.ordinal)]
+        try:
+            file_cols = _file_columns(obj)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"Could not read {obj.name}: {exc}")
+        if table_cols and all(c in file_cols for c in table_cols):
+            if table_cols != file_cols:
+                column_map = {c: c for c in table_cols}
+        else:
+            holds_version = False
+            warning = (
+                f"Some of the table's columns are not in {obj.name}: they were renamed when it was promoted. "
+                "The preparation keeps the file's columns; add a Rename step to it before you run it."
+            )
+
+    prep = _save_preparation(request, workspace_id, obj, table, column_map, recipe=recipe)
+    if prep is None:
+        raise HTTPException(503, "Pipelines are not available right now.")
+    wf_id, wf_version, wf_name = prep
+    table.prep_workflow_id = wf_id
+    table.prep_workflow_version = wf_version if holds_version else None
+    if recipe is not None:
+        table.prep_source_object_id = obj.id
+        if table.prep_loaded_at is None and table.load_history:
+            table.prep_loaded_at = _load_time(table.load_history[0])
+    store.save_table(table)
+    response = table.model_dump(mode="json")
+    response["prep_workflow_name"] = wf_name
+    response["prep_workflow_latest_version"] = wf_version
+    return {"table": response, "workflow_id": wf_id, "workflow_name": wf_name, "warning": warning}
 
 
 # ── 9b. Scaffold a cleanup pipeline (Z1, 2026-05-23) ──────────────────────
@@ -1397,15 +1743,188 @@ def scaffold_cleanup_for_file(
     return {"workflow": workflow}
 
 
+# ── 9c. Save a Data Prep canvas as its table's preparation ────────────────
+#
+# Data Prep opens as an unsaved canvas. "Load to Managed Table" and "Save
+# Draft Recipe" save it here first, so the table it fills has a real pipeline
+# behind it that can be opened, changed and run again, with a version. One
+# table has one preparation: loading the same table again adds a version,
+# whichever file it came from.
+
+
+class SavePreparationRequest(BaseModel):
+    """``POST /api/storage/preparations`` body: the Data Prep canvas, and
+    where a new pipeline should live."""
+    workflow: dict[str, Any]
+    project_id: str | None = None
+    folder_id: str | None = None
+
+
+def _canvas_target(steps: list[dict[str, Any]]) -> tuple[str, str] | None:
+    """The (schema, table) a Data Prep canvas loads; None with no sink."""
+    for step in steps:
+        if step.get("type") != "local_table_sink":
+            continue
+        params = step.get("params") or {}
+        table_name = safe_schema_or_table_name(params.get("table_name") or "", fallback="")
+        if table_name:
+            return safe_schema_or_table_name(params.get("schema_name") or "default"), table_name
+    return None
+
+
+def _can_save_over(workflow: Any) -> bool:
+    """May Data Prep add a version to this pipeline? Only to one made from a
+    file and not live. A pipeline someone built is never rewritten, and
+    schedules run the latest saved version of a published one."""
+    status = getattr(workflow.status, "value", workflow.status)
+    return (
+        (workflow.metadata or {}).get("scaffolded_from") == "storage_file"
+        and status in ("draft", "testing", "failed")
+        and not workflow.deployed_version
+    )
+
+
+@router.post("/preparations", dependencies=[Depends(require_min_rank("developer"))])
+async def save_file_preparation(
+    body: SavePreparationRequest,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Save a Data Prep canvas as the preparation of the table it loads.
+
+    Adds a version to the table's preparation when it has one that may be
+    saved over (see ``_can_save_over``). Otherwise creates a pipeline, named
+    for the table unless the user named it. Returns its id, name and version.
+    """
+    from revoluzen_flow.api.workflows import WorkflowCreate, _saved_by, create_workflow
+    from revoluzen_flow.ir.schema import Workflow
+    from revoluzen_flow.ir.versioning import compute_workflow_hash
+    from revoluzen_flow.main import app_state
+
+    wf_store = app_state.get("store")
+    if wf_store is None:
+        raise HTTPException(503, "Pipelines are not available right now.")
+
+    store = get_datastore()
+    draft = body.workflow or {}
+    steps = draft.get("steps") or []
+
+    # Only what Data Prep itself records, and only a file of this workspace.
+    source_id = (draft.get("metadata") or {}).get("source_object_id")
+    source = store.get_object(source_id, workspace_id=workspace_id) if isinstance(source_id, str) and source_id else None
+    metadata: dict[str, Any] = {"scaffolded_from": "storage_file"}
+    if source is not None:
+        metadata.update(source_object_id=source.id, source_object_name=source.name)
+
+    target = _canvas_target(steps)
+    current = None
+    if target is not None:
+        table = store.find_table_by_name(workspace_id, target[0], target[1])
+        if table is not None and table.prep_workflow_id:
+            current = wf_store.get(table.prep_workflow_id, workspace_id=workspace_id)
+
+    if current is not None and _can_save_over(current.workflow):
+        try:
+            canvas = Workflow(
+                name=current.workflow.name,
+                steps=steps,
+                connections=draft.get("connections") or [],
+                parameters=draft.get("parameters") or [],
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, f"Could not read this preparation: {exc}")
+        updated = current.workflow.model_copy(update={
+            "steps": canvas.steps,
+            "connections": canvas.connections,
+            "parameters": canvas.parameters,
+            "metadata": {**(current.workflow.metadata or {}), **metadata},
+        })
+        unchanged = compute_workflow_hash(updated) == compute_workflow_hash(current.workflow)
+        version = current.version
+        if not unchanged:
+            version = wf_store.save(
+                updated, change_summary="Saved from Data Prep", created_by=_saved_by(request),
+            ).version
+        status = updated.status
+        return {
+            "workflow_id": updated.id,
+            "workflow_name": updated.name,
+            "version": version,
+            "created": False,
+            "unchanged": unchanged,
+            "status": getattr(status, "value", status),
+        }
+
+    name = (draft.get("name") or "").strip()
+    scaffold_name = f"{source.name} data prep" if source is not None else None
+    if target is not None and (not name or name == scaffold_name or name.lower() == "untitled pipeline"):
+        name = f"{target[0]}.{target[1]} data prep"
+    table_label = f"{target[0]}.{target[1]}" if target is not None else "this table"
+    description = (
+        f"How {table_label} is prepared from {source.name}. Change it here and run it to reload the table."
+        if source is not None
+        else f"How {table_label} is prepared. Change it here and run it to reload the table."
+    )
+    created = await create_workflow(
+        WorkflowCreate(
+            name=name,
+            description=description,
+            project_id=body.project_id,
+            folder_id=body.folder_id,
+            parameters=draft.get("parameters") or None,
+            steps=steps,
+            connections=draft.get("connections") or None,
+            metadata=metadata,
+        ),
+        request,
+        workspace_id,
+    )
+    return {
+        "workflow_id": created["id"],
+        "workflow_name": created["workflow"]["name"],
+        "version": created["version"],
+        "created": True,
+        "unchanged": False,
+        "status": created["workflow"].get("status", "draft"),
+    }
+
+
 # ── 10. List tables ───────────────────────────────────────────────────────
 
 
 @router.get("/tables")
 def list_tables(workspace_id: str = Depends(_safe_workspace_id)):
     tables = get_datastore().list_tables(workspace_id)
+    rows = [t.model_dump(mode="json") for t in tables]
+    # 2026-11-10: name the pipeline that prepares each table and its newest
+    # saved version, so the list can say "Prepared by X, version N" and flag
+    # a preparation edited since the table was last loaded. Best effort, one
+    # lookup per pipeline; a deleted pipeline leaves both null.
+    try:
+        from revoluzen_flow.main import app_state
+        wf_store = app_state.get("store")
+    except Exception:  # noqa: BLE001
+        wf_store = None
+    latest: dict[str, tuple[str | None, int | None]] = {}
+    for row in rows:
+        pid = row.get("prep_workflow_id")
+        if not pid:
+            continue
+        if pid not in latest:
+            name, version = None, None
+            if wf_store is not None:
+                try:
+                    found = wf_store.get(pid, workspace_id=workspace_id)
+                    if found is not None:
+                        name = getattr(found.workflow, "name", None)
+                        version = getattr(found, "version", None)
+                except Exception:  # noqa: BLE001
+                    pass
+            latest[pid] = (name, version)
+        row["prep_workflow_name"], row["prep_workflow_latest_version"] = latest[pid]
     return {
-        "tables": [t.model_dump(mode="json") for t in tables],
-        "count": len(tables),
+        "tables": rows,
+        "count": len(rows),
     }
 
 
@@ -1468,6 +1987,37 @@ def preview_table(
     except Exception as exc:  # noqa: BLE001
         logger.exception("table preview failed for %s", table_id)
         raise HTTPException(500, f"table preview failed: {exc}")
+    finally:
+        conn.close()
+
+
+@router.get("/tables/{table_id}/profile")
+def profile_table(
+    table_id: str,
+    workspace_id: str = Depends(_safe_workspace_id),
+    sample_rows: int = PROFILE_SAMPLE_ROWS,
+):
+    """Column statistics for a managed table, as the Data Profile step
+    reports them. Larger tables are profiled on a random sample, and the
+    reply says how many rows were read."""
+    import duckdb
+
+    store = get_datastore()
+    table = store.get_table(table_id, workspace_id=workspace_id)
+    if not table:
+        raise HTTPException(404, "table not found")
+    abs_dir = safe_join_under(_data_dir(), table.path)
+    if not os.path.isdir(abs_dir):
+        raise HTTPException(404, "table directory not found on disk")
+    sample_rows = max(1_000, min(int(sample_rows or PROFILE_SAMPLE_ROWS), 1_000_000))
+    conn = duckdb.connect()
+    try:
+        return profile_relation(
+            conn, conn.read_parquet(os.path.join(abs_dir, "*.parquet")), sample_rows=sample_rows,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("table profile failed for %s", table_id)
+        raise HTTPException(500, f"table profile failed: {exc}")
     finally:
         conn.close()
 
@@ -1666,12 +2216,17 @@ def list_table_tests(
     table_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Return the declarative tests configured for a managed table."""
+    """Return the declarative tests configured for a managed table, when
+    they run on their own (the monitor) and the newest result."""
     store = get_datastore()
     table = store.get_table(table_id, workspace_id=workspace_id)
     if not table:
         raise HTTPException(404, "table not found")
-    return {"tests": list(table.tests or [])}
+    return {
+        "tests": list(table.tests or []),
+        "monitor": {"after_load": table.monitor_after_load, "every_minutes": table.monitor_every_minutes},
+        "last_test_run": table.last_test_run,
+    }
 
 
 @router.put("/tables/{table_id}/tests")
@@ -1730,27 +2285,50 @@ def put_table_tests(
         raise HTTPException(404, "table not found")
 
     serialised = [t.model_dump(mode="json", exclude_none=True) for t in body.tests]
-    store.update_table(
-        table_id=table_id,
-        workspace_id=workspace_id,
-        updates={"tests": serialised, "updated_at": datetime.now(timezone.utc)},
-    )
+    # 2026-11-11: this called a DataStore.update_table that never existed, so
+    # saving a table's tests always failed with a server error.
+    table.tests = serialised
+    store.save_table(table)
     return {"tests": serialised, "count": len(serialised)}
 
 
-def _quote_lit(v: Any) -> str:
-    """Render a Python value as a SQL literal for DuckDB. Conservative —
-    refuses anything weird with a TypeError so the run handler can
-    convert it to a 400 rather than a SQL injection."""
-    if v is None:
-        return "NULL"
-    if isinstance(v, bool):
-        return "TRUE" if v else "FALSE"
-    if isinstance(v, (int, float)):
-        return str(v)
-    if isinstance(v, str):
-        return "'" + v.replace("'", "''") + "'"
-    raise TypeError(f"unsupported accepted_values element type: {type(v).__name__}")
+class TableMonitorRequest(BaseModel):
+    """``PUT /api/storage/tables/{id}/monitor`` body: when the table's tests
+    run on their own. ``every_minutes`` None or 0 = no periodic check."""
+    after_load: bool = False
+    every_minutes: int | None = None
+
+
+@router.put("/tables/{table_id}/monitor")
+def put_table_monitor(
+    table_id: str,
+    body: TableMonitorRequest,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Run this table's tests after every load, and/or every N minutes.
+
+    The periodic check is what catches a table that stopped being loaded:
+    with no load, nothing runs after a load. See datastore/table_monitor.py.
+    """
+    from revoluzen_flow.datastore.table_monitor import MIN_EVERY_MINUTES
+
+    every = int(body.every_minutes or 0) or None
+    if every is not None and every < MIN_EVERY_MINUTES:
+        raise HTTPException(400, f"every_minutes must be at least {MIN_EVERY_MINUTES}")
+    store = get_datastore()
+    table = store.get_table(table_id, workspace_id=workspace_id)
+    if not table:
+        raise HTTPException(404, "table not found")
+    # Saved without touching updated_at: a freshness test on a table with no
+    # load history falls back to it, and must not read this as a load.
+    table.monitor_after_load = bool(body.after_load)
+    table.monitor_every_minutes = every
+    store.save_table(table, touch=False)
+    return {
+        "after_load": table.monitor_after_load,
+        "every_minutes": table.monitor_every_minutes,
+        "last_test_run": table.last_test_run,
+    }
 
 
 @router.post("/tables/{table_id}/tests/run")
@@ -1760,9 +2338,10 @@ def run_table_tests(
 ):
     """Execute the configured tests against the table's Parquet parts.
 
-    Each rule becomes one DuckDB query; results aggregate to a
-    per-rule pass/fail + violation count. Doesn't write anything; safe
-    to call repeatedly.
+    Each rule becomes one DuckDB query; results aggregate to a per-rule
+    pass/fail + violation count. Writes no data; the result is kept on the
+    table as its last test run, and a failure becomes a Steward finding,
+    as for a monitor run. The runner lives in datastore/table_tests.py.
 
     Response:
         {
@@ -1776,196 +2355,21 @@ def run_table_tests(
           ]
         }
     """
-    import duckdb
+    from revoluzen_flow.datastore.table_monitor import record_test_run
+    from revoluzen_flow.datastore.table_tests import run_tests_for_table
+    from revoluzen_flow.main import app_state as _app_state
 
     store = get_datastore()
     table = store.get_table(table_id, workspace_id=workspace_id)
     if not table:
         raise HTTPException(404, "table not found")
-    tests = list(table.tests or [])
-    if not tests:
-        return {
-            "ran_at": datetime.now(timezone.utc).isoformat(),
-            "table_id": table_id,
-            "passed": 0,
-            "failed": 0,
-            "results": [],
-        }
-
-    abs_dir = safe_join_under(_data_dir(), table.path)
-    if not os.path.isdir(abs_dir):
-        raise HTTPException(404, "table directory not found on disk")
-    parquet_glob = os.path.join(abs_dir, "*.parquet").replace("'", "''")
-
-    conn = duckdb.connect()
-    results: list[dict[str, Any]] = []
-    passed = 0
-    failed = 0
     try:
-        for t in tests:
-            tt = (t.get("test_type") or "").strip()
-            cols = t.get("columns") or []
-            entry: dict[str, Any] = {"test_type": tt, "columns": list(cols)}
-            try:
-                if tt == "not_null":
-                    if not cols:
-                        raise ValueError("columns required")
-                    where = " OR ".join(f'"{c}" IS NULL' for c in cols)
-                    sql = f"SELECT COUNT(*) FROM read_parquet('{parquet_glob}') WHERE {where}"
-                elif tt == "unique":
-                    if not cols:
-                        raise ValueError("columns required")
-                    select_cols = ", ".join(f'"{c}"' for c in cols)
-                    sql = (
-                        f"SELECT COALESCE(SUM(cnt - 1), 0) FROM ("
-                        f"SELECT COUNT(*) AS cnt FROM read_parquet('{parquet_glob}') "
-                        f"GROUP BY {select_cols} HAVING COUNT(*) > 1)"
-                    )
-                elif tt == "accepted_values":
-                    if not cols or len(cols) != 1:
-                        raise ValueError("accepted_values expects exactly one column")
-                    vals = t.get("accepted_values") or []
-                    if not vals:
-                        raise ValueError("accepted_values list cannot be empty")
-                    rendered = ", ".join(_quote_lit(v) for v in vals)
-                    sql = (
-                        f"SELECT COUNT(*) FROM read_parquet('{parquet_glob}') "
-                        f'WHERE "{cols[0]}" NOT IN ({rendered}) '
-                        f'AND "{cols[0]}" IS NOT NULL'
-                    )
-                elif tt == "relationships":
-                    if not cols or len(cols) != 1:
-                        raise ValueError("relationships expects exactly one column")
-                    to_tbl = t.get("to_table")
-                    to_col = t.get("to_column")
-                    if not (to_tbl and to_col):
-                        raise ValueError("relationships requires to_table + to_column")
-                    schema_target, _, name_target = (to_tbl or "").partition(".")
-                    if not schema_target or not name_target:
-                        raise ValueError("to_table must be 'schema.name'")
-                    target = store.find_table_by_name(
-                        workspace_id, schema_target, name_target
-                    )
-                    if not target:
-                        raise ValueError(f"target table {to_tbl} not found")
-                    target_glob = os.path.join(
-                        safe_join_under(_data_dir(), target.path), "*.parquet"
-                    ).replace("'", "''")
-                    sql = (
-                        f'SELECT COUNT(*) FROM read_parquet(\'{parquet_glob}\') a '
-                        f'WHERE a."{cols[0]}" IS NOT NULL '
-                        f'AND a."{cols[0]}" NOT IN ('
-                        f'SELECT "{to_col}" FROM read_parquet(\'{target_glob}\'))'
-                    )
-                elif tt == "freshness":
-                    # 2026-05-30 (P6): table's updated_at vs now. No SQL
-                    # probe needed — we read the field off the StorageTable
-                    # row directly. Violations = 1 when stale, 0 otherwise.
-                    max_age = int(t.get("max_age_minutes") or 0)
-                    if max_age <= 0:
-                        raise ValueError("freshness requires max_age_minutes > 0")
-                    upd = getattr(table, "updated_at", None)
-                    age_minutes = -1
-                    if upd is not None:
-                        try:
-                            if isinstance(upd, str):
-                                upd_dt = datetime.fromisoformat(upd.replace("Z", "+00:00"))
-                            else:
-                                upd_dt = upd
-                            if upd_dt.tzinfo is None:
-                                upd_dt = upd_dt.replace(tzinfo=timezone.utc)
-                            age_minutes = int(
-                                (datetime.now(timezone.utc) - upd_dt).total_seconds() / 60
-                            )
-                        except Exception:  # noqa: BLE001
-                            age_minutes = -1
-                    if age_minutes < 0:
-                        # Unknown freshness — treat as a fail with explanation.
-                        entry["ok"] = False
-                        entry["violations"] = 1
-                        entry["message"] = "could not parse table.updated_at"
-                    else:
-                        is_stale = age_minutes > max_age
-                        entry["ok"] = not is_stale
-                        entry["violations"] = 1 if is_stale else 0
-                        entry["age_minutes"] = age_minutes
-                        entry["threshold_minutes"] = max_age
-                    # Skip the generic violation count post-processing.
-                    entry["severity"] = t.get("severity", "fail")
-                    if entry["ok"]:
-                        passed += 1
-                    else:
-                        failed += 1
-                    results.append(entry)
-                    continue
-                elif tt == "row_count_anomaly":
-                    # 2026-05-30 (P6): hard min/max bounds + optional
-                    # drift_pct vs the prior known row_count (stored on
-                    # the StorageTable row).
-                    min_r = t.get("expected_min_rows")
-                    max_r = t.get("expected_max_rows")
-                    drift = t.get("drift_pct")
-                    prior = int(getattr(table, "row_count", 0) or 0)
-                    actual_row = conn.execute(
-                        f"SELECT COUNT(*) FROM read_parquet('{parquet_glob}')"
-                    ).fetchone()
-                    actual = int(actual_row[0] if actual_row else 0)
-                    problems: list[str] = []
-                    if min_r is not None and actual < int(min_r):
-                        problems.append(f"{actual} rows < expected_min_rows={min_r}")
-                    if max_r is not None and actual > int(max_r):
-                        problems.append(f"{actual} rows > expected_max_rows={max_r}")
-                    if drift is not None and prior > 0:
-                        pct = abs(actual - prior) / prior * 100.0
-                        if pct > float(drift):
-                            problems.append(
-                                f"row count shifted {pct:.1f}% vs prior {prior} (threshold {drift}%)"
-                            )
-                    is_anomaly = bool(problems)
-                    entry["ok"] = not is_anomaly
-                    entry["violations"] = len(problems)
-                    entry["actual_rows"] = actual
-                    entry["prior_rows"] = prior
-                    if problems:
-                        entry["message"] = "; ".join(problems)
-                    entry["severity"] = t.get("severity", "fail")
-                    if entry["ok"]:
-                        passed += 1
-                    else:
-                        failed += 1
-                    results.append(entry)
-                    continue
-                else:
-                    raise ValueError(f"unknown test_type '{tt}'")
-
-                row = conn.execute(sql).fetchone()
-                violations = int(row[0] if row else 0)
-                ok = violations == 0
-                entry["ok"] = ok
-                entry["violations"] = violations
-                # 2026-05-30 (P6): severity surfaces fail vs warn so the
-                # caller can choose to block the pipeline or just log.
-                entry["severity"] = t.get("severity", "fail")
-                if ok:
-                    passed += 1
-                else:
-                    failed += 1
-            except Exception as exc:  # noqa: BLE001
-                entry["ok"] = False
-                entry["violations"] = -1
-                entry["message"] = f"{type(exc).__name__}: {exc}"[:200]
-                failed += 1
-            results.append(entry)
-    finally:
-        conn.close()
-
-    return {
-        "ran_at": datetime.now(timezone.utc).isoformat(),
-        "table_id": table_id,
-        "passed": passed,
-        "failed": failed,
-        "results": results,
-    }
+        result = run_tests_for_table(store, table, workspace_id=workspace_id, data_dir=_data_dir())
+    except FileNotFoundError:
+        raise HTTPException(404, "table directory not found on disk")
+    if result["results"]:
+        record_test_run(_app_state, table, result, trigger="manual")
+    return result
 
 
 @router.delete("/tables/{table_id}")
@@ -1986,6 +2390,7 @@ def drop_table(
     table = store.get_table(table_id, workspace_id=workspace_id)
     if not table:
         raise HTTPException(404, "table not found")
+    _refuse_if_published_uses("table", f"{table.schema_name}.{table.name}", workspace_id, table=table)
     abs_dir = safe_join_under(_data_dir(), table.path)
 
     recoverable_at: str | None = None

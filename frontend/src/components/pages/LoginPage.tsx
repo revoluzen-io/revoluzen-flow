@@ -215,6 +215,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [signupAllowed, setSignupAllowed] = useState(false);
   const [firstBootstrap, setFirstBootstrap] = useState(false);
   const [policyLoaded, setPolicyLoaded] = useState(false);
+  // A server-mode install asks for a one-time setup token before its first
+  // account (printed in the server log and saved as SETUP_TOKEN.txt), so a
+  // stranger who reaches the page first cannot claim the instance.
+  const [setupTokenRequired, setSetupTokenRequired] = useState(false);
+  const [setupToken, setSetupToken] = useState('');
   // `bootstrap_password_pending` / `bootstrap_admin_email` are still
   // returned by /auth/signup-policy, but nothing on this screen renders
   // them — the card shows the sign-in / sign-up control and nothing else.
@@ -250,6 +255,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       .then((p: any) => {
         setSignupAllowed(!!p?.allow_self_registration);
         setFirstBootstrap(!!p?.first_user_bootstrap);
+        setSetupTokenRequired(!!p?.setup_token_required);
         setPolicyLoaded(true);
         // Fresh install: open the Sign up tab, because creating the first
         // account is the only thing the visitor can do. Matches Studio.
@@ -409,7 +415,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       if (mode === 'login') {
         result = await api.login(email, password);
       } else {
-        result = await api.register(email, password, name);
+        result = await api.register(email, password, name, setupTokenRequired ? setupToken.trim() : undefined);
       }
       localStorage.setItem('revoluzen_flow_token', result.token);
       localStorage.setItem('revoluzen_flow_user', JSON.stringify(result.user));
@@ -650,6 +656,23 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       ) : (
         <>
           <form onSubmit={handleSubmit} className="space-y-5">
+            {mode === 'register' && setupTokenRequired && (
+              <div>
+                <label htmlFor="auth-setup-token" className={LABEL}>
+                  Setup token <span className="text-red-400">*</span>
+                </label>
+                <input
+                  id="auth-setup-token" type="text" value={setupToken}
+                  onChange={e => setSetupToken(e.target.value)}
+                  placeholder="Paste the token from the server log" required
+                  autoComplete="off" spellCheck={false} className={INPUT}
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Printed in the server log when it started, and saved as
+                  SETUP_TOKEN.txt in the data folder.
+                </p>
+              </div>
+            )}
             {mode === 'register' && (
               <div>
                 <label htmlFor="auth-name" className={LABEL}>Name</label>

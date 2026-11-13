@@ -28,10 +28,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
 import { toast } from '../Toast';
+import SpecEditor from './SpecEditor';
 
 type FieldName =
   | 'min_rows' | 'max_rows' | 'expected_rows' | 'variance_pct'
-  | 'columns' | 'key' | 'max_age_seconds';
+  | 'columns' | 'key' | 'time_column' | 'max_age_seconds';
 
 interface GuaranteeSpec {
   type: string;
@@ -103,7 +104,7 @@ const CATALOG: GuaranteeSpec[] = [
   {
     type: 'no_duplicate_key',
     label: 'No duplicate keys',
-    blurb: 'Checked after the run: answering it early needs a full scan of every write.',
+    blurb: 'Counted from the output after the run: answering it early needs a full scan of every write.',
     precommit: false,
     fields: ['key'],
     examplePrompt: 'one row per order id',
@@ -111,7 +112,7 @@ const CATALOG: GuaranteeSpec[] = [
   {
     type: 'destination_verified',
     label: 'Destination commit confirmed',
-    blurb: 'Needs the commit to have happened, so it can only be checked afterwards.',
+    blurb: 'Every write in the run reported what it wrote and none was refused. Fails on a run with no destination.',
     precommit: false,
     fields: [],
     examplePrompt: 'the warehouse acknowledged the write',
@@ -119,17 +120,17 @@ const CATALOG: GuaranteeSpec[] = [
   {
     type: 'checkpoint_enabled',
     label: 'Run was resumable',
-    blurb: 'A property of the run, not of the data.',
+    blurb: 'A full run that saved each finished step, so Resume can pick it up. A property of the run, not of the data.',
     precommit: false,
     fields: [],
     examplePrompt: 'a long load must be restartable',
   },
   {
     type: 'freshness_max_age',
-    label: 'Source no older than',
-    blurb: 'An out-of-band fact about the source, supplied by the engine after the run.',
+    label: 'Newest row no older than',
+    blurb: 'The age of the newest value in a time column of the output, measured after the run.',
     precommit: false,
-    fields: ['max_age_seconds'],
+    fields: ['time_column', 'max_age_seconds'],
     examplePrompt: 'we never report on yesterday’s extract',
   },
 ];
@@ -146,14 +147,19 @@ interface DraftGuarantee {
   variance_pct: string;
   columns: string;
   key: string;
+  time_column: string;
   max_age_seconds: string;
+  /** The spec criterion this guarantee was made from; '' when written here.
+   *  Kept through an edit, so making the contract from the spec again
+   *  still knows which guarantees are its own. */
+  criterion: string;
 }
 
 function blank(type: string): DraftGuarantee {
   return {
     type, description: '', output_step: '',
     min_rows: '', max_rows: '', expected_rows: '', variance_pct: '10',
-    columns: '', key: '', max_age_seconds: '',
+    columns: '', key: '', time_column: '', max_age_seconds: '', criterion: '',
   };
 }
 
@@ -163,6 +169,7 @@ function toApi(g: DraftGuarantee) {
   const out: Record<string, unknown> = { type: g.type };
   if (g.description.trim()) out.description = g.description.trim();
   if (g.output_step) out.output_step = g.output_step;
+  if (g.criterion) out.criterion = g.criterion;
   for (const f of spec?.fields || []) {
     const raw = g[f];
     if (raw === '' || raw == null) continue;
@@ -174,8 +181,8 @@ function toApi(g: DraftGuarantee) {
       // the model stores a fraction (0.05 == ±5%).
       const pct = Number(raw);
       if (!Number.isNaN(pct)) out.variance_pct = pct / 100;
-    } else if (f === 'key') {
-      out.key = String(raw).trim();
+    } else if (f === 'key' || f === 'time_column') {
+      out[f] = String(raw).trim();
     } else {
       const n = Number(raw);
       if (!Number.isNaN(n)) out[f] = n;
@@ -194,7 +201,9 @@ function fromApi(g: any): DraftGuarantee {
   if (g.variance_pct != null) d.variance_pct = String(Math.round(g.variance_pct * 100));
   if (g.columns) d.columns = (g.columns as string[]).join(', ');
   if (g.key) d.key = g.key;
+  if (g.time_column) d.time_column = g.time_column;
   if (g.max_age_seconds != null) d.max_age_seconds = String(g.max_age_seconds);
+  if (g.criterion) d.criterion = g.criterion;
   return d;
 }
 
@@ -229,9 +238,15 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
   const [guarantees, setGuarantees] = useState<DraftGuarantee[]>([]);
   const [steps, setSteps] = useState<{ id: string; type: string }[]>([]);
   const [adding, setAdding] = useState(false);
+  // The spec (what the pipeline was asked to do) comes first: the contract
+  // is best made from it, and the Contract tab is for adjusting by hand.
+  const [tab, setTab] = useState<'requirement' | 'contract'>('requirement');
+  // Bumped after the contract is made from the spec, to load it again.
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     (async () => {
       // The steps come from the workflow, not the contract: a guarantee
       // can be scoped to one step's output, and typing a step id from
@@ -262,7 +277,7 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [pipelineId, pipelineName]);
+  }, [pipelineId, pipelineName, reloadKey]);
 
   const gated = guarantees.filter((g) => SPEC.get(g.type)?.precommit).length;
   const undescribed = guarantees.filter((g) => !g.description.trim()).length;
@@ -336,15 +351,15 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
         </label>
       );
     }
-    if (f === 'key') {
+    if (f === 'key' || f === 'time_column') {
       return (
         <label key={f} className="flex items-center gap-2">
-          <span className="text-xs text-slate-600 w-28 shrink-0">Key column</span>
+          <span className="text-xs text-slate-600 w-28 shrink-0">{f === 'key' ? 'Key column' : 'Time column'}</span>
           <input
             className={`${common} flex-1`}
-            placeholder="order_id"
-            value={g.key}
-            onChange={(e) => update(i, { key: e.target.value })}
+            placeholder={f === 'key' ? 'order_id' : 'ordered_at'}
+            value={g[f]}
+            onChange={(e) => update(i, { [f]: e.target.value } as Partial<DraftGuarantee>)}
           />
         </label>
       );
@@ -388,9 +403,9 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
             </svg>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-base font-semibold text-slate-900">Execution Contract</div>
+            <div className="text-base font-semibold text-slate-900">Spec and contract</div>
             <div className="text-xs text-slate-500 mt-0.5 truncate">
-              What must be true about <span className="font-semibold">{pipelineName}</span>, declared before it runs
+              What <span className="font-semibold">{pipelineName}</span> was asked to do, and what must be true after each run
             </div>
           </div>
           <button
@@ -402,7 +417,39 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
           </button>
         </div>
 
-        {loading ? (
+        {/* Requirement | Contract */}
+        <div className="flex items-center gap-1 px-6 pt-2 border-b border-slate-200 bg-white" role="tablist">
+          {([
+            ['requirement', 'Requirement'],
+            ['contract', 'Contract'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`px-3 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                tab === key
+                  ? 'border-violet-600 text-violet-700'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'requirement' ? (
+          <SpecEditor
+            pipelineId={pipelineId}
+            onClose={onClose}
+            onContractMade={() => {
+              setReloadKey((k) => k + 1);
+              setTab('contract');
+              onSaved?.();
+            }}
+          />
+        ) : loading ? (
           <div className="px-6 py-10 text-sm text-slate-500">Loading contract…</div>
         ) : (
           <>
@@ -502,6 +549,14 @@ export default function ContractDialog({ pipelineId, pipelineName, onClose, onSa
                                   title="Can only be judged once the run has finished"
                                 >
                                   Checked after
+                                </span>
+                              )}
+                              {g.criterion && (
+                                <span
+                                  className="text-[10px] font-bold uppercase tracking-wider text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded"
+                                  title="Made from an acceptance criterion in the Requirement tab. Making the contract from the spec again replaces it."
+                                >
+                                  From the requirement
                                 </span>
                               )}
                               <code className="text-[10px] font-mono text-slate-400">{g.type}</code>

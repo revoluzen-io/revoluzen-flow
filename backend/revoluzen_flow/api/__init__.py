@@ -15,6 +15,9 @@ from .credentials import router as credentials_router
 from .intelligence import router as intelligence_router
 from .contracts import router as contracts_router
 from .execution_contracts import router as execution_contracts_router
+from .incidents import router as incidents_router
+from .quality_rule_sets import router as quality_rule_sets_router
+from .glossary import router as glossary_router
 from .schema_history import router as schema_history_router
 from .connections import router as connections_router
 from .backup import router as backup_router
@@ -37,9 +40,11 @@ from .storage import router as storage_router
 from .health_memory import router as health_memory_router
 from .execution_manager import router as execution_manager_router
 from .reports import router as reports_router
+from .report_builder import router as report_builder_router
 from .pool_allocation import router as pool_allocation_router
 from .workspace_settings import router as workspace_settings_router
 from .ai_cost_rates import router as ai_cost_rates_router
+from .ai_roles import router as ai_roles_router
 from .deployments import router as deployments_router
 from .recipes import router as recipes_router
 from .agent import router as agent_router
@@ -56,6 +61,7 @@ from .connector_authoring import router as connector_authoring_router
 from .connector_drafts import router as connector_drafts_router
 from .ai_web import router as ai_web_router
 from .publish_policy import router as publish_policy_router
+from .git_copy import router as git_copy_router
 from .app_meta import router as app_meta_router
 from .extraction import router as extraction_router
 from .auth_health import router as auth_health_router
@@ -64,6 +70,7 @@ from .pipeline_health import router as pipeline_health_router
 from .pipeline_health import per_pipeline_router as pipeline_health_per_router
 from .types_meta import router as types_meta_router
 from .expressions import router as expressions_router
+from .legacy_files import router as legacy_files_router
 # 2026-06-05 — Revoluzen Flow Steward (v1.1 — Archeologist). Ships in OSS as the
 # headline differentiator vs other open-source orchestrators. See
 # docs/steward/overview.md for the full architecture + OSS vs Plus split.
@@ -86,6 +93,9 @@ __all__ = [
     "intelligence_router",
     "contracts_router",
     "execution_contracts_router",
+    "incidents_router",
+    "quality_rule_sets_router",
+    "glossary_router",
     "schema_history_router",
     "connections_router",
     "backup_router",
@@ -108,9 +118,11 @@ __all__ = [
     "health_memory_router",
     "execution_manager_router",
     "reports_router",
+    "report_builder_router",
     "pool_allocation_router",
     "workspace_settings_router",
     "ai_cost_rates_router",
+    "ai_roles_router",
     "agent_router",
     "ollama_router",
     "pre_publish_router",
@@ -124,6 +136,7 @@ __all__ = [
     "connector_drafts_router",
     "ai_web_router",
     "publish_policy_router",
+    "git_copy_router",
     "app_meta_router",
     "extraction_router",
     "auth_health_router",
@@ -132,4 +145,5 @@ __all__ = [
     "pipeline_health_per_router",
     "types_meta_router",
     "expressions_router",
+    "legacy_files_router",
 ]

@@ -27,9 +27,40 @@ interface UseExecutionWSReturn {
   clearEvents: () => void;
 }
 
+/** The messages that are run progress; the socket also answers pings and actions. */
+const PROGRESS_TYPES: ReadonlySet<string> = new Set([
+  'workflow_started', 'step_started', 'step_completed', 'step_error', 'workflow_completed',
+]);
+
+/** How long a finished run's step states stay on the canvas; then the
+ *  pipeline's own run results show again. */
+const CLEAR_AFTER_MS = 4000;
+
+/** A ping this often keeps proxies from closing an idle socket. */
+const KEEPALIVE_MS = 25000;
+
+type TimeoutRef = { current: ReturnType<typeof setTimeout> | null };
+type IntervalRef = { current: ReturnType<typeof setInterval> | null };
+
+function stopTimeout(ref: TimeoutRef): void {
+  if (ref.current) {
+    clearTimeout(ref.current);
+    ref.current = null;
+  }
+}
+
+function stopInterval(ref: IntervalRef): void {
+  if (ref.current) {
+    clearInterval(ref.current);
+    ref.current = null;
+  }
+}
+
 /**
  * WebSocket hook for real-time workflow execution tracking.
- * Connects to ws://localhost:8001/ws/execution/{workflowId} and streams events.
+ * Connects to /ws/execution/{workflowId} on the address the app was loaded
+ * from and streams the progress of the pipeline's runs: the Run button's,
+ * a published endpoint's and those started over this socket.
  * Auto-reconnects on disconnect with exponential backoff.
  */
 export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn {
@@ -38,6 +69,8 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
   const [isExecuting, setIsExecuting] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepAliveTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
   const maxReconnectAttempts = 10;
 
@@ -51,6 +84,7 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
   }
 
   const clearEvents = useCallback(() => {
+    stopTimeout(clearTimer);
     setEvents([]);
     setIsExecuting(false);
   }, []);
@@ -60,13 +94,16 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
 
     // Clean up existing connection
     if (wsRef.current) {
+      wsRef.current.onclose = null;
       wsRef.current.close();
       wsRef.current = null;
     }
+    stopInterval(keepAliveTimer);
 
+    // Same address as the page: the server serves the app, the API and this
+    // socket together, and the dev server proxies /ws. A fixed port 8001
+    // missed every server started on another port or behind a proxy.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname;
-    const port = 8001;
 
     // Browsers can't set custom headers on `new WebSocket()`, so the
     // backend expects auth + workspace as query params. We read the
@@ -78,7 +115,7 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
       token,
       workspace_id: workspaceId,
     }).toString();
-    const url = `${protocol}//${host}:${port}/ws/execution/${workflowId}?${qs}`;
+    const url = `${protocol}//${window.location.host}/ws/execution/${encodeURIComponent(workflowId)}?${qs}`;
 
     try {
       const ws = new WebSocket(url);
@@ -87,26 +124,48 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
       ws.onopen = () => {
         setConnected(true);
         reconnectAttempt.current = 0;
+        stopInterval(keepAliveTimer);
+        keepAliveTimer.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ action: 'ping' }));
+          }
+        }, KEEPALIVE_MS);
       };
 
       ws.onmessage = (msg) => {
+        let event: ExecutionEvent;
         try {
-          const event: ExecutionEvent = JSON.parse(msg.data);
-          setEvents(prev => [...prev, event]);
-
-          if (event.type === 'workflow_started') {
-            setIsExecuting(true);
-          }
-          if (event.type === 'workflow_completed' || (event.type === 'step_error' && !event.step_id)) {
-            setIsExecuting(false);
-          }
+          event = JSON.parse(msg.data);
         } catch {
-          // Ignore malformed messages
+          return; // Ignore malformed messages
+        }
+        // Pongs, acknowledgements and errors are not run progress.
+        if (!event || !PROGRESS_TYPES.has(event.type)) return;
+        stopTimeout(clearTimer);
+
+        if (event.type === 'workflow_started') {
+          // A new run: the previous run's step states no longer apply.
+          setEvents([event]);
+          setIsExecuting(true);
+          return;
+        }
+        setEvents(prev => [...prev, event]);
+        if (event.type === 'workflow_completed' || (event.type === 'step_error' && !event.step_id)) {
+          setIsExecuting(false);
+        }
+        if (event.type === 'workflow_completed') {
+          // Leave the outcome up for a moment, then let the pipeline's own
+          // results show again (a later Test Node must not be painted over).
+          clearTimer.current = setTimeout(() => {
+            clearTimer.current = null;
+            setEvents([]);
+          }, CLEAR_AFTER_MS);
         }
       };
 
       ws.onclose = () => {
         setConnected(false);
+        stopInterval(keepAliveTimer);
         wsRef.current = null;
 
         // Auto-reconnect with exponential backoff
@@ -131,37 +190,44 @@ export function useExecutionWS(workflowId: string | null): UseExecutionWSReturn 
     connect();
 
     return () => {
-      if (reconnectTimer.current) {
-        clearTimeout(reconnectTimer.current);
-        reconnectTimer.current = null;
-      }
+      stopTimeout(reconnectTimer);
+      stopInterval(keepAliveTimer);
+      stopTimeout(clearTimer);
       if (wsRef.current) {
+        // No reconnect for a socket closed on purpose.
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
+      setEvents([]);
+      setIsExecuting(false);
+      setConnected(false);
     };
   }, [connect]);
 
-  const sendCommand = useCallback((command: string, payload?: Record<string, any>) => {
+  // The server reads `action` (api/websocket.py); this sent `command`,
+  // which it answered with "Unknown action".
+  const sendAction = useCallback((action: string, payload?: Record<string, unknown>) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ command, ...payload }));
+      wsRef.current.send(JSON.stringify({ action, ...payload }));
     }
   }, []);
 
   const execute = useCallback(() => {
+    stopTimeout(clearTimer);
     setEvents([]);
     setIsExecuting(true);
-    sendCommand('execute');
-  }, [sendCommand]);
+    sendAction('execute');
+  }, [sendAction]);
 
   const executeStep = useCallback((stepId: string) => {
-    sendCommand('execute_step', { step_id: stepId });
-  }, [sendCommand]);
+    sendAction('execute_step', { step_id: stepId });
+  }, [sendAction]);
 
   const cancel = useCallback(() => {
-    sendCommand('cancel');
+    sendAction('cancel');
     setIsExecuting(false);
-  }, [sendCommand]);
+  }, [sendAction]);
 
   return {
     events,

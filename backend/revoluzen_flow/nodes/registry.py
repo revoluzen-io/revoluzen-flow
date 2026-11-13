@@ -87,6 +87,8 @@ def get_registry() -> NodeRegistry:
         scd2,  # Sprint 1 / Gate 1 — slowly-changing dimension Type 2
         data_wrangler,  # Stepwise visible transform (design-data-wrangler-node.md)
         local_table,  # 2026-05-23 (Y3): managed-table source + sink
+        pipeline_output,  # 2026-11-10: Storage -> Pipeline Outputs, replaced each run
+        reconcile,  # 2026-11-11: compare with the system of record before the write
     )
     # Connector framework: REST manifests + JDBC + CDC + OpenAPI + Vector DBs
     try:

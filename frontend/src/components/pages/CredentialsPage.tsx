@@ -15,6 +15,7 @@ import RowActionButton from '../shared/RowActionButton';
 import HubTabs, { CONNECTIONS_TABS } from '../HubTabs';
 import { uiConfirm } from '../../ui/dialog';
 import { usePageContext } from '../../hooks/usePageContext';
+import { SECRET_PLACEHOLDER, credentialFieldKey, isStoredSecret, nameSaysSecret } from '../../utils/storedSecrets';
 
 interface Credential {
   id: string;
@@ -75,8 +76,18 @@ const CREDENTIAL_TAGS: Array<{ value: string; label: string; icon: IconName; col
   { value: 'messaging', label: 'Messaging', icon: 'zap', color: '#a855f7' },
   { value: 'email', label: 'Email', icon: 'mail', color: '#ec4899' },
   { value: 'warehouse', label: 'Data Warehouse', icon: 'bar-chart', color: '#4285F4' },
+  // PGP keys for the File step: your private key + passphrase to decrypt,
+  // a partner's public key to encrypt. Chosen in File > Decrypt/Encrypt with PGP.
+  { value: 'pgp', label: 'PGP key', icon: 'lock', color: '#0f766e' },
   { value: 'other', label: 'Other', icon: 'key', color: '#94a3b8' },
 ];
+
+/** Fields that hold an armored PGP key (many lines), edited in a text box. */
+function isKeyBlockField(fieldKey: string, category: string): boolean {
+  const key = fieldKey.toLowerCase();
+  return key === 'private_key' || key === 'public_key' || key === 'pgp_private_key' || key === 'pgp_public_key'
+    || (category === 'pgp' && key.endsWith('_key'));
+}
 
 interface FormField {
   key: string;
@@ -241,6 +252,11 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
     { key: 'Username', value: '', sensitive: false },
     { key: 'Password', value: '', sensitive: true },
   ]);
+  // Fields of the credential being edited whose value is stored encrypted
+  // (they arrive as the placeholder), so "Keep the stored value" can undo a
+  // Replace. And the one the user just chose to replace, so it opens focused.
+  const [storedSecretKeys, setStoredSecretKeys] = useState<Set<string>>(new Set());
+  const [secretReplaceKey, setSecretReplaceKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const colState = useTableColumns('revoluzen_flow_credentials_cols', CRED_COLUMNS);
   const [searchQuery, setSearchQuery] = useState('');
@@ -330,6 +346,8 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
       { key: 'Username', value: '', sensitive: false },
       { key: 'Password', value: '', sensitive: true },
     ]);
+    setStoredSecretKeys(new Set());
+    setSecretReplaceKey(null);
   };
 
   // Picking a category can seed sensible field rows. Currently only the
@@ -339,20 +357,43 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
   // is the one the AI Provider page imports at request time.
   const selectTag = (value: string) => {
     setFormTag(value);
-    if (value === 'ai_provider' && !editingId) {
-      const untouched = formFields.every((f) => !f.key.trim() && !f.value.trim())
-        || (formFields.length === 2
-            && formFields[0].key === 'Username'
-            && formFields[1].key === 'Password'
-            && !formFields[0].value && !formFields[1].value);
-      if (untouched) {
-        setFormFields([
-          { key: 'provider', value: '', sensitive: false },
-          { key: 'api_key', value: '', sensitive: true },
-          { key: 'base_url', value: '', sensitive: false },
-        ]);
-      }
+    const untouched = formFields.every((f) => !f.key.trim() && !f.value.trim())
+      || (formFields.length === 2
+          && formFields[0].key === 'Username'
+          && formFields[1].key === 'Password'
+          && !formFields[0].value && !formFields[1].value);
+    if (value === 'ai_provider' && !editingId && untouched) {
+      setFormFields([
+        { key: 'provider', value: '', sensitive: false },
+        { key: 'api_key', value: '', sensitive: true },
+        { key: 'base_url', value: '', sensitive: false },
+      ]);
     }
+    if (value === 'pgp' && !editingId && untouched) {
+      // Decrypting needs private_key + passphrase; encrypting for a partner
+      // needs their public_key. Leave out what you do not need.
+      setFormFields([
+        { key: 'private_key', value: '', sensitive: true },
+        { key: 'passphrase', value: '', sensitive: true },
+        { key: 'public_key', value: '', sensitive: false },
+      ]);
+    }
+  };
+
+  const loadKeyFile = (idx: number) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.asc,.key,.pgp,.gpg,.txt';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 1024 * 1024) {
+        toast.error('Key file too large', 'A PGP key file is a few kilobytes. Choose the exported .asc key.');
+        return;
+      }
+      file.text().then((text) => updateField(idx, { value: text.trim() })).catch(() => toast.error('Could not read the key file'));
+    };
+    input.click();
   };
 
   /**
@@ -360,8 +401,8 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
    * Pre-fills name, tag, expiry, source, and fields from the credential
    * record. On Save, the save handler looks at `editingId` to decide
    * between POST /credentials (create) and PUT /credentials/:id (update).
-   * Note: the backend masks sensitive field values on read, so those
-   * appear as placeholders the user can overwrite. Leaving them unchanged
+   * Note: the backend never returns a stored secret, only the placeholder,
+   * shown as "Stored encrypted" with a Replace button. Leaving it unchanged
    * means the server keeps the existing stored value.
    */
   const openEditCredential = (cred: Credential) => {
@@ -372,19 +413,22 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
     setFormExpiry(cred.expires_at ? cred.expires_at.slice(0, 10) : '');
     setFormSource(cred.source || 'local');
     setFormVaultReference((cred as any).vault_reference || '');
-    // Reconstruct field rows from the masked config. Sensitive fields are
-    // shown as placeholder strings so the user sees they exist without
-    // the value leaking.
+    // Reconstruct field rows from the masked config. A stored secret arrives
+    // as the placeholder; `sensitive_fields` says which fields the server
+    // treats as secret (marked, or secret by name).
     const anyCred = cred as any;
     const cfg: Record<string, any> = anyCred.config || {};
+    const marked: string[] = Array.isArray(anyCred.sensitive_fields) ? anyCred.sensitive_fields : [];
     const fields: FormField[] = Object.entries(cfg).map(([k, v]) => {
-      const sensitive = /password|secret|token|key/i.test(k) && !/client_id|access_key_id|api_key_id/i.test(k);
+      const sensitive = marked.includes(k) || isStoredSecret(v) || nameSaysSecret(k);
       return { key: k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), value: String(v ?? ''), sensitive };
     });
     setFormFields(fields.length > 0 ? fields : [
       { key: 'Username', value: '', sensitive: false },
       { key: 'Password', value: '', sensitive: true },
     ]);
+    setStoredSecretKeys(new Set(Object.keys(cfg).filter(k => isStoredSecret(cfg[k])).map(credentialFieldKey)));
+    setSecretReplaceKey(null);
     setDetailCred(null);
     setShowCreate(true);
   };
@@ -392,13 +436,19 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
   const handleCreate = async () => {
     if (!formName.trim()) return;
     const config: Record<string, any> = {};
+    // Every field shown as sensitive is sent as such, so the server encrypts
+    // it and never returns it; fields whose name says they hold a secret are
+    // protected by the server either way.
+    const sensitiveFields: string[] = [];
     for (const f of formFields) {
       if (f.key.trim() && f.value.trim()) {
-        config[f.key.trim().toLowerCase().replace(/ /g, '_')] = f.value.trim();
+        const key = credentialFieldKey(f.key);
+        config[key] = f.value.trim();
+        if (f.sensitive || nameSaysSecret(key) || isStoredSecret(f.value)) sensitiveFields.push(key);
       }
     }
     try {
-      const payload: any = { name: formName.trim(), type: formTag, config, environment: formEnvironment };
+      const payload: any = { name: formName.trim(), type: formTag, config, environment: formEnvironment, sensitive_fields: sensitiveFields };
       if (formExpiry) payload.expires_at = formExpiry;
       // Source & vault reference — surface on the payload so the backend
       // can route to the right storage adapter. Until the vault adapters
@@ -462,8 +512,9 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
       await api.deleteCredential(id);
       loadCredentials();
       toast.success('Credential deleted');
-    } catch (err) {
-      console.error('Delete credential error:', err);
+    } catch (err: any) {
+      // Refused while a published pipeline uses it: the message names them.
+      toast.error('Could not delete the credential', err?.message || 'Try again.');
     }
   };
 
@@ -784,33 +835,90 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1.5">Fields</label>
                   <div className="space-y-2">
-                    {formFields.map((field, idx) => (
-                      <div key={idx} className="flex items-center gap-2">
+                    {formFields.map((field, idx) => {
+                      // A stored secret arrives as the placeholder: the browser
+                      // has no value to show, so it can only be replaced. A name
+                      // that says it holds a secret is always hidden.
+                      const stored = isStoredSecret(field.value);
+                      const lockedHidden = stored || nameSaysSecret(field.key);
+                      const hidden = field.sensitive || lockedHidden;
+                      const fieldKey = credentialFieldKey(field.key);
+                      const canKeepStored = !stored && storedSecretKeys.has(fieldKey);
+                      return (
+                      <div key={idx}>
+                      <div className="flex items-center gap-2">
                         {/* Field name */}
                         <input
                           type="text"
                           value={field.key}
+                          readOnly={stored}
+                          title={stored ? 'Replace the value to rename this field' : undefined}
                           onChange={(e) => updateField(idx, { key: e.target.value })}
                           placeholder="Field name"
                           className="w-[140px] px-3 py-2 text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
                         />
                         {/* Field value */}
-                        <input
-                          type={field.sensitive ? 'password' : 'text'}
-                          value={field.value}
-                          onChange={(e) => updateField(idx, { value: e.target.value })}
-                          placeholder={field.sensitive ? '••••••' : 'Value'}
-                          className="flex-1 px-3 py-2 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
-                        />
+                        {stored ? (
+                          <div className="flex-1 min-w-0 flex items-center gap-2">
+                            <div className="flex-1 min-w-0 flex items-center justify-between gap-3 px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg text-slate-500">
+                              <span className="font-mono tracking-widest" aria-hidden="true">{SECRET_PLACEHOLDER}</span>
+                              <span className="text-xs">Stored encrypted</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSecretReplaceKey(fieldKey);
+                                updateField(idx, { value: '' });
+                              }}
+                              aria-label={`Replace ${field.key}`}
+                              className="shrink-0 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            >
+                              Replace
+                            </button>
+                          </div>
+                        ) : isKeyBlockField(fieldKey, formTag) ? (
+                          // An armored key is many lines; a one-line box would drop the line breaks.
+                          <div className="flex-1 min-w-0 flex items-start gap-2">
+                            <textarea
+                              value={field.value}
+                              rows={4}
+                              spellCheck={false}
+                              autoFocus={secretReplaceKey !== null && secretReplaceKey === fieldKey}
+                              onChange={(e) => updateField(idx, { value: e.target.value })}
+                              placeholder={fieldKey.includes('public') ? '-----BEGIN PGP PUBLIC KEY BLOCK-----' : '-----BEGIN PGP PRIVATE KEY BLOCK-----'}
+                              aria-label={field.key || 'Key'}
+                              style={hidden ? ({ WebkitTextSecurity: 'disc' } as unknown as React.CSSProperties) : undefined}
+                              className="flex-1 min-w-0 px-3 py-2 text-xs font-mono text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500 resize-y"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => loadKeyFile(idx)}
+                              className="shrink-0 px-2.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                            >
+                              Load key file
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            type={hidden ? 'password' : 'text'}
+                            value={field.value}
+                            autoFocus={secretReplaceKey !== null && secretReplaceKey === fieldKey}
+                            onChange={(e) => updateField(idx, { value: e.target.value })}
+                            placeholder={hidden ? '••••••' : 'Value'}
+                            className="flex-1 px-3 py-2 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-300 placeholder:text-slate-500"
+                          />
+                        )}
                         {/* Toggle sensitive */}
                         <button
+                          type="button"
                           onClick={() => updateField(idx, { sensitive: !field.sensitive })}
+                          disabled={lockedHidden}
                           className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
-                            field.sensitive ? 'text-amber-500 bg-amber-50 border border-amber-200' : 'text-slate-500 bg-slate-50 border border-slate-200 hover:bg-slate-100'
-                          }`}
-                          title={field.sensitive ? 'Sensitive (hidden)' : 'Click to mark as sensitive'}
+                            hidden ? 'text-amber-500 bg-amber-50 border border-amber-200' : 'text-slate-500 bg-slate-50 border border-slate-200 hover:bg-slate-100'
+                          } ${lockedHidden ? 'cursor-not-allowed' : ''}`}
+                          title={lockedHidden ? 'Always hidden: this field holds a secret' : (field.sensitive ? 'Sensitive (hidden)' : 'Click to mark as sensitive')}
                         >
-                          {field.sensitive ? (
+                          {hidden ? (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
                           ) : (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
@@ -825,7 +933,21 @@ export default function CredentialsPage({ projectId, projectName = '', onClearPr
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
                         </button>
                       </div>
-                    ))}
+                      {canKeepStored && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSecretReplaceKey(null);
+                            updateField(idx, { value: SECRET_PLACEHOLDER });
+                          }}
+                          className="mt-1 ml-[148px] text-xs font-semibold text-amber-700 hover:underline"
+                        >
+                          Keep the stored value
+                        </button>
+                      )}
+                      </div>
+                      );
+                    })}
                     {/* Add field button */}
                     <button
                       onClick={addField}
