@@ -269,7 +269,11 @@ def _ctx(*, dry_run: bool = False) -> ToolContext:
     )
 
 
-def test_summarize_pipeline_returns_expected_shape():
+def test_summarize_pipeline_returns_expected_shape(monkeypatch):
+    # No live store: another test on the same worker may have left a closed
+    # database in app_state, and this test is about the shape, not the data.
+    from revoluzen_flow.main import app_state
+    monkeypatch.setitem(app_state, "workflow_store", None)
     out = asyncio.run(SUMMARIZE_PIPELINE.handler({"pipeline_id": "p-1"}, _ctx()))
     assert "node_count" in out
     assert isinstance(out["source_types"], list)

@@ -89,7 +89,7 @@ DEFINITION = ToolDefinition(
         },
         "required": [],
     },
-    output_schema={},
+    output_schema="dict",  # the result's keys depend on the request
     handler=_handler,
     requires_idempotency_key=False,
     tags=["incident", "read", "operations"],

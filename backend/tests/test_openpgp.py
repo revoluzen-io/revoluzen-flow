@@ -164,7 +164,10 @@ def test_missing_passphrase_is_explained(tmp_path, curve_key):
     (packet(18, b"\x02\x07\x02\x06" + os.urandom(80)), "no session key that this credential can open"),
     (packet(11, b"b\x00\x00\x00\x00\x00hello"), "not encrypted .* turn on 'Check the sender's signature'"),
     (b"plain text, not pgp", "not PGP data"),
-])
+# Fixed ids: ids made from the random bytes differ between pytest-xdist
+# workers, and xdist then refuses to run the suite.
+], ids=["no-mdc", "seipd-v2-unsupported", "seipd-v3-unsupported", "no-session-key",
+        "unsigned-literal", "not-pgp"])
 def test_refusals_say_why(tmp_path, data, message):
     with pytest.raises(PgpError, match=message):
         decrypt_stream(io.BytesIO(data), io.BytesIO(), [], None)

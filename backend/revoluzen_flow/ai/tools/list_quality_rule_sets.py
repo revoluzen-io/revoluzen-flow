@@ -64,7 +64,7 @@ DEFINITION = ToolDefinition(
         "its id in the step's rule_sets setting instead of retyping the rules."
     ),
     input_schema={"type": "object", "properties": {}, "required": []},
-    output_schema={},
+    output_schema="dict",  # the result's keys depend on the request
     handler=_handler,
     requires_idempotency_key=False,
     tags=["quality", "read", "rules"],
