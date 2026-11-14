@@ -22,7 +22,7 @@ jobs:
       - name: Build and boot single executable
         shell: pwsh
         run: ./installer/windows/build-portable.ps1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: revoluzen-flow-windows-portable
           path: dist/portable/revoluzen.exe

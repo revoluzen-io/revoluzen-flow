@@ -48,7 +48,7 @@ jobs:
             --md "$RUNNER_TEMP/intent-report.md" || true
           cat "$RUNNER_TEMP/intent-report.md" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload the drafts and the scorecard
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: intent-eval-live
           path: |
