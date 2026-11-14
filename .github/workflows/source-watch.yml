@@ -42,7 +42,7 @@ jobs:
     name: Probe connector upstreams
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history: this job commits and has to rebase onto whatever
           # the branch became while it was probing. A depth-1 clone cannot
