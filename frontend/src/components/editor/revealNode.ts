@@ -216,7 +216,7 @@ function nodeBox(element: HTMLElement): ScreenBox {
 }
 
 function nodeElement(nodeId: string): HTMLElement | null {
-  const id = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(nodeId) : nodeId.replace(/"/g, '\\"');
+  const id = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(nodeId) : nodeId.replace(/["\\]/g, '\\$&');
   return document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`);
 }
 

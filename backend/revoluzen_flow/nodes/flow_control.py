@@ -556,12 +556,14 @@ class SetVariableNode(BaseNode):
             try:
                 row = fetch_one(ctx.conn.sql(sql))
             except Exception as e:  # noqa: BLE001 — surface a clear message
+                # Not the expression itself: by now ${param.*} values are filled
+                # in, and one may be a secret.
                 raise ValueError(
-                    f"Set Variable '{name}': could not evaluate expression "
-                    f"{expr!r}: {e}"
+                    f"Set Variable '{name}': could not evaluate its expression: {e}"
                 ) from e
             ctx.vars[name] = row[0] if row else None
-            logger.info("SetVariable: $vars.%s = %r", name, ctx.vars[name])
+            # The value may come from a secret parameter; never log it.
+            logger.info("SetVariable: $vars.%s set (%s)", name, type(ctx.vars[name]).__name__)
 
         # Control-flow semantics: input passes straight through.
         if source is not None:

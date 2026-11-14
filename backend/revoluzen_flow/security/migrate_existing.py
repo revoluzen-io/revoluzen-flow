@@ -332,7 +332,7 @@ def _migrate_pipeline_versions(
     return scanned, updated, failed
 
 
-def _blank_template_secrets(conn, *, dry_run: bool, backup_writer) -> tuple[int, int, int]:
+def _blank_templates(conn, *, dry_run: bool, backup_writer) -> tuple[int, int, int]:
     """Remove secrets typed into the steps of user templates. Templates are
     for sharing and never carry one; whoever uses the template enters it."""
     from revoluzen_flow.ir.step_secrets import blank_step_secrets
@@ -556,7 +556,7 @@ def encrypt_pipeline_step_secrets(
             _, report["bin"], failed_bin = _migrate_pipeline_versions(
                 tx, "workflow_trash", encryptor, dry_run=False, backup_writer=_no_backup,
             )
-            _, report["templates"], failed_templates = _blank_template_secrets(
+            _, report["templates"], failed_templates = _blank_templates(
                 tx, dry_run=False, backup_writer=_no_backup,
             )
             report["failed"] += failed_versions + failed_bin + failed_templates
@@ -739,7 +739,7 @@ def main(argv: list[str] | None = None) -> int:
         bin_s, bin_u, bin_f = _migrate_pipeline_versions(
             conn, "workflow_trash", enc, dry_run=args.dry_run, backup_writer=backup_writer,
         )
-        tpl_s, tpl_u, tpl_f = _blank_template_secrets(
+        tpl_s, tpl_u, tpl_f = _blank_templates(
             conn, dry_run=args.dry_run, backup_writer=backup_writer,
         )
         sch_s, sch_u, sch_f = _seal_saved_parameter_values(

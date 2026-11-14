@@ -75,7 +75,9 @@ def _caller_user_id(request: Request) -> str | None:
 
 
 class IntentRequest(BaseModel):
-    intent: str
+    # Capped: the rule planner runs regular expressions over the whole text on
+    # the event loop, and an unbounded request could stall the server.
+    intent: str = Field(..., max_length=4000)
 
 
 class ChatMessage(BaseModel):
