@@ -22,3 +22,7 @@ d398bbd2c0582bf7dc93d9ede19d4c43e3e6dfa7:backend/revoluzen_flow/storage/database
 # 2026-04-27 — Sidebar.tsx static UI label describing the obfuscated
 # at-rest credential keystream feature. It is display copy, not a secret.
 d398bbd2c0582bf7dc93d9ede19d4c43e3e6dfa7:frontend/src/components/Sidebar.tsx:generic-api-key:965
+
+# 2026-11-14: OpenPGP help text naming the armored key header a user must paste
+# (the BEGIN PGP PRIVATE KEY BLOCK line). Error copy, not a key.
+d72805ca9a26c045c12da9bea7b2041b7c11353e:backend/revoluzen_flow/openpgp/credentials.py:private-key:57

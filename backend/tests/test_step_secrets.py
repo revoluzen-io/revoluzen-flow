@@ -269,8 +269,11 @@ def test_a_reference_stays_readable_and_an_ordinary_setting_is_untouched(store, 
 
 
 def test_a_saved_pipeline_keeps_the_fingerprint_of_its_values(store):
-    expected = compute_workflow_hash(_pipeline())
-    store.save(_pipeline())
+    # One pipeline for both sides: created_at is hashed, and two builds a
+    # clock tick apart would differ there.
+    pipeline = _pipeline()
+    expected = compute_workflow_hash(pipeline)
+    store.save(pipeline.model_copy(deep=True))
     assert compute_workflow_hash(store.get("wf1").workflow) == expected
     match, stored, recomputed = store.verify_version_hash("wf1", 1)
     assert match and stored == recomputed == expected
@@ -794,8 +797,9 @@ def test_a_reference_in_a_secret_default_stays_readable(store):
 
 
 def test_a_default_keeps_the_fingerprint_of_its_value(store):
-    expected = compute_workflow_hash(_with_parameters())
-    store.save(_with_parameters())
+    pipeline = _with_parameters()  # built once: created_at is hashed
+    expected = compute_workflow_hash(pipeline)
+    store.save(pipeline.model_copy(deep=True))
     assert store.verify_version_hash("wf-params", 1) == (True, expected, expected)
 
 
