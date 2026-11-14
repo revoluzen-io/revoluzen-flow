@@ -1,33 +1,37 @@
-"""
-CDC (Change Data Capture) source — Debezium-style change streams.
+"""Change Data Capture: read inserts, updates and deletes as rows (rewritten 2026-11-13).
 
-Two execution modes:
+The step reads the changes waiting since its last successful run, from the
+saved connection it is given:
 
-  1. **kafka_topic** (production) — consume Debezium-emitted CDC events from a
-     Kafka topic. Each Debezium event has `op` (c/u/d/r) and `after`/`before`
-     payloads. We flatten `after` into rows for downstream processing.
+* a PostgreSQL connection: straight from the database's change log, with no
+  Debezium and no Kafka (``streams/pg_cdc.py``);
+* a MySQL or MariaDB connection: from the server's binary log
+  (``streams/mysql_cdc.py``);
+* a Kafka connection: Debezium change events on a topic, for SQL Server,
+  Oracle, MongoDB, Db2 and the other databases Debezium reads
+  (``streams/debezium.py``).
 
-  2. **direct_logical** (in-process tail) — for Postgres only, tail the
-     logical replication slot directly using psycopg2's logical decoding,
-     bypassing Kafka entirely. Lighter weight for small workloads.
+Every change becomes a row with the table's columns and ``_op`` (insert,
+update, delete, truncate, snapshot), ``_table`` and ``_committed_at``. Where
+the step carries on reading moves only after the whole run has succeeded, so
+after a failure a change can arrive twice but none is lost.
 
-Source databases supported (via Debezium connectors):
-  postgres, mysql, mssql, oracle, mongodb
+Before 2026-11-13 this step could not work: the PostgreSQL mode decoded the
+binary ``pgoutput`` plugin as text, confirmed each change the moment it was
+read, waited forever when fewer changes than Max Events were waiting, and took
+host and password typed into the step; the Debezium mode joined a shared
+consumer group that saved its place while reading. Steps saved in that shape
+still load: a typed host is used as the connection, and Kafka steps are asked
+to pick a saved Kafka connection.
 
-This node returns a *snapshot batch* of changes (bounded by max_events). For
-true streaming, the workflow scheduler re-runs the node periodically and the
-node tracks an offset/LSN cursor in the params (or in workflow state).
+Change Data Capture is a Revoluzen Flow Enterprise feature (edition-matrix.md);
+the open-source build shows the step and refuses to run it.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 from typing import Any, TYPE_CHECKING
 
-# Stage 2.5b: duckdb only used for type annotations on _events_to_relation
-# and execute(). Runtime data flow is through ctx.conn.
 if TYPE_CHECKING:
     import duckdb
 
@@ -36,273 +40,156 @@ from revoluzen_flow.licensing import require_plus
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
 
+WHO = "Change Data Capture"
 
-_SUPPORTED_SOURCES = ["postgres", "mysql", "mssql", "oracle", "mongodb"]
-
-
-def _events_to_relation(conn: duckdb.DuckDBPyConnection, events: list[dict]) -> duckdb.DuckDBPyRelation:
-    if not events:
-        return conn.sql("SELECT NULL AS empty WHERE false")
-    fd, path = tempfile.mkstemp(suffix=".jsonl")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            for ev in events:
-                f.write(json.dumps(ev, default=str) + "\n")
-        return conn.sql(f"SELECT * FROM read_json_auto('{path}', format='newline_delimited')")
-    except Exception:
-        return conn.sql("SELECT NULL AS empty WHERE false")
+POSTGRES_TYPES = {"postgresql", "postgres", "cockroachdb"}
+MYSQL_TYPES = {"mysql", "mariadb"}
+KAFKA_TYPES = {"kafka"}
 
 
-def _consume_kafka_debezium(
-    bootstrap: str, topic: str, group: str, max_events: int, timeout_s: float
-) -> list[dict]:
-    """Consume Debezium-formatted CDC events from a Kafka topic."""
-    try:
-        from kafka import KafkaConsumer
-    except ImportError as e:
-        raise RuntimeError("kafka-python not installed. Run: pip install kafka-python") from e
+def _legacy_postgres_config(params: dict) -> dict | None:
+    """A PostgreSQL connection typed into a step saved before 2026-11-13."""
+    if not params.get("host") or not params.get("database"):
+        return None
+    return {
+        "host": params.get("host"), "port": params.get("port") or 5432,
+        "database": params.get("database"), "username": params.get("user") or params.get("username"),
+        "password": params.get("password"),
+    }
 
-    consumer = KafkaConsumer(
-        topic,
-        bootstrap_servers=bootstrap.split(","),
-        group_id=group,
-        auto_offset_reset="earliest",
-        enable_auto_commit=True,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v else None,
-        consumer_timeout_ms=int(timeout_s * 1000),
+
+def source_of(ctx: Any, params: dict) -> tuple[str, dict]:
+    """``(kind, connection settings)`` where kind is postgres, mysql or debezium."""
+    from revoluzen_flow.streams.connection import saved_connection
+
+    connection_id = str(params.get("connection_id") or "").strip()
+    if not connection_id:
+        legacy = _legacy_postgres_config(params)
+        if legacy is not None and params.get("mode") == "direct_logical":
+            return "postgres", legacy
+        if params.get("mode") == "kafka_topic" or params.get("kafka_topic"):
+            raise ValueError(
+                f"{WHO}: pick a saved Kafka connection for the Debezium topic. Steps saved before "
+                f"November 2026 named the brokers in the step; those settings are no longer read."
+            )
+        raise ValueError(
+            f"{WHO}: pick a saved connection: PostgreSQL, MySQL, MariaDB, or Kafka for Debezium events."
+        )
+    config, conn_type = saved_connection(ctx, connection_id, WHO)
+    if conn_type in POSTGRES_TYPES:
+        if conn_type == "cockroachdb":
+            raise ValueError(
+                f"{WHO}: CockroachDB keeps its changes differently (changefeeds). Send them to "
+                f"Kafka with a CockroachDB changefeed and read that topic with a Kafka Source."
+            )
+        return "postgres", config
+    if conn_type in MYSQL_TYPES:
+        return "mysql", config
+    if conn_type in KAFKA_TYPES:
+        return "debezium", config
+    raise ValueError(
+        f"{WHO}: a {conn_type} connection has no change log Flow can read. Use PostgreSQL, "
+        f"MySQL, MariaDB, or a Kafka topic that Debezium writes to."
     )
 
-    rows: list[dict] = []
-    try:
-        for msg in consumer:
-            if not msg.value:
-                continue
-            event = msg.value
-            payload = event.get("payload") if isinstance(event, dict) else None
-            if not payload and isinstance(event, dict):
-                payload = event  # already-flattened format
-            if not isinstance(payload, dict):
-                continue
-            op = payload.get("op", "r")
-            row = payload.get("after") or payload.get("before") or {}
-            if not isinstance(row, dict):
-                continue
-            row = dict(row)
-            row["__op"] = op
-            row["__source_ts_ms"] = (payload.get("source") or {}).get("ts_ms")
-            row["__topic"] = msg.topic
-            row["__partition"] = msg.partition
-            row["__offset"] = msg.offset
-            rows.append(row)
-            if len(rows) >= max_events:
-                break
-    finally:
-        consumer.close()
-    return rows
 
+@register(StepType.CDC_SOURCE)
+class CdcSourceNode(BaseNode):
+    """Change Data Capture: inserts, updates and deletes since the last successful run."""
 
-def _tail_postgres_logical(
-    host: str, port: int, database: str, user: str, password: str,
-    slot: str, publication: str, max_events: int
-) -> list[dict]:
-    """Tail a Postgres logical replication slot directly."""
-    try:
-        import psycopg2
-        from psycopg2.extras import LogicalReplicationConnection, ReplicationCursor
-    except ImportError as e:
-        raise RuntimeError("psycopg2 not installed. Run: pip install psycopg2-binary") from e
+    display_name = "Change Data Capture"
+    category = "source"
+    description = "Read inserts, updates and deletes from PostgreSQL, MySQL / MariaDB, or Debezium events in Kafka"
 
-    conn = psycopg2.connect(
-        host=host, port=port, dbname=database, user=user, password=password,
-        connection_factory=LogicalReplicationConnection,
-    )
-    cur: ReplicationCursor = conn.cursor()
-    rows: list[dict] = []
+    def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
+        # Declared Enterprise-only in edition-matrix.md; gated at execution so
+        # the step stays visible and configurable in the open-source build.
+        require_plus("CDC Source (change data capture)")
+        kind, config = source_of(ctx, self.params)
+        step_id = str(self.params.get("_step_id") or "")
+        if kind == "postgres":
+            from revoluzen_flow.streams.pg_cdc import read_postgres
 
-    try:
-        try:
-            cur.create_replication_slot(slot, output_plugin="pgoutput")
-        except psycopg2.errors.DuplicateObject:
-            pass
+            return read_postgres(ctx, self.params, config, step_id)
+        if kind == "mysql":
+            from revoluzen_flow.streams.mysql_cdc import read_mysql
 
-        cur.start_replication(
-            slot_name=slot, decode=True,
-            options={"publication_names": publication, "proto_version": "1"},
-        )
+            return read_mysql(ctx, self.params, config, step_id)
+        from revoluzen_flow.streams.debezium import read_debezium
 
-        def consume(msg):
-            try:
-                payload = msg.payload
-                if isinstance(payload, (bytes, bytearray)):
-                    payload = payload.decode("utf-8", errors="replace")
-                rows.append({"lsn": str(msg.data_start), "payload": payload})
-                msg.cursor.send_feedback(flush_lsn=msg.data_start)
-            except Exception:
-                pass
-            if len(rows) >= max_events:
-                raise StopIteration
+        return read_debezium(ctx, self.params, config, step_id)
 
-        try:
-            cur.consume_stream(consume)
-        except StopIteration:
-            pass
-    finally:
-        try:
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
-    return rows
+    @staticmethod
+    def default_params() -> dict[str, Any]:
+        return {
+            "connection_id": "", "tables": "", "start_from": "new",
+            "max_changes": 10000, "timeout_seconds": 120,
+        }
 
-
-def drop_replication_slot(
-    host: str, port: int, database: str, user: str, password: str, slot: str,
-) -> bool:
-    """Drop a logical replication slot on the source Postgres.
-
-    An orphaned slot pins WAL on the source forever — Postgres cannot
-    recycle WAL segments a slot still references, so a slot left behind
-    by a deleted workflow eventually fills the source server's disk.
-    Returns True if the slot was dropped, False if it didn't exist or
-    the drop failed (logged; never raises).
-    """
-    import logging
-    log = logging.getLogger(__name__)
-    try:
-        import psycopg2
-    except ImportError:
-        log.warning("cdc: psycopg2 not installed — cannot drop slot %r", slot)
-        return False
-    try:
-        conn = psycopg2.connect(
-            host=host, port=port, dbname=database, user=user, password=password,
-        )
-        try:
-            conn.autocommit = True
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT pg_drop_replication_slot(slot_name) "
-                    "FROM pg_replication_slots WHERE slot_name = %s",
-                    (slot,),
-                )
-                dropped = cur.rowcount > 0
-            if dropped:
-                log.info("cdc: dropped replication slot %r on %s/%s", slot, host, database)
-            return dropped
-        finally:
-            conn.close()
-    except Exception as exc:  # noqa: BLE001 — cleanup must never break the caller
-        log.warning("cdc: could not drop replication slot %r on %s: %s", slot, host, exc)
-        return False
+    @staticmethod
+    def param_schema() -> list[dict]:
+        # Only settings a run reads. Which ones apply depends on the
+        # connection's type: tables, slot and publication for PostgreSQL;
+        # tables for MySQL / MariaDB; topic and format for Debezium on Kafka.
+        return [
+            {"name": "connection_id", "type": "connection_picker", "label": "Connection",
+             "required": True,
+             "description": "A saved PostgreSQL, MySQL, MariaDB or Kafka connection."},
+            {"name": "tables", "type": "text", "label": "Tables",
+             "placeholder": "public.orders, public.customers",
+             "description": "The tables whose changes the step reads (PostgreSQL, MySQL, MariaDB). "
+                            "Write schema.table (database.table on MySQL), separated by commas."},
+            {"name": "start_from", "type": "select", "label": "First run starts at",
+             "options": ["new", "copy"], "default": "new",
+             "description": "new: only changes made from the first run on. copy: every row the "
+                            "tables hold now, then the changes after it."},
+            {"name": "max_changes", "type": "number", "label": "Max Changes", "default": 10000,
+             "description": "About how many changes one run reads. A database transaction is "
+                            "never split, so a run can read a few more."},
+            {"name": "timeout_seconds", "type": "number", "label": "Timeout (seconds)", "default": 120,
+             "description": "The longest a run spends reading changes."},
+            {"name": "slot_name", "type": "text", "label": "Replication Slot",
+             "description": "PostgreSQL only. Empty: Flow names one for this step."},
+            {"name": "publication", "type": "text", "label": "Publication",
+             "description": "PostgreSQL only. Empty: Flow creates one for the tables, if the "
+                            "database user may."},
+            {"name": "topic", "type": "text", "label": "Topic",
+             "description": "Kafka (Debezium) only: the topic Debezium writes one table's changes to."},
+            {"name": "message_format", "type": "select", "label": "Message Format",
+             "options": ["json", "avro"], "default": "json",
+             "description": "Kafka (Debezium) only: JSON, or Avro with a Schema Registry."},
+        ]
 
 
 def cleanup_workflow_cdc_slots(workflow: Any) -> int:
-    """Drop the replication slots of every direct_logical CDC source in
-    ``workflow``. Called from the workflow-delete path so slots don't
-    outlive the pipeline that created them. Best-effort; returns the
-    number of slots dropped.
+    """Remove the PostgreSQL replication slots of a deleted pipeline's CDC steps.
+
+    A slot nobody reads keeps the database's change log from being cleaned up
+    until its disk fills. Best effort; returns how many slots were removed.
     """
+    from revoluzen_flow.streams.connection import connection_of_workflow
+    from revoluzen_flow.streams.pg_cdc import drop_for_step
+
     dropped = 0
+    workflow_id = str(getattr(workflow, "id", "") or "")
     for step in getattr(workflow, "steps", None) or []:
         try:
             if getattr(step, "type", None) != StepType.CDC_SOURCE:
                 continue
             params = dict(getattr(step, "params", {}) or {})
-            if params.get("mode") != "direct_logical":
+            config = None
+            if params.get("connection_id"):
+                found = connection_of_workflow(workflow, params["connection_id"])
+                if found and found[1] in ("postgresql", "postgres"):
+                    config = found[0]
+            elif params.get("mode") == "direct_logical":
+                config = _legacy_postgres_config(params)
+                if config is not None and not params.get("slot_name"):
+                    params["slot_name"] = params.get("slot") or "revoluzen_flow_slot"
+            if config is None or not workflow_id:
                 continue
-            host = params.get("host")
-            database = params.get("database")
-            if not host or not database:
-                continue
-            if drop_replication_slot(
-                host=host,
-                port=int(params.get("port", 5432)),
-                database=database,
-                user=params.get("user", ""),
-                password=params.get("password", ""),
-                slot=params.get("slot", "revoluzen_flow_slot"),
-            ):
+            if drop_for_step(params, config, workflow_id, str(step.id)):
                 dropped += 1
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — clean-up must never break deleting a pipeline
             continue
     return dropped
-
-
-@register(StepType.CDC_SOURCE)
-class CdcSourceNode(BaseNode):
-    """Change Data Capture source — Debezium via Kafka or Postgres logical decoding."""
-
-    display_name = "CDC Source (Debezium)"
-    category = "source"
-    description = "Stream INSERT/UPDATE/DELETE events from Postgres/MySQL/MSSQL/Oracle/MongoDB"
-
-    def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
-        # CDC is declared Plus-only in edition-matrix.md, in
-        # `ai/session_context.py` and in anti-pattern rule 25, but until
-        # 2026-10-21 nothing enforced it and this node ran on free instances.
-        # Gated here, at execution, rather than at registration: the node
-        # stays visible and configurable so a free user can see what Plus
-        # offers and build against it, and the refusal names the feature when
-        # they run it. Hiding the node instead would make the catalog differ
-        # between editions, which the open-core contract avoids.
-        require_plus("CDC Source (change data capture)")
-
-        mode = self.params.get("mode", "kafka_topic")
-        max_events = int(self.params.get("max_events", 1000))
-
-        if mode == "kafka_topic":
-            bootstrap = self.params.get("kafka_bootstrap") or "localhost:9092"
-            topic = self.params.get("kafka_topic")
-            if not topic:
-                raise ValueError("CDC Source: kafka_topic is required for kafka_topic mode")
-            group = self.params.get("consumer_group") or "revoluzen_flow-cdc"
-            timeout_s = float(self.params.get("poll_timeout_s", 5.0))
-            events = _consume_kafka_debezium(bootstrap, topic, group, max_events, timeout_s)
-            return _events_to_relation(ctx.conn, events)
-
-        if mode == "direct_logical":
-            source_type = self.params.get("source_type", "postgres")
-            if source_type != "postgres":
-                raise ValueError(f"direct_logical only supports postgres (got {source_type})")
-            events = _tail_postgres_logical(
-                host=self.params["host"],
-                port=int(self.params.get("port", 5432)),
-                database=self.params["database"],
-                user=self.params["user"],
-                password=self.params["password"],
-                slot=self.params.get("slot", "revoluzen_flow_slot"),
-                publication=self.params.get("publication", "revoluzen_flow_pub"),
-                max_events=max_events,
-            )
-            return _events_to_relation(ctx.conn, events)
-
-        raise ValueError(f"CDC Source: unknown mode '{mode}'")
-
-    @staticmethod
-    def default_params() -> dict[str, Any]:
-        return {
-            "mode": "kafka_topic",
-            "source_type": "postgres",
-            "max_events": 1000,
-            "poll_timeout_s": 5.0,
-        }
-
-    @staticmethod
-    def param_schema() -> list[dict]:
-        return [
-            {"name": "mode", "type": "string", "label": "Mode", "required": True,
-             "options": [
-                 {"value": "kafka_topic", "label": "Kafka topic (Debezium)"},
-                 {"value": "direct_logical", "label": "Direct logical (Postgres only)"},
-             ]},
-            {"name": "source_type", "type": "string", "label": "Source DB",
-             "options": [{"value": s, "label": s.title()} for s in _SUPPORTED_SOURCES]},
-            {"name": "kafka_bootstrap", "type": "string", "label": "Kafka bootstrap"},
-            {"name": "kafka_topic", "type": "string", "label": "Kafka topic"},
-            {"name": "consumer_group", "type": "string", "label": "Consumer group"},
-            {"name": "host", "type": "string", "label": "DB host (direct mode)"},
-            {"name": "database", "type": "string", "label": "Database (direct mode)"},
-            {"name": "slot", "type": "string", "label": "Replication slot"},
-            {"name": "publication", "type": "string", "label": "Publication"},
-            {"name": "max_events", "type": "number", "label": "Max events / batch", "default": 1000},
-        ]

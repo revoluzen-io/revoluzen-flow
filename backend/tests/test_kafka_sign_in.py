@@ -87,6 +87,12 @@ def _certificate(common_name: str, signer=None, *, ca: bool = False, hosts=()):
         .not_valid_before(now - datetime.timedelta(days=1))
         .not_valid_after(now + datetime.timedelta(days=30))
         .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+        # Python 3.13 verifies strictly (VERIFY_X509_STRICT) and refuses a
+        # chain whose certificates lack key identifiers, as a real CA's have.
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(signer_key.public_key()), critical=False,
+        )
     )
     if ca:
         builder = builder.add_extension(x509.KeyUsage(
