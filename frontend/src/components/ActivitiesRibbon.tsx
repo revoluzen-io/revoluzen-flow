@@ -43,7 +43,8 @@ export default function ActivitiesRibbon() {
 
   const handleAdd = (type: string) => {
     addNode(type);
-    setTimeout(() => rfInstance?.fitView({ padding: 0.3, duration: 300 }), 50);
+    // Never past natural size, as in the Nodes panel.
+    setTimeout(() => rfInstance?.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }), 50);
   };
 
   // Search mode flattens categories — every matching node across every

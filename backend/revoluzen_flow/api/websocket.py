@@ -13,7 +13,9 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+
+from revoluzen_flow.auth.deps import require_min_rank_when_identified
 
 from revoluzen_flow.engine.realtime import RealtimeExecutor
 
@@ -45,7 +47,7 @@ def _resolve_ws_workspace(token: str, explicit_workspace: str) -> tuple[str | No
     on failure — callers map the reason into a 1008 close frame.
     """
     from revoluzen_flow.main import app_state
-    from revoluzen_flow.auth.deps import ADMIN_ROLES
+    from revoluzen_flow.auth.deps import _INSTANCE_ADMIN_ROLES
 
     user_store = app_state.get("user_store")
     if not user_store:
@@ -71,7 +73,7 @@ def _resolve_ws_workspace(token: str, explicit_workspace: str) -> tuple[str | No
 
     explicit = (explicit_workspace or "").strip()
     if explicit:
-        if user.role in ADMIN_ROLES or ws_store.is_member(explicit, user.id):
+        if user.role in _INSTANCE_ADMIN_ROLES or ws_store.is_member(explicit, user.id):
             return explicit, None
         return None, f"not a member of workspace {explicit!r}"
 
@@ -82,6 +84,26 @@ def _resolve_ws_workspace(token: str, explicit_workspace: str) -> tuple[str | No
     except Exception:
         pass
     return "default", None
+
+
+def _ws_can_run(token: str) -> bool:
+    """True when the socket's user may start or stop runs (developer and up).
+
+    Watching progress is fine for any member, but ``execute``,
+    ``execute_step`` and ``cancel`` are the same capability the HTTP
+    execution routes gate at developer rank.
+    """
+    from revoluzen_flow.main import app_state
+    from revoluzen_flow.auth.deps import _ROLE_RANK
+
+    user_store = app_state.get("user_store")
+    if not user_store:
+        return True
+    try:
+        user = user_store.get_user_for_session(token) if token else None
+    except Exception:
+        user = None
+    return bool(user) and _ROLE_RANK.get(getattr(user, "role", ""), 0) >= _ROLE_RANK["developer"]
 
 
 class ConnectionManager:
@@ -166,6 +188,21 @@ def _get_app_state():
     return app_state
 
 
+def _pipeline_in_workspace(workflow_id: str, workspace_id: str) -> bool:
+    """The pipeline exists in this workspace: the lookup the run actions use.
+
+    The newest saved version answers it, so a published pipeline whose
+    published version is missing still gets its socket; running it is what
+    reports that (``PublishedVersionMissing`` in _execute_workflow_realtime).
+    """
+    try:
+        store = _get_app_state().get("store")
+        return store is not None and store.get(workflow_id, workspace_id=workspace_id) is not None
+    except Exception:  # noqa: BLE001 — a lookup that fails counts as not found
+        logger.debug("Could not look up pipeline %s for a socket", workflow_id, exc_info=True)
+        return False
+
+
 @router.websocket("/ws/execution/{workflow_id}")
 async def execution_ws(
     websocket: WebSocket,
@@ -191,7 +228,8 @@ async def execution_ws(
         action is executed in that workspace. The WS is closed with
         code 1008 if auth fails or the user isn't a member of the
         requested workspace, so a client can't silently fall through
-        to the wrong tenant.
+        to the wrong tenant. The pipeline must be in that workspace too:
+        otherwise the client gets "Workflow not found" and the same 1008.
     """
     resolved_ws, error = _resolve_ws_workspace(token, workspace_id)
     if error:
@@ -209,7 +247,23 @@ async def execution_ws(
         await websocket.close(code=_WS_POLICY_VIOLATION, reason=error[:120])
         return
 
+    # A socket hears every run of its pipeline: the Run button's and a
+    # published endpoint's runs report each step to it (api/execution.py
+    # _canvas_progress_sink). So the pipeline must belong to the workspace
+    # this socket is bound to, since the progress of its runs (step ids and
+    # types, row counts, error text) is that workspace's data. Same answer
+    # as for a pipeline that does not exist.
+    if not _pipeline_in_workspace(workflow_id, resolved_ws):
+        await websocket.accept()
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "error": "Workflow not found"}))
+        except Exception:
+            pass
+        await websocket.close(code=_WS_POLICY_VIOLATION, reason="workflow not found")
+        return
+
     await manager.connect(websocket, workflow_id)
+    can_run = _ws_can_run(token)
 
     try:
         while True:
@@ -226,6 +280,13 @@ async def execution_ws(
 
             action = msg.get("action", "")
 
+            if action in ("execute", "execute_step", "cancel") and not can_run:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "error": "Requires role >= developer",
+                }))
+                continue
+
             if action == "ping":
                 await websocket.send_text(json.dumps({
                     "type": "pong",
@@ -237,6 +298,7 @@ async def execution_ws(
                 await _execute_workflow_realtime(
                     websocket, workflow_id, preview_limit,
                     workspace_id=resolved_ws,
+                    draft=bool(msg.get("draft")),
                 )
 
             elif action == "execute_step":
@@ -288,8 +350,11 @@ async def _execute_workflow_realtime(
     workflow_id: str,
     preview_limit: int,
     workspace_id: str = "default",
+    draft: bool = False,
 ):
     """Run a full workflow with real-time event streaming.
+
+    A published pipeline runs its published version unless ``draft`` is set.
 
     ``workspace_id`` is the tenant resolved on the handshake and is
     **not** client-controlled after that point — it's bound to the
@@ -306,7 +371,15 @@ async def _execute_workflow_realtime(
     data_dir = app_state["data_dir"]
     exe_store = get_execution_store()
 
-    v = store.get(workflow_id, workspace_id=workspace_id)
+    from revoluzen_flow.ir.versioning import PublishedVersionMissing
+    try:
+        v = (
+            store.get(workflow_id, workspace_id=workspace_id)
+            if draft else store.live_version(workflow_id, workspace_id=workspace_id)
+        )
+    except PublishedVersionMissing as exc:
+        await websocket.send_text(json.dumps({"type": "error", "error": str(exc)}))
+        return
     if not v:
         await websocket.send_text(json.dumps({
             "type": "error",
@@ -522,15 +595,22 @@ def _cancel_workspace_gate(request: Request) -> str:
 
 
 @info_router.get("/connections")
-async def ws_connections():
-    """Get active WebSocket connection info."""
+async def ws_connections(_ws: str = Depends(_cancel_workspace_gate)):
+    """Get active WebSocket connection info.
+
+    Refuses anonymous callers in server mode (it lists pipeline ids that
+    have live sockets, across workspaces).
+    """
     return {
         "connections": manager.get_all_connections(),
         "total": sum(manager.get_all_connections().values()),
     }
 
 
-@info_router.post("/cancel/{workflow_id}")
+@info_router.post(
+    "/cancel/{workflow_id}",
+    dependencies=[Depends(require_min_rank_when_identified("developer"))],
+)
 async def cancel_execution_http(
     workflow_id: str,
     _ws: str = Depends(_cancel_workspace_gate),
@@ -541,7 +621,13 @@ async def cancel_execution_http(
     ``{"cancelled": false}`` for a made-up id, which means it would have
     answered ``true`` for a real one: anyone reachable on the port could
     stop a running pipeline.
+
+    2026-11-13 — the resolved workspace was never compared with the
+    pipeline's, so a member of one workspace could stop another's runs,
+    and a viewer could stop any run. Both are checked now.
     """
+    if not _pipeline_in_workspace(workflow_id, _ws):
+        raise HTTPException(404, "Workflow not found")
     cancelled = manager.cancel_execution(workflow_id)
     return {
         "workflow_id": workflow_id,

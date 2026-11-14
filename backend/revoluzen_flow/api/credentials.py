@@ -10,7 +10,9 @@ import urllib.request
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from revoluzen_flow.auth.deps import current_workspace_id, require_auth, require_role
+from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
 from revoluzen_flow.credentials.models import Credential, CredentialCreate, CredentialUpdate
+from revoluzen_flow.credentials.sensitive_fields import credential_response
 
 
 def _safe_workspace_id(request: Request) -> str:
@@ -60,7 +62,7 @@ def _derive_username(cred_dict: dict) -> str | None:
         return None
     for key in ("username", "user", "user_id", "client_id", "account", "access_key_id"):
         v = cfg.get(key)
-        if v and not str(v).startswith("***"):
+        if v and v != SECRET_PLACEHOLDER and not str(v).startswith("***"):
             return str(v)[:64]
     return None
 
@@ -156,11 +158,11 @@ async def create_credential(
         vault_reference=body.vault_reference,
         created_by=creator,
         updated_by=creator,
+        sensitive_fields=body.sensitive_fields or [],
     )
     created = store.create(credential)
     _warn_if_expiring(created)
-    result = created.model_dump(mode="json")
-    result["config"] = store._mask_config(created.config)
+    result = credential_response(created)
     result["username"] = _derive_username(result)
     return result
 
@@ -168,16 +170,18 @@ async def create_credential(
 @router.get("/{credential_id}")
 async def get_credential(
     credential_id: str,
+    _user = _read,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Get a credential by ID (secrets masked) — 404s across workspace boundary."""
+    """Get a credential by ID (secrets masked) — 404s across workspace boundary.
+
+    Signed-in callers only, the same as the list (it had no check of its own).
+    """
     store = get_store()
     credential = store.get(credential_id, workspace_id=workspace_id)
     if not credential:
         raise HTTPException(404, "Credential not found")
-    result = credential.model_dump(mode="json")
-    result["config"] = store._mask_config(credential.config)
-    return result
+    return credential_response(credential)
 
 
 @router.put("/{credential_id}")
@@ -194,9 +198,7 @@ async def update_credential(
     if not credential:
         raise HTTPException(404, "Credential not found")
     _warn_if_expiring(credential)
-    result = credential.model_dump(mode="json")
-    result["config"] = store._mask_config(credential.config)
-    return result
+    return credential_response(credential)
 
 
 @router.post("/{credential_id}/move")
@@ -234,8 +236,19 @@ async def delete_credential(
     _user = _write,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Delete a credential. Lead/admin only — scoped to workspace."""
+    """Delete a credential. Lead/admin only — scoped to workspace. Refused
+    while a published pipeline uses it, directly or through a connection."""
     store = get_store()
+    from revoluzen_flow.ir.published_refs import published_using_credential, refusal
+    from revoluzen_flow.main import app_state as _state
+    existing = store.get(credential_id, workspace_id=workspace_id)
+    workflow_store = _state.get("store")
+    connection_store = _state.get("connection_store")
+    if existing is not None and workflow_store is not None:
+        connections = connection_store.list_all(workspace_id=workspace_id) if connection_store is not None else []
+        pipelines = published_using_credential(workflow_store, workspace_id, credential_id, connections)
+        if pipelines:
+            raise HTTPException(409, refusal("The credential", existing.name, pipelines))
     if not store.delete(credential_id, workspace_id=workspace_id):
         raise HTTPException(404, "Credential not found")
     # Z25 (2026-05-23) — best-effort lineage-cache invalidation. The

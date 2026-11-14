@@ -30,7 +30,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.ir.schema import Deployment
 
 logger = logging.getLogger(__name__)
@@ -216,7 +216,7 @@ def list_deployments(
     }
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 def create_deployment(
     body: CreateDeploymentRequest,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -269,7 +269,7 @@ def get_deployment(
     return d.model_dump(mode="json")
 
 
-@router.put("/{deployment_id}")
+@router.put("/{deployment_id}", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 def update_deployment(
     deployment_id: str,
     body: UpdateDeploymentRequest,
@@ -289,7 +289,7 @@ def update_deployment(
     return d.model_dump(mode="json")
 
 
-@router.delete("/{deployment_id}")
+@router.delete("/{deployment_id}", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 def delete_deployment(
     deployment_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -302,7 +302,7 @@ def delete_deployment(
     return {"deleted": True, "id": deployment_id}
 
 
-@router.post("/{deployment_id}/run")
+@router.post("/{deployment_id}/run", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 def run_deployment(
     deployment_id: str,
     workspace_id: str = Depends(_safe_workspace_id),

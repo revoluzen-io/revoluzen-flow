@@ -30,6 +30,11 @@ class _Store:
             return None
         return WorkflowVersion(version=3, workflow=flow)
 
+    # A child is started at its live (published) version. These fakes have
+    # one version each, so the live one is that version.
+    def live_version(self, workflow_id, workspace_id=None):
+        return self.get(workflow_id, workspace_id=workspace_id)
+
 
 class _Runs:
     def __init__(self):

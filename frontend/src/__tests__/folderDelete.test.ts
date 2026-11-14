@@ -1,5 +1,5 @@
 /**
- * Deleting a folder from the Projects page.
+ * Deleting a folder from the project panel on the Pipelines page.
  *
  * The server refuses to guess what to do with the pipelines inside a folder
  * (409 unless told `force` or `move_to_root`). The screen sent neither, so a
@@ -92,12 +92,12 @@ describe('published pipelines in the folder', () => {
     expect(folderPublishedNotice('Reports', ['Daily'])).toEqual({
       title: 'Folder "Reports" has published pipelines',
       message:
-        '"Daily" is published, and a published pipeline cannot be deleted. Revoke it first on the Pipelines page (row ⋯ menu → Revoke), or move it out of the folder, then delete the folder.',
+        '"Daily" is published, and a published pipeline cannot be deleted. Unpublish it first on the Pipelines page (row ⋯ menu → Unpublish), or move it out of the folder, then delete the folder.',
     });
   });
 
   it('names two or three, and counts the rest', () => {
-    expect(folderPublishedNotice('Reports', ['A', 'B']).message).toMatch(/^"A" and "B" are published, and a published pipeline cannot be deleted\. Revoke them first/);
+    expect(folderPublishedNotice('Reports', ['A', 'B']).message).toMatch(/^"A" and "B" are published, and a published pipeline cannot be deleted\. Unpublish them first/);
     expect(folderPublishedNotice('Reports', ['A', 'B', 'C']).message).toMatch(/^"A", "B" and "C" are published/);
     expect(folderPublishedNotice('Reports', ['A', 'B', 'C', 'D', 'E']).message).toMatch(/^"A", "B", "C" and 2 more are published/);
     expect(folderPublishedNotice('Reports', ['A', 'B']).message).toContain('move them out of the folder');

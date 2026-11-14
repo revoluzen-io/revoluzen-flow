@@ -7,7 +7,9 @@
   outline-offset: 3px;
 }
 .editor-context > * { max-width: 100%; min-width: 0; }
-.editor-context > :nth-child(2) { flex: 1 1 240px; }
+/* The pipeline name chip: no narrower than what it holds (the name, at least about sixteen characters, and a
+   "Past run" chip), so a narrow canvas wraps the row instead of squeezing the name to "Pa" under the chips. */
+.editor-context > :nth-child(2) { flex: 1 1 240px; min-width: min-content; }
 .editor-context > :last-child { margin-left: auto; flex-wrap: wrap; }
 .editor-toolbar > *, .page-header-content > * { max-width: 100%; }
 .editor-toolbar-tabs { overflow-x: auto; }
@@ -75,7 +77,10 @@
 .canvas-tools > * { flex-shrink: 0; }
 .revoluzen-flow-global-nav { row-gap: 4px; }
 .revoluzen-flow-global-nav > * { max-width: 100%; }
-.config-overlay { top: var(--editor-top, 145px); }
+/* The node settings panel opens below the toolbar (--editor-top, from
+   Toolbar.tsx) and below the editor's tabs above the canvas
+   (--editor-tabs-height, from OpenPipelineTabs.tsx), so neither is covered. */
+.config-overlay { top: calc(var(--editor-top, 145px) + var(--editor-tabs-height, 0px)); }
 
 @media (max-width: 1279px) {
   .editor-workspace { padding-inline: 40px; }

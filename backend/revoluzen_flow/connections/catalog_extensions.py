@@ -37,6 +37,7 @@ from revoluzen_flow.connections.catalog import (
     _unsupported,
     register,
 )
+from revoluzen_flow.connections.addons import addon_message
 from revoluzen_flow.connections.runtime import resolve_verify_ssl
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,7 @@ def _trino_like_catalog(config: dict, default_port: int) -> Catalog:
             conn = dbapi.connect(host=host, port=port, user=user,
                                   catalog=catalog, schema=schema)
     except ImportError:
-        return _unsupported("trino client not installed (pip install trino)")
+        return _unsupported(addon_message("presto" if is_presto else "trino"))
     try:
         cur = conn.cursor()
         items: list[CatalogItem] = []
@@ -394,23 +395,39 @@ def _pubsub_catalog(config: dict) -> Catalog:
 #                      Cloud storage (Tier 2)
 # ════════════════════════════════════════════════════════════════════
 
+# 2026-11-11: GCS, Azure Blob and ADLS Gen2 sign in through
+# connections/warehouse_clients.py, from the fields the connection form saves.
+# GCS ignored the saved service account key, and both Azure providers read an
+# `account_url` the form never saves, so only a connection string worked.
+
 @register("gcs", ProviderMeta(category="object_storage", auth="service_account", tier="tier2"))
 def _gcs_catalog(config: dict) -> Catalog:
+    from revoluzen_flow.connections import warehouse_clients as wc
+
+    bucket_name = (config.get("bucket") or "").strip()
+    prefix = config.get("prefix", "") or ""
+    if wc.gcs_uses_hmac(config):
+        # HMAC keys sign S3-style requests, which the file watcher already makes.
+        from revoluzen_flow.triggers.file_listing import ListingError, list_gcs
+        try:
+            found = list_gcs(prefix, config)
+        except ListingError as exc:
+            return _unsupported(str(exc))
+        return _build([CatalogItem(name=f.path, kind="object", parent=bucket_name,
+                                   metadata={"size": f.size}) for f in found])
     try:
-        from google.cloud import storage  # type: ignore
-    except ImportError:
-        return _unsupported("google-cloud-storage not installed (pip install revoluzen-flow[google])")
-    project = config.get("project_id") or config.get("project")
-    bucket_name = config.get("bucket")
-    client = storage.Client(project=project)
+        client = wc.gcs_client(config)
+    except (RuntimeError, ValueError) as exc:
+        return _unsupported(str(exc))
     items: list[CatalogItem] = []
     if bucket_name:
-        bucket = client.bucket(bucket_name)
-        prefix = config.get("prefix", "") or ""
-        for blob in client.list_blobs(bucket, prefix=prefix, delimiter="/", max_results=500):
+        blobs = client.list_blobs(bucket_name, prefix=prefix, delimiter="/", max_results=500)
+        for blob in blobs:
             items.append(CatalogItem(name=blob.name, kind="object",
                                       parent=bucket_name,
                                       metadata={"size": blob.size}))
+        for folder in sorted(getattr(blobs, "prefixes", None) or ()):
+            items.append(CatalogItem(name=folder, kind="prefix", parent=bucket_name))
     else:
         for b in client.list_buckets(max_results=200):
             items.append(CatalogItem(name=b.name, kind="bucket", parent=""))
@@ -419,18 +436,11 @@ def _gcs_catalog(config: dict) -> Catalog:
 
 @register("azure_blob", ProviderMeta(category="object_storage", auth="api_key", tier="tier2"))
 def _azure_blob_catalog(config: dict) -> Catalog:
+    from revoluzen_flow.connections.warehouse_clients import azure_blob_service
     try:
-        from azure.storage.blob import BlobServiceClient  # type: ignore
-    except ImportError:
-        return _unsupported("azure-storage-blob not installed (pip install revoluzen-flow[azure])")
-    conn_str = config.get("connection_string")
-    account_url = config.get("account_url")
-    if conn_str:
-        client = BlobServiceClient.from_connection_string(conn_str)
-    elif account_url:
-        client = BlobServiceClient(account_url=account_url, credential=config.get("account_key"))
-    else:
-        return _unsupported("Azure Blob requires 'connection_string' OR 'account_url'+'account_key'")
+        client = azure_blob_service(config)
+    except (RuntimeError, ValueError) as exc:
+        return _unsupported(str(exc))
     items: list[CatalogItem] = []
     container_name = config.get("container")
     if container_name:
@@ -445,21 +455,37 @@ def _azure_blob_catalog(config: dict) -> Catalog:
     return _build(items)
 
 
+@register("odbc", ProviderMeta(category="relational", auth="basic", tier="tier1"))
+def _odbc_catalog(config: dict) -> Catalog:
+    """Tables and views an ODBC driver lists (2026-11-11)."""
+    from revoluzen_flow.connections import odbc
+
+    try:
+        conn = odbc.connect(config, timeout=DEFAULT_TIMEOUT)
+    except (RuntimeError, ValueError) as exc:
+        return _unsupported(str(exc))
+    try:
+        return _build([CatalogItem(name=name, kind=kind, parent=parent)
+                       for parent, name, kind in odbc.list_tables(conn)])
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @register("adls_gen2", ProviderMeta(category="object_storage", auth="api_key", tier="tier2"))
 def _adls_catalog(config: dict) -> Catalog:
+    from revoluzen_flow.connections.warehouse_clients import datalake_service
     try:
-        from azure.storage.filedatalake import DataLakeServiceClient  # type: ignore
-    except ImportError:
-        return _unsupported("azure-storage-file-datalake not installed (pip install revoluzen-flow[azure])")
-    account_url = config.get("account_url")
-    if not account_url:
-        return _unsupported("ADLS Gen2 requires 'account_url' (https://<account>.dfs.core.windows.net)")
-    client = DataLakeServiceClient(account_url=account_url, credential=config.get("account_key"))
+        client = datalake_service(config)
+    except (RuntimeError, ValueError) as exc:
+        return _unsupported(str(exc))
     items: list[CatalogItem] = []
     fs_name = config.get("filesystem") or config.get("container")
     if fs_name:
         fs = client.get_file_system_client(fs_name)
-        for path in fs.get_paths(path=config.get("directory", ""), recursive=False, max_results=500):
+        for path in fs.get_paths(path=config.get("directory") or None, recursive=False, max_results=500):
             kind = "directory" if path.is_directory else "file"
             items.append(CatalogItem(name=path.name, kind=kind, parent=fs_name))
     else:
@@ -520,6 +546,23 @@ def _local_file_catalog(config: dict) -> Catalog:
                                           parent=path, metadata=meta))
     except PermissionError as exc:
         return _unsupported(f"Permission denied: {exc}")
+    return _build(items)
+
+
+@register("smb", ProviderMeta(category="file_system", auth="basic", tier="tier2"))
+def _smb_catalog(config: dict) -> Catalog:
+    """The files and folders in a Windows file share connection's folder."""
+    from revoluzen_flow.connections import file_share
+
+    try:
+        where, entries = file_share.list_folder(config)
+    except file_share.ShareError as exc:
+        return _unsupported(str(exc))
+    items = [
+        CatalogItem(name=e["name"], kind=e["kind"], parent=where,
+                    metadata={"size": e["size"]} if e["size"] is not None else {})
+        for e in entries
+    ]
     return _build(items)
 
 
@@ -586,7 +629,7 @@ def _sftp_catalog(config: dict) -> Catalog:
 
 
 # ════════════════════════════════════════════════════════════════════
-#                     APIs — OData / SOAP
+#                     APIs — OData
 # ════════════════════════════════════════════════════════════════════
 
 @register("odata", ProviderMeta(category="api", auth="basic", tier="tier1"))
@@ -600,8 +643,8 @@ def _odata_catalog(config: dict) -> Catalog:
         r = _rget(f"{base}/$metadata", auth=auth, headers={"Accept": "application/xml"})
         if r.status_code != 200:
             return _unsupported(f"OData $metadata returned HTTP {r.status_code}")
-        import xml.etree.ElementTree as ET
-        root = ET.fromstring(r.text)
+        from revoluzen_flow.common.safe_xml import parse_xml
+        root = parse_xml(r.content)
     except Exception as exc:  # noqa: BLE001
         return _unsupported(f"OData metadata fetch failed: {exc}")
     items: list[CatalogItem] = []
@@ -612,28 +655,6 @@ def _odata_catalog(config: dict) -> Catalog:
             if name:
                 items.append(CatalogItem(name=name, kind="entity_set",
                                           parent=elem.attrib.get("EntityType", "")))
-    return _build(items)
-
-
-@register("soap", ProviderMeta(category="api", auth="basic", tier="tier2"))
-def _soap_catalog(config: dict) -> Catalog:
-    try:
-        from zeep import Client  # type: ignore
-    except ImportError:
-        return _unsupported("zeep not installed (pip install zeep)")
-    wsdl = config.get("wsdl_url") or config.get("url")
-    if not wsdl:
-        return _unsupported("SOAP requires 'wsdl_url'")
-    try:
-        client = Client(wsdl)
-    except Exception as exc:  # noqa: BLE001
-        return _unsupported(f"WSDL load failed: {exc}")
-    items: list[CatalogItem] = []
-    for service in client.wsdl.services.values():
-        for port in service.ports.values():
-            for op_name in port.binding._operations:
-                items.append(CatalogItem(name=op_name, kind="operation",
-                                          parent=f"{service.name}/{port.name}"))
     return _build(items)
 
 
@@ -1092,7 +1113,7 @@ def _db2_catalog(config: dict) -> Catalog:
         import ibm_db  # type: ignore
         import ibm_db_dbi  # type: ignore
     except ImportError:
-        return _unsupported("ibm_db not installed (pip install revoluzen-flow[db2])")
+        return _unsupported(addon_message("db2"))
     dsn = (
         f"DATABASE={config.get('database', 'SAMPLE')};"
         f"HOSTNAME={config.get('host', 'localhost')};"
@@ -1120,7 +1141,7 @@ def _sap_hana_catalog(config: dict) -> Catalog:
     try:
         from hdbcli import dbapi  # type: ignore
     except ImportError:
-        return _unsupported("hdbcli not installed (pip install revoluzen-flow[hana])")
+        return _unsupported(addon_message("sap_hana"))
     conn = dbapi.connect(
         address=config.get("host"),
         port=int(config.get("port", 30015)),
@@ -1144,7 +1165,7 @@ def _teradata_catalog(config: dict) -> Catalog:
     try:
         import teradatasql  # type: ignore
     except ImportError:
-        return _unsupported("teradatasql not installed (pip install revoluzen-flow[teradata])")
+        return _unsupported(addon_message("teradata"))
     conn = teradatasql.connect(
         host=config.get("host", ""),
         user=_resolve_user(config, ""),
@@ -1172,7 +1193,7 @@ def _informix_catalog(config: dict) -> Catalog:
         import ibm_db  # type: ignore
         import ibm_db_dbi  # type: ignore
     except ImportError:
-        return _unsupported("ibm_db not installed; Informix needs the IBM client libs (pip install revoluzen-flow[db2])")
+        return _unsupported(addon_message("informix"))
     dsn = (
         f"DATABASE={config.get('database', '')};"
         f"HOSTNAME={config.get('host', 'localhost')};"

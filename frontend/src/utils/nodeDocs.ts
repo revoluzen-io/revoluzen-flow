@@ -55,7 +55,7 @@ const DOCS: Record<string, NodeDocs> = {
   api_source: {
     does: 'Fetch rows from a REST endpoint, with auth and pagination handled.',
     inputs: 'None — calls the API on each run.',
-    outputs: 'Rows parsed from the JSON response, flattened by Schema Mapper if configured.',
+    outputs: 'Rows parsed from the JSON response, or from an XML response through its Row Path.',
     failsWhen: 'The endpoint is unreachable, auth fails, or the response shape changes.',
   },
   local_table_source: {
@@ -121,10 +121,16 @@ const DOCS: Record<string, NodeDocs> = {
     failsWhen: 'A source column is missing, or a coercion (e.g. text → number) fails.',
   },
   data_quality: {
-    does: 'Check rows against rules (not empty / equals / greater or less than / between / in a list / pattern / length).',
-    inputs: 'Any row shape with the columns the rules target.',
+    does: 'Check rows against rules (not empty / equals / greater or less than / between / in a list / pattern / length), its own and those of any shared rule sets it picks.',
+    inputs: 'Any row shape with the columns the rules target, including every column a picked rule set checks.',
     outputs: 'On fail: drop the bad rows, fail the run, tag them, or split them off to a "reject" branch.',
-    failsWhen: 'A rule fires and the failure mode is "fail" (vs drop / tag / reject / split).',
+    failsWhen: 'A rule fires and the failure mode is "fail" (vs drop / tag / reject / split), or a picked rule set no longer exists or checks a column the input does not have.',
+  },
+  reconcile: {
+    does: 'Compare the data with the system of record — row count, column totals and keys — within a tolerance, before it is written.',
+    inputs: 'The data to check, plus either a second input reading the system of record or a read-only query on a connection.',
+    outputs: 'The data, unchanged; or with Output set to report, one row per check with both values and whether they matched.',
+    failsWhen: 'The data and the reference disagree and On mismatch is "fail", a compared column is missing on either side, or the reference query is not a single SELECT.',
   },
   upsert: {
     does: 'Collapse duplicate keys to one row — latest wins by Order By (stream-level, not a table merge).',
@@ -163,6 +169,12 @@ const DOCS: Record<string, NodeDocs> = {
     inputs: 'Any row shape — column types persist in the Parquet schema.',
     outputs: 'No downstream output — writes to the workspace data home.',
     failsWhen: 'mode=merge and merge_on columns are missing, or the data directory is unwritable.',
+  },
+  pipeline_output: {
+    does: 'Save the result as one file (CSV, Parquet or JSON) in Storage → Pipeline Outputs, under this pipeline. Each run replaces the file.',
+    inputs: 'Any row shape.',
+    outputs: 'Passes its input on unchanged; the file is written alongside.',
+    failsWhen: 'The output name is empty, or the data directory is unwritable.',
   },
 
   // ── Data movement (extra) ───────────────────────────────────────────────
@@ -271,10 +283,10 @@ const DOCS: Record<string, NodeDocs> = {
     failsWhen: 'The batch size is invalid.',
   },
   foreach_pipeline: {
-    does: 'Run a saved sub-pipeline once per input row, injecting the row\'s columns as parameters.',
+    does: 'Run a saved sub-pipeline once per input row, injecting the row\'s columns as parameters. Rows run one at a time, or up to 16 at once with Rows at Once.',
     inputs: 'Rows whose columns map to the child pipeline\'s declared parameters.',
-    outputs: 'The input rows pass through unchanged (control-flow semantics).',
-    failsWhen: 'The child pipeline is missing, the row count exceeds the max, or a run fails (per on-error).',
+    outputs: 'The input rows unchanged, or with Output set to results, each row plus _item, _status, _error and _duration_ms.',
+    failsWhen: 'The child pipeline is missing, the row count exceeds the max, a run fails (per on-error), or the run is stopped.',
   },
   wait_delay: {
     does: 'Pause the run for a fixed duration before continuing.',
@@ -315,10 +327,10 @@ const DOCS: Record<string, NodeDocs> = {
 
   // ── Action ──────────────────────────────────────────────────────────────
   http_request: {
-    does: 'Call an HTTP endpoint (GET/POST/…) and capture the response.',
+    does: 'Call an HTTP endpoint (GET/POST/…) with a JSON, XML, form or text body and capture the response.',
     inputs: 'Optional — request fields can be templated from input rows / variables.',
-    outputs: 'Rows parsed from the response (or the input passed through, per config).',
-    failsWhen: 'The endpoint is unreachable, auth fails, or a non-2xx status is returned.',
+    outputs: 'Rows parsed from the response: JSON as it comes, XML through a row path, anything else as one row of text.',
+    failsWhen: 'The endpoint is unreachable, auth fails, a non-2xx status or a SOAP fault is returned, or the reply is a web page or a file.',
   },
   send_email: {
     does: 'Send an email via the configured SMTP connection.',

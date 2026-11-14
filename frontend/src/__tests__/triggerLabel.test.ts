@@ -22,6 +22,11 @@ describe('triggerLabel', () => {
     expect(triggerLabel('websocket')).toBe('Editor');
   });
 
+  it('names the event triggers in plain words', () => {
+    expect(triggerLabel('file_arrival')).toBe('File arrived');
+    expect(triggerLabel('after_pipeline')).toBe('After another pipeline');
+  });
+
   it('ignores the id a replay or resume carries', () => {
     expect(triggerLabel('replay:abc12345')).toBe('Replay');
     expect(triggerLabel('resume:abc12345')).toBe('Resume');

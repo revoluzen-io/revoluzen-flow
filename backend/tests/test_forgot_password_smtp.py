@@ -172,12 +172,14 @@ async def test_known_email_with_smtp_returns_null_token_and_sends_email(
 
 
 @pytest.mark.asyncio
-async def test_known_email_with_smtp_uses_origin_header_when_present(
+async def test_known_email_with_smtp_ignores_the_origin_header(
     app_state_wired, registered_user
 ):
-    """If the browser sent an ``Origin`` header that differs from ``Host``
-    (split frontend/backend deploys), the email should embed that origin
-    — otherwise the link points at the API host and 404s."""
+    """The ``Origin`` header is chosen by whoever sends the request, so it must
+    never become the reset link. It used to: an anonymous request with
+    ``Origin: https://attacker.example`` made the admin's real reset email
+    carry the live token to the attacker's site (2026-11-13 pen test).
+    Split frontend/backend deploys set REVOLUZEN_FLOW_PUBLIC_URL instead."""
     _write_smtp_settings(app_state_wired["db"])
 
     with patch("revoluzen_flow.alerts.notifier.smtplib.SMTP") as mock_smtp:
@@ -188,12 +190,13 @@ async def test_known_email_with_smtp_uses_origin_header_when_present(
             ForgotPasswordRequest(email=registered_user.email),
             _fake_request(
                 host="api.revoluzen-flow.example",
-                origin="https://app.revoluzen-flow.example",
+                origin="https://attacker.example",
             ),
         )
 
     payload = server.sendmail.call_args[0][2]
-    assert "https://app.revoluzen-flow.example/?reset_token=" in payload
+    assert "reset_token=" in payload
+    assert "attacker.example" not in payload
 
 
 # ─────────────────────────────────────────────────────────────────────────

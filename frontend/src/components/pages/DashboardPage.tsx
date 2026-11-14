@@ -78,7 +78,7 @@ interface Stats {
   recentExecutions: any[];
   // Every run in the chart's window, counted by the server in ten-minute slots.
   // Null when that call failed; the chart then falls back to the recent runs.
-  runCounts?: { at: string; status: string; count: number }[] | null;
+  runCounts?: { at: string; status: string; count: number; duration_ms?: number; timed?: number }[] | null;
   activeSchedules: any[];
   failedPipelines: any[];
   pendingApprovals: any[];
@@ -157,6 +157,29 @@ function formatBytes(b?: number): string {
   if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
   return `${(b / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
+/**
+ * The average duration of each bucket's successful runs, for the Avg duration card's trend line. A bucket with no
+ * timed run carries the value before it (the first ones take the first known), so a quiet hour reads as "no
+ * change" rather than as a run that took no time. Empty when no bucket has a timed run.
+ */
+export function avgDurationLine(buckets: { dur: number; timed: number }[]): number[] {
+  const avg = buckets.map((b) => (b.timed > 0 ? b.dur / b.timed : null));
+  const first = avg.find((v) => v != null);
+  if (first == null) return [];
+  let last = first;
+  return avg.map((v) => (v == null ? last : (last = v)));
+}
+
+/**
+ * Who the greeting addresses: the account's role, as the role chip beside the page title shows it ("Welcome
+ * back, Admin"), rather than the person's name; a dashboard on a shared screen or in a recording then does
+ * not lead with someone's name. An account without a known role keeps its name.
+ */
+export function greetingName(role: string | undefined, name: string): string {
+  const byRole: Record<string, string> = { super_admin: 'Admin', admin: 'Admin', developer: 'Developer', viewer: 'Viewer' };
+  return (role && byRole[role]) || name;
+}
+
 function getGreeting(): string {
   // Universal welcome — time-of-day variants ("Good night", "Working
   // late") could read as the app judging the user's schedule. "Welcome
@@ -1130,7 +1153,9 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
     startOfToday.setHours(0, 0, 0, 0);
     const dayAnchorMs = startOfToday.getTime();
 
-    type Bucket = { label: string; success: number; failed: number; running: number };
+    // dur / timed: summed duration of the bucket's successful runs that recorded one, and how many did, for the
+    // average-duration card's trend line (the same runs its average counts).
+    type Bucket = { label: string; success: number; failed: number; running: number; dur: number; timed: number };
     const buckets: Bucket[] = [];
     for (let i = binCount - 1; i >= 0; i--) {
       let label: string;
@@ -1144,15 +1169,17 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           ? d.toLocaleDateString(undefined, { weekday: 'short' })
           : `${d.getMonth() + 1}/${d.getDate()}`;
       }
-      buckets.push({ label, success: 0, failed: 0, running: 0 });
+      buckets.push({ label, success: 0, failed: 0, running: 0, dur: 0, timed: 0 });
     }
 
     const counted = stats?.runCounts ?? (stats?.recentExecutions || []).map((e: any) => ({
       at: e.started_at || e.created_at || e.start_time,
       status: e.status,
       count: 1,
+      duration_ms: e.duration_ms > 0 ? e.duration_ms : 0,
+      timed: e.duration_ms > 0 ? 1 : 0,
     }));
-    counted.forEach((e: { at: string; status: string; count: number }) => {
+    counted.forEach((e: { at: string; status: string; count: number; duration_ms?: number; timed?: number }) => {
       if (!e.at) return;
       const ts = new Date(e.at).getTime();
       let binIdx: number;
@@ -1173,6 +1200,8 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
       const s = (e.status || '').toLowerCase();
       if (s === 'success' || s === 'ok' || s === 'completed' || s === 'passed') {
         buckets[binIdx].success += e.count;
+        buckets[binIdx].dur += e.duration_ms || 0;
+        buckets[binIdx].timed += e.timed || 0;
       } else if (s === 'error' || s === 'failed' || s === 'failure' || s === 'timeout' || s === 'timed_out') {
         buckets[binIdx].failed += e.count;
       } else if (s === 'running' || s === 'in_progress' || s === 'executing') {
@@ -1188,6 +1217,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
         const tot = b.success + b.failed;
         return tot === 0 ? 100 : Math.round((b.success / tot) * 100);
       }),
+      avgDuration: avgDurationLine(buckets),
     };
     return { buckets, maxCount, spark };
   }, [stats?.recentExecutions, stats?.runCounts, trendHours]);
@@ -1473,7 +1503,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
           <div className="px-5 py-3.5 flex items-center justify-between gap-4 flex-wrap">
             <div className="min-w-0">
               <div className="text-xl font-bold leading-tight text-slate-800">
-                {getGreeting()}, <span className={isProd ? 'text-red-600' : 'text-blue-600'}>{displayName}</span>
+                {getGreeting()}, <span className={isProd ? 'text-red-600' : 'text-blue-600'}>{greetingName(role, displayName)}</span>
               </div>
               <div className="mt-0.5 text-sm font-medium text-slate-600">
                 {formatDateLong(userTz)}
@@ -1730,7 +1760,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
                 </div>
                 <div className="text-sm font-bold text-slate-800">Connect a source</div>
-                <div className="text-xs text-slate-500 mt-0.5">Database, REST API, S3, or any of 66 connectors.</div>
+                <div className="text-xs text-slate-500 mt-0.5">Database, REST API, S3, or any of 68 connectors.</div>
               </button>
             </div>
           </section>
@@ -1940,6 +1970,8 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 value={avgDur > 0 ? formatDuration(avgDur) : '—'}
                 onClick={() => onNavigate('executions')}
                 gradient={avgDur > 0 ? 'from-violet-500 to-purple-500' : 'from-violet-800 to-purple-900'}
+                // A trend line like the cards beside it: the average of each slot's successful runs.
+                sparkline={avgDur > 0 && spark.avgDuration.length ? spark.avgDuration : undefined}
                 trend={avgDur > 0 ? { arrow: '—', text: 'per successful run', tone: 'muted' } : { arrow: '—', text: 'No successful runs to average', tone: 'muted' }}
               />
             </div>
@@ -1973,7 +2005,7 @@ export default function DashboardPage({ onNavigate, userName, environment = 'dev
                 label="Workspace"
                 metrics={[
                   { label: 'Pipelines',   value: stats?.pipelines ?? 0,   onClick: () => onNavigate('pipelines') },
-                  { label: 'Projects',    value: stats?.projects ?? 0,    onClick: () => onNavigate('projects') },
+                  { label: 'Projects',    value: stats?.projects ?? 0,    onClick: () => onNavigate('pipelines') },
                   { label: 'Connections', value: stats?.connections ?? 0, onClick: () => onNavigate('connections') },
                   { label: 'Credentials', value: stats?.credentials ?? 0, onClick: () => onNavigate('credentials') },
                   { label: 'Schedules',   value: stats?.schedules ?? 0,   onClick: () => onNavigate('pipelines') },

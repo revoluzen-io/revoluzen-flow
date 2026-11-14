@@ -349,11 +349,19 @@ _PAGES: tuple[Topic, ...] = (
         aliases=(
             "projects", "projects page", "my projects", "organization",
             "where are projects", "list projects", "manage projects",
+            "project panel", "projects panel",
         ),
         body=(
-            "The **Projects** page groups pipelines into organisational buckets — a "
-            "project is roughly a 'topic' or 'team area' (e.g. 'Sales analytics', "
-            "'Inventory ETL'). Each project has its own pipelines, schedules, and "
+            "Projects are in the **project panel** on the left of the **Pipelines** "
+            "page (on a narrow screen, the **Projects** button above the list opens "
+            "it); the separate Projects page is gone, and `#projects` links open the "
+            "panel. A project groups related pipelines — roughly a 'topic' or 'team "
+            "area' (e.g. 'Sales analytics', 'Inventory ETL') — and can hold one level "
+            "of folders. Click a project or folder to list only its pipelines; **All "
+            "projects** lists every one, and **Unassigned** lists pipelines whose "
+            "project you cannot see. **New** at the top of the panel creates a "
+            "project, and a project's **⋯** menu adds a folder, edits, exports, pins "
+            "or archives it. Each project has its own pipelines, schedules, and "
             "connection scope. Projects are a DEV-environment concept; on PROD all "
             "pipelines are visible together."
         ),
@@ -373,7 +381,7 @@ _PAGES: tuple[Topic, ...] = (
             "shipped connector is rated for schema coverage, auth method, incremental "
             "sync, pagination, error handling, and depth score (0-5). Use this when "
             "evaluating whether a given connector is production-grade for your use "
-            "case. All 66 connectors are usable in OSS — Plus does not gate "
+            "case. All 68 connectors are usable in OSS — Plus does not gate "
             "connector access, though 9 carry a Plus tier label in the catalog."
         ),
         see_also=("doc.connectors",),
@@ -964,6 +972,27 @@ _HOWTOS: tuple[Topic, ...] = (
         see_also=("glossary.connector", "page.credentials", "howto.add_credential"),
     ),
     Topic(
+        id="howto.soap_or_xml_api",
+        category=TopicCategory.HOWTO,
+        title="How to connect to a SOAP service or an XML API",
+        aliases=(
+            "soap", "soap service", "wsdl", "import a wsdl", "connect to soap",
+            "xml api", "read xml from an api", "api that returns xml",
+        ),
+        body=(
+            "Open Insights → API Explorer. For a SOAP service, enter its WSDL address and "
+            "click **Load WSDL**, or paste the WSDL, then choose the operation under "
+            "**Endpoint**. The address, headers and envelope are filled in; enter the values "
+            "below the body and send it. For an XML API that is not SOAP, just send the "
+            "request. On the **Table** tab, **Row path** chooses which element is one row. "
+            "Then on the **Connector** tab, generate from **This request** and save it. A "
+            "**SaaS Connector** node runs the saved connector in a pipeline. For a one-off "
+            "call, the **HTTP Request** node has a Body Type of XML and a Row Path. There is "
+            "no SOAP connection type on the Connections page."
+        ),
+        see_also=("howto.saas_connector", "page.credentials"),
+    ),
+    Topic(
         id="howto.file_transfer",
         category=TopicCategory.HOWTO,
         title="How to move files: FTP, SFTP and the File System step",
@@ -1068,7 +1097,7 @@ _EDITIONS: tuple[Topic, ...] = (
         ),
         body=(
             "**Revoluzen Flow** is the free, open-source, single-user, single-tenant "
-            "build. Includes: visual pipeline editor, 45 node types, 66 "
+            "build. Includes: visual pipeline editor, 45 node types, 68 "
             "connectors, scheduling, starting a pipeline from another application, "
             "alerts (pipeline-level), templates, the Copilot with its full tool "
             "set, basic eval harness, vertical "

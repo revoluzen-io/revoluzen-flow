@@ -12,6 +12,76 @@ follows the compatibility rules documented there.
 
 ### Added
 
+- **Start a pipeline when a file arrives.** In a pipeline's Schedule dialog,
+  "A file arriving" watches a folder on the Flow server, on an SFTP server, on a
+  Windows file share, in Amazon S3 (or MinIO), Google Cloud Storage or Azure Blob
+  Storage. Each new file
+  whose name matches the pattern starts one run, with the file's path in the
+  parameter you choose. A file must stop changing for a set time before its run
+  starts, so one still being copied is not read half-written. What was seen is
+  remembered in the database, so a file never starts two runs, across restarts
+  and servers; a file replaced by a new version starts its own. Files already in
+  the folder are left alone unless you ask for them. Runs go one at a time, oldest
+  file first. "Check the folder now" shows what the trigger would see before you
+  save.
+
+- **Run a pipeline after another one.** "Another pipeline finishing" starts it
+  when another pipeline succeeds, fails, or finishes either way. Runs started by
+  a schedule, a file, another pipeline or another application count; runs started
+  by hand do not. A loop is refused when it is saved, naming the pipelines in it,
+  and again at run time.
+
+- **Signed calls to published endpoints.** An endpoint can require each call to
+  be signed with a secret Flow makes, shows once and keeps encrypted, in the open
+  Standard Webhooks format (`webhook-id`, `webhook-timestamp`,
+  `webhook-signature`). A changed call, a message already received, or one more
+  than 5 minutes old is refused. Works with or without an API key, and the
+  Triggers page writes the signing command for a terminal or PowerShell.
+
+  All three only ever run a published pipeline, at its published version, and
+  follow its overlap setting and run time limit. See
+  `docs/user-guides/pipelines.md` (Scheduling and triggers) and `docs/api.md`.
+
+- **Windows file shares.** A new connection, **Windows File Share (SMB)**, reads
+  and writes `\\server\share` files with a saved sign-in (domain, user name,
+  password), the same whether Flow runs on Windows, Linux or Docker. Pick it in a
+  Source or Destination and the File step does the rest, so every format it reads
+  works on a share, including fixed-width text, COBOL copybook records, EBCDIC and
+  PGP-encrypted files; `*` and `?` in a file name read every matching file. A file
+  is written under a temporary name and renamed once complete, so a program
+  watching the folder never picks up half of it. Test connection signs in and
+  lists the folder. A file landing on a share can start a pipeline: choose "A
+  file arriving" and "A Windows file share" in the Schedule dialog, and each new
+  file starts one run with its full `\\server\share\...` path, which the File
+  step reads with the same connection. A file that the program writing it still
+  has open waits until it is closed. The client, `smbprotocol` (MIT, with
+  `pyspnego` and on Windows `sspilib`), now ships with Flow, and the connector
+  count is 67. See `docs/user-guides/mainframe-and-legacy-files.md`.
+
+- **Kafka with a company's own certificate authority and client certificates.** A
+  Kafka connection that uses `SSL` or `SASL_SSL` now takes a CA certificate, so
+  Flow can reach brokers whose certificates the company signs itself, and a client
+  certificate with its private key (and the key's password, if it is locked) for
+  brokers that ask each client for one. They are pasted as text, so there is no
+  file to copy to the Flow server, and they reach both Kafka client libraries in
+  the Kafka Source, the Kafka Sink, Test connection and topic browsing. A
+  certificate that cannot be read, a wrong key password or a key that does not
+  belong to its certificate is named before Kafka is contacted. The private key and
+  its password are kept encrypted, never sent back to the browser and never
+  repeated in a message or a log line. Until now `SSL` trusted only the
+  certificates the computer trusts, and no client certificate could be given. See
+  `docs/nodes-and-canvas-reference.md` (Kafka Source).
+
+- **Reports you design and schedule.** Insights > Reports used to offer one fixed
+  document. Now you choose the sections (runs, failures, successes, usage, storage,
+  AI use, environment, new builds, schedules, alerts, or a table you design), narrow
+  them to the period, projects and pipelines you care about, and save the report.
+  A saved report can be sent daily, weekly or monthly by email, Slack, Teams or
+  webhook, using the existing scheduler and notification settings. Each report keeps
+  a history of what went out, to whom, and why anything failed. The fixed inventory
+  document stays, as a starting point on the same page. See
+  `docs/user-guides/reports.md`.
+
 - **The Bin for deleted pipelines.** Deleting a pipeline now moves it to the Bin
   tab on the Pipelines page instead of removing it. It keeps its saved versions
   and stays for 30 days (`REVOLUZEN_FLOW_BIN_RETENTION_DAYS`; `0` means never
@@ -141,6 +211,16 @@ follows the compatibility rules documented there.
 
 ### Changed
 
+- **Two things that were declared but never built are gone.** The schedule type
+  `event`, with `event_trigger` and `event_source_id`, never fired; the API no
+  longer takes it. A row saved with it is read as the trigger it described
+  ("pipeline_completed" becomes "after another pipeline"), switched off, for
+  someone to check and turn on. The step type `webhook_trigger` had no
+  implementation and left the palette in May; it has left the step types too.
+  A saved pipeline that still holds one opens as before, rewritten to an API
+  source. Another system starts a pipeline through a published endpoint, which
+  can now require signed calls.
+
 - **Vector DB sinks and the JDBC dialect registry are now OSS.** Both were
   listed Plus-only and neither was ever enforced, so the choice was to add a
   gate or drop the claim. Dropped it.
@@ -191,7 +271,94 @@ follows the compatibility rules documented there.
   it is Postgres wire-compatible and uses psycopg2, differing only in its
   default port.
 
+### Security
+
+Fixes from an internal penetration test. Upgrade before exposing an instance
+to anyone but yourself.
+
+- **Roles are enforced on every route that runs or authors a pipeline.**
+  Running, replaying, testing and previewing pipelines, editing or testing
+  connections, uploads, imports, deployments and backfills now need the
+  developer role or above; approving needs an admin, and the approver is the
+  signed-in user, never a name sent with the request.
+- **Pipeline SQL can no longer reach the instance's own secrets.** In server
+  mode, DuckDB runs with an allowlist: the data folder's working folders and
+  the files a pipeline names. The master key, the app database, backups and
+  the config folder are never on it. `REVOLUZEN_FLOW_SQL_SANDBOX=1|0` forces it
+  on or off. A SQL Transform must be a single statement.
+- **Secrets stay masked.** The notification settings (SMTP password, webhook
+  URLs) need an admin and never return secrets; secret variables are masked in
+  every response.
+- **Anonymous access is closed in server mode** for notifications, run
+  history and system information, and the Docker image and compose file now
+  start in server mode. A local-mode instance refuses requests that arrive
+  over the network, however it was started.
+- **The first account on a server needs a one-time setup token**, printed in
+  the log at startup and saved as `SETUP_TOKEN.txt`.
+- **Password-reset links** use `REVOLUZEN_FLOW_PUBLIC_URL` only, never the
+  request's own headers.
+- **Cross-site requests** with an opaque (`null`) origin are refused on a
+  local install, and connection tests no longer block the server.
+- Workspace admins stay in their own workspaces, admins cannot grant a role
+  above their own, comments are tied to their author and workspace, and
+  `/register` no longer reveals which emails have accounts.
+
 ### Fixed
+
+- **A Kafka Source read the same messages on every run.** Both Kafka readers
+  turned off Kafka's own position saving and never kept a position themselves,
+  so each run started again at the oldest message the topic still held, and an
+  append destination filled with copies. Each run now carries on after the last
+  message the previous successful run read. Flow keeps that position for each
+  pipeline step and saves it only when the whole run succeeds, so the messages of
+  a failed run are read again rather than lost: after a failure a message can
+  arrive twice, but none is skipped. Sample runs and Test Node leave the position
+  alone. The step no longer joins a consumer group, so two pipelines reading one
+  topic each get every message. A run also uses the brokers saved in the Kafka
+  connection (it ignored them and went to `localhost:9092` unless the step named
+  other servers), stops once it has caught up instead of waiting out its timeout,
+  and stops with a plain message when the topic does not exist or Kafka cannot be
+  reached, where it used to succeed with no rows. See
+  `docs/nodes-and-canvas-reference.md` (Kafka Source).
+
+- **Kafka steps never signed in, so a secured cluster could not be used.** A Kafka
+  connection's security protocol, SASL mechanism, username and password reached no
+  Kafka client: the Kafka Source, the Kafka Sink, Test connection and topic
+  browsing all connected without signing in. They now sign in with `PLAIN`,
+  `SCRAM-SHA-256` or `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`, with
+  either Kafka client library, and a refused sign-in stops the run with what Kafka
+  said. The password never appears in a message or a log line. The Kafka Sink also
+  read only the older `bootstrap_servers` key, so with a saved connection it wrote
+  to `localhost:9092`; it now uses the connection's brokers. It also finished as if
+  every message had gone even when Kafka took none; it now checks each message and
+  stops the run, saying how many were not written. Topic browsing now works with
+  the confluent-kafka add-on too.
+
+- **The Kafka forms offered settings that runs ignored.** The Kafka Source's
+  Operation, Auto Offset Reset, Partition, Starting Offset and Value Deserializer,
+  and the Kafka Sink's Value Serializer and Compression, did nothing. The Source
+  now has "First run starts at": the oldest message Kafka keeps, or only new
+  messages. A step saved with Operation "consume from latest" keeps that choice.
+  The Sink's Compression now reaches Kafka. The other settings are gone, with the
+  steps' own broker and sign-in fields: a Kafka step uses a saved Kafka
+  connection, as every network step has since May. The Source form also shows the
+  step's saved read position with a Reset button, shows the defaults a run uses
+  (100 messages, not 1,000; a Sink batch of 500, not 16,384), and has a Timeout
+  field. Consumer Group is now optional.
+
+- **Cron schedules that name a weekday ran a day late.** The scheduler counted
+  days from Monday, while the schedule dialog, the descriptions and the docs all
+  use standard cron, where 1 is Monday. A schedule set for Monday ran on Tuesday,
+  and `0 9 * * 1-5` ran Tuesday to Saturday. Now 0 and 7 are Sunday and 1 is
+  Monday. **Any such schedule moves one day earlier, to the day it has always
+  shown.** Hourly, daily, every-N-minutes and `weekly`-type schedules are not
+  affected.
+
+- **A cron deployment could run twice in one minute.** The check for "already
+  ran" looked for a gap of under 30 seconds, and the next tick comes just over
+  30 seconds later. A cron schedule or deployment now fires once in a matching
+  minute, and a long run that ends inside the next matching minute no longer
+  costs that minute its run.
 
 - **The NATS event bus never worked against a real server.** With
   `REVOLUZEN_FLOW_EVENT_BUS=nats`, creating the JetStream stream failed with

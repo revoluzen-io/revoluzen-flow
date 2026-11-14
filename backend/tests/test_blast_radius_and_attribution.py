@@ -220,9 +220,12 @@ def test_a_receipt_predating_the_new_fields_still_recomputes():
 
     # Byte-for-byte the pre-feature payload: the keys must be absent,
     # not present-and-empty.
-    from revoluzen_flow.contracts.verify import _receipt_hash, _receipt_payload
-    legacy = _receipt_hash({
-        "contract": contract.model_dump(mode="json"),
+    from revoluzen_flow.contracts.verify import (
+        _contract_canonical, _receipt_hash, _receipt_payload, contract_digest,
+    )
+    legacy_payload = {
+        # The contract as it dumped before its own later fields existed.
+        "contract": _contract_canonical(contract),
         "run_id": r.run_id,
         "verdict": r.verdict,
         "clauses": [c.model_dump(mode="json") for c in r.clauses],
@@ -230,13 +233,17 @@ def test_a_receipt_predating_the_new_fields_still_recomputes():
         "prev_hash": None,
         "resumed_from": None,
         "provenance": r.provenance.model_dump(mode="json"),
-    })
-    assert r.receipt_hash == legacy
-
+    }
     payload = _receipt_payload(contract, r.run_id, r.verdict, r.clauses,
                                r.verified_at, None, None, r.provenance, [], [])
     assert "blast_radius" not in payload
     assert "attribution" not in payload
+    assert _receipt_hash(payload) == _receipt_hash(legacy_payload)
+
+    # A receipt made today also carries the contract fingerprint (added
+    # later still); everything else hashes exactly as before.
+    assert r.receipt_hash == _receipt_hash(
+        {**legacy_payload, "contract_digest": contract_digest(contract)})
 
 
 def test_guarantee_counts_are_scoped_and_counted(tmp_path):

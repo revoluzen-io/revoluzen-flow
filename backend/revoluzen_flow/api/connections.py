@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from revoluzen_flow.connections.models import (
@@ -22,6 +23,7 @@ from revoluzen_flow.connections.models import (
 from revoluzen_flow.connections.tester import ConnectionTester
 from revoluzen_flow.connections.catalog import get_catalog, registry_status
 from revoluzen_flow.connections.credentials import apply_linked_credential, resolve_credentials
+from revoluzen_flow.connections.inline_secrets import connection_response, drop_placeholders
 from revoluzen_flow.auth.deps import (
     current_workspace_id,
     require_auth,
@@ -29,6 +31,19 @@ from revoluzen_flow.auth.deps import (
 )
 
 router = APIRouter(prefix="/api/connections", tags=["connections"])
+
+# Creating, editing, restoring and testing connections is an authoring
+# capability. With login alone, a viewer could repoint a stored connection at
+# their own host and press Test: the server then sent the real password there
+# (2026-11-13 pen test). Tests also open sockets to any host:port, so they are
+# an SSRF and port-scan primitive. Listing and reading stay at require_auth.
+def _require_author(user=Depends(require_auth)):
+    """require_min_rank("developer"), declared on top of ``require_auth`` as a
+    real sub-dependency so dependency overrides of require_auth still apply."""
+    from revoluzen_flow.auth.deps import _ROLE_RANK
+    if _ROLE_RANK.get(getattr(user, "role", ""), 0) < _ROLE_RANK["developer"]:
+        raise HTTPException(403, "Requires role >= developer")
+    return user
 
 
 def _safe_workspace_id(request: Request) -> str:
@@ -49,6 +64,16 @@ _tester = ConnectionTester()
 def get_store():
     from revoluzen_flow.main import app_state
     return app_state["connection_store"]
+
+
+def _who(user) -> str:
+    """The name a connection version shows as its author."""
+    if user is None:
+        return "user"
+    return (
+        getattr(user, "name", None) or getattr(user, "email", None)
+        or getattr(user, "id", None) or "user"
+    )
 
 
 def _invalidate_lineage(workspace_id: str) -> None:
@@ -203,6 +228,11 @@ async def list_connection_types(detail: bool = False):
         "rest_api", "oracle_api", "oracle_fusion", "oracle_bip",
     }
 
+    # 2026-11-11: whether the type's driver is an add-on missing from this
+    # install. The New Connection picker shows "Needs an add-on" from it, so
+    # the note goes away once the driver is added.
+    from revoluzen_flow.connections.addons import addon_missing
+
     items: list[dict] = []
     for t in CONNECTION_TYPES:
         source_node = f"{t}_source" in enum_values
@@ -214,6 +244,7 @@ async def list_connection_types(detail: bool = False):
             "source_node": source_node,
             "sink_node": sink_node,
             "report": t in report_types,
+            "addon_missing": addon_missing(t),
         })
     return items
 
@@ -281,7 +312,7 @@ async def get_connections_usage(
 async def create_connection(
     body: ConnectionCreate,
     request: Request,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Create a new connection in the caller's current workspace.
@@ -360,9 +391,9 @@ async def create_connection(
         environment=getattr(body, "environment", None),
         capabilities=caps,
     )
-    created = store.create(connection)
+    created = store.create(connection, actor=_who(_user))
     _invalidate_lineage(workspace_id)
-    return created.model_dump(mode="json")
+    return connection_response(created)
 
 
 @router.get("/{connection_id}")
@@ -371,12 +402,16 @@ async def get_connection(
     _user = Depends(require_auth),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Get a connection by ID — 404s across workspace boundary."""
+    """Get a connection by ID — 404s across workspace boundary.
+
+    Passwords and keys in the settings come back masked; the browser never
+    receives a stored secret.
+    """
     store = get_store()
     connection = store.get(connection_id, workspace_id=workspace_id)
     if not connection:
         raise HTTPException(404, "Connection not found")
-    return connection.model_dump(mode="json")
+    return connection_response(connection)
 
 
 @router.put("/{connection_id}")
@@ -384,7 +419,7 @@ async def update_connection(
     connection_id: str,
     body: ConnectionUpdate,
     request: Request,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Update a connection — refuses to cross workspace boundary.
@@ -392,6 +427,9 @@ async def update_connection(
     Credential-rotation hook: after a successful update, invalidate any
     pooled driver connections for this id so the next run gets a fresh
     connection with the updated credentials. Per Critical #5 / D-002.
+
+    A secret sent back as the masked placeholder keeps its stored value;
+    any other value replaces it.
     """
     # 2026-05-22: validate body.type if present. Updates are partial, so
     # only check when the caller actually supplied a type; absence means
@@ -429,7 +467,7 @@ async def update_connection(
     # explicit nulls and lets the store distinguish "field omitted"
     # (no change) from "field set to null" (clear it).
     updates = body.model_dump(exclude_unset=True)
-    connection = store.update(connection_id, updates, workspace_id=workspace_id)
+    connection = store.update(connection_id, updates, workspace_id=workspace_id, actor=_who(_user))
     if not connection:
         raise HTTPException(404, "Connection not found")
     # Invalidate pooled connections — best-effort, never block the update.
@@ -441,7 +479,7 @@ async def update_connection(
     except Exception:
         pass
     _invalidate_lineage(workspace_id)
-    return connection.model_dump(mode="json")
+    return connection_response(connection)
 
 
 @router.post("/{connection_id}/move")
@@ -470,10 +508,233 @@ async def move_connection(
         connection_id,
         {"project_id": target or None},
         workspace_id=workspace_id,
+        actor=_who(_user),
     )
     if not updated:
         raise HTTPException(404, "Connection not found")
     return {"moved": True, "connection_id": connection_id, "project_id": target or None}
+
+
+# ── Version history (2026-11-10) ──────────────────────────────────────────
+#
+# Every change to a connection keeps a version (connections/versions.py).
+# Secrets are kept only as keyed fingerprints: the history can say that a
+# password changed, never what it was. Restoring a version therefore keeps
+# today's password unless the person restoring types the old one.
+
+
+def _connection_users(connection_id: str, workspace_id: str) -> list[dict[str, Any]]:
+    """The pipelines that use a connection, with their status, for the
+    warning shown before a restore. Empty when it cannot be worked out."""
+    import logging
+    try:
+        from revoluzen_flow.datastore.usage import compute_connection_usage_cached
+        refs = compute_connection_usage_cached(workspace_id).get(connection_id) or []
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("connection versions: usage lookup failed", exc_info=True)
+        return []
+    listing: dict[str, dict] = {}
+    try:
+        from revoluzen_flow.main import app_state
+        wf_store = app_state.get("workflow_store")
+        if wf_store is not None:
+            listing = {w.get("id"): w for w in wf_store.list_all(workspace_id=workspace_id)}
+    except Exception:  # noqa: BLE001
+        logging.getLogger(__name__).warning("connection versions: pipeline status lookup failed", exc_info=True)
+    out = []
+    for ref in refs:
+        wf = listing.get(ref.get("workflow_id")) or {}
+        out.append({
+            "workflow_id": ref.get("workflow_id"),
+            "name": ref.get("name") or wf.get("name") or "",
+            "role": ref.get("role") or "",
+            "status": wf.get("status") or "draft",
+            "deployed_version": wf.get("deployed_version"),
+        })
+    return out
+
+
+@router.get("/{connection_id}/versions")
+async def list_connection_versions(
+    connection_id: str,
+    _user = Depends(require_auth),
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """A connection's kept versions, newest first, with the settings each
+    one had and the connection's settings today (``current``).
+
+    Each password or key appears as ``{"secret": true, "tag": "..."}``:
+    two settings with the same tag hold the same secret. ``used_by`` lists
+    the pipelines that use the connection now.
+    """
+    from revoluzen_flow import runtime_config
+    from revoluzen_flow.connections.versions import changed_settings, public_settings, same, snapshot
+
+    store = get_store()
+    connection = store.get(connection_id, workspace_id=workspace_id)
+    if not connection:
+        raise HTTPException(404, "Connection not found")
+    rows = store.versions.list(connection_id)
+    current = snapshot(connection, store._get_encryptor())
+    versions = []
+    for i, row in enumerate(rows):
+        older = rows[i + 1]["data"] if i + 1 < len(rows) else None
+        versions.append({
+            "version": row["version"],
+            "created_by": row["created_by"],
+            "created_at": row["created_at"],
+            "note": row["change_summary"],
+            "kind": row["kind"],
+            "changed": changed_settings(older, row["data"]),
+            "same_as_current": same(row["data"], current),
+            "settings": public_settings(row["data"]),
+        })
+    return {
+        "connection_id": connection_id,
+        "versions": versions,
+        "current": public_settings(current),
+        "keep": runtime_config.CONNECTION_VERSION_RETENTION_COUNT,
+        "used_by": _connection_users(connection_id, workspace_id),
+    }
+
+
+class RestoreConnectionVersion(BaseModel):
+    """Secrets typed in for the restore, by setting name (``password``, or
+    a dotted name for a nested one). A secret not typed keeps today's value."""
+    secrets: dict[str, str] = Field(default_factory=dict)
+
+
+@router.post("/{connection_id}/versions/{version}/restore")
+async def restore_connection_version(
+    connection_id: str,
+    version: int,
+    request: Request,
+    body: RestoreConnectionVersion | None = None,
+    _user = Depends(_require_author),
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Make a connection's settings what they were in ``version``. The
+    restore is saved as a new version; nothing is removed.
+
+    A secret the version shares with today's settings keeps today's value.
+    One that differed keeps today's value unless it is typed in ``secrets``
+    (``kept_secrets`` lists these), and one the connection no longer has
+    is left out unless typed (``missing_secrets``). A linked credential,
+    project or environment that is no longer valid keeps today's value
+    (``kept_settings``).
+    """
+    from revoluzen_flow.common.unique_name import ensure_unique_name
+    from revoluzen_flow.connections.versions import restore_config, snapshot
+
+    store = get_store()
+    connection = store.get(connection_id, workspace_id=workspace_id)
+    if not connection:
+        raise HTTPException(404, "Connection not found")
+    target = store.versions.get(connection_id, version)
+    if target is None:
+        raise HTTPException(404, f"Version {version} of this connection is not kept")
+    conn_type = target.get("type") or connection.type
+    if conn_type not in CONNECTION_TYPES:
+        raise HTTPException(409, f"Version {version} is a {conn_type!r} connection, a type this install no longer has.")
+
+    typed = {k: v for k, v in ((body.secrets if body else None) or {}).items() if isinstance(v, str) and v}
+    current = snapshot(connection, store._get_encryptor())
+    config, kept_secrets, missing_secrets = restore_config(
+        target.get("config") or {}, connection.config, current.get("config") or {}, typed,
+    )
+
+    # References that may have gone since the version was saved keep today's value.
+    kept_settings: list[str] = []
+    from revoluzen_flow.auth.deps import current_user_optional
+    user = current_user_optional(request)
+
+    def _still_valid(check, label: str, value, today):
+        if value == today:
+            return value
+        try:
+            check(value)
+            return value
+        except HTTPException:
+            kept_settings.append(label)
+            return today
+
+    project_id = _still_valid(
+        lambda v: _validate_project_assignment(v, workspace_id, user) if user is not None else None,
+        "project", target.get("project_id"), connection.project_id,
+    )
+    credential_id = _still_valid(
+        lambda v: _validate_credential_assignment(v, workspace_id),
+        "linked credential", target.get("credential_id"), connection.credential_id,
+    )
+    environment = _still_valid(_validate_environment, "environment", target.get("environment"), connection.environment)
+
+    name = target.get("name") or connection.name
+    others = {
+        c.get("name") for c in store.list_all(workspace_id=workspace_id)
+        if c.get("id") != connection_id and c.get("name")
+    }
+    restored_name = ensure_unique_name(name, others)
+
+    before = store.versions.latest(connection_id)
+    updated = store.update(
+        connection_id,
+        {
+            "name": restored_name,
+            "type": conn_type,
+            "config": config,
+            "credential_id": credential_id,
+            "project_id": project_id,
+            "environment": environment,
+            "description": target.get("description") or "",
+            "tags": target.get("tags") or [],
+            "capabilities": target.get("capabilities") if target.get("capabilities") is not None else connection.capabilities,
+        },
+        workspace_id=workspace_id,
+        actor=_who(_user),
+        note=f"Restored version {version}",
+        kind="restored",
+    )
+    if not updated:
+        raise HTTPException(404, "Connection not found")
+    after = store.versions.latest(connection_id)
+    new_version = after["version"] if after and (before is None or after["version"] != before["version"]) else None
+
+    try:
+        from revoluzen_flow.main import app_state
+        pool = app_state.get("connection_pool")
+        if pool is not None:
+            pool.invalidate_connection(connection_id)
+    except Exception:
+        pass
+    _invalidate_lineage(workspace_id)
+    try:
+        from revoluzen_flow.audit import audit_action, actor_for
+        audit_action(
+            action="connection.restore_version",
+            resource_type="connection",
+            resource_id=connection_id,
+            actor=actor_for(_user),
+            workspace_id=workspace_id,
+            details={
+                "restored_from": version,
+                "new_version": new_version,
+                "secrets_typed": len(typed),
+                "secrets_kept": len(kept_secrets),
+                "settings_kept": kept_settings,
+            },
+        )
+    except Exception:
+        pass
+    return {
+        "connection": connection_response(updated),
+        "restored_from": version,
+        "version": new_version,
+        "unchanged": new_version is None,
+        "kept_secrets": kept_secrets,
+        "missing_secrets": missing_secrets,
+        "kept_settings": kept_settings,
+        "renamed_to": restored_name if restored_name != name else None,
+    }
 
 
 @router.delete("/{connection_id}")
@@ -485,9 +746,17 @@ async def delete_connection(
     """Delete a connection and its reports — scoped to workspace.
 
     Also invalidates any pooled driver connections for this id so they
-    don't outlive the deletion.
+    don't outlive the deletion. Refused while a published pipeline uses it.
     """
     store = get_store()
+    from revoluzen_flow.ir.published_refs import published_using_connection, refusal
+    from revoluzen_flow.main import app_state as _state
+    existing = store.get(connection_id, workspace_id=workspace_id)
+    workflow_store = _state.get("store")
+    if existing is not None and workflow_store is not None:
+        pipelines = published_using_connection(workflow_store, workspace_id, connection_id, existing.name)
+        if pipelines:
+            raise HTTPException(409, refusal("The connection", existing.name, pipelines))
     if not store.delete(connection_id, workspace_id=workspace_id):
         raise HTTPException(404, "Connection not found")
     # Invalidate pooled connections — best-effort.
@@ -505,7 +774,7 @@ async def delete_connection(
 @router.post("/{connection_id}/test")
 async def test_connection(
     connection_id: str,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Test a saved connection — performs real protocol-level connectivity check."""
@@ -532,7 +801,9 @@ async def test_connection(
         except Exception:
             pass
 
-    result = _tester.test_connection(connection.type, config)
+    # Drivers block on the network. Run them off the event loop so one slow
+    # or black-holed host cannot stall every other request on the server.
+    result = await run_in_threadpool(_tester.test_connection, connection.type, config)
 
     # Audit — a connection test decrypts + uses a credential against an
     # external system (credential use).
@@ -696,7 +967,7 @@ class InlineTestRequest(BaseModel):
 @router.post("/test-inline")
 async def test_connection_inline(
     body: InlineTestRequest,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Test connection settings without saving — use before creating a connection.
@@ -717,7 +988,9 @@ async def test_connection_inline(
     if body.type not in CONNECTION_TYPES:
         raise HTTPException(400, f"Unknown connection type: {body.type}")
 
-    config = dict(body.config)
+    # A masked placeholder is not a password: an unsaved draft has no stored
+    # value behind it, so test without it rather than send it to the server.
+    config = drop_placeholders(dict(body.config))
 
     # Credential validation (audit F2). Reject silently-unknown
     # credential ids with a 404 instead of falling through to a
@@ -749,7 +1022,7 @@ async def test_connection_inline(
             # configless probe.
             raise HTTPException(500, "Credential resolution failed")
 
-    result = _tester.test_connection(body.type, config)
+    result = await run_in_threadpool(_tester.test_connection, body.type, config)
     return result
 
 
@@ -773,7 +1046,7 @@ async def list_reports(
 async def create_report(
     connection_id: str,
     body: ReportCreate,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Create a report for a connection — scoped via parent connection workspace."""
@@ -796,7 +1069,7 @@ async def update_report(
     connection_id: str,
     report_id: str,
     body: ReportUpdate,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Update a report — scoped via parent connection workspace."""
@@ -837,7 +1110,7 @@ async def run_report(
     connection_id: str,
     report_id: str,
     body: RunReportRequest | None = None,
-    _user = Depends(require_auth),
+    _user = Depends(_require_author),
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Run a report — scoped via parent connection workspace."""

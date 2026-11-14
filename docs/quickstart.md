@@ -108,6 +108,17 @@ docker compose up -d
 
 Open [http://localhost:8001](http://localhost:8001).
 
+The container runs in server security mode, so everyone signs in. Creating the
+first account needs a one-time **setup token**, which the server prints when it
+starts:
+
+```bash
+docker compose logs flow | grep -A 3 "FIRST RUN"
+```
+
+Paste it into the **Setup token** field on the sign-up screen. It stops working
+once the first account exists.
+
 ### Option 3: From source
 
 **Linux/macOS** (needs Python 3.11+ and Node 20+):

@@ -24,7 +24,7 @@ interface SearchItem {
 // implemented a sequence detector, so the chips lied. Stripped until a
 // real sequence handler ships (tracked under P2 keyboard hygiene).
 const PAGES: SearchItem[] = [
-  { id: 'p-projects', label: 'Projects', category: 'pages', icon: 'folder', page: 'projects' },
+  { id: 'p-projects', label: 'Projects', category: 'pages', icon: 'folder', page: 'pipelines' },
   { id: 'p-pipelines', label: 'Workflows', category: 'pages', icon: 'git-branch', page: 'pipelines' },
   { id: 'p-editor', label: 'Editor', category: 'pages', icon: 'layout', page: 'editor' },
   { id: 'p-connections', label: 'Connections', category: 'pages', icon: 'plug', page: 'connections' },

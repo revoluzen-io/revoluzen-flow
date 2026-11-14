@@ -14,9 +14,19 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 from revoluzen_flow.ir.schema import Workflow, PipelineStatus
+from revoluzen_flow.ir.spec import PipelineSpec
 from revoluzen_flow.ir.validator import validate_workflow, validate_capabilities
 from revoluzen_flow.ir.plan_diff import compute_plan_diff
+from revoluzen_flow.ir.versioning import PublishedVersionMissing, definition_hash, published_pin
+from revoluzen_flow.ir.step_secrets import (
+    fill_stored_secrets,
+    mask_parameter_values,
+    mask_parameters,
+    mask_steps,
+    prepare_incoming_workflow,
+)
 from revoluzen_flow.auth.deps import current_workspace_id, require_auth, require_min_rank
+from revoluzen_flow.security.step_secret_routes import MaskStepSecretsRoute
 
 # 2026-05-30 (Track S P1): router-level require_auth blocks anonymous
 # callers on every route below. Write endpoints add require_min_rank
@@ -35,10 +45,23 @@ _AUTHOR = Depends(require_min_rank("developer"))
 # takes an admin (admin / workspace_admin / super_admin).
 _ADMIN = Depends(require_min_rank("admin"))
 
+
+def _session_actor(user) -> str:
+    """Who is acting, from the session — never from a query string.
+
+    The review and deploy gates used to take ``submitted_by`` /
+    ``approved_by`` from the request, so any caller could record an
+    approval under any name (a viewer approved as ``cfo@corp.test`` in the
+    2026-11-13 pen test). The query parameters are still accepted so older
+    clients don't 422, but their values are ignored.
+    """
+    return getattr(user, "email", None) or getattr(user, "id", None) or "user"
+
 router = APIRouter(
     prefix="/api/workflows",
     tags=["workflows"],
     dependencies=[_AUTH],
+    route_class=MaskStepSecretsRoute,
 )
 
 
@@ -121,11 +144,19 @@ class WorkflowCreate(BaseModel):
     business_purpose: str | None = None
     readme: str | None = None
     tags: list[str] | None = None
+    # What the pipeline was made from, for one-shot creation. A Data Prep
+    # preparation needs it to open as Data Prep and to know its file.
+    metadata: dict[str, Any] | None = None
 
 
 class WorkflowUpdate(BaseModel):
     workflow: Workflow
     change_summary: str = ""
+    # What made this save: 'saved' (the Save button and other deliberate
+    # saves), 'auto' (auto-save, the save before a run) or 'restored' (an
+    # older version saved again). Anything else is recorded as 'saved'; a
+    # client cannot claim 'review', which only the approval endpoints write.
+    kind: str = ""
 
 
 def _parse_workflow_update(raw: dict) -> WorkflowUpdate:
@@ -152,9 +183,10 @@ def _parse_workflow_update(raw: dict) -> WorkflowUpdate:
         and "workflow" not in raw
     )
     if looks_plain:
-        # Pull change_summary out if the plain body smuggled one alongside.
+        # Pull change_summary and kind out if the plain body smuggled them alongside.
         summary = raw.pop("change_summary", "") if isinstance(raw, dict) else ""
-        return WorkflowUpdate(workflow=Workflow(**raw), change_summary=summary)
+        kind = raw.pop("kind", "") if isinstance(raw, dict) else ""
+        return WorkflowUpdate(workflow=Workflow(**raw), change_summary=summary, kind=kind or "")
     try:
         return WorkflowUpdate(**raw)
     except Exception as exc:
@@ -277,6 +309,70 @@ def _actor(request: Request) -> tuple[str, str]:
     if user is None:
         return "", ""
     return user.id, (user.name or user.email or "")
+
+
+def _saved_by(request: Request | None) -> str:
+    """Who to record on a new version: the signed-in user's name, or 'user'
+    when there is no request (an endpoint called directly, as some tests and
+    scripts do) or no one signed in."""
+    if request is None:
+        return "user"
+    actor_id, actor_name = _actor(request)
+    return actor_name or actor_id or "user"
+
+
+def _acting_user(request: Request | None, claimed: str) -> tuple[str, str]:
+    """(name, email) to record for a change of what is live. The signed-in
+    user's, never a name the caller typed; ``claimed`` only stands in when
+    nobody is signed in (a local install with no accounts)."""
+    from revoluzen_flow.auth.deps import current_user_optional
+
+    user = current_user_optional(request) if request is not None else None
+    if user is None:
+        return claimed or "user", ""
+    return user.name or user.email or user.id, user.email or ""
+
+
+def _copy_to_git(
+    workflow_id: str,
+    version: int | None,
+    workspace_id: str,
+    event: str,
+    actor: tuple[str, str],
+    note: str = "",
+) -> dict[str, Any]:
+    """Queue a copy of this change for the customer's Git repository.
+
+    Never holds up or fails the change itself: the copy is made in the
+    background and retried, and the Pipelines page shows how it went.
+    """
+    try:
+        from revoluzen_flow.gitcopy.service import enqueue
+        return enqueue(
+            workflow_id=workflow_id, version=version, workspace_id=workspace_id,
+            event=event, actor_name=actor[0], actor_email=actor[1], note=note,
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("could not queue a Git copy of %s", workflow_id, exc_info=True)
+        return {"status": "error"}
+
+
+def _refuse_if_published(wf: Workflow, version, action: str) -> None:
+    """409 when ``action`` would take away a published pipeline."""
+    if published_pin(version) is not None:
+        raise HTTPException(409, {
+            "code": "published_pipeline",
+            "message": f'"{wf.name}" is published, so it cannot be {action}. Unpublish it first.',
+        })
+
+
+def _refuse_if_called_by_published(workflow_id: str, wf: Workflow, workspace_id: str, action: str) -> None:
+    """409 when a published pipeline runs this one as a step of its own."""
+    from revoluzen_flow.ir.published_refs import published_calling_pipeline, refusal
+
+    callers = published_calling_pipeline(get_store(), workspace_id, workflow_id)
+    if callers:
+        raise HTTPException(409, refusal("The pipeline", wf.name, callers, action))
 
 
 def _bin_project_filter(request: Request):
@@ -565,11 +661,15 @@ async def create_workflow(
         parameters=parameters,
         steps=steps_in,
         connections=connections_in,
+        metadata=body.metadata or {},
         **_owner_fields(request),
     )
     # store.save() handles dedupe (auto-suffix) and is the single
     # chokepoint that re-validates the no-placeholder rule.
-    version = get_store().save(wf, change_summary="Initial creation")
+    _actor_id, _actor_name = _actor(request)
+    version = get_store().save(
+        wf, change_summary="Initial creation", created_by=_actor_name or _actor_id or "user",
+    )
     return {"id": wf.id, "version": version.version, "workflow": wf.model_dump(mode="json")}
 
 
@@ -587,13 +687,17 @@ async def get_workflow(
     v = get_store().get(workflow_id, version, workspace_id=workspace_id)
     if not v:
         raise HTTPException(404, "Workflow not found")
-    return {
+    body = {
         "version": v.version,
         "workflow": v.workflow.model_dump(mode="json"),
         "created_by": v.created_by,
         "created_at": v.created_at.isoformat(),
         "change_summary": v.change_summary,
     }
+    if version is None:
+        body["published_version"] = published_pin(v)
+        body["has_unpublished_changes"] = bool(v.workflow.has_unpublished_changes)
+    return body
 
 
 @router.put("/{workflow_id}", dependencies=[_AUTHOR])
@@ -620,6 +724,9 @@ async def update_workflow(
 
     body.workflow.id = workflow_id
     body.workflow.workspace_id = existing.workflow.workspace_id or workspace_id
+    # Before the "nothing changed" check below: a secret the editor was shown
+    # as dots has to compare equal to the one stored.
+    fill_stored_secrets(body.workflow, get_store(), body.workflow.workspace_id)
 
     # The canvas sends only what it edits: name, steps, connections and
     # parameters. Anything a body leaves out keeps its saved value. It used to
@@ -653,6 +760,7 @@ async def update_workflow(
     _SERVER_OWNED_FIELDS = (
         "status",
         "published_at", "published_by",
+        "published_version", "has_unpublished_changes",
         "deployed_version", "deployed_at", "deployed_by",
         "approved_by", "approved_at",
         "approval_status", "approval_stage",
@@ -701,15 +809,29 @@ async def update_workflow(
             "warnings": warnings,
             "errors": hard_errors,
             "unchanged": True,
+            "published_version": published_pin(existing),
+            "has_unpublished_changes": bool(existing.workflow.has_unpublished_changes),
         }
 
-    version = get_store().save(body.workflow, change_summary=body.change_summary)
+    from revoluzen_flow.ir.versioning import version_kind
+    kind = version_kind(body.kind)
+    if kind == "review":
+        kind = "saved"
+    actor_id, actor_name = _actor(request)
+    version = get_store().save(
+        body.workflow,
+        change_summary=body.change_summary,
+        created_by=actor_name or actor_id or "user",
+        kind=kind,
+    )
     return {
         "version": version.version,
         "workflow": version.workflow.model_dump(mode="json"),
         "warnings": warnings,
         "errors": hard_errors,
         "unchanged": False,
+        "published_version": published_pin(version),
+        "has_unpublished_changes": bool(version.workflow.has_unpublished_changes),
     }
 
 
@@ -717,6 +839,7 @@ async def update_workflow(
 async def move_workflow(
     workflow_id: str,
     target_project_id: str,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Reassign a workflow to a different project.
@@ -742,7 +865,9 @@ async def move_workflow(
 
     wf = existing.workflow
     wf.project_id = target_project_id
-    version = get_store().save(wf, change_summary=f"Moved to project {target_project_id}")
+    version = get_store().save(
+        wf, change_summary=f"Moved to project {target_project_id}", created_by=_saved_by(request),
+    )
     return {
         "moved": True,
         "workflow_id": workflow_id,
@@ -772,8 +897,13 @@ async def delete_workflow(
     from revoluzen_flow.ir import workflow_bin
     from revoluzen_flow.runtime_config import BIN_RETENTION_DAYS
 
-    if not get_store().get(workflow_id, workspace_id=workspace_id):
+    existing = get_store().get(workflow_id, workspace_id=workspace_id)
+    if not existing:
         raise HTTPException(404, "Workflow not found")
+    # Published or called by something published: refused either way, Bin or
+    # permanent. Unpublishing is a deliberate step of its own, on the record.
+    _refuse_if_published(existing.workflow, existing, "deleted")
+    _refuse_if_called_by_published(workflow_id, existing.workflow, workspace_id, "deleted")
     actor_id, actor_name = _actor(request)
     result = workflow_bin.delete_pipeline(
         workflow_id,
@@ -822,6 +952,86 @@ async def diff_versions(
     if not result:
         raise HTTPException(404, "Version not found")
     return result
+
+
+@router.get("/{workflow_id}/history")
+async def version_history(
+    workflow_id: str,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """What the pipeline's Versions view shows, newest first.
+
+    Each kept version with the kind of save that made it, its name, who saved
+    it and when, its note and fingerprint, whether it was the published
+    version or the one deployed to PROD, and the runs that used it. Also how
+    many versions the keeping rules have removed and what those rules are,
+    so the view can say so plainly. The pipeline's own content is not here:
+    the view reads two versions with ``GET /workflows/{id}?version=N`` to
+    compare them.
+    """
+    from revoluzen_flow import runtime_config
+
+    store = get_store()
+    existing = store.get(workflow_id, workspace_id=workspace_id)
+    if not existing:
+        raise HTTPException(404, "Workflow not found")
+    versions = store.get_versions(workflow_id)
+    runs: dict[int, dict] = {}
+    try:
+        from revoluzen_flow.main import app_state
+        exec_store = app_state.get("execution_store")
+        if exec_store is not None and hasattr(exec_store, "version_run_stats"):
+            runs = exec_store.version_run_stats(workflow_id, workspace_id=workspace_id)
+    except Exception:  # noqa: BLE001 — run counts are extra; the history stands without them
+        logger.warning("version history: run counts unavailable for %s", workflow_id, exc_info=True)
+        runs = {}
+    for v in versions:
+        r = runs.get(v["version"]) or {}
+        v["runs"] = r.get("runs", 0)
+        v["last_run_status"] = r.get("last_status", "")
+        v["last_run_at"] = r.get("last_started_at", "")
+    versions.reverse()
+    wf = existing.workflow
+    status = getattr(wf, "status", None)
+    return {
+        "workflow_id": workflow_id,
+        "current_version": existing.version,
+        "status": getattr(status, "value", status) or "draft",
+        "deployed_version": getattr(wf, "deployed_version", None),
+        "published_version": published_pin(existing),
+        "has_unpublished_changes": bool(wf.has_unpublished_changes),
+        "removed": store.removed_count(workflow_id),
+        "keep": {
+            "saves": runtime_config.VERSION_RETENTION_COUNT,
+            "auto_saves": runtime_config.AUTOSAVE_RETENTION_COUNT,
+        },
+        "versions": versions,
+    }
+
+
+class VersionNameBody(BaseModel):
+    name: str = ""
+
+
+@router.put("/{workflow_id}/versions/{version}/name", dependencies=[_AUTHOR])
+async def name_version(
+    workflow_id: str,
+    version: int,
+    body: VersionNameBody,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Name a version, or clear its name with an empty one. Named versions
+    are never removed by the keeping rules. The name is not part of the
+    pipeline, so no new version is made and the fingerprint stays as it is."""
+    store = get_store()
+    if not store.get(workflow_id, workspace_id=workspace_id):
+        raise HTTPException(404, "Workflow not found")
+    name = (body.name or "").strip()
+    if len(name) > 80:
+        raise HTTPException(400, "A version name can be at most 80 characters.")
+    if not store.set_version_name(workflow_id, version, name):
+        raise HTTPException(404, "Version not found")
+    return {"workflow_id": workflow_id, "version": version, "name": name}
 
 
 @router.get("/{workflow_id}/parameter-usage")
@@ -1135,6 +1345,7 @@ async def get_step_schema_for_unsaved(
     # Stamp workspace_id on the inbound workflow so it can't probe another
     # tenant's data by spoofing the path's workspace.
     wf = body.workflow.model_copy(update={"workspace_id": workspace_id})
+    prepare_incoming_workflow(wf, get_store, workspace_id)
     return _run_schema_lookup(wf, step_id)
 
 
@@ -1176,6 +1387,8 @@ async def plan_workflow(
     # — same anti-tenant-smuggling rule as update_workflow.
     body.workflow.id = workflow_id
     body.workflow.workspace_id = existing.workflow.workspace_id or workspace_id
+    # Or the plan would report every kept secret as changed.
+    fill_stored_secrets(body.workflow, store, body.workflow.workspace_id)
 
     # Pick the baseline. `deployed` falls back to latest if nothing is
     # currently deployed (first-time-publish case) so the approver still
@@ -1184,7 +1397,7 @@ async def plan_workflow(
     baseline_label = "latest"
     baseline_version = existing.version
     if against == "deployed":
-        deployed_v = existing.workflow.deployed_version
+        deployed_v = existing.workflow.deployed_version or published_pin(existing)
         if deployed_v:
             dv = store.get(workflow_id, version=deployed_v, workspace_id=workspace_id)
             if dv:
@@ -1344,7 +1557,7 @@ def _enrich_connection_refs(refs: dict, workspace_id: str) -> dict:
 _PUBLISH_TEST_SAMPLE_ROWS = 1000
 
 
-@router.post("/{workflow_id}/test")
+@router.post("/{workflow_id}/test", dependencies=[_AUTHOR])
 async def test_workflow(
     workflow_id: str,
     preview_limit: int = 50,
@@ -1388,6 +1601,8 @@ async def test_workflow(
     # PUBLISHED) afterwards — that misrepresented the real lifecycle
     # state to schedulers and the Pipelines page.
     pre_test_status = wf.status
+    # Before the run: running a pipeline adds internal settings to its steps.
+    tested_definition = definition_hash(wf)
     store.update_status(workflow_id, PipelineStatus.TESTING)
     lifecycle_store = get_lifecycle_store()
     lifecycle_store.add_event(workflow_id, "testing", "Test run started", workspace_id=workspace_id)
@@ -1456,6 +1671,9 @@ async def test_workflow(
             "steps_failed": exe.steps_failed,
             "tested_at": datetime.now(timezone.utc).isoformat(),
             "error": exe.error_message,
+            # What was tested, so /publish can tell if it has changed since.
+            "version": v.version,
+            "definition_hash": tested_definition,
         }
 
         # 2026-05-22: record test outcome WITHOUT publishing. The status
@@ -1467,6 +1685,7 @@ async def test_workflow(
             workflow_id,
             pre_test_status,
             test_results=test_summary,
+            restoring=True,
         )
         if result.status == "success":
             lifecycle_store.add_event(
@@ -1516,6 +1735,7 @@ async def test_workflow(
             workflow_id,
             pre_test_status,
             test_results=test_summary,
+            restoring=True,
         )
         lifecycle_store.add_event(
             workflow_id, "test_failed",
@@ -1652,7 +1872,9 @@ def _run_wrangler_preview(
 
     # Reconstruct the predecessor relation from its sample_data.
     import duckdb
+    from revoluzen_flow.security import sql_sandbox
     conn = duckdb.connect(":memory:")
+    sql_sandbox.lock_scratch(conn)  # recipe steps can carry SQL; no files here
     try:
         # DuckDB infers schema from the list-of-dicts. We use a registered
         # name distinct from the recipe's internal __recipe_input so the
@@ -1702,7 +1924,7 @@ def _run_wrangler_preview(
 # a request to /workflows/ephemeral/data-wrangler/preview would be
 # eaten by the parameterised route with workflow_id="ephemeral" and
 # 404 the store lookup. Same lesson as Z13 (execute_step_ephemeral).
-@router.post("/ephemeral/data-wrangler/preview")
+@router.post("/ephemeral/data-wrangler/preview", dependencies=[_AUTHOR])
 async def preview_data_wrangler_node_ephemeral(
     body: EphemeralDataWranglerPreviewRequest,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -1723,6 +1945,7 @@ async def preview_data_wrangler_node_ephemeral(
         })
     # Stamp the caller's workspace — never trust body content.
     wf.workspace_id = workspace_id
+    prepare_incoming_workflow(wf, get_store, workspace_id)
 
     return _run_wrangler_preview(
         workflow=wf,
@@ -1732,7 +1955,7 @@ async def preview_data_wrangler_node_ephemeral(
     )
 
 
-@router.post("/{workflow_id}/nodes/{node_id}/data-wrangler/preview")
+@router.post("/{workflow_id}/nodes/{node_id}/data-wrangler/preview", dependencies=[_AUTHOR])
 async def preview_data_wrangler_node(
     workflow_id: str,
     node_id: str,
@@ -1758,14 +1981,29 @@ async def preview_data_wrangler_node(
     )
 
 
-@router.post("/{workflow_id}/publish")
+class PublishRequest(BaseModel):
+    """Optional body for /publish and /revoke: why, in the person's words. It
+    goes on the record and into the Git commit, so a body, not the address."""
+    note: str = Field(default="", max_length=500)
+
+
+@router.post("/{workflow_id}/publish", dependencies=[_AUTHOR])
 async def publish_workflow(
     workflow_id: str,
     published_by: str = "user",
+    body: PublishRequest | None = None,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Mark workflow as published (scoped to caller's workspace).
-    Only allowed if last test passed."""
+    """Make the newest version live (scoped to caller's workspace).
+    Only allowed if last test passed, and that test was of this version.
+
+    From here until the next publish, schedules, endpoints and every other
+    unattended run use exactly this version. Later saves are a draft beside it.
+    """
+    who = _acting_user(request, published_by)
+    published_by = who[0]
+    note = ((body.note if body else "") or "").strip()
     store = get_store()
     v = store.get(workflow_id, workspace_id=workspace_id)
     if not v:
@@ -1804,10 +2042,47 @@ async def publish_workflow(
             f"Last test did not pass (status: {wf.test_results.get('status')}). "
             "Run /test again to get a passing result before publishing.",
         )
+    # A pass only counts for what was tested. Saved results carry forward from
+    # version to version, and what is published here is what runs from now on.
+    tested = wf.test_results.get("definition_hash")
+    if tested and tested != definition_hash(wf):
+        raise HTTPException(
+            400,
+            "This pipeline has changed since its last test. Test it again before publishing.",
+        )
 
+    # ── Contract gate ─────────────────────────────────────────────────
+    # A test is a sample, and a sample cannot be held to a row-count
+    # promise, so a version can pass its test and still have broken its
+    # Execution Contract on a real run. That version does not go live as it
+    # stands. Only a verdict on this exact definition against the contract
+    # as it is now counts; see contracts/gate.py.
+    from revoluzen_flow.contracts.gate import ContractBroken, check_publish
+    from revoluzen_flow.main import app_state as _contract_state
+    try:
+        check_publish(_contract_state.get("contract_store"), workflow_id, wf)
+    except ContractBroken as exc:
+        raise HTTPException(400, str(exc)) from None
+
+    previous_pin = published_pin(v)
     store.update_status(workflow_id, PipelineStatus.PUBLISHED, published_by=published_by)
     lifecycle_store = get_lifecycle_store()
-    lifecycle_store.add_event(workflow_id, "published", f"Published by {published_by}", workspace_id=workspace_id)
+    lifecycle_store.add_event(
+        workflow_id, "published",
+        f"Published by {published_by}" + (f": {note}" if note else ""),
+        metadata={"version": v.version, "previous_version": previous_pin, "note": note, "published_by": published_by},
+        workspace_id=workspace_id,
+    )
+    try:
+        from revoluzen_flow.audit import audit_action
+        audit_action(
+            action="workflow.publish", resource_type="workflow", resource_id=workflow_id,
+            actor=published_by, workspace_id=workspace_id,
+            details={"name": wf.name, "version": v.version, "previous_version": previous_pin, "note": note},
+        )
+    except Exception:  # noqa: BLE001 — the publish has happened; the record is best-effort
+        logger.debug("audit emission failed for workflow.publish", exc_info=True)
+    git = _copy_to_git(workflow_id, v.version, workspace_id, "published", who, note)
 
     # In-app bell notification — every workspace user sees that the
     # pipeline went live. Best-effort; never blocks the publish.
@@ -1831,26 +2106,73 @@ async def publish_workflow(
         "status": "published",
         "published_at": wf.published_at.isoformat() if wf.published_at else datetime.now(timezone.utc).isoformat(),
         "published_by": published_by,
+        "published_version": v.version,
+        "git": git,
     }
 
 
-@router.post("/{workflow_id}/revoke")
+@router.post("/{workflow_id}/discard-draft", dependencies=[_AUTHOR])
+async def discard_draft(
+    workflow_id: str,
+    request: Request,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """Throw away saved changes that were never published, going back to what
+    is live. Adds a version, so the discarded work stays in the history."""
+    store = get_store()
+    latest = store.get(workflow_id, workspace_id=workspace_id)
+    if not latest:
+        raise HTTPException(404, "Workflow not found")
+    pin = published_pin(latest)
+    if pin is None or not latest.workflow.has_unpublished_changes:
+        raise HTTPException(400, "This pipeline has no unpublished changes to discard.")
+    try:
+        live = store.live_version(workflow_id, workspace_id=workspace_id)
+    except PublishedVersionMissing as exc:
+        raise HTTPException(409, str(exc)) from None
+    version = store.save(
+        live.workflow,
+        change_summary=f"Discarded unpublished changes, back to version {pin}",
+        created_by=_saved_by(request),
+        kind="restored",
+    )
+    get_lifecycle_store().add_event(
+        workflow_id, "draft_discarded",
+        f"Unpublished changes discarded by {_saved_by(request)}, back to version {pin}",
+        metadata={"discarded_version": latest.version, "published_version": pin},
+        workspace_id=workspace_id,
+    )
+    return {
+        "id": workflow_id,
+        "version": version.version,
+        "workflow": version.workflow.model_dump(mode="json"),
+        "published_version": pin,
+        "has_unpublished_changes": bool(version.workflow.has_unpublished_changes),
+    }
+
+
+@router.post("/{workflow_id}/revoke", dependencies=[_AUTHOR])
 async def revoke_workflow(
     workflow_id: str,
     revoked_by: str = "user",
+    body: PublishRequest | None = None,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Revoke a published pipeline back to draft.
+    """Unpublish a pipeline: back to draft, and its schedules paused.
 
-    Inverse of /publish. Used when the user wants to pull a live
-    pipeline back into editing without archiving it. Schedules and
-    triggers stay attached but won't fire while the pipeline is in
-    draft (the scheduler can still see it; the executor's draft
-    gate is what actually halts firing — see the deploy contract).
+    Inverse of /publish, and the deliberate step that has to come before a
+    published pipeline can be deleted or archived. Its schedules are paused
+    here, because schedules on a draft run its newest version and a draft
+    must not go live by that route. Endpoints stay as they are until someone
+    turns them off.
 
     Refuses if the pipeline isn't currently published, so the user
-    isn't surprised by a no-op revoke on an already-draft row.
+    isn't surprised by a no-op on an already-draft row.
     """
+    who = _acting_user(request, revoked_by)
+    revoked_by = who[0]
+    note = ((body.note if body else "") or "").strip()
     store = get_store()
     v = store.get(workflow_id, workspace_id=workspace_id)
     if not v:
@@ -1861,15 +2183,40 @@ async def revoke_workflow(
         raise HTTPException(
             400,
             f"Pipeline is not published (current status: {wf.status.value}). "
-            "Only published pipelines can be revoked.",
+            "Only published pipelines can be unpublished.",
         )
 
+    last_live = published_pin(v)
     store.update_status(workflow_id, PipelineStatus.DRAFT)
     lifecycle_store = get_lifecycle_store()
     lifecycle_store.add_event(
-        workflow_id, "revoked", f"Revoked from published by {revoked_by}",
+        workflow_id, "revoked",
+        f"Unpublished by {revoked_by}" + (f": {note}" if note else ""),
+        metadata={"version": last_live, "note": note},
         workspace_id=workspace_id,
     )
+
+    schedules_paused = 0
+    schedule_store = _schedule_store()
+    if schedule_store is not None:
+        try:
+            for schedule in schedule_store.list_by_workflow(workflow_id, workspace_id=workspace_id):
+                if schedule.get("enabled"):
+                    schedule_store.update(schedule["id"], {"enabled": False}, workspace_id=workspace_id)
+                    schedules_paused += 1
+        except Exception:  # noqa: BLE001
+            logger.warning("could not pause the schedules of unpublished pipeline %s", workflow_id, exc_info=True)
+
+    try:
+        from revoluzen_flow.audit import audit_action
+        audit_action(
+            action="workflow.unpublish", resource_type="workflow", resource_id=workflow_id,
+            actor=revoked_by, workspace_id=workspace_id,
+            details={"name": wf.name, "version": last_live, "note": note, "schedules_paused": schedules_paused},
+        )
+    except Exception:  # noqa: BLE001 — it has happened; the record is best-effort
+        logger.debug("audit emission failed for workflow.unpublish", exc_info=True)
+    git = _copy_to_git(workflow_id, last_live, workspace_id, "unpublished", who, note)
 
     try:
         from revoluzen_flow.notifications.run_events import emit_lifecycle_notification
@@ -1891,31 +2238,54 @@ async def revoke_workflow(
         "status": "draft",
         "revoked_by": revoked_by,
         "revoked_at": datetime.now(timezone.utc).isoformat(),
+        "schedules_paused": schedules_paused,
+        "git": git,
     }
 
 
-@router.post("/{workflow_id}/cancel")
+@router.post("/{workflow_id}/cancel", dependencies=[_AUTHOR])
 async def cancel_workflow_run(
     workflow_id: str,
+    request: Request,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Cancel the workflow's currently-running execution(s).
+    """Stop the pipeline's runs: the editor's Stop and the Executions page.
 
-    Resolution order:
-      1. Look up live handles owned by this workflow in the
-         ExecutionManager registry; cancel each via cancel_by_id.
-      2. Mark every running execution row for this workflow as
-         ``cancelled`` in the execution store so the UI gets a final
-         state even if the run was synchronous (no registered handle).
+    A running run stops at once if it is running a query (DuckDB is
+    interrupted, and so is any database driver a connector registered),
+    otherwise when its current step returns. It is then recorded as
+    cancelled, with who stopped it. A run still waiting for a pool slot
+    leaves the queue without starting.
 
-    Idempotent — calling on a workflow with no live runs returns
-    ``{"cancelled": 0}`` without erroring."""
+    This used to relabel the running rows "cancelled" while the runs
+    carried on, and the label was overwritten when they finished.
+
+    Idempotent — a pipeline with nothing running returns zeros."""
     v = get_store().get(workflow_id, workspace_id=workspace_id)
     if not v:
         raise HTTPException(404, "Workflow not found")
 
+    from revoluzen_flow.auth.deps import current_user_optional
+    from revoluzen_flow.engine.cancellation import cancel_run, stopped_by_text
+    reason = stopped_by_text(current_user_optional(request))
+
     cancelled_handles = 0
     cancel_errors: list[str] = []
+
+    # Live runs, from the pool: every run holds a slot or waits for one, and
+    # a job's id is its run id.
+    stopped_runs: list[str] = []
+    try:
+        from revoluzen_flow.main import app_state
+        pool = app_state.get("worker_pool") if isinstance(app_state, dict) else None
+        if pool is not None:
+            for run_id in pool.live_run_ids(workflow_id=workflow_id, workspace_id=workspace_id):
+                cancel_run(run_id, reason, create=True)
+                stopped_runs.append(run_id)
+    except Exception:  # noqa: BLE001
+        # Reasons go to the log; the caller gets a fixed phrase.
+        logger.warning("Stop: pool lookup failed for %s", workflow_id, exc_info=True)
+        cancel_errors.append("pool lookup failed")
 
     # Cancel registered live handles (best-effort — manager may not be up).
     try:
@@ -1928,14 +2298,19 @@ async def cancel_workflow_run(
                     ok, _ = mgr.cancel_by_id(record.handle.id)
                     if ok:
                         cancelled_handles += 1
-                except Exception as exc:
-                    cancel_errors.append(f"{record.handle.id}: {exc}")
-    except Exception as exc:
-        cancel_errors.append(f"manager lookup: {exc}")
+                except Exception:
+                    logger.warning("Stop: could not cancel handle %s", record.handle.id, exc_info=True)
+                    cancel_errors.append(f"{record.handle.id}: could not be cancelled")
+    except Exception:
+        logger.warning("Stop: execution manager lookup failed for %s", workflow_id, exc_info=True)
+        cancel_errors.append("manager lookup failed")
 
-    # Soft-cancel any running rows in the execution store so the
-    # frontend stops showing a stuck "Running" state.
-    cancelled_rows = 0
+    # Rows the store still shows as running. One the pool knows is live and
+    # was stopped above; its run records the outcome when it ends. Any other
+    # is stopped too, in case it is between being recorded and taking its
+    # slot, and is marked cancelled so the page stops showing a run that no
+    # longer exists (a crash leaves those behind).
+    cleared_rows = 0
     try:
         exe_store = get_execution_store()
         running = exe_store.list_by_workflow(workflow_id, workspace_id=workspace_id)
@@ -1944,21 +2319,30 @@ async def cancel_workflow_run(
             if status not in ("running", "queued"):
                 continue
             rid = r.get("id") if isinstance(r, dict) else getattr(r, "id", "")
-            if not rid:
+            if not rid or rid in stopped_runs:
                 continue
+            cancel_run(rid, reason, create=True)
             exe_store.update(
                 rid,
-                {"status": "cancelled", "completed_at": datetime.now(timezone.utc)},
+                {
+                    "status": "cancelled",
+                    "completed_at": datetime.now(timezone.utc),
+                    "error_message": f"{reason}.",
+                },
                 workspace_id=workspace_id,
             )
-            cancelled_rows += 1
-    except Exception as exc:
-        cancel_errors.append(f"store update: {exc}")
+            cleared_rows += 1
+    except Exception:
+        logger.warning("Stop: could not mark stale runs of %s cancelled", workflow_id, exc_info=True)
+        cancel_errors.append("store update failed")
 
     return {
         "workflow_id": workflow_id,
+        "stopped": len(stopped_runs),
+        "cleared": cleared_rows,
+        # Kept for older callers.
         "cancelled_handles": cancelled_handles,
-        "cancelled_rows": cancelled_rows,
+        "cancelled_rows": cleared_rows,
         "errors": cancel_errors,
     }
 
@@ -1966,9 +2350,10 @@ async def cancel_workflow_run(
 @router.post("/{workflow_id}/submit-for-review")
 async def submit_for_review(
     workflow_id: str,
-    submitted_by: str = "user",
+    submitted_by: str = "user",  # ignored — see _session_actor()
     snapshot_hash: str = "",
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_AUTHOR,
 ):
     """Submit a pipeline for deployment review.
 
@@ -1985,6 +2370,7 @@ async def submit_for_review(
     Stored in workflow metadata + lifecycle event so a reviewer can later
     prove "the IR I'm approving exactly matches the one that was reviewed."
     """
+    submitted_by = _session_actor(user)
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2017,7 +2403,7 @@ async def submit_for_review(
         md["pre_publish_snapshot_captured_at"] = wf.submitted_at.isoformat()
         wf.metadata = md
 
-    store.save(wf, change_summary=f"Submitted for review by {submitted_by}")
+    store.save(wf, change_summary=f"Submitted for review by {submitted_by}", created_by=submitted_by or "user", kind="review")
     lifecycle_store.add_event(
         workflow_id, "submitted",
         f"Submitted for PROD review by {submitted_by}",
@@ -2134,14 +2520,16 @@ async def submit_for_review(
 @router.post("/{workflow_id}/approve")
 async def approve_pipeline(
     workflow_id: str,
-    approved_by: str = "admin",
+    approved_by: str = "admin",  # ignored — see _session_actor()
     notes: str = "",
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_ADMIN,
 ):
     """Approve a pipeline for PROD deployment (scoped to caller's
     workspace). Only leads and admins can approve. Once approved, an
     admin can deploy.
     """
+    approved_by = _session_actor(user)
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2152,6 +2540,8 @@ async def approve_pipeline(
     wf = v.workflow
     if wf.approval_status != "pending":
         raise HTTPException(400, f"Pipeline is not pending review (status: {wf.approval_status or 'none'})")
+    if wf.submitted_by and wf.submitted_by == approved_by:
+        raise HTTPException(403, "You cannot approve a pipeline you submitted for review.")
 
     wf.approval_status = "approved"
     wf.approved_by = approved_by
@@ -2165,7 +2555,7 @@ async def approve_pipeline(
     wf.sandbox_approved_by = approved_by
     wf.sandbox_approval_notes = notes
 
-    store.save(wf, change_summary=f"Approved by {approved_by}")
+    store.save(wf, change_summary=f"Approved by {approved_by}", created_by=approved_by or "user", kind="review")
     lifecycle_store.add_event(
         workflow_id, "approved",
         f"Approved for PROD deployment by {approved_by}" + (f": {notes}" if notes else ""),
@@ -2238,12 +2628,14 @@ async def approve_pipeline(
 @router.post("/{workflow_id}/reject")
 async def reject_pipeline(
     workflow_id: str,
-    rejected_by: str = "admin",
+    rejected_by: str = "admin",  # ignored — see _session_actor()
     notes: str = "",
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_ADMIN,
 ):
     """Reject a pipeline submission with feedback (scoped to caller's
     workspace)."""
+    rejected_by = _session_actor(user)
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2259,7 +2651,7 @@ async def reject_pipeline(
     wf.approved_by = rejected_by
     wf.approval_notes = notes
 
-    store.save(wf, change_summary=f"Rejected by {rejected_by}: {notes}")
+    store.save(wf, change_summary=f"Rejected by {rejected_by}: {notes}", created_by=rejected_by or "user", kind="review")
     lifecycle_store.add_event(
         workflow_id, "rejected",
         f"Rejected by {rejected_by}: {notes}",
@@ -2335,8 +2727,9 @@ async def reject_pipeline(
 @router.post("/{workflow_id}/submit-for-deploy")
 async def submit_for_deploy(
     workflow_id: str,
-    submitted_by: str = "user",
+    submitted_by: str = "user",  # ignored — see _session_actor()
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_ADMIN,
 ):
     """Prod admin clicks "Submit for Deploy" after running the pipeline
     in sandbox. Transitions the workflow from ``sandbox_ready`` to
@@ -2346,6 +2739,7 @@ async def submit_for_deploy(
     at least ONE successful sandbox run must exist for this workflow
     before this endpoint succeeds. Approver-evidence rule.
     """
+    submitted_by = _session_actor(user)
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2373,7 +2767,7 @@ async def submit_for_deploy(
 
     wf.approval_stage = "pending_deploy_approval"
     wf.deploy_evidence_sandbox_run_id = sandbox_run_id
-    store.save(wf, change_summary=f"Submitted for deploy by {submitted_by}")
+    store.save(wf, change_summary=f"Submitted for deploy by {submitted_by}", created_by=submitted_by or "user", kind="review")
     lifecycle_store.add_event(
         workflow_id, "submitted_for_deploy",
         f"Submitted for deploy by {submitted_by} (sandbox evidence: {sandbox_run_id})",
@@ -2409,9 +2803,10 @@ async def submit_for_deploy(
 @router.post("/{workflow_id}/approve-deploy")
 async def approve_deploy(
     workflow_id: str,
-    approved_by: str = "approver",
+    approved_by: str = "approver",  # ignored — see _session_actor()
     notes: str = "",
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_ADMIN,
 ):
     """Gate 2 — final approval to deploy and activate.
 
@@ -2421,6 +2816,7 @@ async def approve_deploy(
     3. If workspace ``enforce_two_person_approval`` is on, the approver
        must differ from ``sandbox_approved_by``.
     """
+    approved_by = _session_actor(user)
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2455,7 +2851,7 @@ async def approve_deploy(
     wf.deploy_approved_at = datetime.now(timezone.utc)
     wf.deploy_approved_by = approved_by
     wf.deploy_approval_notes = notes
-    store.save(wf, change_summary=f"Deploy approved by {approved_by}")
+    store.save(wf, change_summary=f"Deploy approved by {approved_by}", created_by=approved_by or "user", kind="review")
     lifecycle_store.add_event(
         workflow_id, "deploy_approved",
         f"Deploy approved by {approved_by}" + (f": {notes}" if notes else ""),
@@ -2746,11 +3142,12 @@ async def pre_deploy_check(
     }
 
 
-@router.post("/{workflow_id}/deploy")
+@router.post("/{workflow_id}/deploy", dependencies=[_ADMIN])
 async def deploy_version(
     workflow_id: str,
     version: int | None = None,
     deployed_by: str = "admin",
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Deploy a specific version of a pipeline to PROD (scoped to
@@ -2760,6 +3157,8 @@ async def deploy_version(
     This pins the deployed_version so scheduled runs and triggers
     execute this exact version — not whatever is latest in DEV.
     """
+    who = _acting_user(request, deployed_by)
+    deployed_by = who[0]
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2862,6 +3261,7 @@ async def deploy_version(
         },
         workspace_id=workspace_id,
     )
+    _copy_to_git(workflow_id, version, workspace_id, "deployed", who)
 
     # ── Notify: pipeline deployed ──
     try:
@@ -2890,11 +3290,12 @@ async def deploy_version(
     }
 
 
-@router.post("/{workflow_id}/rollback")
+@router.post("/{workflow_id}/rollback", dependencies=[_ADMIN])
 async def rollback_version(
     workflow_id: str,
     to_version: int,
     rolled_back_by: str = "admin",
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Rollback a deployed pipeline to a previous version.
@@ -2903,6 +3304,8 @@ async def rollback_version(
     runs when triggered by schedule or manual execution. The current
     version is preserved in history (no data lost).
     """
+    who = _acting_user(request, rolled_back_by)
+    rolled_back_by = who[0]
     store = get_store()
     lifecycle_store = get_lifecycle_store()
 
@@ -2911,7 +3314,7 @@ async def rollback_version(
     if not current:
         raise HTTPException(404, "Workflow not found")
 
-    current_deployed = current.workflow.deployed_version or current.version
+    current_deployed = current.workflow.deployed_version or published_pin(current) or current.version
 
     # Get the target rollback version
     target = store.get(workflow_id, to_version, workspace_id=workspace_id)
@@ -2968,6 +3371,7 @@ async def rollback_version(
         },
         workspace_id=workspace_id,
     )
+    _copy_to_git(workflow_id, to_version, workspace_id, "rolled_back", who)
 
     return {
         "id": workflow_id,
@@ -2980,12 +3384,13 @@ async def rollback_version(
     }
 
 
-@router.post("/{workflow_id}/archive")
+@router.post("/{workflow_id}/archive", dependencies=[_AUTHOR])
 async def archive_workflow(
     workflow_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
 ):
-    """Archive the pipeline (scoped to caller's workspace)."""
+    """Archive the pipeline (scoped to caller's workspace). A published
+    pipeline has to be unpublished first, as for a delete."""
     store = get_store()
     v = store.get(workflow_id, workspace_id=workspace_id)
     if not v:
@@ -2993,6 +3398,8 @@ async def archive_workflow(
 
     if v.workflow.status == PipelineStatus.ARCHIVED:
         raise HTTPException(400, "Pipeline is already archived.")
+    _refuse_if_published(v.workflow, v, "archived")
+    _refuse_if_called_by_published(workflow_id, v.workflow, workspace_id, "archived")
 
     previous_status = v.workflow.status.value
     store.update_status(workflow_id, PipelineStatus.ARCHIVED)
@@ -3007,7 +3414,7 @@ async def archive_workflow(
     return {"id": workflow_id, "status": "archived", "previous_status": previous_status}
 
 
-@router.post("/{workflow_id}/restore")
+@router.post("/{workflow_id}/restore", dependencies=[_AUTHOR])
 async def restore_workflow(
     workflow_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -3164,8 +3571,10 @@ def build_pipeline_export_payload(
         "name": wf.name,
         "description": wf.description,
         "folder_id": getattr(wf, "folder_id", None),
-        "parameters": [p.model_dump(mode="json") for p in (wf.parameters or [])],
-        "steps": [s.model_dump(mode="json") for s in wf.steps],
+        "parameters": mask_parameters([p.model_dump(mode="json") for p in (wf.parameters or [])]),
+        # Secrets typed into steps leave as dots: an export is a file people
+        # share, and the master key that could read them stays on this server.
+        "steps": mask_steps([s.model_dump(mode="json") for s in wf.steps]),
         "connections": [c.model_dump(mode="json") for c in wf.connections],
         "metadata": metadata,
         "execution_settings": execution_settings,
@@ -3175,9 +3584,10 @@ def build_pipeline_export_payload(
             from revoluzen_flow.main import app_state
             sched_store = app_state.get("schedule_store")
             if sched_store is not None:
-                pipeline["schedules"] = sched_store.list_by_workflow(
-                    wf.id, workspace_id=workspace_id,
-                )
+                pipeline["schedules"] = [
+                    {**row, "parameter_values": mask_parameter_values(row.get("parameter_values"), wf.parameters)}
+                    for row in sched_store.list_by_workflow(wf.id, workspace_id=workspace_id)
+                ]
         except Exception:
             pipeline["schedules"] = []
     if include_alerts:
@@ -3200,6 +3610,7 @@ async def export_pipeline(
     include_schedules: bool = False,
     include_alerts: bool = False,
     deterministic: bool = False,
+    version: int | None = None,
 ):
     """Export a pipeline as portable JSON (for sharing or backup).
 
@@ -3236,11 +3647,14 @@ async def export_pipeline(
     status, approval_status, deployed_version, published_*, owner_id,
     test_results. Those are install-local and would create confusion
     if "Approved on instance A" landed in instance B's database.
+
+    ``version=N`` exports that saved version instead of the newest (the
+    Versions view's Download).
     """
     store = get_store()
-    v = store.get(workflow_id, workspace_id=workspace_id)
+    v = store.get(workflow_id, version, workspace_id=workspace_id)
     if not v:
-        raise HTTPException(404, "Workflow not found")
+        raise HTTPException(404, "Workflow not found" if version is None else "Version not found")
 
     wf = v.workflow
     pipeline = build_pipeline_export_payload(
@@ -3320,12 +3734,15 @@ class WorkflowDocsUpdate(BaseModel):
     business_purpose: str | None = None
     readme: str | None = None
     tags: list[str] | None = None
+    # The intent spec, whole (ir/spec.py). Sending it replaces the saved one.
+    spec: PipelineSpec | None = None
 
 
 @router.patch("/{workflow_id}/docs", dependencies=[_AUTHOR])
 async def update_pipeline_docs(
     workflow_id: str,
     body: WorkflowDocsUpdate,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Update only the documentation fields (business_purpose / readme /
@@ -3349,23 +3766,43 @@ async def update_pipeline_docs(
     if body.tags is not None:
         wf.tags = [str(t).strip() for t in body.tags if str(t).strip()]
         changed.append("tags")
+    if body.spec is not None:
+        from revoluzen_flow.ir.spec import spec_problems
+        problems = spec_problems(body.spec)
+        if problems:
+            raise HTTPException(400, "The spec was not saved: " + "; ".join(problems))
+        spec = body.spec.model_copy(deep=True)
+        spec.sources = [s.strip() for s in spec.sources if str(s).strip()]
+        spec.updated_at = datetime.now(timezone.utc).isoformat()
+        spec.updated_by = _saved_by(request)
+        # An all-empty spec is the same as none, so a pipeline does not show
+        # a spec nobody wrote.
+        wf.spec = None if spec.is_empty() else spec
+        changed.append("spec")
 
     if not changed:
         return {"id": workflow_id, "updated": False}
 
-    store.save(wf, change_summary=f"Updated documentation ({', '.join(changed)})")
+    saved = store.save(
+        wf,
+        change_summary=f"Updated documentation ({', '.join(changed)})",
+        created_by=_saved_by(request),
+    )
     return {
         "id": workflow_id,
         "updated": True,
         "business_purpose": wf.business_purpose,
         "readme": wf.readme,
         "tags": wf.tags,
+        "spec": wf.spec.model_dump(mode="json") if wf.spec else None,
+        "version": getattr(saved, "version", None),
     }
 
 
 @router.post("/import", dependencies=[_AUTHOR])
 async def import_pipeline(
     body: PipelineImportRequest,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Import a pipeline from exported JSON into the caller's
@@ -3447,7 +3884,7 @@ async def import_pipeline(
         conn = StepConnection(**c)
         wf.connections.append(conn)
 
-    version = store.save(wf, change_summary=f"Imported: {name}")
+    version = store.save(wf, change_summary=f"Imported: {name}", created_by=_saved_by(request))
     lifecycle_store = get_lifecycle_store()
     lifecycle_store.add_event(
         wf.id, "created", f"Imported pipeline: {name}",
@@ -3479,6 +3916,7 @@ class DbtImportRequest(BaseModel):
 @router.post("/import-dbt", dependencies=[_AUTHOR])
 async def import_dbt_project(
     body: DbtImportRequest,
+    request: Request = None,  # type: ignore[assignment]  # FastAPI injects it; direct callers may not
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     """Import a compiled dbt ``manifest.json`` as an Revoluzen Flow pipeline.
@@ -3536,7 +3974,9 @@ async def import_dbt_project(
     # materialization sink needs a connection), so they belong in the response
     # that tells you the import succeeded.
     errors = validate_workflow(wf)
-    version = store.save(wf, change_summary=f"Imported dbt project: {wf.name}")
+    version = store.save(
+        wf, change_summary=f"Imported dbt project: {wf.name}", created_by=_saved_by(request),
+    )
     get_lifecycle_store().add_event(
         wf.id, "created", f"Imported dbt project: {wf.name}",
         workspace_id=workspace_id,
@@ -3671,10 +4111,15 @@ async def list_approval_gates(
 @router.post("/approval-gates")
 async def create_approval_gate(
     body: _ApprovalGateBody,
-    created_by: str = "admin",
+    created_by: str = "admin",  # ignored — see _session_actor()
     workspace_id: str = Depends(_safe_workspace_id),
+    user=_ADMIN,
 ):
-    """Create or update an approval gate for a pipeline, project, or globally."""
+    """Create or update an approval gate for a pipeline, project, or globally.
+
+    Admin only: turning a gate off removes the review step for everyone.
+    """
+    created_by = _session_actor(user)
     import json as _json
     db = _get_db()
     now = datetime.now(timezone.utc).isoformat()
@@ -3711,7 +4156,7 @@ async def create_approval_gate(
     return {"id": gate_id, "action": "created"}
 
 
-@router.delete("/approval-gates/{gate_id}")
+@router.delete("/approval-gates/{gate_id}", dependencies=[_ADMIN])
 async def delete_approval_gate(
     gate_id: str,
     workspace_id: str = Depends(_safe_workspace_id),

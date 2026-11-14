@@ -132,6 +132,9 @@ class FindingKind(str, Enum):
     # 2026-06-18 — storage intelligence: a managed table no pipeline reads
     # or writes (leftover from a deleted/edited pipeline). Architecture-level.
     ORPHANED_TABLE      = "orphaned_table"       # active — storage-intel detector
+    # 2026-11-11 — one step's logic pasted into several pipelines
+    # (steward/repeated_logic.py). Architecture-level.
+    REPEATED_LOGIC      = "repeated_logic"       # active — repeated-logic detector
     WAREHOUSE_WASTE     = "warehouse_waste"      # active — cost warehouse-waste
     COST_RECOMMENDATION = "cost_recommendation"  # 2.0 — Optimizer
 
@@ -195,6 +198,7 @@ KIND_TO_LEVEL: dict[FindingKind, FindingLevel] = {
     FindingKind.DUPLICATE_SOURCE:      FindingLevel.ARCHITECTURE,
     FindingKind.REDUNDANT_TRANSFER:    FindingLevel.ARCHITECTURE,
     FindingKind.ORPHANED_TABLE:        FindingLevel.ARCHITECTURE,
+    FindingKind.REPEATED_LOGIC:        FindingLevel.ARCHITECTURE,
     FindingKind.LINEAGE_CASCADE:       FindingLevel.ARCHITECTURE,
     # Governance
     FindingKind.PII_LEAK:              FindingLevel.GOVERNANCE,

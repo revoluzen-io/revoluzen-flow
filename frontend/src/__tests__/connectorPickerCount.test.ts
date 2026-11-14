@@ -2,7 +2,7 @@
  * The number of connectors the product quotes must be the number the New
  * Connection page offers.
  *
- * "66 connectors" is typed by hand in the Dashboard's new-workspace card
+ * "68 connectors" is typed by hand in the Dashboard's new-workspace card
  * (DashboardPage.tsx), in About (SettingsPage.tsx), in README.md and in the
  * docs (docs/connectors.md, docs/product_facts/08_connectors.md). The Connections
  * gallery counts the real list, and Help → Node Reference counts the real list
@@ -15,10 +15,11 @@ import { CONNECTION_TYPES, connectorStatus } from '../components/pages/Connectio
 describe('connectors on offer', () => {
   const offered = CONNECTION_TYPES.filter((t) => connectorStatus(t.type) !== 'roadmap');
 
-  it('is the 66 the Dashboard, About and the docs quote (80 declared, 14 marked Coming soon)', () => {
-    expect(CONNECTION_TYPES.length).toBe(80);
+  // 2026-11-11: 66 -> 67 with Windows File Share (SMB), 67 -> 68 with ODBC database.
+  it('is the 68 the Dashboard, About and the docs quote (82 declared, 14 marked Coming soon)', () => {
+    expect(CONNECTION_TYPES.length).toBe(82);
     expect(CONNECTION_TYPES.length - offered.length).toBe(14);
-    expect(offered.length).toBe(66);
+    expect(offered.length).toBe(68);
   });
 
   it('lists each connection type once', () => {

@@ -23,8 +23,8 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Pipeline canvas (drag-drop) | ✅ | ✅ |
-| 45 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 40 curated in `modulesPanelData.ts` plus 5 reconciled in from the backend registry. The registry itself holds 105 `StepType` entries; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
-| 66 connectors visible by default (Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 80 declared types minus 14 marked roadmap. Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "66 connectors", not "66 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 66 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
+| 47 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 42 curated in `modulesPanelData.ts` plus 5 reconciled in from the backend registry. The registry itself holds 107 node types; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
+| 68 connectors visible by default (Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 82 declared types minus 14 marked roadmap (Windows File Share made it 67 and the ODBC database connection 68, both on 2026-11-11). Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "68 connectors", not "68 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 68 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
 | Expression engine (`$json`, `$now`, `$('Node')`) | ✅ | ✅ |
 | SQL Transform (DuckDB-backed) | ✅ | ✅ |
 | Templates (27 OSS) | ✅ | ✅ + private marketplace |
@@ -135,14 +135,14 @@ These are the inline AI helpers that augment specific UI moments (SQL helper, pr
 
 ## AI — agent & Copilot
 
-The agentic Copilot and its 32 tools all ship in OSS. Plus adds organizational guardrails.
+The agentic Copilot and its 37 tools all ship in OSS. Plus adds organizational guardrails.
 
 | Capability | Revoluzen Flow | Revoluzen Flow Enterprise |
 |---|:-:|:-:|
 | Copilot dock (resizable, page-aware, slash commands) | ✅ | ✅ |
-| 32 tools (24 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), plus 2 opt-in web tools registered only when the operator enables web access — full list in `docs/product_facts/10_ai_copilot.md`; source of truth is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` | ✅ | ✅ |
+| 37 tools (29 READ + 7 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), plus 2 opt-in web tools registered only when the operator enables web access — full list in `docs/product_facts/10_ai_copilot.md`; source of truth is `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py` | ✅ | ✅ |
 | Fast-lane router (rule-based; sub-1 s answers for the 14 most-common questions) | ✅ | ✅ |
-| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 32 tools (Layer 3) | ✅ | ✅ |
+| Three-layer chat knowledge: session context (Layer 1) + product knowledge RAG (Layer 2) + 37 tools (Layer 3) | ✅ | ✅ |
 | Provider-aware wall-clock cap (300 s local, 120 s cloud) + Stop button | ✅ | ✅ |
 | Agent loop with bounded iterations + wall-clock cap | ✅ | ✅ |
 | Tool-tier RBAC for the agent (4 roles: viewer / developer / admin / super_admin) | ✅ | ✅ |
@@ -312,9 +312,9 @@ another document rather than re-derived. Re-derive them:
 | Count | Source of truth |
 |---|---|
 | Node types (45 / 6 categories) | `MODULES` in `frontend/src/components/modulesPanelData.ts`, plus backend types not in `HIDDEN_TYPES` (`frontend/src/components/hiddenNodeTypes.ts`) |
-| `StepType` registry (105) | `GET /api/node-types` |
-| Connectors (66) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
-| Agent tools (32) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
+| Node type registry (107) | `GET /api/node-types` |
+| Connectors (68) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
+| Agent tools (33) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
 | Templates (27) | `frontend/src/templates/catalog.ts` |
 
 **2026-10-28 review:** re-derived every count against the running build.

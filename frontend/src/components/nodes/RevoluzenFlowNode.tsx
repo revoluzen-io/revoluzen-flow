@@ -6,6 +6,7 @@ import { nodeTypeLabel } from '../modulesPanelData';
 import { branchPortsFor } from '../../utils/branchPorts';
 import { getEditorPreferences, useEditorPreferences } from '../../hooks/useEditorPreferences';
 import ConnectorIcon from '../shared/ConnectorIcons';
+import { ModuleIcon } from '../ModulesPanel';
 
 /* 2026-10-24 — square-node geometry (n8n model).
    The card is a fixed BOX_SIZE x BOX_SIZE square holding the icon and
@@ -548,7 +549,7 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
     data_wrangler: 'linear-gradient(135deg, #10b981, #047857)',
   };
 
-  return (
+  const tile = (
     <div
       // 2026-06-02 — bumped from w-7 h-7 (28px) to w-8 h-8 (32px) so
       // the type signal survives zoom-out. Icon-first clarity: the icon
@@ -577,6 +578,13 @@ function NodeIcon({ type, color, connectorType }: { type: string; color: string;
       )}
     </div>
   );
+  // A type with no glyph here (Managed Table Source and Sink, Reconcile,
+  // ForEach, Pipeline Output...) takes the tile it has in the Nodes panel, so
+  // the step on the canvas looks like the one that was picked and like its
+  // settings header, not a grey placeholder. The placeholder stays for a
+  // type neither place draws.
+  if (!icons[type]) return <ModuleIcon type={type} size={64} rounded="rounded-xl" fallback={tile} />;
+  return tile;
 }
 
 /* ── Param preview text ── */
@@ -1156,7 +1164,7 @@ function RevoluzenFlowNode({ id, data, selected }: NodeProps) {
           not thrown off by a tall name. Canvas auto-layout leaves room
           for it (see V_SPACING). Width is wider than the square so a
           two-word name wraps instead of truncating. */}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-[140px] text-center pointer-events-none">
+      <div data-node-caption className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 w-[140px] text-center pointer-events-none">
         {renaming ? (
           <input
             ref={renameRef}

@@ -167,8 +167,12 @@ class DataStore:
 
     # ─── StorageTable CRUD ────────────────────────────────────────────────
 
-    def save_table(self, table: StorageTable) -> StorageTable:
+    def save_table(self, table: StorageTable, *, touch: bool = True) -> StorageTable:
         """Persist a managed-table metadata row.
+
+        ``touch=False`` keeps ``updated_at`` as it is: for bookkeeping that is
+        not an edit of the table, such as a test run's result or its monitor
+        settings (2026-11-11).
 
         2026-05-25 — switched from `insert_json` (which uses
         `INSERT OR REPLACE`) to an explicit `INSERT` so the unique
@@ -184,7 +188,8 @@ class DataStore:
         logical name.
         """
         import json
-        table.updated_at = datetime.now(timezone.utc)
+        if touch:
+            table.updated_at = datetime.now(timezone.utc)
         data = table.model_dump(mode="json")
         # Detect duplicate-logical-identity (different id, same name)
         # before the SQL fires, so the error message is friendly. The

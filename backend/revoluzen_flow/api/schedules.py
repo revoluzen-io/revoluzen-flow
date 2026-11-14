@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from revoluzen_flow.auth.deps import current_workspace_id, require_auth, require_min_rank
-from revoluzen_flow.scheduling.models import Schedule, ScheduleCreate, ScheduleUpdate
+from revoluzen_flow.scheduling.models import (
+    FILE_LOCATIONS,
+    Schedule,
+    ScheduleCreate,
+    ScheduleType,
+    ScheduleUpdate,
+    is_event_schedule,
+)
+from revoluzen_flow.security.step_secret_routes import MaskStepSecretsRoute
 
 # 2026-05-30 (Track S P1): router-level require_auth blocks anonymous;
 # write endpoints add require_min_rank("data_engineer") so analyst/viewer
@@ -17,6 +28,7 @@ router = APIRouter(
     prefix="/api/schedules",
     tags=["schedules"],
     dependencies=[_AUTH],
+    route_class=MaskStepSecretsRoute,
 )
 
 
@@ -63,6 +75,88 @@ def _workflow_in_workspace(workflow_id: str, workspace_id: str) -> bool:
         return False
 
 
+def _check_event_trigger(fields: dict[str, Any], workspace_id: str, schedule_id: str = "") -> None:
+    """Refuse a file-arrival or after-pipeline trigger that could never run.
+
+    ``fields`` is the whole trigger as it would be saved. A switched-off
+    trigger may be saved half done; switching it on runs every check.
+    """
+    from revoluzen_flow.ir.versioning import PublishedVersionMissing, published_pin
+    from revoluzen_flow.main import app_state
+
+    kind = fields.get("schedule_type")
+    kind = getattr(kind, "value", kind)
+    store = app_state["store"]
+    workflow_id = fields.get("workflow_id") or ""
+    latest = store.get(workflow_id, workspace_id=workspace_id)
+    if latest is None:
+        raise HTTPException(404, "Workflow not found")
+    name = latest.workflow.name or workflow_id
+    enabled = bool(fields.get("enabled", True))
+
+    if kind == ScheduleType.FILE_ARRIVAL.value:
+        location = (fields.get("file_location") or "").strip().lower()
+        if location not in FILE_LOCATIONS:
+            raise HTTPException(400, "Choose where to watch: a folder on this server, SFTP, a Windows file share, S3, Google Cloud Storage or Azure Blob Storage.")
+        if location == "local" and not (fields.get("file_folder") or "").strip():
+            raise HTTPException(400, "Choose the folder on this server to watch.")
+        if location != "local":
+            from revoluzen_flow.triggers.file_listing import ListingError, connection_config
+            try:
+                connection_config(app_state, fields.get("file_connection_id") or "", workspace_id, location)
+            except ListingError as exc:
+                raise HTTPException(400, str(exc)) from None
+    elif kind == ScheduleType.AFTER_PIPELINE.value:
+        upstream_id = fields.get("after_workflow_id") or ""
+        if not upstream_id:
+            raise HTTPException(400, "Choose the pipeline this one runs after.")
+        upstream = store.get(upstream_id, workspace_id=workspace_id)
+        if upstream is None:
+            raise HTTPException(404, "The pipeline to run after was not found in this workspace.")
+        from revoluzen_flow.triggers.chain import describe_loop, find_loop
+        loop = find_loop(get_store(), workspace_id, upstream_id, workflow_id, ignore_trigger_id=schedule_id)
+        if loop:
+            names = {workflow_id: name, upstream_id: upstream.workflow.name or upstream_id}
+            for pid in loop:
+                if pid not in names:
+                    other = store.get(pid, workspace_id=workspace_id)
+                    names[pid] = other.workflow.name if other else pid
+            raise HTTPException(
+                409,
+                {
+                    "code": "trigger_loop",
+                    "message": (
+                        f"This would start the pipelines in a loop: {describe_loop(loop, names)}. "
+                        "Remove one of these triggers first."
+                    ),
+                    "loop": loop,
+                },
+            )
+    else:
+        return
+
+    if not enabled:
+        return
+    if published_pin(latest) is None:
+        raise HTTPException(
+            400,
+            f'Publish "{name}" first. A trigger only ever runs the published version of a pipeline.',
+        )
+    parameter = (fields.get("file_parameter") or "").strip() if kind == ScheduleType.FILE_ARRIVAL.value else ""
+    if parameter:
+        try:
+            live = store.live_version(workflow_id, workspace_id=workspace_id)
+        except PublishedVersionMissing as exc:
+            raise HTTPException(409, str(exc)) from None
+        declared = {p.name for p in (live.workflow.parameters or [])} if live else set()
+        if parameter not in declared:
+            raise HTTPException(
+                400,
+                f'The published version of "{name}" has no parameter named "{parameter}" to receive the '
+                "file's path. Add it in the Editor and publish, or choose another.",
+            )
+
+
 @router.get("", include_in_schema=False)
 @router.get("/")
 async def list_schedules(
@@ -99,6 +193,8 @@ async def create_schedule(
     """
     if not _workflow_in_workspace(body.workflow_id, workspace_id):
         raise HTTPException(404, "Workflow not found")
+    if is_event_schedule(body.model_dump()):
+        _check_event_trigger(body.model_dump(mode="json"), workspace_id)
 
     # Sink-safety guardrail — mirrors the backfill check in
     # api/backfills.py. We reach into the workflow IR once to find any
@@ -185,12 +281,16 @@ async def upsert_default_schedule(
         target_id = target.id if hasattr(target, "id") else (target.get("id") if isinstance(target, dict) else None)
         if not target_id:
             raise HTTPException(500, "Could not resolve default schedule id")
-        updates = body.model_dump(exclude={"workflow_id"})
+        if is_event_schedule(body.model_dump()):
+            _check_event_trigger(body.model_dump(mode="json"), workspace_id, schedule_id=target_id)
+        updates = body.model_dump(exclude={"workflow_id", "acknowledge_side_effects"})
         updated = store.update(target_id, updates, workspace_id=workspace_id)
         if not updated:
             raise HTTPException(404, "Schedule not found")
         return updated.model_dump(mode="json")
 
+    if is_event_schedule(body.model_dump()):
+        _check_event_trigger(body.model_dump(mode="json"), workspace_id)
     schedule = Schedule(**body.model_dump(), workspace_id=workspace_id)
     created = store.create(schedule)
     return created.model_dump(mode="json")
@@ -215,7 +315,13 @@ async def update_schedule(
     workspace_id: str = Depends(_safe_workspace_id),
 ):
     store = get_store()
+    current = store.get(schedule_id, workspace_id=workspace_id)
+    if not current:
+        raise HTTPException(404, "Schedule not found")
     updates = body.model_dump(exclude_none=True)
+    merged = {**current.model_dump(mode="json"), **body.model_dump(mode="json", exclude_none=True)}
+    if is_event_schedule(merged):
+        _check_event_trigger(merged, workspace_id, schedule_id=schedule_id)
     schedule = store.update(schedule_id, updates, workspace_id=workspace_id)
     if not schedule:
         raise HTTPException(404, "Schedule not found")
@@ -230,7 +336,74 @@ async def delete_schedule(
     store = get_store()
     if not store.delete(schedule_id, workspace_id=workspace_id):
         raise HTTPException(404, "Schedule not found")
+    _forget_trigger(schedule_id)
     return {"deleted": True}
+
+
+def _forget_trigger(schedule_id: str) -> None:
+    """Drop what an event trigger remembered. Best-effort: the scheduler also
+    clears what deleted triggers left, every hour."""
+    try:
+        from revoluzen_flow.main import app_state
+        from revoluzen_flow.triggers.store import trigger_store
+
+        tstore = trigger_store(app_state)
+        if tstore is not None:
+            tstore.forget_trigger(schedule_id)
+        scheduler = app_state.get("scheduler")
+        if scheduler is not None and getattr(scheduler, "_file_watcher_obj", None) is not None:
+            scheduler.file_watcher.forget(schedule_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+class FolderCheck(BaseModel):
+    file_location: str
+    file_connection_id: str = ""
+    file_folder: str = ""
+    file_pattern: str = "*"
+
+
+@router.post("/check-folder", dependencies=[_AUTHOR])
+async def check_folder(
+    body: FolderCheck,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """What a file-arrival trigger with these settings would see right now.
+
+    Lists the folder once and starts nothing, so the Schedules screen can show
+    whether the connection, folder and pattern are right before saving.
+    """
+    import anyio
+
+    from revoluzen_flow.main import app_state
+    from revoluzen_flow.triggers.file_listing import ListingError
+    from revoluzen_flow.triggers.file_watch import preview_folder
+
+    if (body.file_location or "").strip().lower() not in FILE_LOCATIONS:
+        raise HTTPException(400, f"file_location must be one of: {', '.join(FILE_LOCATIONS)}")
+    try:
+        return await anyio.to_thread.run_sync(
+            lambda: preview_folder(app_state, workspace_id, body.model_dump()),
+        )
+    except ListingError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@router.get("/{schedule_id}/files")
+async def trigger_files(
+    schedule_id: str,
+    workspace_id: str = Depends(_safe_workspace_id),
+):
+    """The files a file-arrival trigger has started runs for, newest first."""
+    from revoluzen_flow.main import app_state
+    from revoluzen_flow.triggers.store import trigger_store
+
+    schedule = get_store().get(schedule_id, workspace_id=workspace_id)
+    if not schedule:
+        raise HTTPException(404, "Schedule not found")
+    tstore = trigger_store(app_state)
+    return tstore.recent_files(schedule_id) if tstore is not None else []
 
 
 @router.post("/{schedule_id}/toggle", dependencies=[_AUTHOR])
@@ -243,6 +416,8 @@ async def toggle_schedule(
     schedule = store.get(schedule_id, workspace_id=workspace_id)
     if not schedule:
         raise HTTPException(404, "Schedule not found")
+    if not schedule.enabled and is_event_schedule(schedule):
+        _check_event_trigger({**schedule.model_dump(mode="json"), "enabled": True}, workspace_id, schedule_id)
     # Persist the toggle — the original code only mutated the in-memory
     # copy, which is a pre-existing bug we're fixing in passing. The
     # store.update path also enforces the workspace boundary on write.
@@ -271,6 +446,22 @@ async def run_schedule_now(
     scheduler = app_state["scheduler"]
 
     sched_dict = schedule.model_dump(mode="json")
+    if sched_dict.get("schedule_type") == ScheduleType.FILE_ARRIVAL.value:
+        # A file trigger runs for a file, so "now" means look for one now.
+        if not schedule.enabled:
+            raise HTTPException(400, "Turn the trigger on first.")
+        if not scheduler.check_file_trigger_now(sched_dict):
+            raise HTTPException(409, "The folder is being checked already, or this server does not run triggers.")
+        return {
+            "status": "checking",
+            "message": "Looking in the folder now. New files start their runs as usual.",
+            "schedule_id": schedule_id,
+        }
+    if sched_dict.get("schedule_type") == ScheduleType.AFTER_PIPELINE.value:
+        raise HTTPException(
+            400,
+            "This trigger starts the pipeline after another one finishes. Run it from the Pipelines page instead.",
+        )
     sched_dict["enabled"] = True  # Force enabled for manual run
     scheduler._execute_schedule(schedule_id, sched_dict)
 

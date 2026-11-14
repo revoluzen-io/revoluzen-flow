@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import csv
 import http.client
 import ipaddress
 import json
@@ -19,11 +20,37 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from revoluzen_flow.auth.deps import require_min_rank
+from revoluzen_flow.common.http_reply import (
+    BODY_CONTENT_TYPES,
+    accept_header,
+    decode_text,
+    describe_binary,
+    html_title,
+    media_type,
+    parse_csv,
+    reply_kind,
+)
+from revoluzen_flow.common.safe_xml import (
+    XmlError,
+    element_to_row,
+    find_elements,
+    local_name,
+    parse_xml,
+    pretty_xml,
+    render_xml_template,
+    row_path_candidates,
+    soap_fault,
+    xml_structure,
+    xml_to_data,
+)
 from revoluzen_flow.connectors.ai_authoring import parse_spec_text
+from revoluzen_flow.connectors.request_connector import SENSITIVE_NAME as SENSITIVE
+from revoluzen_flow.connectors.wsdl_import import read_wsdl
 
 router = APIRouter(prefix="/explorer", dependencies=[Depends(require_min_rank("developer"))])
 LIMIT = 256 * 1024
 SPEC_LIMIT = 32 * 1024 * 1024
+WSDL_LIMIT = 4 * 1024 * 1024
 REFERENCE_URLS = {
     'stripe': 'https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json',
     'github': 'https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json',
@@ -32,7 +59,6 @@ REFERENCE_URLS = {
     'plaid': 'https://raw.githubusercontent.com/plaid/plaid-openapi/master/2020-09-14.yml',
     'digitalocean': 'https://api-engineering.nyc3.cdn.digitaloceanspaces.com/spec-ci/DigitalOcean-public.v2.yaml',
 }
-SENSITIVE = re.compile(r"password|secret|token|authorization|api.?key|cookie", re.I)
 
 
 class InspectRequest(BaseModel):
@@ -41,6 +67,9 @@ class InspectRequest(BaseModel):
     headers: dict[str, str] = Field(default_factory=dict, max_length=40)
     query: dict[str, str] = Field(default_factory=dict, max_length=40)
     body: str = Field(default='', max_length=32768)
+    body_type: Literal['json', 'xml', 'form', 'text'] = 'json'
+    # For an XML body with {name} placeholders. See render_xml_template.
+    body_values: dict[str, str] = Field(default_factory=dict, max_length=300)
     auth_type: Literal['none', 'bearer', 'basic', 'api_key', 'api_key_query'] = 'none'
     token: str = Field(default='', max_length=8192)
     username: str = Field(default='', max_length=512)
@@ -83,7 +112,7 @@ def _request_parts(req):
         raise ValueError('Replace path and server placeholders with actual values before sending')
     if req.method not in ('GET', 'HEAD', 'OPTIONS') and not req.confirm_write:
         raise ValueError('Confirm this request may modify remote data')
-    headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity'}
+    headers = {'Accept': accept_header('auto'), 'Accept-Encoding': 'identity'}
     for key, value in req.headers.items():
         if not re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", key) or any(ord(c) < 32 or ord(c) == 127 for c in value):
             raise ValueError('Invalid request header')
@@ -114,6 +143,7 @@ def _request_parts(req):
                 query[req.key_name] = req.token
     secrets.extend(req.headers.values())
     secrets.extend(v for k, v in req.query.items() if SENSITIVE.search(k))
+    secrets.extend(v for k, v in req.body_values.items() if SENSITIVE.search(k))
     return headers, query, [s for s in secrets if s]
 
 
@@ -130,32 +160,25 @@ def _redact(value, secrets, depth=0):
     return value
 
 
-def inspect_request(req: InspectRequest):
-    headers, query, secrets = _request_parts(req)
-    parsed, address = _target(req.url)
-    original_query = parse_qsl(parsed.query, keep_blank_values=True)
-    secrets.extend(v for k, v in original_query if SENSITIVE.search(k))
-    query_string = urlencode([(k, v) for k, v in original_query if k not in query] + list(query.items()))
-    path = (parsed.path or '/') + ('?' + query_string if query_string else '')
-    if req.body and not any(k.lower() == 'content-type' for k in headers):
-        headers['Content-Type'] = 'application/json'
+def _exchange(parsed, address, method, path, headers, body, *, limit=LIMIT, deadline=15):
+    """One request to an address already checked. Returns (response, bytes, was_cut_off)."""
     started = time.monotonic()
-    conn = http.client.HTTPConnection(parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80), timeout=15)
+    conn = http.client.HTTPConnection(parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80), timeout=deadline)
     sock = None
     try:
         # Pin the validated address. TLS still verifies the original hostname.
         family, socktype, proto, _, sockaddr = address
         sock = socket.socket(family, socktype, proto)
-        sock.settimeout(15)
+        sock.settimeout(deadline)
         sock.connect(sockaddr)
         if parsed.scheme == 'https':
             sock = _tls_context().wrap_socket(sock, server_hostname=parsed.hostname)
         conn.sock = sock
-        conn.request(req.method, path, body=req.body.encode() if req.body else None, headers=headers)
+        conn.request(method, path, body=body, headers=headers)
         response = conn.getresponse()
         raw = bytearray()
-        while len(raw) <= LIMIT:
-            remaining = 15 - (time.monotonic() - started)
+        while len(raw) <= limit:
+            remaining = deadline - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError()
             # http.client closes this object as soon as a server says
@@ -163,25 +186,83 @@ def inspect_request(req: InspectRequest):
             # handle, with the timeout set above, so that isn't a failure.
             with contextlib.suppress(OSError):
                 sock.settimeout(remaining)
-            chunk = response.read1(min(16384, LIMIT + 1 - len(raw)))
+            chunk = response.read1(min(16384, limit + 1 - len(raw)))
             if not chunk:
                 break
             raw.extend(chunk)
-        truncated = len(raw) > LIMIT
-        text = bytes(raw[:LIMIT]).decode('utf-8', errors='replace')
-        try:
-            data = json.loads(text) if not truncated else None
-        except (ValueError, RecursionError):
-            data = None
-        return {'status': response.status, 'elapsed_ms': round((time.monotonic() - started) * 1000),
-                'bytes': len(raw[:LIMIT]), 'truncated': truncated,
-                'headers': {k: v for k, v in response.getheaders() if k.lower() in ('content-type', 'date', 'retry-after')},
-                'data': _redact(data, secrets), 'text': _redact(text, secrets) if data is None else '',
-                'sample_limit': 100}
+        return response, bytes(raw[:limit]), len(raw) > limit
     finally:
         conn.close()
         if sock is not None:
             sock.close()
+
+
+def _present_xml(raw, base, text, secrets):
+    """An XML reply, ready for each view: formatted text, data, rows and structure."""
+    try:
+        root = parse_xml(raw)
+    except XmlError as exc:
+        return {**base, 'kind': 'text', 'text': _redact(text, secrets), 'notice': str(exc)}
+    if local_name(root.tag).lower() == 'html':
+        return {**base, 'kind': 'html', 'text': _redact(text, secrets), 'title': _redact(html_title(text), secrets)}
+    records = [
+        {**candidate, 'rows': _redact([element_to_row(e) for e in find_elements(root, candidate['path'])[:100]], secrets)}
+        for candidate in row_path_candidates(root)
+    ]
+    return {
+        **base,
+        'data': _redact(xml_to_data(root), secrets),
+        'text': _redact(pretty_xml(raw, SENSITIVE), secrets),
+        'xml': {'records': records, 'structure': xml_structure(root), 'fault': _redact(soap_fault(root), secrets)},
+    }
+
+
+def _present_reply(raw, content_type, truncated, secrets):
+    """What came back, described so the page can show it for what it is."""
+    kind = reply_kind(content_type, raw)
+    base = {'kind': kind, 'content_type': media_type(content_type), 'data': None, 'text': ''}
+    if kind == 'empty':
+        return base
+    if kind == 'binary':
+        return {**base, 'binary': describe_binary(content_type, raw)}
+    text = decode_text(raw, content_type)
+    if truncated:
+        return {**base, 'text': _redact(text, secrets)}
+    if kind == 'json':
+        try:
+            return {**base, 'data': _redact(json.loads(text), secrets)}
+        except (ValueError, RecursionError):
+            return {**base, 'kind': 'text', 'text': _redact(text, secrets)}
+    if kind == 'xml':
+        return _present_xml(raw, base, text, secrets)
+    if kind == 'html':
+        return {**base, 'text': _redact(text, secrets), 'title': _redact(html_title(text), secrets)}
+    if kind == 'csv':
+        try:
+            rows = parse_csv(text, content_type)
+        except csv.Error:
+            return {**base, 'kind': 'text', 'text': _redact(text, secrets)}
+        return {**base, 'data': _redact(rows, secrets), 'text': _redact(text, secrets), 'row_count': len(rows)}
+    return {**base, 'text': _redact(text, secrets)}
+
+
+def inspect_request(req: InspectRequest):
+    headers, query, secrets = _request_parts(req)
+    parsed, address = _target(req.url)
+    original_query = parse_qsl(parsed.query, keep_blank_values=True)
+    secrets.extend(v for k, v in original_query if SENSITIVE.search(k))
+    query_string = urlencode([(k, v) for k, v in original_query if k not in query] + list(query.items()))
+    path = (parsed.path or '/') + ('?' + query_string if query_string else '')
+    body = render_xml_template(req.body, req.body_values) if req.body and req.body_type == 'xml' and req.body_values else req.body
+    if body and not any(k.lower() == 'content-type' for k in headers):
+        headers['Content-Type'] = BODY_CONTENT_TYPES[req.body_type]
+    started = time.monotonic()
+    response, raw, truncated = _exchange(parsed, address, req.method, path, headers, body.encode() if body else None)
+    return {'status': response.status, 'elapsed_ms': round((time.monotonic() - started) * 1000),
+            'bytes': len(raw), 'truncated': truncated,
+            'headers': {k: v for k, v in response.getheaders() if k.lower() in ('content-type', 'date', 'retry-after')},
+            'sample_limit': 100,
+            **_present_reply(raw, response.getheader('Content-Type') or '', truncated, secrets)}
 
 
 @router.post('/request')
@@ -241,6 +322,56 @@ async def discover(req: DiscoverRequest):
         return await anyio.to_thread.run_sync(lambda: discover_spec(parse_spec_text(req.text)))
     except (ValueError, RecursionError):
         raise HTTPException(400, 'Invalid OpenAPI JSON/YAML specification (maximum 2 MB)') from None
+
+
+class WsdlRequest(BaseModel):
+    text: str = Field(default='', max_length=2 * 1024 * 1024)
+    url: str = Field(default='', max_length=2048)
+    auth_type: Literal['none', 'bearer', 'basic', 'api_key', 'api_key_query'] = 'none'
+    token: str = Field(default='', max_length=8192)
+    username: str = Field(default='', max_length=512)
+    password: str = Field(default='', max_length=8192)
+    key_name: str = Field(default='X-API-Key', max_length=128)
+
+
+def load_wsdl(req: WsdlRequest):
+    """Read a WSDL that was pasted, or fetch it and the files it imports from its own site."""
+    if req.text.strip():
+        return read_wsdl(req.text)
+    if not req.url.strip():
+        raise ValueError('Paste a WSDL, or enter its address.')
+    start = req.url.strip()
+    signed = InspectRequest(url=start, auth_type=req.auth_type, token=req.token, username=req.username,
+                            password=req.password, key_name=req.key_name)
+    headers, query, _ = _request_parts(signed)
+    headers['Accept'] = 'text/xml, application/xml;q=0.9, */*;q=0.5'
+    site = urlsplit(start)[:2]
+
+    def fetch(url: str) -> bytes:
+        # Sign-in goes with these requests, so a document cannot send them elsewhere.
+        if urlsplit(url)[:2] != site:
+            raise ValueError('it is on a different site, so it was not fetched')
+        parsed, address = _target(url)
+        query_string = urlencode(parse_qsl(parsed.query, keep_blank_values=True) + list(query.items()))
+        path = (parsed.path or '/') + ('?' + query_string if query_string else '')
+        response, raw, truncated = _exchange(parsed, address, 'GET', path, headers, None, limit=WSDL_LIMIT, deadline=30)
+        if response.status != 200:
+            raise ValueError(f'the server answered HTTP {response.status}. Redirects are not followed.')
+        if truncated:
+            raise ValueError('it is larger than 4 MB')
+        return raw
+
+    return read_wsdl(fetch(start), url=start, fetch=fetch)
+
+
+@router.post('/wsdl')
+async def import_wsdl(req: WsdlRequest):
+    try:
+        return await anyio.to_thread.run_sync(load_wsdl, req)
+    except (ValueError, RecursionError) as exc:
+        raise HTTPException(400, str(exc)[:300]) from None
+    except Exception:
+        raise HTTPException(502, 'The WSDL could not be downloaded. Check the address, network access and TLS certificate trust.') from None
 
 
 class ReferenceRequest(BaseModel):

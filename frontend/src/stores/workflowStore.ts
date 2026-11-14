@@ -132,7 +132,18 @@ function invalidationScope(seedIds: string[], edges: Edge[]): Set<string> {
 //
 // A module-level token lets a new run (or a Stop) abort an in-flight reveal
 // so stale timers can't stomp fresh statuses.
-let _revealToken = 0;
+// One counter per editor tab, so a run started in one tab cannot cut short
+// the reveal of a run that is still finishing in another.
+const _revealTokens = new Map<string, number>();
+function nextReveal(key: string | null): number {
+  const k = key ?? '';
+  const v = (_revealTokens.get(k) || 0) + 1;
+  _revealTokens.set(k, v);
+  return v;
+}
+function currentReveal(key: string | null): number {
+  return _revealTokens.get(key ?? '') || 0;
+}
 const _sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 function topoLevels(nodes: Node[], edges: Edge[]): string[][] {
@@ -261,6 +272,8 @@ export interface WorkflowParameter {
   default: string | number | boolean | null;
   description: string;
   required: boolean;
+  /** Keep the default encrypted and show it as dots. A name that says it holds a secret is treated that way without this. */
+  secret?: boolean;
 }
 
 interface WorkflowState {
@@ -288,6 +301,9 @@ interface WorkflowState {
   //   of a pipeline so the cleaning steps run on every execution.
   editorSurface: 'pipeline' | 'file_data_prep' | 'pipeline_data_prep';
   setEditorSurface: (surface: WorkflowState['editorSurface']) => void;
+  // What a file's Data Prep was opened from: its first save records it, so
+  // the pipeline reopens as Data Prep and its table knows its file.
+  scaffoldMetadata: Record<string, unknown> | null;
   // Project this workflow lives in. null means "use the default
   // project" — only matters at create time (the toolbar's project
   // picker writes here, ensureWorkflow forwards it to the backend).
@@ -305,6 +321,13 @@ interface WorkflowState {
   // values: draft | testing | published | failed | archived.
   status: string;
   setStatus: (status: string) => void;
+  // On a published pipeline: the version that is live, and whether the newest
+  // saved version is a draft of changes beside it.
+  publishedVersion: number | null;
+  hasUnpublishedChanges: boolean;
+  markPublished: (version?: number | null) => void;
+  // Throw away the saved draft and show what is live again.
+  discardDraft: () => Promise<void>;
   // Pipeline-level parameters. Empty = pipeline takes no inputs.
   parameters: WorkflowParameter[];
   setParameters: (params: WorkflowParameter[]) => void;
@@ -378,6 +401,10 @@ interface WorkflowState {
   isDirty: boolean;
   /** Run whose snapshot is on the canvas after Open in Editor; null otherwise. */
   pastRunId: string | null;
+  /** An older version of the pipeline put back on the canvas by Restore,
+   *  waiting for an explicit Save (auto-save leaves it); null otherwise.
+   *  Saving it notes "Restored version N" in the version history. */
+  restoredFrom: number | null;
   setDirty: (dirty: boolean) => void;
   // Reset the per-pipeline state so re-entering the editor (after Close
   // or after navigating away) starts from a blank canvas instead of
@@ -448,6 +475,37 @@ interface WorkflowState {
    * already validated the workflow name is non-placeholder AND unique.
    */
   ensureWorkflow: (opts?: { allowCreate?: boolean }) => Promise<string | null>;
+
+  // ── Open pipelines, one tab each ──
+  // The fields above hold the pipeline on screen. Every other open pipeline
+  // keeps its own copy in `openTabs` until its tab is picked again.
+  openTabs: EditorTab[];
+  activeTabKey: string | null;
+  /** Open a pipeline payload: its own tab if it is open already, else the
+   *  empty tab on screen, else a new tab. False when ten are open. */
+  openInEditor: (data: any) => boolean;
+  /** Restore: put an older version of a saved pipeline on that pipeline's
+   *  tab as unsaved changes, keeping the pipeline's current status and
+   *  version number. Nothing is saved until an explicit Save. 'dirty' when
+   *  the tab already holds edits nobody saved (they are never overwritten),
+   *  'full' when ten tabs are open. */
+  restoreVersionInEditor: (
+    data: any,
+    fromVersion: number,
+    current: { version: number; status: string; publishedVersion?: number | null; hasUnpublishedChanges?: boolean },
+  ) => 'ok' | 'dirty' | 'full';
+  /** An empty canvas: the empty tab on screen, or a new tab. */
+  newTab: (seed?: { projectId?: string | null; folderId?: string | null }) => boolean;
+  /** Put a tab on screen; fetches its pipeline if it came back after a reload. */
+  activateTab: (key: string) => Promise<boolean>;
+  /** Close a tab without asking. The UI asks about unsaved changes first. */
+  closeTab: (key: string) => void;
+  /** Bring an open pipeline up to date after a change made outside the
+   *  editor (a restored version). A tab with unsaved edits is left alone. */
+  refreshOpenPipeline: (workflowId: string, data: any) => void;
+  /** On entering the editor: the pipeline named in the address, else the tab
+   *  last used, else an empty canvas. */
+  ensureEditorTab: (workflowId?: string | null) => Promise<void>;
   getUpstreamNodeIds: (nodeId: string) => string[];
   setReactFlowInstance: (instance: any) => void;
   reactFlowInstance: any;
@@ -474,7 +532,7 @@ const NODE_COLORS: Record<string, string> = {
   until_loop: '#7c3aed', wait_delay: '#64748b', set_variable: '#14b8a6',
   execute_pipeline: '#6366f1', retry_handler: '#ef4444', fail: '#ef4444',
   // Actions
-  http_request: '#0ea5e9', webhook_trigger: '#a855f7', code_script: '#334155',
+  http_request: '#0ea5e9', code_script: '#334155',
   send_email: '#db2777', slack_notify: '#e11d48',
   delete_data: '#ef4444', get_metadata: '#8b5cf6',
   // Legacy destinations
@@ -505,7 +563,7 @@ const NODE_ICONS: Record<string, string> = {
   until_loop: '🔄', wait_delay: '⏳', set_variable: '📝',
   execute_pipeline: '▶️', retry_handler: '🔄', fail: '⛔',
   // Actions
-  http_request: '🌐', webhook_trigger: '🔔', code_script: '💻',
+  http_request: '🌐', code_script: '💻',
   send_email: '✉️', slack_notify: '💬',
   delete_data: '🗑️', get_metadata: '📑',
   // Legacy destinations
@@ -534,7 +592,7 @@ const NODE_CATEGORY: Record<string, string> = {
   until_loop: 'flow', wait_delay: 'flow', set_variable: 'flow',
   execute_pipeline: 'flow', retry_handler: 'flow', fail: 'flow',
   // Actions
-  http_request: 'action', webhook_trigger: 'action', code_script: 'action',
+  http_request: 'action', code_script: 'action',
   send_email: 'action', slack_notify: 'action',
   delete_data: 'action', get_metadata: 'action',
   // Legacy destinations
@@ -653,6 +711,80 @@ export function nodesToWorkflow(nodes: Node[], edges: Edge[], name: string, id: 
   };
 }
 
+// ── Editor tabs ───────────────────────────────────────────────────────────
+// Each open pipeline is a tab. The store's top-level fields always hold the
+// pipeline on screen, so every component that reads them keeps working; a
+// tab that is not on screen keeps a copy of exactly these fields.
+export const DOC_FIELDS = [
+  'nodes', 'edges', 'workflowId', 'workflowName', 'editorSurface', 'scaffoldMetadata', 'projectId', 'folderId',
+  'version', 'status', 'publishedVersion', 'hasUnpublishedChanges', 'parameters', 'selectedNodeId', 'stepResults', 'pinnedResults',
+  'isRunning', 'stepSchemas', 'schemaVersion', 'wranglerPreview', 'validationErrors',
+  'validationPanelIssues', 'isDirty', 'pastRunId', 'restoredFrom', 'codeEditorOpen', 'undoStack', 'redoStack',
+] as const;
+type DocField = typeof DOC_FIELDS[number];
+export type EditorDoc = Pick<WorkflowState, DocField>;
+
+export interface EditorTab {
+  key: string;
+  /** The tab's pipeline id and name, kept for lookups and labels. */
+  workflowId: string | null;
+  name: string;
+  /** Its editor state while another tab is on screen. Null while it is on
+   *  screen, and for a tab that came back after a reload (`needsLoad`)
+   *  until its pipeline is fetched again. */
+  doc: EditorDoc | null;
+  needsLoad?: boolean;
+}
+
+/** How many pipelines can be open at once. Each keeps its canvas in memory. */
+export const MAX_EDITOR_TABS = 10;
+const TABS_STORAGE_KEY = 'revoluzen_flow_editor_tabs_v1';
+
+function pickDoc(s: WorkflowState): EditorDoc {
+  const out: Record<string, unknown> = {};
+  for (const f of DOC_FIELDS) out[f] = (s as any)[f];
+  return out as unknown as EditorDoc;
+}
+
+function blankDoc(): EditorDoc {
+  return {
+    nodes: [], edges: [], workflowId: null, workflowName: 'Untitled Pipeline', editorSurface: 'pipeline', scaffoldMetadata: null,
+    projectId: null, folderId: null, version: 0, status: 'draft', publishedVersion: null, hasUnpublishedChanges: false,
+    parameters: [], selectedNodeId: null,
+    stepResults: {}, pinnedResults: {}, isRunning: false, stepSchemas: {}, schemaVersion: 0,
+    wranglerPreview: {}, validationErrors: {}, validationPanelIssues: null, isDirty: false,
+    pastRunId: null, restoredFrom: null, codeEditorOpen: false, undoStack: [], redoStack: [],
+  };
+}
+
+let _tabSeq = 0;
+// Bumped on every tab pick, so a slow fetch for one tab cannot take the
+// screen from a tab picked after it.
+let _activateSeq = 0;
+function newTabKey(): string {
+  _tabSeq += 1;
+  return `t${Date.now().toString(36)}${_tabSeq}`;
+}
+
+// The saved tab list is written only once the saved one has been read back,
+// so the empty list at start-up never wipes it.
+let _tabsRestored = false;
+// The tab that was on screen before the reload, picked on entering the editor.
+let _restoredActiveKey: string | null = null;
+
+/** Whose saved tabs these are: the signed-in user in this workspace. Pipeline
+ *  names are not shown to anyone else who signs in on this browser. */
+export function tabsOwner(): string | null {
+  try {
+    const u = JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null');
+    const uid = u && (u.id || u.email);
+    if (!uid) return null;
+    return `${uid}::${localStorage.getItem('revoluzen_flow_workspace_id') || 'default'}`;
+  } catch {
+    return null;
+  }
+}
+
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   nodes: [],
   edges: [],
@@ -660,6 +792,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   workflowName: 'Untitled Pipeline',
   editorSurface: 'pipeline',
   setEditorSurface: (surface) => set({ editorSurface: surface }),
+  scaffoldMetadata: null,
   projectId: null,
   setProjectId: (id) => set({ projectId: id }),
   folderId: null,
@@ -667,6 +800,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   version: 0,
   status: 'draft',
   setStatus: (status) => set({ status }),
+  publishedVersion: null,
+  hasUnpublishedChanges: false,
+  markPublished: (version) => set((s) => ({
+    status: 'published',
+    publishedVersion: version ?? s.version ?? null,
+    hasUnpublishedChanges: false,
+  })),
+  discardDraft: async () => {
+    const { workflowId } = get();
+    if (!workflowId) return;
+    get().loadWorkflow(await api.discardDraft(workflowId));
+  },
   parameters: [],
   setParameters: (params) => set({ parameters: params, isDirty: true }),
   selectedNodeId: null,
@@ -728,18 +873,23 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   isDirty: false,
   pastRunId: null,
+  restoredFrom: null,
   setDirty: (dirty) => set({ isDirty: dirty }),
   resetWorkflow: () =>
     set({
+      restoredFrom: null,
       nodes: [],
       edges: [],
       workflowId: null,
       workflowName: 'Untitled Pipeline',
       editorSurface: 'pipeline',
+      scaffoldMetadata: null,
       projectId: null,
       folderId: null,
       version: 0,
       status: 'draft',
+      publishedVersion: null,
+      hasUnpublishedChanges: false,
       parameters: [],
       selectedNodeId: null,
       stepResults: {},
@@ -975,14 +1125,28 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({
       nodes,
       edges,
-      workflowId: wf.id,
+      // null, not undefined, for a pipeline not saved yet (a template, a
+      // draft): the tabs tell saved pipelines from unsaved ones by it.
+      workflowId: wf.id || null,
       workflowName: wf.name,
+      // A saved pipeline says where it lives, so the editor's project ribbon
+      // and Save agree with it. An unsaved one (a template, a draft) keeps the
+      // project and folder it was started in.
+      ...(wf.id
+        ? { projectId: wf.project_id && wf.project_id !== 'default' ? wf.project_id : null, folderId: wf.folder_id || null }
+        : {}),
       editorSurface,
+      scaffoldMetadata: scaffoldedFrom === 'storage_file' ? wf.metadata : null,
       version: data.version || 1,
       // Lifecycle status — defaults to 'draft' if the backend didn't
       // send one (older saves, fresh creations). Toolbar buttons
       // (Plus Deploy, schedule UI) gate on this value.
       status: typeof wf.status === 'string' && wf.status ? wf.status : 'draft',
+      publishedVersion: typeof (data.published_version ?? wf.published_version) === 'number'
+        ? (data.published_version ?? wf.published_version)
+        // Published before the live version was recorded: the newest one is live.
+        : wf.status === 'published' && typeof data.version === 'number' ? data.version : null,
+      hasUnpublishedChanges: !!(data.has_unpublished_changes ?? wf.has_unpublished_changes),
       // Pipeline parameters — empty array if the saved workflow
       // didn't have any (older versions). Defaults are coerced server-side.
       parameters: Array.isArray(wf.parameters) ? wf.parameters : [],
@@ -995,6 +1159,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // undo INTO the previous pipeline's state.
       isDirty: false,
       pastRunId: null,
+      restoredFrom: null,
       undoStack: [],
       redoStack: [],
     });
@@ -1016,6 +1181,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       );
       return;
     }
+    // A past run opens in a tab of its own, so it never replaces a pipeline
+    // being edited. The empty tab on screen is used when there is one.
+    if (!makeRoomForNewDoc()) return;
     const { nodes, edges } = workflowToNodesEdges(snapshot);
     const stepResults: Record<string, StepResult> = {};
     for (const log of (execution.step_logs || [])) {
@@ -1045,6 +1213,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // The pipeline's real name: this field is what Save writes back.
       // EditorContextBar shows that a past run is open.
       workflowName: snapshot.name || execution.workflow_name || 'Pipeline',
+      // Where the pipeline lives, so the ribbon names its project: it kept the
+      // empty tab's ("Sandbox") for a pipeline in Supply Chain.
+      projectId: (snapshot.project_id && snapshot.project_id !== 'default' ? snapshot.project_id : null)
+        ?? (execution.project_id && execution.project_id !== 'default' ? execution.project_id : null),
+      folderId: snapshot.folder_id || null,
       pastRunId: execution.id,
       parameters: Array.isArray(snapshot.parameters) ? snapshot.parameters : [],
       version: execution.workflow_version ?? 0,
@@ -1073,7 +1246,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // is saved AND clean we still prefer the stored-workflow endpoint (it's
     // cheaper — no IR round-trip). When the canvas is dirty OR unsaved we
     // use the ephemeral endpoint which accepts the in-memory IR.
+    adoptLooseDoc();
+    // The run belongs to the tab it was started in, even if another tab is on
+    // screen by the time it finishes.
+    const runKey = get().activeTabKey;
     const { workflowId, isDirty, nodes, edges, workflowName, parameters } = get();
+    const named = (title: string) => (offScreen(runKey) ? `${workflowName}: ${title}` : title);
 
     if (!nodes || nodes.length === 0) {
       toast.error(
@@ -1089,7 +1267,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({ isRunning: true, stepResults: {} });
 
     // Abort any in-flight reveal from a previous run.
-    const revealToken = ++_revealToken;
+    const revealToken = nextReveal(runKey);
 
     // Mark only the ENTRY nodes (no upstream) as running; everything else
     // pending. The full node-by-node progression is replayed from the real
@@ -1122,7 +1300,8 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           // did not apply to file sources either — Sample wrote to real
           // sinks, sent real email and made real HTTP calls.
           ? await api.runWorkflowEphemeral(wf, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues)
-          : await api.runWorkflow(workflowId, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues);
+          // What is on the canvas, which on a published pipeline can be a draft.
+          : await api.runWorkflow(workflowId, fullRun, 'dev', fullRun ? 'live' : 'sample', parameterValues, true);
       } catch (err: any) {
         // 2026-05-22 — fallback for the "saved but actually unsaved"
         // edge case. An imported pipeline can land in the store with
@@ -1139,7 +1318,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         if (!useEphemeral && looksLikeMissing) {
           // Mark dirty so subsequent runs use ephemeral directly
           // without the 404 round-trip.
-          set({ isDirty: true });
+          patchDoc(runKey, { isDirty: true });
           toast.warning(
             'Pipeline not saved yet — running a temporary copy',
             'This pipeline isn\'t saved yet, so it ran without a Pipelines list entry. Click Save to add it.',
@@ -1154,7 +1333,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       // Handle overlap detection responses
       if (result.overlap_detected) {
-        set({ isRunning: false, nodes: get().nodes.map((n) => ({ ...n, data: { ...n.data, status: 'pending' } })) });
+        patchDoc(runKey, (d) => ({ isRunning: false, nodes: d.nodes.map((n) => ({ ...n, data: { ...n.data, status: 'pending' } })) }));
         if (result.status === 'skipped') {
           toast.warning('Execution Skipped', 'Previous execution is still running. Pipeline overlap policy is set to Skip.');
         } else if (result.status === 'queued') {
@@ -1170,19 +1349,21 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // returns all step_results at once, but publishing them immediately made
       // downstream nodes show row counts/durations while the canvas still said
       // "Running 4/10". Keep them local until each level completes.
-      set({ stepResults: {} });
+      patchDoc(runKey, { stepResults: {} });
 
       const applyStatuses = (statuses: Map<string, string>) => {
-        set({
-          nodes: get().nodes.map((n) => ({
+        patchDoc(runKey, (d) => ({
+          nodes: d.nodes.map((n) => ({
             ...n,
             data: { ...n.data, status: statuses.get(n.id) ?? n.data.status },
           })),
-        });
+        }));
       };
 
-      const revealNodes = get().nodes;
-      const revealEdges = get().edges;
+      const runDoc = readDoc(runKey);
+      if (!runDoc) return; // its tab was closed while the run was going
+      const revealNodes = runDoc.nodes;
+      const revealEdges = runDoc.edges;
       const levels = topoLevels(revealNodes, revealEdges);
       // Pace the reveal so a small pipeline feels deliberate and a large one
       // still finishes fast: total running-phase budget ~2.4s, clamped to a
@@ -1195,7 +1376,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
       let aborted = false;
       for (const level of levels) {
-        if (revealToken !== _revealToken) { aborted = true; break; }
+        if (revealToken !== currentReveal(runKey)) { aborted = true; break; }
         // Only flash "running" on nodes that actually ran (have a result).
         // Nodes with no result never executed (upstream failed) → straight
         // to their settled state, no misleading "running".
@@ -1203,52 +1384,59 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         ran.forEach((id) => applied.set(id, 'running'));
         applyStatuses(applied);
         if (ran.length) await _sleep(perLevel);
-        if (revealToken !== _revealToken) { aborted = true; break; }
+        if (revealToken !== currentReveal(runKey)) { aborted = true; break; }
         level.forEach((id) => {
           applied.set(id, stepResults[id]?.status || 'pending');
           if (stepResults[id]) visibleResults[id] = stepResults[id];
         });
-        set({ stepResults: { ...visibleResults } });
+        patchDoc(runKey, { stepResults: { ...visibleResults } });
         applyStatuses(applied);
         await _sleep(Math.round(perLevel * 0.4));
       }
 
       // If a newer run/Stop took over mid-reveal, leave its statuses alone.
-      if (!aborted && revealToken === _revealToken) {
-        set({
+      if (!aborted && revealToken === currentReveal(runKey)) {
+        patchDoc(runKey, (d) => ({
           isRunning: false,
           stepResults,
-          nodes: get().nodes.map((n) => ({
+          nodes: d.nodes.map((n) => ({
             ...n,
             data: { ...n.data, status: stepResults[n.id]?.status || 'pending' },
           })),
-        });
+        }));
       }
 
-      // Timeout exceeded alert
-      if (result.timeout_exceeded) {
+      // A stopped run is not a failure; say who stopped it. A run that hit
+      // its time limit is a failure, and says so in the same words the run
+      // record uses.
+      if (result.status === 'cancelled') {
+        toast.info(named('Run stopped'), result.stop_message || 'Stopped before it finished.');
+      } else if (result.timeout_exceeded) {
         toast.error(
-          'Pipeline Timeout Exceeded',
-          `Took ${result.actual_runtime_minutes} min (limit: ${result.max_runtime_minutes} min)`
+          named('Stopped at its time limit'),
+          result.stop_message
+            || `Took ${result.actual_runtime_minutes} min (limit: ${result.max_runtime_minutes} min)`
         );
       } else if (errorCount > 0) {
-        toast.warning('Pipeline completed with errors', `${errorCount} step(s) failed`);
+        toast.warning(named('Pipeline completed with errors'), `${errorCount} step(s) failed`);
       } else {
-        toast.success('Pipeline executed successfully', `${Object.keys(stepResults).length} steps completed`);
+        toast.success(named('Pipeline executed successfully'), `${Object.keys(stepResults).length} steps completed`);
       }
     } catch (err: any) {
-      set({
+      patchDoc(runKey, (d) => ({
         isRunning: false,
-        nodes: get().nodes.map((n) => ({
+        nodes: d.nodes.map((n) => ({
           ...n,
           data: { ...n.data, status: 'error' },
         })),
-      });
-      toast.error('Pipeline execution failed', err.message);
+      }));
+      toast.error(named('Pipeline execution failed'), err.message);
     }
   },
 
   runStep: async (stepId, opts) => {
+    adoptLooseDoc();
+    const runKey = get().activeTabKey;
     const { workflowId, nodes, edges, workflowName } = get();
 
     try {
@@ -1269,8 +1457,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       // and silently retry via the ephemeral path so Test still works.
       // A past run open on the canvas tests without saving over the pipeline.
       // So does a published pipeline: schedules run what's saved, so testing
-      // an edit must not put it live. It waits for an explicit Save.
-      const useEphemeral = opts?.ephemeral || !workflowId || !!get().pastRunId || get().status === 'published';
+      // an edit must not put it live. It waits for an explicit Save. So does
+      // an older version put back by Restore, which waits for Save too.
+      const useEphemeral = opts?.ephemeral || !workflowId || !!get().pastRunId
+        || get().status === 'published' || get().restoredFrom != null;
       const wf = nodesToWorkflow(
         nodes,
         edges,
@@ -1284,7 +1474,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         result = await api.runStepEphemeral(wf, stepId);
       } else {
         try {
-          await api.updateWorkflow(workflowId!, wf, 'Pre-step save');
+          await api.updateWorkflow(workflowId!, wf, 'Pre-step save', 'auto');
           result = await api.runStep(workflowId!, stepId);
         } catch (persistedErr: any) {
           // 404 (workflow row gone) → fall back to ephemeral run so the
@@ -1295,14 +1485,14 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           if (!isMissing) throw persistedErr;
           // eslint-disable-next-line no-console
           console.warn('[runStep] Persisted path 404 — falling back to ephemeral.', msg);
-          set({ workflowId: null });
+          patchDoc(runKey, { workflowId: null });
           result = await api.runStepEphemeral(wf, stepId);
         }
       }
       const returnedStepResults = result?.step_results && typeof result.step_results === 'object'
         ? result.step_results as Record<string, StepResult>
         : { [stepId]: result as StepResult };
-      set((s) => ({
+      patchDoc(runKey, (s) => ({
         stepResults: { ...s.stepResults, ...returnedStepResults },
         nodes: s.nodes.map((n) => {
           const stepResult = returnedStepResults[n.id];
@@ -1312,7 +1502,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         }),
       }));
     } catch (err: any) {
-      set((s) => ({
+      patchDoc(runKey, (s) => ({
         stepResults: {
           ...s.stepResults,
           [stepId]: { step_id: stepId, status: 'error', error: err.message, row_count: 0, columns: [], sample_data: [], schema_info: [], duration_ms: 0 },
@@ -1322,13 +1512,16 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   resumeFromStep: async (stepId) => {
+    adoptLooseDoc();
+    const runKey = get().activeTabKey;
     const { workflowId, nodes, edges, workflowName, status, isDirty } = get();
     if (!workflowId) return;
 
     // A rerun reads the saved pipeline, and a published one only saves when
-    // someone says so. Unsaved edits are tested as they are instead.
+    // someone says so. Unsaved edits are tested as they are instead, and so
+    // is an older version put back by Restore.
     const published = status === 'published';
-    if (published && isDirty) {
+    if ((published || get().restoredFrom != null) && isDirty) {
       await get().runStep(stepId);
       return;
     }
@@ -1336,11 +1529,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       if (!published) {
         const wf = nodesToWorkflow(nodes, edges, workflowName, workflowId, get().parameters);
-        await api.updateWorkflow(workflowId, wf, 'Pre-resume save');
+        await api.updateWorkflow(workflowId, wf, 'Pre-resume save', 'auto');
       }
 
       const result = await api.resumeFromStep(workflowId, stepId);
-      set((s) => ({
+      patchDoc(runKey, (s) => ({
         stepResults: { ...s.stepResults, [stepId]: result },
         nodes: s.nodes.map((n) =>
           n.id === stepId
@@ -1354,7 +1547,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         toast.error('Rerun failed', result.error || 'Unknown error');
       }
     } catch (err: any) {
-      set((s) => ({
+      patchDoc(runKey, (s) => ({
         stepResults: {
           ...s.stepResults,
           [stepId]: { step_id: stepId, status: 'error', error: err.message, row_count: 0, columns: [], sample_data: [], schema_info: [], duration_ms: 0 },
@@ -1369,7 +1562,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     if (!draft || draft.status !== 'pending') return;
     try {
       const { workflow } = await api.applyDraft(draft.workflow);
-      get().loadWorkflow({ workflow, version: 1 });
+      if (!get().openInEditor({ workflow, version: 1 })) return;
       set((s) => ({
         chatMessages: [
           ...s.chatMessages.map((m, i) =>
@@ -1861,6 +2054,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Create pipeline
     const pipeline = parsePipelineIntent(message);
     if (pipeline) {
+      // A pipeline built from a sentence goes in a tab of its own, unless the
+      // canvas on screen is empty.
+      if (!makeRoomForNewDoc()) return;
       get().loadWorkflow({
         workflow: {
           id: null,
@@ -1888,6 +2084,9 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   useTemplate: async (key) => {
+    // A template goes on an empty canvas: the one on screen, or a new tab, so
+    // a pipeline being edited is never overwritten by one.
+    if (!makeRoomForNewDoc()) return;
     // User templates — IDs prefixed with `ut_` come from user_templates
     // and are fetched from the backend, then loaded just like a built-in.
     if (key.startsWith('ut_')) {
@@ -2044,7 +2243,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     try {
       const result = await api.generatePlan(intent);
       if (result.workflow) {
-        get().loadWorkflow({ workflow: result.workflow, version: result.version || 1 });
+        get().openInEditor({ workflow: result.workflow, version: result.version || 1 });
       }
       return result;
     } catch (err: any) {
@@ -2242,6 +2441,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   // call `requireNamedWorkflow()` ahead of time for a one-shot prompt
   // gate, but they no longer have to.
   ensureWorkflow: async (opts) => {
+    adoptLooseDoc();
+    // The save belongs to the tab it started in, even if another tab is on
+    // screen when the server answers.
+    const saveKey = get().activeTabKey;
     const { workflowId, nodes, edges, workflowName } = get();
     // A past run on the canvas replaces the current pipeline if saved, so only
     // an explicit Save may do that, never autosave or a pre-run save.
@@ -2249,19 +2452,43 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       return null;
     }
     if (workflowId) {
-      // Schedules run the latest saved version, so on a published pipeline
-      // only an explicit Save (allowCreate) writes. Anything else leaves the
-      // edits unsaved, as the editor's banner tells the user.
+      // On a published pipeline only an explicit Save (allowCreate) writes, and
+      // what it writes is a draft: the published version keeps running. So a
+      // stray edit never turns into a draft by itself, and the editor's banner
+      // tells the user where they stand.
       const published = get().status === 'published';
       if (published && !opts?.allowCreate) return workflowId;
-      // Update existing — always safe, never creates.
+      // An older version put back by Restore waits for an explicit Save, as
+      // the Restore dialog promises: auto-save and the save before a run
+      // leave it unsaved, and Test and Run use the canvas as it is.
+      const restoredFrom = get().restoredFrom;
+      if (restoredFrom != null && !opts?.allowCreate) return workflowId;
+      // Update existing — always safe, never creates. The version history
+      // tells a Save from an auto-save and a restore by the kind sent here.
       const wf = nodesToWorkflow(nodes, edges, workflowName, workflowId, get().parameters);
-      await api.updateWorkflow(workflowId, wf, 'Auto-save');
+      let saved: any;
+      if (restoredFrom != null) {
+        saved = await api.updateWorkflow(workflowId, wf, `Restored version ${restoredFrom}`, 'restored');
+      } else if (opts?.allowCreate) {
+        saved = await api.updateWorkflow(workflowId, wf, 'Saved', 'saved');
+      } else {
+        saved = await api.updateWorkflow(workflowId, wf, 'Auto-save', 'auto');
+      }
       // Server now matches local state → clear dirty flag so the Close
       // button stops prompting for unsaved-changes. Saving doesn't change a
       // published pipeline's status on the server, so it stays published
       // here too. Going back to draft turned auto-save on for a live pipeline.
-      set({ isDirty: false, status: published ? 'published' : 'draft', pastRunId: null });
+      patchDoc(saveKey, {
+        isDirty: false,
+        status: published ? 'published' : 'draft',
+        pastRunId: null,
+        restoredFrom: null,
+        ...(typeof saved?.version === 'number' ? {
+          version: saved.version,
+          publishedVersion: saved.published_version ?? null,
+          hasUnpublishedChanges: !!saved.has_unpublished_changes,
+        } : {}),
+      });
       return workflowId;
     }
     // No workflowId — and caller didn't opt in to create. Silently no-op
@@ -2290,6 +2517,33 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // prompt loop).
     const { projectId, folderId } = get();
     const nameForCreate = (get().workflowName || '').trim();
+    // A file's Data Prep is saved as the preparation of the table it loads:
+    // the server links it to its table and file, and adds a version if that
+    // table already has a preparation.
+    if (get().editorSurface === 'file_data_prep') {
+      const wf = nodesToWorkflow(nodes, edges, nameForCreate, '', get().parameters);
+      wf.metadata = get().scaffoldMetadata || {};
+      const saved = await api.saveFilePreparation(wf, projectId, folderId);
+      patchDoc(saveKey, {
+        workflowId: saved.workflow_id,
+        workflowName: saved.workflow_name,
+        version: saved.version,
+        status: saved.status,
+        isDirty: false,
+      });
+      if (!saved.created) {
+        // That preparation may be open in another tab, now out of date. Each
+        // pipeline has one tab, so that one goes; unsaved edits keep theirs.
+        set((st) => ({
+          openTabs: st.openTabs.filter((t) => {
+            if (t.key === saveKey || t.key === st.activeTabKey) return true;
+            const other = describeTab(t, st);
+            return other.workflowId !== saved.workflow_id || other.isDirty;
+          }),
+        }));
+      }
+      return saved.workflow_id;
+    }
     const result = await api.createWorkflow(nameForCreate, projectId || undefined);
     const newId = result.id || result.workflow?.id;
     if (newId) {
@@ -2312,7 +2566,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           console.warn('Initial folder placement failed:', err);
         }
       }
-      set({ workflowId: newId, isDirty: false, status: 'draft' });
+      patchDoc(saveKey, { workflowId: newId, isDirty: false, status: 'draft' });
       return newId;
     }
     return null;
@@ -2326,4 +2580,382 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
   reactFlowInstance: null,
   setReactFlowInstance: (instance) => set({ reactFlowInstance: instance }),
+
+  // ── Open pipelines, one tab each ──
+  openTabs: [],
+  activeTabKey: null,
+
+  openInEditor: (data) => {
+    adoptLooseDoc();
+    const wf = data?.workflow || data;
+    const id: string | null = wf && typeof wf.id === 'string' && wf.id ? wf.id : null;
+    const s = get();
+    if (id) {
+      const existing = findPipelineTab(s, id);
+      if (existing) {
+        if (existing.key === s.activeTabKey) {
+          // Already on screen. Refresh it, unless it holds unsaved edits.
+          if (!s.isDirty) get().loadWorkflow(data);
+          return true;
+        }
+        if (existing.needsLoad || !existing.doc) {
+          set({
+            openTabs: stashed(s).map((t) => (t.key === existing.key ? { ...t, doc: null, needsLoad: false } : t)),
+            activeTabKey: existing.key,
+            ...blankDoc(),
+            schemaVersion: s.schemaVersion + 1,
+          });
+          get().loadWorkflow(data);
+          return true;
+        }
+        const dirty = !!existing.doc.isDirty;
+        showTab(existing.key);
+        // A tab with edits nobody saved keeps them: it comes forward as it is.
+        if (!dirty) get().loadWorkflow(data);
+        return true;
+      }
+    }
+    if (!makeRoomForNewDoc()) return false;
+    get().loadWorkflow(data);
+    return true;
+  },
+
+  restoreVersionInEditor: (data, fromVersion, current) => {
+    adoptLooseDoc();
+    const wf = data?.workflow || data;
+    const id: string | null = wf && typeof wf.id === 'string' && wf.id ? wf.id : null;
+    if (!id) return 'full';
+    const s = get();
+    const tab = findPipelineTab(s, id);
+    if (tab) {
+      const dirty = tab.key === s.activeTabKey ? s.isDirty : !!tab.doc?.isDirty;
+      if (dirty) return 'dirty';
+    }
+    if (!get().openInEditor(data)) return 'full';
+    // openInEditor put the older version on the pipeline's tab, on screen.
+    // It is a change nobody has saved, on the pipeline as it is now.
+    set({
+      isDirty: true,
+      restoredFrom: fromVersion,
+      version: current.version,
+      status: current.status || 'draft',
+      publishedVersion: current.publishedVersion ?? (current.status === 'published' ? current.version : null),
+      hasUnpublishedChanges: !!current.hasUnpublishedChanges,
+    });
+    return 'ok';
+  },
+
+  newTab: (seed) => {
+    if (!makeRoomForNewDoc()) return false;
+    set({
+      ...blankDoc(),
+      schemaVersion: get().schemaVersion + 1,
+      ...(seed ? { projectId: seed.projectId ?? null, folderId: seed.folderId ?? null } : {}),
+    });
+    return true;
+  },
+
+  activateTab: async (key) => {
+    adoptLooseDoc();
+    const seq = ++_activateSeq;
+    const s = get();
+    if (s.activeTabKey === key) return true;
+    const target = s.openTabs.find((t) => t.key === key);
+    if (!target) return false;
+    if (target.needsLoad || !target.doc) {
+      if (!target.workflowId) {
+        showTab(key);
+        return true;
+      }
+      let data: any;
+      try {
+        data = await api.getWorkflow(target.workflowId);
+      } catch (err: any) {
+        set((st) => ({ openTabs: st.openTabs.filter((t) => t.key !== key) }));
+        toast.error('Could not open the pipeline', `"${target.name}": ${err?.message || 'it may have been deleted'}`);
+        return false;
+      }
+      const now = get();
+      if (!now.openTabs.some((t) => t.key === key)) return false; // closed while loading
+      // Something else came on screen while it loaded (another tab, a
+      // pipeline opened from the list): that stands, and this tab loads
+      // again when it is picked.
+      if (seq !== _activateSeq || now.activeTabKey !== s.activeTabKey) return false;
+      if (now.activeTabKey !== key) {
+        set({
+          openTabs: stashed(now).map((t) => (t.key === key ? { ...t, doc: null, needsLoad: false } : t)),
+          activeTabKey: key,
+          ...blankDoc(),
+          schemaVersion: now.schemaVersion + 1,
+        });
+      }
+      get().loadWorkflow(data);
+      return true;
+    }
+    showTab(key);
+    return true;
+  },
+
+  closeTab: (key) => {
+    const s = get();
+    const idx = s.openTabs.findIndex((t) => t.key === key);
+    if (idx < 0) return;
+    nextReveal(key); // a reveal still going for it stops
+    if (_restoredActiveKey === key) _restoredActiveKey = null;
+    const rest = s.openTabs.filter((t) => t.key !== key);
+    if (s.activeTabKey !== key) {
+      set({ openTabs: rest });
+      return;
+    }
+    const next = rest[idx] || rest[idx - 1] || null;
+    set({ ...blankDoc(), schemaVersion: s.schemaVersion + 1, openTabs: rest, activeTabKey: null });
+    if (next) void get().activateTab(next.key);
+  },
+
+  refreshOpenPipeline: (workflowId, data) => {
+    const s = get();
+    const tab = findPipelineTab(s, workflowId);
+    if (!tab) {
+      // No tab holds it: the editor's lone canvas, as before tabs existed.
+      if (!s.activeTabKey && s.workflowId === workflowId && !s.isDirty && !s.pastRunId && !s.isRunning) get().loadWorkflow(data);
+      return;
+    }
+    // A tab with unsaved edits, a past run or a run going is left as it is.
+    if (tab.key === s.activeTabKey) {
+      if (!s.isDirty && !s.pastRunId && !s.isRunning) get().loadWorkflow(data);
+      return;
+    }
+    if (tab.doc && !tab.doc.isDirty && !tab.doc.pastRunId && !tab.doc.isRunning) {
+      set((st) => ({ openTabs: st.openTabs.map((t) => (t.key === tab.key ? { ...t, doc: null, needsLoad: true } : t)) }));
+    }
+  },
+
+  ensureEditorTab: async (workflowId) => {
+    restoreSavedTabs();
+    adoptLooseDoc();
+    const s = get();
+    if (workflowId) {
+      if (s.activeTabKey && s.workflowId === workflowId && !s.pastRunId) return;
+      const tab = findPipelineTab(s, workflowId);
+      if (tab) {
+        await get().activateTab(tab.key);
+        return;
+      }
+      try {
+        get().openInEditor(await api.getWorkflow(workflowId));
+      } catch (err: any) {
+        toast.error('Could not open the pipeline', err?.message || 'It may have been deleted, or it is outside your access.');
+      }
+      return;
+    }
+    if (s.activeTabKey) return;
+    const key = _restoredActiveKey && s.openTabs.some((t) => t.key === _restoredActiveKey)
+      ? _restoredActiveKey
+      : s.openTabs[s.openTabs.length - 1]?.key;
+    _restoredActiveKey = null;
+    if (key) {
+      await get().activateTab(key);
+      return;
+    }
+    makeRoomForNewDoc(); // first visit: an empty canvas in a tab of its own
+  },
 }));
+
+// ── Tab helpers. Outside the store so the run and save paths can use them;
+// function declarations, so they exist before the store above calls them. ──
+
+/** The pipeline id a tab holds, whether it is on screen or not. */
+export function tabWorkflowId(t: EditorTab, s: Pick<WorkflowState, 'activeTabKey' | 'workflowId'>): string | null {
+  if (t.key === s.activeTabKey) return s.workflowId;
+  return t.doc ? t.doc.workflowId : t.workflowId;
+}
+
+export interface TabView {
+  key: string;
+  active: boolean;
+  workflowId: string | null;
+  name: string;
+  isDirty: boolean;
+  isRunning: boolean;
+  pastRunId: string | null;
+}
+
+/** The tab holding a pipeline for editing. A past run of it is not that tab. */
+export function findPipelineTab(s: WorkflowState, workflowId: string): EditorTab | undefined {
+  return s.openTabs.find((t) => {
+    const v = describeTab(t, s);
+    return v.workflowId === workflowId && !v.pastRunId;
+  });
+}
+
+/** What a tab shows in the strip. */
+export function describeTab(t: EditorTab, s: WorkflowState): TabView {
+  const live = t.key === s.activeTabKey;
+  const d: EditorDoc | null = live ? s : t.doc;
+  return {
+    key: t.key,
+    active: live,
+    workflowId: d ? d.workflowId : t.workflowId,
+    name: (d ? d.workflowName : t.name) || 'Untitled Pipeline',
+    isDirty: !!d?.isDirty,
+    isRunning: !!d?.isRunning,
+    pastRunId: d ? d.pastRunId : null,
+  };
+}
+
+function isBlankOnScreen(s: WorkflowState): boolean {
+  const tab = s.openTabs.find((t) => t.key === s.activeTabKey);
+  if (!tab || tab.needsLoad) return false;
+  // A name typed into an empty canvas still counts as empty: a template
+  // dropped on it keeps that name, as it always has.
+  return s.nodes.length === 0 && !s.workflowId && !s.pastRunId;
+}
+
+/** The tab list with the on-screen pipeline's state copied into its tab. */
+function stashed(s: WorkflowState): EditorTab[] {
+  return s.openTabs.map((t) => {
+    if (t.key !== s.activeTabKey || t.needsLoad) return t;
+    return { ...t, workflowId: s.workflowId, name: s.workflowName, doc: pickDoc(s) };
+  });
+}
+
+/** A canvas with content but no tab (state set before any tab existed, or by a
+ *  test) becomes a tab first, so opening another pipeline never discards it. */
+function adoptLooseDoc() {
+  const s = useWorkflowStore.getState();
+  if (s.activeTabKey) return;
+  if (s.nodes.length === 0 && !s.workflowId && !s.pastRunId && !s.isDirty) return;
+  const key = newTabKey();
+  useWorkflowStore.setState({
+    openTabs: [...s.openTabs, { key, workflowId: s.workflowId, name: s.workflowName, doc: null }],
+    activeTabKey: key,
+  });
+}
+
+/** Room for a new canvas: the empty tab on screen, or a new tab. */
+function makeRoomForNewDoc(): boolean {
+  adoptLooseDoc();
+  const s = useWorkflowStore.getState();
+  if (s.activeTabKey && isBlankOnScreen(s)) return true;
+  if (s.openTabs.length >= MAX_EDITOR_TABS) {
+    toast.warning('Ten pipelines are open', 'Close one of the open tabs to open another.');
+    return false;
+  }
+  const key = newTabKey();
+  useWorkflowStore.setState({
+    openTabs: [...stashed(s), { key, workflowId: null, name: 'Untitled Pipeline', doc: null }],
+    activeTabKey: key,
+    ...blankDoc(),
+    schemaVersion: s.schemaVersion + 1,
+  });
+  return true;
+}
+
+/** Swap a loaded tab onto the screen. */
+function showTab(key: string) {
+  const s = useWorkflowStore.getState();
+  if (s.activeTabKey === key) return;
+  const tabs = stashed(s);
+  const target = tabs.find((t) => t.key === key);
+  if (!target) return;
+  const doc = target.doc ?? blankDoc();
+  useWorkflowStore.setState({
+    ...doc,
+    // A fresh schema version makes the column pickers check this canvas again.
+    schemaVersion: Math.max(s.schemaVersion, doc.schemaVersion) + 1,
+    openTabs: tabs.map((t) => (t.key === key ? { ...t, doc: null, needsLoad: false } : t)),
+    activeTabKey: key,
+  });
+}
+
+/** Write to one tab's state, on screen or not. A tab closed meanwhile is
+ *  ignored. `key` null means whatever is on screen (no tabs at all). */
+function patchDoc(key: string | null, patch: Partial<EditorDoc> | ((doc: EditorDoc) => Partial<EditorDoc>)) {
+  const s = useWorkflowStore.getState();
+  if (key === null || s.activeTabKey === key) {
+    useWorkflowStore.setState(typeof patch === 'function' ? patch(pickDoc(s)) : patch);
+    return;
+  }
+  useWorkflowStore.setState((st) => ({
+    openTabs: st.openTabs.map((t) => {
+      if (t.key !== key || !t.doc) return t;
+      const doc = { ...t.doc, ...(typeof patch === 'function' ? patch(t.doc) : patch) };
+      return { ...t, doc, workflowId: doc.workflowId, name: doc.workflowName };
+    }),
+  }));
+}
+
+/** One tab's state, on screen or not; null once the tab is closed. */
+function readDoc(key: string | null): EditorDoc | null {
+  const s = useWorkflowStore.getState();
+  if (key === null || s.activeTabKey === key) return pickDoc(s);
+  return s.openTabs.find((t) => t.key === key)?.doc ?? null;
+}
+
+/** Is the tab off screen now (another tab picked, or it was closed)? A run
+ *  that finishes there names its pipeline in its message. */
+function offScreen(key: string | null): boolean {
+  if (key === null) return false;
+  return useWorkflowStore.getState().activeTabKey !== key;
+}
+
+/** Bring back the pipelines that were open before a reload, ahead of any
+ *  opened since: ids and names only, each fetched again when its tab is
+ *  picked. Runs once a user is signed in; later calls do nothing. */
+export function restoreSavedTabs() {
+  if (_tabsRestored) return;
+  const owner = tabsOwner();
+  if (!owner) return;
+  _tabsRestored = true;
+  let raw: any = null;
+  try {
+    raw = JSON.parse(localStorage.getItem(TABS_STORAGE_KEY) || 'null');
+  } catch {
+    raw = null;
+  }
+  if (!raw || raw.owner !== owner || !Array.isArray(raw.tabs)) return;
+  const s = useWorkflowStore.getState();
+  const room = MAX_EDITOR_TABS - s.openTabs.length;
+  const seen = new Set<string>();
+  const saved: EditorTab[] = [];
+  for (const t of raw.tabs) {
+    if (saved.length >= room) break;
+    if (!t || typeof t.workflowId !== 'string' || !t.workflowId || seen.has(t.workflowId)) continue;
+    seen.add(t.workflowId);
+    if (findPipelineTab(s, t.workflowId)) continue;
+    saved.push({ key: newTabKey(), workflowId: t.workflowId, name: String(t.name || 'Pipeline'), doc: null, needsLoad: true });
+  }
+  if (!saved.length) return;
+  if (!s.activeTabKey) _restoredActiveKey = saved.find((t) => t.workflowId === raw.active)?.key ?? null;
+  useWorkflowStore.setState({ openTabs: [...saved, ...s.openTabs] });
+}
+
+/** Sign-out: forget the saved tabs, so the next person to sign in on this
+ *  browser does not see them. */
+export function forgetSavedTabs() {
+  _tabsRestored = false;
+  _lastSavedTabs = '';
+  try { localStorage.removeItem(TABS_STORAGE_KEY); } catch { /* storage unavailable */ }
+}
+
+// Remember the open pipelines across a reload: saved pipelines only, since an
+// unsaved canvas has nothing to fetch again. Unsaved edits are not kept; the
+// leave-page warning covers them.
+let _lastSavedTabs = '';
+useWorkflowStore.subscribe((s) => {
+  if (!_tabsRestored) return;
+  const owner = tabsOwner();
+  if (!owner) return;
+  const tabs = s.openTabs
+    .map((t) => describeTab(t, s))
+    .filter((t) => t.workflowId && !t.pastRunId)
+    .map((t) => ({ workflowId: t.workflowId, name: t.name }));
+  const active = s.activeTabKey && s.workflowId && !s.pastRunId ? s.workflowId : null;
+  const json = JSON.stringify({ owner, tabs, active });
+  if (json === _lastSavedTabs) return;
+  _lastSavedTabs = json;
+  try {
+    if (tabs.length) localStorage.setItem(TABS_STORAGE_KEY, json);
+    else localStorage.removeItem(TABS_STORAGE_KEY);
+  } catch { /* storage unavailable */ }
+});

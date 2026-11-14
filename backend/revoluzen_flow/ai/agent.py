@@ -68,6 +68,44 @@ def _dry_run_promoter():
     except Exception:
         return None
 
+
+#: Characters of one tool's result the model reads.
+TOOL_RESULT_CHARS = 8000
+
+
+def fit_tool_result(payload: Any, limit: int = TOOL_RESULT_CHARS) -> str:
+    """A tool's result as JSON the model reads whole, within ``limit``.
+
+    It used to be cut at a fixed number of characters, which broke the JSON
+    in the middle of a row: the model read "Nightly History: Repeat Pu…",
+    saw the list stop after its eleventh run, and said both in its answer.
+    A result too long now keeps whole rows: the longest list loses rows from
+    its end, and says how many it shows of how many. Only a result with no
+    list to shorten is still cut.
+    """
+    text = json.dumps(payload, default=str)
+    if len(text) <= limit:
+        return text
+    if isinstance(payload, dict):
+        lists = [(k, v) for k, v in payload.items() if isinstance(v, list) and v]
+        if lists:
+            key, rows = max(lists, key=lambda kv: len(json.dumps(kv[1], default=str)))
+            keep = len(rows)
+            while keep > 0:
+                keep -= 1
+                trimmed = {
+                    **payload,
+                    key: rows[:keep],
+                    "_shortened": (
+                        f"Showing the first {keep} of {len(rows)} {key}; the rest were left out "
+                        "to keep this result short. Ask with a narrower filter to see them."
+                    ),
+                }
+                text = json.dumps(trimmed, default=str)
+                if len(text) <= limit:
+                    return text
+    return text[:limit]
+
 # Caps from project_revoluzen_flow_ai_step0_locks.md.
 #
 # Wall-clock cap is provider-aware (May 4 2026; floor revised 2026-05-19).
@@ -675,6 +713,28 @@ class AgentRunner:
             base_context_text = f"{product_block}\n\n{base_context_text}"
         if rag_block:
             base_context_text = f"{rag_block}\n\n{base_context_text}"
+        # Copilot roles (2026-11-11, ai/roles.py): an admin may switch off
+        # Discover / Build / Test / Operate per workspace. The model is told
+        # which are off, so it says so instead of improvising; their tools
+        # are taken away below.
+        _roles_ws = page_context.workspace_id or page_context.tenant_id or "default"
+        try:
+            from revoluzen_flow.ai.roles import prompt_note as _roles_note
+            _note = _roles_note(_roles_ws)
+            if _note:
+                base_context_text = f"{_note}\n\n{base_context_text}"
+        except Exception:  # noqa: BLE001 — a settings read never stops the Copilot
+            logger.warning("Copilot roles note skipped", exc_info=True)
+        # Business glossary (2026-11-11, glossary/store.py): the workspace's
+        # own meaning of the terms this request uses, ahead of everything
+        # else, so "net revenue" is the workspace's net revenue.
+        try:
+            from revoluzen_flow.glossary.store import glossary_block
+            _terms = glossary_block(_roles_ws, user_intent)
+            if _terms:
+                base_context_text = f"{_terms}\n\n{base_context_text}"
+        except Exception:  # noqa: BLE001
+            logger.warning("Glossary block skipped", exc_info=True)
         # Web-access nudge (2026-07-27). Injected into the substituted region
         # (not the signed template) only when web access is on. Without it the
         # model defaults to recall_history for external-API questions and
@@ -714,6 +774,12 @@ class AgentRunner:
         ]
 
         available_tools = self.registry.filter_by_tiers(allowed_tiers)
+        # Only the tools of the roles switched on in this workspace.
+        try:
+            from revoluzen_flow.ai.roles import filter_tools as _roles_filter
+            available_tools = _roles_filter(available_tools, _roles_ws)
+        except Exception:  # noqa: BLE001
+            logger.warning("Copilot roles filter skipped", exc_info=True)
 
         # Tool gating (2026-05-22; cloud-enabled 2026-06-18) — narrow the
         # candidate set per request. Two reasons: (a) small local models
@@ -866,7 +932,7 @@ class AgentRunner:
                     user_blocks.append({
                         "type": "tool_result",
                         "tool_use_id": tu.id,
-                        "content": json.dumps(sanitized.payload, default=str)[:4000],
+                        "content": fit_tool_result(sanitized.payload),
                     })
             messages.append({"role": "user", "content": user_blocks})
 

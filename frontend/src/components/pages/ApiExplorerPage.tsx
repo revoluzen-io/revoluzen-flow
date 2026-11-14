@@ -3,22 +3,45 @@ import { ArrowRight, Send, Upload, Copy, Braces, Loader2, ShieldCheck, Search, H
 import './ApiExplorerPage.css';
 import ApiRequestFields, { blankFields, requestFields, type RequestField } from '../ApiRequestFields';
 import ApiJsonView from '../ApiJsonView';
+import ApiXmlView from '../ApiXmlView';
 import ApiAssertions from '../ApiAssertions';
-import ApiConnectorDraft from '../ApiConnectorDraft';
+import ApiConnectorDraft, { type RequestDraft } from '../ApiConnectorDraft';
 import { runAssertions, isIncomplete, type Assertion, type AssertionOutcome } from '../../utils/apiAssertions';
+import { bodyPlaceholders, isWellFormedXml } from '../../utils/apiXml';
 import { api } from '../../api/client';
 import { stageApiConnection } from '../../utils/apiExplorerDraft';
 import { API_REFERENCES, galleryReference } from '../../utils/apiGallery';
 
-type Result = { status: number; elapsed_ms: number; bytes: number; truncated: boolean; headers: Record<string, string>; data: any; text: string; sample_limit: number };
-type Operation = { method: string; path: string; summary: string; security: any[] };
-type Discovery = { base_url: string; operations: Operation[]; limit_reached?: boolean; source_url?: string };
+type XmlRecord = { path: string; count: number; rows: Record<string, any>[] };
+type XmlReply = {
+  records: XmlRecord[];
+  structure: { path: string; type: string; count: number }[];
+  fault: { code: string; message: string; detail: string } | null;
+};
+type Result = {
+  status: number; elapsed_ms: number; bytes: number; truncated: boolean; headers: Record<string, string>; data: any; text: string; sample_limit: number;
+  /** What the reply is: json, xml, csv, html, text, binary or empty. */
+  kind?: string; content_type?: string; xml?: XmlReply; binary?: string; title?: string; notice?: string;
+};
+type SoapField = { name: string; label: string; type: string; required: boolean; path: string };
+type SoapOperation = { operation: string; service: string; port: string; version: string; endpoint: string; headers: Record<string, string>; envelope: string; fields: SoapField[]; warnings: string[] };
+type Operation = { method: string; path: string; summary: string; security: any[]; soap?: SoapOperation };
+type Discovery = { base_url: string; operations: Operation[]; limit_reached?: boolean; source_url?: string; service?: string; warnings?: string[] };
+type BodyType = 'json' | 'xml' | 'form' | 'text';
 /** One past send, kept in memory only — the Explorer persists nothing. */
 type HistoryEntry = { id: string; method: string; url: string; status: number; elapsed_ms: number; at: string };
 
 const methods = ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'];
 const authMethods = [['none', 'No authentication'], ['bearer', 'Bearer token'], ['basic', 'Basic authentication'], ['api_key', 'API key (header)'], ['api_key_query', 'API key (query)']];
 const input = 'w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800';
+const BODY_TYPES: { id: BodyType; label: string; hint: string }[] = [
+  { id: 'json', label: 'JSON', hint: '{ "name": "value" }' },
+  { id: 'xml', label: 'XML', hint: '<order><id>123</id></order>' },
+  { id: 'form', label: 'Form', hint: '' },
+  { id: 'text', label: 'Text', hint: 'Plain text' },
+];
+const looksSecret = (name: string) => /password|passwd|pwd|secret|token|api.?key/i.test(name);
+const STRUCTURE_TONE: Record<string, string> = { element: 'is-object', attribute: 'is-array', value: 'is-string' };
 
 /** Colour by side-effect, not by rainbow: reads safe / writes warm / delete red. */
 function methodTone(method: string): string {
@@ -99,6 +122,15 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
   const [headers, setHeaders] = useState<RequestField[]>(blankFields);
   const [query, setQuery] = useState<RequestField[]>(blankFields);
   const [body, setBody] = useState('');
+  const [bodyType, setBodyType] = useState<BodyType>('json');
+  const [formRows, setFormRows] = useState<RequestField[]>(blankFields);
+  /** What a WSDL says about the {placeholders} in the envelope. */
+  const [soapFields, setSoapFields] = useState<SoapField[]>([]);
+  const [soapOperation, setSoapOperation] = useState('');
+  const [bodyValues, setBodyValues] = useState<Record<string, string>>({});
+  const [wsdlUrl, setWsdlUrl] = useState('');
+  const [specWarnings, setSpecWarnings] = useState<string[]>([]);
+  const [xmlPath, setXmlPath] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -128,7 +160,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
       referenceId.current = next?.id;
       specRevision.current += 1;
       setReference(next);
-      setOperations([]); setSelected(''); setSpec(''); setSpecError(''); setImportStatus('No specification loaded yet'); setSpecSourceUrl('');
+      setOperations([]); setSelected(''); setSpec(''); setSpecError(''); setSpecWarnings([]); setImportStatus('No specification loaded yet'); setSpecSourceUrl('');
     };
     window.addEventListener('hashchange', update);
     return () => window.removeEventListener('hashchange', update);
@@ -142,17 +174,29 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
   useEffect(() => {
     revision.current += 1;
     setResult(null); setError(''); setConfirm(false); setCopied(false); setOutcomes([]);
-  }, [url, method, auth, token, username, password, keyName, headers, query, body]);
+  }, [url, method, auth, token, username, password, keyName, headers, query, body, bodyType, formRows, bodyValues]);
   useEffect(() => () => { revision.current += 1; specRevision.current += 1; }, []);
 
+  // A {name} in an XML body is a value to fill in, here and on the saved connector.
+  const placeholders = useMemo(() => (bodyType === 'xml' ? bodyPlaceholders(body) : []), [bodyType, body]);
+  const fieldInfo = useMemo(() => new Map(soapFields.map(field => [field.name, field])), [soapFields]);
+  const missingValues = placeholders.filter(name => fieldInfo.get(name)?.required && !bodyValues[name]);
+  const requestBody = () => {
+    if (!write) return '';
+    return bodyType === 'form' ? new URLSearchParams(Object.entries(requestFields(formRows))).toString() : body;
+  };
+
   const send = async (confirmed = false) => {
+    if (write && missingValues.length) { setError(`Fill in: ${missingValues.map(name => fieldInfo.get(name)?.label || name).join(', ')}`); return; }
     if (write && !confirmed) { setConfirm(true); return; }
     setConfirm(false); setBusy(true); setError(''); setResult(null); setOutcomes([]);
     const current = ++revision.current;
     try {
+      // A blank that the WSDL did not describe might be ordinary text in braces, so it stays as written.
+      const values = Object.fromEntries(placeholders.filter(name => fieldInfo.has(name) || bodyValues[name]).map(name => [name, bodyValues[name] || '']));
       const response = await api.post<Result>('/connectors/author/explorer/request', {
         url, method, auth_type: auth, token, username, password, key_name: keyName,
-        headers: requestFields(headers), query: requestFields(query), body: write ? body : '', confirm_write: confirmed,
+        headers: requestFields(headers), query: requestFields(query), body: requestBody(), body_type: bodyType, body_values: values, confirm_write: confirmed,
       });
       if (revision.current === current) {
         setResult(response);
@@ -165,12 +209,24 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
     } catch (e: any) { if (revision.current === current) setError(e?.message || 'Request failed'); }
     finally { setBusy(false); }
   };
+  // A WSDL is XML; an OpenAPI specification is JSON or YAML. One box takes either.
+  const specIsWsdl = spec.trimStart().startsWith('<');
   const discover = async () => {
-    setDiscovering(true); setSpecError(''); setOperations([]); setSelected(''); setImportStatus('Discovering endpoints...');
+    setDiscovering(true); setSpecError(''); setSpecWarnings([]); setOperations([]); setSelected(''); setImportStatus('Discovering endpoints...');
     const current = ++specRevision.current;
     try {
-      const data = await api.post<Discovery>('/connectors/author/explorer/discover', { text: spec });
+      const data = await api.post<Discovery>(`/connectors/author/explorer/${specIsWsdl ? 'wsdl' : 'discover'}`, { text: spec });
       if (current === specRevision.current) acceptDiscovery(data);
+    } catch (e: any) { if (current === specRevision.current) { setSpecError(e?.message || 'Import failed'); setImportStatus('Import failed'); } }
+    finally { setDiscovering(false); }
+  };
+  const loadWsdl = async () => {
+    setDiscovering(true); setSpecError(''); setSpecWarnings([]); setOperations([]); setSelected(''); setImportStatus('Reading the WSDL...');
+    const current = ++specRevision.current;
+    try {
+      // The WSDL may need the sign-in set above. It is sent with this one download.
+      const data = await api.post<Discovery>('/connectors/author/explorer/wsdl', { url: wsdlUrl.trim(), auth_type: auth, token, username, password, key_name: keyName });
+      if (current === specRevision.current) { setSpec(''); acceptDiscovery(data); }
     } catch (e: any) { if (current === specRevision.current) { setSpecError(e?.message || 'Import failed'); setImportStatus('Import failed'); } }
     finally { setDiscovering(false); }
   };
@@ -178,7 +234,10 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
     setOperations(data.operations); setBase(data.base_url); setSelected(''); setEndpointSearch('');
     setSpecSourceUrl(data.source_url || '');
     setLimitReached(!!data.limit_reached);
-    setImportStatus(data.operations.length ? `Imported: ${data.operations.length} endpoints` : 'Imported: no supported endpoints');
+    setSpecWarnings(data.warnings || []);
+    const count = data.operations.length;
+    const noun = data.service ? `${count === 1 ? 'operation' : 'operations'} from ${data.service}` : 'endpoints';
+    setImportStatus(count ? `Imported: ${count} ${noun}` : 'Imported: no supported endpoints');
   };
   const loadReference = async () => {
     if (!reference || discovering) return;
@@ -195,17 +254,30 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
       }
     } finally { setDiscovering(false); }
   };
-  const updateSpec = (text: string) => { specRevision.current += 1; setSpec(text); setOperations([]); setSelected(''); setSpecError(''); setImportStatus('No specification loaded yet'); setSpecSourceUrl(''); };
+  const updateSpec = (text: string) => { specRevision.current += 1; setSpec(text); setOperations([]); setSelected(''); setSpecError(''); setSpecWarnings([]); setImportStatus('No specification loaded yet'); setSpecSourceUrl(''); };
   const chooseOperation = (index: string) => {
     setSelected(index);
     const op = operations[Number(index)];
     if (!op || index === '') return;
+    setBodyValues({}); setQuery(blankFields()); setFormRows(blankFields());
+    if (op.soap) {
+      // The sign-in stays: it is often the one that fetched the WSDL.
+      setMethod('POST'); setUrl(op.soap.endpoint); setBodyType('xml'); setBody(op.soap.envelope);
+      setHeaders(Object.entries(op.soap.headers).map(([key, value]) => ({ id: crypto.randomUUID(), enabled: true, key, value })));
+      setSoapFields(op.soap.fields); setSoapOperation(op.soap.operation);
+      return;
+    }
     setMethod(op.method); setUrl(base.replace(/\/$/, '') + op.path);
-    setAuth('none'); setToken(''); setUsername(''); setPassword(''); setHeaders(blankFields()); setQuery(blankFields()); setBody('');
+    setAuth('none'); setToken(''); setUsername(''); setPassword(''); setHeaders(blankFields()); setBody('');
+    setBodyType('json'); setSoapFields([]); setSoapOperation('');
   };
-  const paths = result?.data != null ? structure(result.data) : [];
+  const replyKind = result?.kind ?? (result?.data != null ? 'json' : 'text');
+  const xmlReply = replyKind === 'xml' ? result?.xml : undefined;
+  const xmlRecords = xmlReply?.records ?? [];
+  const xmlRecord = xmlRecords.find(record => record.path === xmlPath) ?? xmlRecords[0];
+  const paths = result?.data != null && !xmlReply ? structure(result.data) : [];
   const [recordPath, setRecordPath] = useState('$');
-  let rows: any = result?.data;
+  let rows: any = xmlReply ? xmlRecord?.rows ?? [] : result?.data;
   const selectedPath = paths.find(p => p.path === recordPath)?.path || '$';
   // Paths are generated locally; parse only bracket tokens, never evaluate code.
   for (const part of selectedPath.slice(1).matchAll(/\[("(?:[^"\\]|\\.)*"|\d+)\]/g)) rows = rows?.[JSON.parse(part[1])];
@@ -223,8 +295,28 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
   const matchingOperations = operations.map((op, index) => ({ op, index })).filter(({ op }) => `${op.method} ${op.path} ${op.summary}`.toLowerCase().includes(endpointSearch.toLowerCase()));
   const activeChecks = assertions.filter(a => !isIncomplete(a));
   const failedChecks = outcomes.filter(o => !o.passed).length;
-  // Step two needs a generator input: an imported spec, or a response to infer from.
-  const canDraft = !!(spec.trim() || specSourceUrl || (result && result.data != null));
+  const openApiText = specIsWsdl ? '' : spec;
+  // An XML reply becomes a connector that repeats the request. A JSON reply is a sample.
+  const requestDraft: RequestDraft | null = useMemo(() => {
+    if (!xmlReply || !result) return null;
+    try {
+      return {
+        url, method, auth_type: auth, key_name: keyName, operation: soapOperation,
+        headers: requestFields(headers), query: requestFields(query), body: requestBody(), body_type: bodyType,
+        fields: placeholders.map(name => ({
+          name, label: fieldInfo.get(name)?.label || name,
+          required: fieldInfo.get(name)?.required ?? true, default: bodyValues[name] || '',
+        })),
+        row_path: xmlRecord?.path || '',
+        problem: result.status >= 400 || xmlReply.fault ? 'This request did not succeed. Get a working reply first, then make it a connector.' : '',
+      };
+    } catch { return null; }
+    // `result` is cleared whenever any part of the request changes, so it stands in for them all.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, xmlReply, xmlRecord?.path]);
+  // Step two needs a generator input: an imported spec, or a response to work from.
+  const canDraft = !!(openApiText.trim() || specSourceUrl || requestDraft || (result && replyKind === 'json' && result.data != null));
+  const bodyTabLabel = replyKind === 'xml' ? 'XML' : replyKind === 'html' ? 'HTML' : replyKind === 'csv' ? 'CSV' : 'JSON / Text';
   const handoff = () => {
     try { stageApiConnection(url, auth, keyName); window.location.hash = 'connections'; }
     catch (e: any) { setError(e.message); }
@@ -320,7 +412,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
           ? 'Pick an endpoint from the imported specification below, or type any URL here.'
           : reference
             ? `Load the ${reference.name} specification below to browse its endpoints — or type any URL here to test it directly.`
-            : 'Enter the URL you want to test, or import an OpenAPI specification to browse a vendor’s endpoints.'}
+            : 'Enter the URL you want to test, or import an OpenAPI specification or a SOAP WSDL to browse a vendor’s endpoints.'}
       </p>}
       {confirm && <div role="alertdialog" aria-label="Confirm API request" className="border-b border-amber-300 p-4 bg-amber-50 flex flex-wrap justify-between items-center gap-3"><p className="text-sm">{method} may modify remote data. Send this request?</p><div className="flex gap-4"><button onClick={() => send(true)} className="text-sm font-semibold text-red-700">Confirm and send</button><button onClick={() => setConfirm(false)} className="text-sm">Cancel</button></div></div>}
       {error && <p role="alert" className="text-sm text-red-700 bg-red-50 border-b border-red-200 px-4 py-3 break-words">{error}</p>}
@@ -349,9 +441,30 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
 
             <section className="api-form-section">
               <h4 className="api-form-label">Request body</h4>
-              {write
-                ? <textarea aria-label="Request body" rows={8} value={body} onChange={e => setBody(e.target.value)} className={`${input} font-mono`} placeholder='{ "name": "value" }' />
-                : <p className="api-form-note">{method} requests do not send a body.</p>}
+              {write ? <>
+                <div role="radiogroup" aria-label="Body type" className="api-body-types">
+                  {BODY_TYPES.map(type => <button key={type.id} type="button" role="radio" aria-checked={bodyType === type.id}
+                    className={bodyType === type.id ? 'is-active' : ''} onClick={() => setBodyType(type.id)}>{type.label}</button>)}
+                </div>
+                {bodyType === 'form'
+                  ? <ApiRequestFields label="form field" rows={formRows} onChange={setFormRows} />
+                  : <textarea aria-label="Request body" rows={bodyType === 'xml' ? 12 : 8} value={body} onChange={e => setBody(e.target.value)} className={`${input} font-mono`} placeholder={BODY_TYPES.find(type => type.id === bodyType)?.hint} />}
+                {bodyType === 'xml' && !isWellFormedXml(body) && <p role="status" className="text-xs text-amber-700 font-medium">This is not well-formed XML yet. It can still be sent, but the service will probably reject it.</p>}
+                {placeholders.length > 0 && <div className="api-body-values">
+                  <h5>Values</h5>
+                  <div className="api-body-values-grid">
+                    {placeholders.map(name => {
+                      const info = fieldInfo.get(name);
+                      return <label key={name}>
+                        <span>{info?.label || name}{info?.required ? ' *' : ''}{info?.type ? <em>{info.type}</em> : null}</span>
+                        <input aria-label={`Value for ${name}`} title={info?.path} type={looksSecret(name) ? 'password' : 'text'} autoComplete="off" className="api-field-input"
+                          value={bodyValues[name] ?? ''} onChange={e => setBodyValues(values => ({ ...values, [name]: e.target.value }))} />
+                      </label>;
+                    })}
+                  </div>
+                  <p className="api-form-note">Each {'{name}'} in the body is filled in from here and escaped for XML. An element marked Optional is left out when its value is blank.</p>
+                </div>}
+              </> : <p className="api-form-note">{method} requests do not send a body.</p>}
             </section>
 
             <p className="api-panel-note">Credentials live in this page only — they are sent with the request and never saved.</p>
@@ -368,7 +481,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
             </div> : <span className="text-xs text-slate-500">{busy ? 'In progress' : 'Not sent'}</span>}
           </div>
           <Tabs label="Response views" value={tab} onChange={setTab} items={[
-            { id: 'json', label: 'JSON / Text', disabled: !result },
+            { id: 'json', label: bodyTabLabel, disabled: !result },
             { id: 'table', label: 'Table', disabled: !result },
             { id: 'structure', label: 'Structure', disabled: !result },
             { id: 'headers', label: 'Headers', disabled: !result },
@@ -381,7 +494,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
             {tab === 'tests' ? <div className="p-4">
               <ApiAssertions rows={assertions} onChange={setAssertions} outcomes={outcomes} hasResponse={!!result} />
             </div> : tab === 'connector' ? <div className="p-4 overflow-auto max-h-[560px]">
-              <ApiConnectorDraft specText={spec} sourceUrl={specSourceUrl} responseData={result?.data} requestUrl={url} />
+              <ApiConnectorDraft specText={openApiText} sourceUrl={specSourceUrl} responseData={replyKind === 'json' ? result?.data : undefined} requestUrl={url} requestDraft={requestDraft} />
             </div> : !result ? <div className="api-response-empty" role="status">
               <span className="api-empty-mark">
                 {busy ? <Loader2 size={26} className="animate-spin" /> : <Braces size={26} strokeWidth={1.5} />}
@@ -397,17 +510,31 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
               </>}
             </div> : <div className="api-response-inner">
               {result.truncated && <p role="status" className="api-response-warning">Response exceeds 256 KB. Preview truncated; JSON/table parsing unavailable.</p>}
-              {tab === 'json' && result.data != null && <div className="api-response-toolbar">
+              {result.notice && <p role="status" className="api-response-warning">{result.notice} It is shown here as plain text.</p>}
+              {xmlReply?.fault && <p role="alert" className="api-response-fault"><strong>The service reported a fault{xmlReply.fault.code ? ` (${xmlReply.fault.code})` : ''}.</strong> {xmlReply.fault.message}{xmlReply.fault.detail ? ` ${xmlReply.fault.detail}` : ''}</p>}
+              {replyKind === 'html' && <p role="status" className="api-response-note">This reply is a web page{result.title ? `: ${result.title}` : ''}. Its source is shown here. It is never opened as a page.</p>}
+              {tab === 'json' && replyKind === 'json' && result.data != null && <div className="api-response-toolbar">
                 <Search size={14} className="text-slate-500" />
                 <input aria-label="Filter response" placeholder="Filter keys and values..." value={bodyFilter} onChange={e => setBodyFilter(e.target.value)} className="api-response-filter" />
               </div>}
-              {tab === 'table' && <label className="block text-xs api-record-path">Record path<select className={`${input} mt-1`} value={selectedPath} onChange={e => setRecordPath(e.target.value)} aria-label="Record path">{paths.filter(p => ['array', 'object'].includes(p.type)).map(p => <option key={p.path}>{p.path}</option>)}</select></label>}
+              {tab === 'table' && (xmlReply
+                ? <label className="block text-xs api-record-path">Row path<select className={`${input} mt-1`} value={xmlRecord?.path ?? ''} onChange={e => setXmlPath(e.target.value)} aria-label="Row path">{xmlRecords.map(record => <option key={record.path} value={record.path}>{record.path} ({record.count} {record.count === 1 ? 'row' : 'rows'})</option>)}</select></label>
+                : <label className="block text-xs api-record-path">Record path<select className={`${input} mt-1`} value={selectedPath} onChange={e => setRecordPath(e.target.value)} aria-label="Record path">{paths.filter(p => ['array', 'object'].includes(p.type)).map(p => <option key={p.path}>{p.path}</option>)}</select></label>)}
               <div role="tabpanel" aria-label="Response data" className="api-response-data">
-                {tab === 'json' && (result.data != null
-                  ? <ApiJsonView value={result.data} filter={bodyFilter} />
-                  : <pre className="api-response-pre">{result.text || '(empty response)'}</pre>)}
+                {tab === 'json' && (replyKind === 'binary'
+                  ? <div className="api-response-binary" role="status">This reply is a file: <strong>{result.binary}</strong>, {formatBytes(result.bytes)}. It cannot be shown as text.</div>
+                  : xmlReply
+                    ? <ApiXmlView text={result.text} />
+                    : replyKind === 'json' && result.data != null
+                      ? <ApiJsonView value={result.data} filter={bodyFilter} />
+                      : <pre className="api-response-pre">{result.text || '(empty response)'}</pre>)}
                 {tab === 'headers' && <pre className="api-response-pre">{JSON.stringify(result.headers, null, 2)}</pre>}
-                {tab === 'structure' && <ul className="api-structure-list">{paths.map(p => <li key={p.path}><code>{p.path}</code><span className={`api-type-chip is-${p.type}`}>{p.type}</span></li>)}{!paths.length && <li>No JSON structure available</li>}</ul>}
+                {tab === 'structure' && <ul className="api-structure-list">
+                  {xmlReply
+                    ? xmlReply.structure.map(item => <li key={item.path}><code>{item.path}</code><span className={`api-type-chip ${STRUCTURE_TONE[item.type] || ''}`}>{item.type}{item.count > 1 ? ` × ${item.count}` : ''}</span></li>)
+                    : paths.map(p => <li key={p.path}><code>{p.path}</code><span className={`api-type-chip is-${p.type}`}>{p.type}</span></li>)}
+                  {!paths.length && !xmlReply && <li>No structure to show for this reply</li>}
+                </ul>}
                 {tab === 'table' && (rows.length ? <table className="api-response-table"><thead>
                   <tr>{['#', ...columns].map(c => <th key={c}>{c}</th>)}</tr>
                   <tr className="api-table-types">{['', ...columns].map(c => <th key={c}>{c ? columnTypes[c] : ''}</th>)}</tr>
@@ -417,13 +544,13 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
                     const value = r && typeof r === 'object' ? r[c] : r;
                     return <td key={c} className={`api-cell is-${cellType(value)}`} title={typeof value === 'object' && value !== null ? JSON.stringify(value) : undefined}>{cellText(value)}</td>;
                   })}
-                </tr>)}</tbody></table> : <p className="p-3 text-sm text-slate-500">No records at this path</p>)}
+                </tr>)}</tbody></table> : <p className="p-3 text-sm text-slate-500">{['json', 'xml', 'csv'].includes(replyKind) ? 'No records at this path' : 'This reply is not made of rows.'}</p>)}
               </div>
             </div>}
           </div>
           <div className="api-response-footer">
             <div className="flex flex-wrap gap-3 items-center justify-between">
-              <button disabled={!result} title="Copy redacted response" onClick={async () => { if (!result) return; try { await navigator.clipboard.writeText(result.data != null ? JSON.stringify(result.data, null, 2) : result.text); setCopied(true); } catch { setError('Clipboard unavailable'); } }} className="inline-flex items-center gap-1 text-xs disabled:opacity-40"><Copy size={14} />{copied ? 'Copied' : 'Copy response'}</button>
+              <button disabled={!result} title="Copy redacted response" onClick={async () => { if (!result) return; try { await navigator.clipboard.writeText(result.text || (result.data != null ? JSON.stringify(result.data, null, 2) : '')); setCopied(true); } catch { setError('Clipboard unavailable'); } }} className="inline-flex items-center gap-1 text-xs disabled:opacity-40"><Copy size={14} />{copied ? 'Copied' : 'Copy response'}</button>
               {result && <button onClick={handoff} className="inline-flex items-center gap-2 text-xs text-pipe-700 font-semibold border border-pipe-200 bg-white rounded-lg px-3 py-2">Create connection <ArrowRight size={14} /></button>}
             </div>
             {result && <p className="text-[11px] leading-relaxed text-slate-500">Sampled response · sensitive fields redacted · connection credentials are not transferred</p>}
@@ -434,7 +561,7 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
     {/* Starting points sit below the request bar: typing a URL is the common
         case, and these are examples. Never collapsible — hiding them once left
         the page instructing you to use a panel that was not on screen. */}
-    <section aria-label="OpenAPI import"
+    <section aria-label="API specification import"
       className={`api-card${!hasUrl ? ' is-leading' : ''}`}>
       <div className="api-card-head">
         <h3>Start from a sample</h3>
@@ -482,13 +609,17 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
           {discovering ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}{discovering ? 'Loading specification...' : 'Load specification'}
         </button>
       </div>}
+      <div className="api-wsdl-row">
+        <label className="block text-sm min-w-0 flex-1">SOAP service: WSDL address<input aria-label="WSDL address" placeholder="https://example.com/service?wsdl" value={wsdlUrl} onChange={e => setWsdlUrl(e.target.value)} className={`${input} mt-1 font-mono`} /></label>
+        <button disabled={!wsdlUrl.trim() || discovering} onClick={loadWsdl} className="px-3 py-2 border border-slate-200 rounded-lg text-sm disabled:opacity-50">{discovering ? 'Reading...' : 'Load WSDL'}</button>
+      </div>
       <p role="status" className="text-xs text-slate-600">{importStatus}</p>
-      <p className="text-xs text-slate-500">Paste/upload: 2 MB. Gallery download: 32 MB JSON / 2 MB YAML. Credentials are not required to download these public specifications.</p>
+      <p className="text-xs text-slate-500">Paste/upload: 2 MB. Gallery download: 32 MB JSON / 2 MB YAML. Credentials are not required to download these public specifications. A WSDL that needs a sign-in uses the one set under Authentication above.</p>
       <details className="space-y-3">
       <summary className="cursor-pointer text-sm font-semibold">Paste or upload a specification</summary>
-      <label className="block text-sm">OpenAPI JSON / YAML<textarea aria-label="OpenAPI specification" value={spec} onChange={e => updateSpec(e.target.value)} rows={4} className={`${input} mt-1 font-mono`} /></label>
+      <label className="block text-sm">OpenAPI (JSON or YAML) or SOAP WSDL<textarea aria-label="API specification" value={spec} onChange={e => updateSpec(e.target.value)} rows={4} className={`${input} mt-1 font-mono`} /></label>
       <div className="flex flex-wrap gap-3 items-center">
-        <input type="file" aria-label="Upload specification" accept=".json,.yaml,.yml" onChange={async e => {
+        <input type="file" aria-label="Upload specification" accept=".json,.yaml,.yml,.wsdl,.xml" onChange={async e => {
           const file = e.target.files?.[0]; if (!file) return;
           if (file.size > 2 * 1024 * 1024) { setSpecError('Maximum specification size is 2 MB.'); return; }
           try { updateSpec(await file.text()); } catch { setSpecError('Could not read file'); }
@@ -497,12 +628,17 @@ export default function ApiExplorerPage({ embedded = false }: { embedded?: boole
       </div>
       </details>
       {specError && <p role="alert" className="text-sm text-red-700">{specError}</p>}
+      {specWarnings.map(warning => <p key={warning} role="status" className="text-xs text-amber-700">{warning}</p>)}
       {operations.length > 0 && <div className="space-y-2">
         <input aria-label="Search endpoints" placeholder="Search method, path or operation..." value={endpointSearch} onChange={e => setEndpointSearch(e.target.value)} className={input} />
-        <label className="block text-sm">Endpoint<select aria-label="Discovered endpoint" value={selected} onChange={e => chooseOperation(e.target.value)} className={input}><option value="">Select an endpoint</option>{matchingOperations.map(({ op, index }) => <option key={index} value={index}>{op.method} {op.path} {op.summary}</option>)}</select></label>
+        <label className="block text-sm">Endpoint<select aria-label="Discovered endpoint" value={selected} onChange={e => chooseOperation(e.target.value)} className={input}><option value="">Select an endpoint</option>{matchingOperations.map(({ op, index }) => <option key={index} value={index}>{op.soap ? 'SOAP' : op.method} {op.path} {op.summary}</option>)}</select></label>
         <p className="text-xs text-slate-500">{matchingOperations.length} matching endpoints{limitReached ? ' (discovery limited to 5,000)' : ''}</p>
       </div>}
-      {operation && <p className="text-xs text-slate-500">Declared authentication: {operation.security.length ? operation.security.map(o => Object.keys(o).join(' + ') || 'None').join(' OR ') : 'None'}. Not validated.</p>}
+      {operation?.soap && <div className="text-xs text-slate-500 space-y-1">
+        <p>SOAP {operation.soap.version} operation on {operation.soap.service} / {operation.soap.port}. The address, headers and envelope are filled in above. Fill in the values, send it, then save it as a connector.</p>
+        {operation.soap.warnings.map(warning => <p key={warning} role="status" className="text-amber-700">{warning}</p>)}
+      </div>}
+      {operation && !operation.soap && <p className="text-xs text-slate-500">Declared authentication: {operation.security.length ? operation.security.map(o => Object.keys(o).join(' + ') || 'None').join(' OR ') : 'None'}. Not validated.</p>}
       </div>
     </section>
   </div>;

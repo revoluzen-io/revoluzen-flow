@@ -11,6 +11,10 @@ import PageHeader from '../shared/PageHeader';
 import ProviderComparison from '../agent/ProviderComparison';
 import AiPricingSection from '../settings/AiPricingSection';
 import PublishPolicyCard from '../settings/PublishPolicyCard';
+import AutoRecoverPolicyCard from '../settings/AutoRecoverPolicyCard';
+import CopilotRolesCard from '../settings/CopilotRolesCard';
+import GitCopyCard from '../settings/GitCopyCard';
+import AddonsSettings from '../settings/AddonsSettings';
 
 import { APP_VERSION } from '../../appMeta';
 
@@ -38,7 +42,7 @@ function formatBytes(n: number): string {
 // consolidated in May 2026. Two entry points to one form read as two
 // different settings screens. The real problem was that Settings gave
 // no hint the hub existed, so there is a pointer in General instead.
-type SettingsTab = 'general' | 'security' | 'notifications' | 'about';
+type SettingsTab = 'general' | 'security' | 'notifications' | 'addons' | 'about';
 
 interface ToggleProps {
   enabled: boolean;
@@ -584,7 +588,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
       const seg = readSubRoute();
       if (
         seg === 'notifications' || seg === 'security' || seg === 'about'
-        || seg === 'general'
+        || seg === 'general' || seg === 'addons'
       ) {
         setTab(seg);
       }
@@ -930,6 +934,11 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>,
     },
     {
+      // 2026-11-11: drivers an admin adds for connectors a standard install leaves out.
+      id: 'addons', label: 'Add-ons',
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 11H19V7a2 2 0 0 0-2-2h-4V3.5a2.5 2.5 0 0 0-5 0V5H4a2 2 0 0 0-2 2v3.8h1.5a2.7 2.7 0 0 1 0 5.4H2V20a2 2 0 0 0 2 2h3.8v-1.5a2.7 2.7 0 0 1 5.4 0V22H17a2 2 0 0 0 2-2v-4h1.5a2.5 2.5 0 0 0 0-5z" /></svg>,
+    },
+    {
       id: 'about', label: 'About',
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>,
     },
@@ -1019,6 +1028,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
     general: 'Editor preferences and per-user defaults.',
     security: 'Posture, authentication, and operator config.',
     notifications: 'What you are told about, and how it reaches you.',
+    addons: 'Drivers for connectors that a standard install leaves out.',
     about: 'Version, license, and runtime details.',
   };
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0];
@@ -1334,6 +1344,9 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                   />
                   <AiPricingSection dark={dark} />
                 </div>
+
+                {/* ── Copilot roles: Discover / Build / Test / Operate, switched per workspace (admin) ── */}
+                <CopilotRolesCard dark={dark} />
 
                 {/* A pointer, not a second copy of the form. AI config
                     lives on the AI hub; Settings gave no hint the hub
@@ -1857,6 +1870,12 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                 {/* ── Publishing: require a business purpose (admin) ─── */}
                 <PublishPolicyCard dark={dark} />
 
+                {/* ── Publishing: a copy of each publish in the customer's Git (admin) ─── */}
+                <GitCopyCard dark={dark} />
+
+                {/* ── Incidents: resume failed runs by policy (admin) ─── */}
+                <AutoRecoverPolicyCard dark={dark} />
+
               </>
             )}
 
@@ -2134,6 +2153,8 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                 strictly app-preference (general / security / notifications /
                 about); LLM provider is an AI surface, not a preference. */}
 
+            {tab === 'addons' && <AddonsSettings dark={dark} />}
+
             {tab === 'about' && (
               <>
                 {/* Signed-in-as card — lifted straight from localStorage so
@@ -2209,7 +2230,8 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       verifiable numbers:
                         - 45 node types: MODULES in modulesPanelData.ts (40) + the backend
                           types HIDDEN_TYPES does not hide (5)
-                        - 66 connectors: picker count (80 CONNECTION_TYPES - 14 roadmap)
+                        - 68 connectors: picker count (82 CONNECTION_TYPES - 14 roadmap;
+                          Windows File Share and ODBC database added 2026-11-11)
                         - 27 templates: frontend/src/templates/catalog.ts header
                         - Apache 2.0: pyproject.toml + LICENSE
                       Previous 80+ / 15+ / 15+ / 20+ were inflated PR
@@ -2220,7 +2242,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       <div className="text-xs text-slate-500 uppercase font-medium">Node Types</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>
-                      <div className="text-lg font-bold text-pipe-600">66</div>
+                      <div className="text-lg font-bold text-pipe-600">68</div>
                       <div className="text-xs text-slate-500 uppercase font-medium">Connectors</div>
                     </div>
                     <div className={`rounded-lg p-3 ${dark ? 'bg-white/[0.04]' : 'bg-slate-50'}`}>

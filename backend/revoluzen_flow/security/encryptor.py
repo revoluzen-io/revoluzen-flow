@@ -64,6 +64,8 @@ incident response.
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -289,6 +291,20 @@ class Encryptor:
                 f"Invalid Fernet key: {exc}. Master key file may be "
                 f"corrupt; restore from backup."
             ) from exc
+        # A separate key for fingerprints, derived from the master key, so a
+        # fingerprint never reuses the encryption key itself.
+        raw = key if isinstance(key, bytes) else str(key).encode("utf-8")
+        self._fingerprint_key = hashlib.sha256(b"revoluzen-flow:secret-fingerprint:v1\x00" + raw).digest()
+
+    def fingerprint(self, value: str) -> str:
+        """A keyed one-way fingerprint of a secret (HMAC-SHA256, hex).
+
+        Tells whether two secrets are the same without keeping either: the
+        connection version history stores these instead of passwords. The
+        key comes from the master key file, so a copy of the database alone
+        is not enough to test guesses against a fingerprint.
+        """
+        return hmac.new(self._fingerprint_key, (value or "").encode("utf-8"), hashlib.sha256).hexdigest()
 
     # ── Construction helpers ────────────────────────────────────────
 

@@ -12,10 +12,10 @@ import Icon from './shared/Icon';
 
 /* ── Styled Icon Components ── */
 
-function IconBox({ bg, children, size = 32 }: { bg: string; children: React.ReactNode; size?: number }) {
+function IconBox({ bg, children, size = 32, rounded = 'rounded-lg' }: { bg: string; children: React.ReactNode; size?: number; rounded?: string }) {
   return (
     <div
-      className="rounded-lg flex items-center justify-center shadow-sm border border-black/5"
+      className={`${rounded} flex items-center justify-center shadow-sm border border-black/5 shrink-0`}
       style={{ background: bg, width: size, height: size }}
     >
       {children}
@@ -43,7 +43,17 @@ const SAAS_BRANDS: Record<string, { bg: string; mono: string }> = {
   'rest:github':           { bg: 'linear-gradient(135deg, #24292e, #0d1117)', mono: 'Gh' },
 };
 
-export function ModuleIcon({ type, size = 32 }: { type: string; size?: number }) {
+/**
+ * The palette's tile for a node type. `fallback` is drawn instead when the
+ * type has no tile of its own here (otherwise a plain grey square); the
+ * canvas passes its generic glyph. `rounded` is the tile's corner class.
+ */
+export function ModuleIcon({ type, size = 32, rounded, fallback }: {
+  type: string;
+  size?: number;
+  rounded?: string;
+  fallback?: React.ReactNode;
+}) {
   const svgSize = Math.round(size * 0.5);
   const icons: Record<string, { bg: string; svg: React.ReactNode }> = {
     // Generic Source — connector chosen inside config panel
@@ -584,6 +594,16 @@ export function ModuleIcon({ type, size = 32 }: { type: string; size?: number })
         </svg>
       ),
     },
+    // Reconcile — a balance: the data weighed against the system of record.
+    reconcile: {
+      bg: 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+      svg: (
+        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v17" /><path d="M7 20h10" /><path d="M4 7h16" />
+          <path d="M4 7l-2.5 6a2.5 2 0 0 0 5 0z" /><path d="M20 7l-2.5 6a2.5 2 0 0 0 5 0z" />
+        </svg>
+      ),
+    },
     // SCD Type 2 — clock + fork glyph for "tracks history per business key".
     scd2: {
       bg: 'linear-gradient(135deg, #8b5cf6, #6d28d9)',
@@ -807,15 +827,6 @@ export function ModuleIcon({ type, size = 32 }: { type: string; size?: number })
         </svg>
       ),
     },
-    webhook_trigger: {
-      bg: 'linear-gradient(135deg, #a855f7, #9333ea)',
-      svg: (
-        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 16.98h1a2 2 0 0 0 2-1.98V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8c0 1.1.9 2 2 2h1" />
-          <path d="M12 14l4 4-4 4" />
-        </svg>
-      ),
-    },
     code_script: {
       bg: 'linear-gradient(135deg, rgba(255,255,255,0.08), #111827)',
       svg: (
@@ -973,6 +984,15 @@ export function ModuleIcon({ type, size = 32 }: { type: string; size?: number })
           <rect x="5" y="12" width="3" height="8" />
           <rect x="10.5" y="6" width="3" height="14" />
           <rect x="16" y="14" width="3" height="6" />
+        </svg>
+      ),
+    },
+    reconcile: {
+      bg: 'linear-gradient(135deg, #0ea5e9, #0369a1)',
+      svg: (
+        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3v17" /><path d="M7 20h10" /><path d="M4 7h16" />
+          <path d="M4 7l-2.5 6a2.5 2 0 0 0 5 0z" /><path d="M20 7l-2.5 6a2.5 2 0 0 0 5 0z" />
         </svg>
       ),
     },
@@ -1172,6 +1192,19 @@ export function ModuleIcon({ type, size = 32 }: { type: string; size?: number })
         </svg>
       ),
     },
+    // A file with an arrow into it: the one file Storage → Pipeline Outputs
+    // keeps for this pipeline. Violet, so it reads apart from the blue
+    // Managed Table Sink beside it in Publish.
+    pipeline_output: {
+      bg: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+      svg: (
+        <svg width={svgSize} height={svgSize} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <polyline points="14 2 14 8 20 8" />
+          <path d="M12 11v6M9 14l3 3 3-3" />
+        </svg>
+      ),
+    },
   };
 
   // Try base icons, then framework, then SaaS brand monogram, then default.
@@ -1195,8 +1228,10 @@ export function ModuleIcon({ type, size = 32 }: { type: string; size?: number })
             </span>
           ),
         }
-      : { bg: '#94a3b8', svg: null });
-  return <IconBox bg={entry.bg} size={size}>{entry.svg}</IconBox>;
+      : null);
+  if (!entry && fallback !== undefined) return <>{fallback}</>;
+  const tile = entry || { bg: '#94a3b8', svg: null };
+  return <IconBox bg={tile.bg} size={size} rounded={rounded}>{tile.svg}</IconBox>;
 }
 
 // MODULES, CATEGORY_ICONS, useReconciledModules, useBackendNodeTypes,
@@ -1366,7 +1401,10 @@ export default function ModulesPanel() {
 
   const handleAdd = (type: string) => {
     addNode(type);
-    setTimeout(() => rfInstance?.fitView({ padding: 0.3, duration: 300 }), 50);
+    // Never past natural size: with one or two steps the fit used to zoom to
+    // 2.5x, so the first click filled the canvas with a giant square and the
+    // next one shrank everything again.
+    setTimeout(() => rfInstance?.fitView({ padding: 0.3, maxZoom: 1, duration: 300 }), 50);
   };
 
   if (collapsed) {

@@ -264,11 +264,27 @@ async def connection_pool_stats():
 
 
 @router.post("/cancel/{job_id}")
-async def cancel_job(job_id: str):
-    """Cancel a queued or running job by ID."""
+async def cancel_job(job_id: str, request: Request):
+    """Stop a running job, or take a waiting one out of the queue.
+
+    A job's id is its run id, so this cancels the run the same way as the
+    editor's Stop: a query in flight is interrupted, the run is recorded as
+    cancelled with who stopped it, and a waiting run never starts. It used to
+    cancel a Python future the run did not use, so a running job carried on.
+    Scoped to the caller's workspace."""
     pool = _get_pool()
-    cancelled = pool.cancel(job_id)
-    if not cancelled:
+    workspace_id = _safe_workspace_id(request)
+    from revoluzen_flow.auth.deps import current_user_optional
+    from revoluzen_flow.engine.cancellation import cancel_run, stopped_by_text
+    mine = pool.live_run_ids(workspace_id=workspace_id)
+    if job_id not in mine and job_id in pool.live_run_ids():
+        # Another workspace's run: the same answer as an unknown id.
+        raise HTTPException(404, "Job not found or already completed")
+    live = job_id in mine
+    if live:
+        cancel_run(job_id, stopped_by_text(current_user_optional(request)), create=True)
+    dequeued = pool.cancel(job_id)
+    if not (live or dequeued):
         raise HTTPException(404, "Job not found or already completed")
     return {"cancelled": True, "job_id": job_id}
 

@@ -14,7 +14,7 @@
  * and a `slack` destination were connectors no node has, and connections carried
  * a `condition` that nothing reads.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { VALID_GHOST_TYPES } from '../components/modulesPanelData';
 import { TEMPLATE_CATALOG, getTemplate } from '../templates/catalog';
@@ -38,6 +38,13 @@ const FILE_CONNECTORS = ['csv', 'json', 'parquet', 'excel', 'xml'];
 
 const CONNECTION_KEYS = ['from_step', 'to_step', 'from_port'];
 const PARAMETER_TYPES = ['string', 'int', 'float', 'bool', 'json'];
+
+// A template opens in a tab of its own when the canvas on screen already holds
+// a pipeline, and ten tabs at most can be open, so each check starts on an
+// empty canvas.
+beforeEach(() => {
+  for (const t of [...useWorkflowStore.getState().openTabs]) useWorkflowStore.getState().closeTab(t.key);
+});
 
 const steps = TEMPLATE_CATALOG.flatMap((template) => template.steps.map((step) => ({ template, step })));
 const where = ({ template, step }: (typeof steps)[number]): string => `${template.id} / ${step.id} "${step.label}"`;

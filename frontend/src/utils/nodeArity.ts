@@ -40,6 +40,8 @@ export const MULTI_INPUT_NODES: ReadonlySet<string> = new Set([
   // renders the available-table chips for multi-input cases (lines
   // ~4504-4541) so the UX surface is already there.
   'transform',
+  // 2026-11-11 — Reconcile takes the system of record as a second input.
+  'reconcile',
 ]);
 
 /** Source-like nodes that have no upstream — accepting an incoming
@@ -51,11 +53,12 @@ export const NO_INPUT_NODES: ReadonlySet<string> = new Set([
   'ftp_source', 'gsheet_source', 'delta_source', 'file_source',
   'sharepoint_source', 'onedrive_source', 'gdrive_source', 'dropbox_source',
   'box_source', 'azure_blob_source', 'adls_gen2_source', 'gcs_source',
-  'webhook_trigger',
   // 2026-05-22 — Microsoft Graph (generic) source.
   'microsoft_graph_source',
   // 2026-05-23 (Y3) — managed local table source.
   'local_table_source',
+  // Connectors read from the API they describe.
+  'saas_connector', 'rest_connector',
 ]);
 
 /** Nodes that touch the outside world: external writes, network calls,
@@ -71,9 +74,9 @@ export const SIDE_EFFECT_NODES: ReadonlySet<string> = new Set([
   'delta_sink', 'warehouse_sink', 'file_sink',
   'sharepoint_sink', 'onedrive_sink', 'gdrive_sink', 'dropbox_sink',
   'box_sink', 'azure_blob_sink', 'adls_gen2_sink', 'gcs_sink',
-  'output', 'destination', 'local_table_sink',
+  'output', 'destination', 'local_table_sink', 'pipeline_output',
   // Actions — external calls / mutations
-  'http_request', 'send_email', 'slack_notify', 'webhook_trigger',
+  'http_request', 'send_email', 'slack_notify',
   'copy_data', 'delete_data', 'execute_sql_task', 'file_system', 'fail',
   // Sub-workflow invocation can have arbitrary side effects
   'execute_pipeline',
@@ -155,6 +158,9 @@ const CONTRACTS: Record<string, InputContract> = {
   lookup: { arity: 'many', required: 2, optional: 0, variadic: false },
   union:  { arity: 'many', required: 2, optional: 0, variadic: true },
   scd2:   { arity: 'many', required: 1, optional: 1, variadic: false },
+  // Reconcile: the data, plus the system of record as a second input when it
+  // is not read by the step's own query (backend ir/node_metadata.py).
+  reconcile: { arity: 'many', required: 1, optional: 1, variadic: false },
   // 2026-06-03 — Transform: 1 required (the primary table, registered as
   // `source_table` + `input`) + unbounded variadic extras (each registered
   // by sanitized node-label). Matches the backend's auto-register-all
@@ -232,6 +238,7 @@ const SIDE_EFFECT_CLASS: Record<string, SideEffectClass> = {
   gdrive_sink: 'passthrough', dropbox_sink: 'passthrough', box_sink: 'passthrough',
   adls_gen2_sink: 'passthrough', azure_blob_sink: 'passthrough', gcs_sink: 'passthrough',
   output: 'passthrough', destination: 'passthrough', local_table_sink: 'passthrough',
+  pipeline_output: 'passthrough',
   // ── transforming (output reflects the side effect's result) ──
   http_request: 'transforming',
   copy_data: 'transforming',
@@ -329,6 +336,7 @@ const SIDE_EFFECT_LABEL: Record<string, string> = {
   output: 'Writes data',
   destination: 'Writes data',
   local_table_sink: 'Writes a managed table',
+  pipeline_output: 'Replaces a file in Pipeline Outputs',
   // transforming
   http_request: 'Calls an external API',
   copy_data: 'Copies data to a database',
@@ -384,7 +392,6 @@ const SCHEMA_STABILITY: Record<string, SchemaStability> = {
   unpivot: 'dynamic',               // depends on `columns` matching actual upstream
   transform: 'dynamic',             // arbitrary SQL projection
   api_source: 'dynamic',            // response shape unknown until first call
-  webhook_trigger: 'dynamic',       // body shape unknown until first POST
   code_script: 'dynamic',           // user Python returns arbitrary df
   flatten_explode: 'dynamic',       // nested fields unknown until probed
   // inference — typed at first read, DuckDB sample-driven

@@ -21,6 +21,8 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+    from revoluzen_flow.connections.kafka_settings import KafkaSettings
+
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.intelligence.schema_policy import (
     DEFAULT_POLICY,
@@ -863,6 +865,35 @@ class FtpSinkNode(BaseNode):
 
 # ── Kafka Sink ──
 
+def _kafka_batch_size(value: Any) -> int:
+    """How many messages go out before the step waits for Kafka to confirm them."""
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return 500
+    return number if number > 0 else 500
+
+
+_KAFKA_COMPRESSION = ("none", "gzip", "snappy", "lz4", "zstd")
+# kafka-python compresses with gzip by itself; the others need a package each.
+_KAFKA_PYTHON_CODECS = {
+    "snappy": ("has_snappy", "python-snappy"),
+    "lz4": ("has_lz4", "lz4"),
+    "zstd": ("has_zstd", "zstandard"),
+}
+
+
+def _kafka_compression(value: Any) -> str:
+    """The Compression setting, checked: none, gzip, snappy, lz4 or zstd."""
+    chosen = str(value or "none").strip().lower()
+    if chosen not in _KAFKA_COMPRESSION:
+        raise ValueError(
+            f"Kafka Sink: compression '{chosen}' is not one Kafka offers. "
+            "Choose none, gzip, snappy, lz4 or zstd."
+        )
+    return chosen
+
+
 @register(StepType.KAFKA_SINK)
 class KafkaSinkNode(BaseNode):
     """Send data to a Kafka topic as JSON messages."""
@@ -871,106 +902,200 @@ class KafkaSinkNode(BaseNode):
     description = "Send data to a Kafka topic"
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
+        from revoluzen_flow.connections.kafka_settings import kafka_settings
+
         source = _get_input(ctx, self.params)
 
-        topic = self.params.get("topic", "")
-        bootstrap_servers = self.params.get("bootstrap_servers", "localhost:9092")
+        topic = str(self.params.get("topic") or "").strip()
         key_column = self.params.get("key_column", "")
-        batch_size = self.params.get("batch_size", 500)
+        batch_size = _kafka_batch_size(self.params.get("batch_size"))
+        compression = _kafka_compression(self.params.get("compression"))
         connection_id = self.params.get("connection_id", "")
 
         if not topic:
             raise ValueError("Kafka Sink: topic is required")
 
+        connection = None
         if connection_id:
             from revoluzen_flow.nodes.db_source import _get_connection_config
             result = _get_connection_config(connection_id)
             if result:
-                config, _ = result
-                bootstrap_servers = config.get("bootstrap_servers", bootstrap_servers)
+                connection, _ = result
+        # The brokers and the sign-in: the connection's when the step has one.
+        # The Connections page saves the broker list as `brokers`; reading only
+        # the older `bootstrap_servers` sent every run to localhost:9092.
+        settings = kafka_settings(connection, self.params, who="Kafka Sink")
 
         # Convert relation to list of dicts
         records = _relation_to_dicts(ctx.conn, source, "__kafka_sink_export")
 
         # Try confluent_kafka first
         try:
-            self._send_confluent(records, topic, bootstrap_servers, key_column, batch_size)
+            self._send_confluent(records, topic, settings, key_column, batch_size, compression)
             return source
         except ImportError:
             pass
 
         # Try kafka-python
         try:
-            self._send_kafka_python(records, topic, bootstrap_servers, key_column)
+            self._send_kafka_python(records, topic, settings, key_column, batch_size, compression)
             return source
         except ImportError:
-            raise ValueError(
-                "Kafka Sink: no Kafka client library installed. "
-                "Install one: pip install confluent-kafka  OR  pip install kafka-python"
-            )
+            from revoluzen_flow.connections.addons import addon_message
+            raise ValueError(f"Kafka Sink: {addon_message('kafka')}") from None
 
     @staticmethod
-    def _send_confluent(records: list[dict], topic: str, bootstrap_servers: str,
-                         key_column: str, batch_size: int):
-        """Send messages using confluent_kafka."""
-        from confluent_kafka import Producer  # type: ignore
+    def _send_confluent(records: list[dict], topic: str, settings: KafkaSettings,
+                         key_column: str, batch_size: int, compression: str = "none"):
+        """Send messages using confluent_kafka.
 
-        producer = Producer({"bootstrap.servers": bootstrap_servers})
+        Kafka is asked about the topic first, so a refused sign-in or a broker
+        that cannot be reached stops the run at once. Then each message's
+        delivery report is checked: a message Kafka did not take stops the run
+        with a plain message. The step used to finish as if every message had
+        gone.
+        """
+        from confluent_kafka import KafkaException, Producer  # type: ignore
+
+        from revoluzen_flow.connections.kafka_settings import ClientErrors, error_text
+
+        if not records:
+            return
+        client_errors = ClientErrors(settings)
+        try:
+            producer = Producer({
+                **settings.confluent(),
+                "error_cb": client_errors,
+                "compression.type": compression,
+            })
+        except KafkaException as exc:
+            raise ValueError(
+                f"Kafka Sink: the Kafka client could not start: {settings.hide(error_text(exc))}"
+            ) from None
+        try:
+            producer.list_topics(topic, timeout=10)
+        except KafkaException as exc:
+            raise ValueError(
+                f"Kafka Sink: could not reach Kafka at {settings.brokers}: "
+                f"{client_errors.explain(error_text(exc))}"
+            ) from None
+
+        written = 0
+        failed: list[str] = []
+
+        def delivered(error, _message) -> None:
+            nonlocal written
+            if error is None:
+                written += 1
+            else:
+                failed.append(error_text(error))
+
         count = 0
-
         for record in records:
             key_bytes = None
             if key_column and key_column in record:
                 key_bytes = str(record[key_column]).encode("utf-8")
 
             value_bytes = json.dumps(record, default=str).encode("utf-8")
-            producer.produce(topic, value=value_bytes, key=key_bytes)
+            producer.produce(topic, value=value_bytes, key=key_bytes, on_delivery=delivered)
             count += 1
 
             if count % batch_size == 0:
                 producer.flush()
+                if failed:
+                    break
 
         producer.flush()
+        if written < len(records):
+            reason = client_errors.explain(failed[0] if failed else "Kafka did not confirm them")
+            raise ValueError(
+                f"Kafka Sink: {len(records) - written} of {len(records)} messages were not "
+                f"written to topic '{topic}' at {settings.brokers}: {reason}"
+            )
 
     @staticmethod
-    def _send_kafka_python(records: list[dict], topic: str, bootstrap_servers: str,
-                            key_column: str):
-        """Send messages using kafka-python."""
+    def _send_kafka_python(records: list[dict], topic: str, settings: KafkaSettings,
+                            key_column: str, batch_size: int, compression: str = "none"):
+        """Send messages using kafka-python, checking each one the same way."""
         from kafka import KafkaProducer  # type: ignore
 
-        producer = KafkaProducer(
-            bootstrap_servers=bootstrap_servers.split(","),
-            value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
-            key_serializer=lambda k: k.encode("utf-8") if k else None,
-        )
+        from revoluzen_flow.connections.kafka_settings import error_text
 
-        for record in records:
-            key = str(record.get(key_column, "")) if key_column else None
-            producer.send(topic, value=record, key=key)
+        if not records:
+            return
+        if compression in _KAFKA_PYTHON_CODECS:
+            check, package = _KAFKA_PYTHON_CODECS[compression]
+            try:
+                from kafka import codec  # type: ignore
+            except ImportError:
+                codec = None
+            if codec is not None and not getattr(codec, check)():
+                raise ValueError(
+                    f"Kafka Sink: {compression} compression needs the {package} package, which "
+                    f"this install does not have. Choose gzip, or ask whoever set up Revoluzen "
+                    f"Flow to add {package}."
+                )
+        try:
+            producer = KafkaProducer(
+                # The brokers and, with SASL_PLAINTEXT or SASL_SSL, the sign-in.
+                **settings.kafka_python(),
+                compression_type=None if compression == "none" else compression,
+                value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
+                key_serializer=lambda k: k.encode("utf-8") if k else None,
+            )
+        except Exception as exc:  # noqa: BLE001 — kafka-python raises its own error types
+            # It connects here, so a refused sign-in or an unreachable broker
+            # stops the run now.
+            raise ValueError(
+                f"Kafka Sink: could not reach Kafka at {settings.brokers}: {settings.hide(error_text(exc))}"
+            ) from None
 
-        producer.flush()
-        producer.close()
+        sent = []
+        try:
+            for record in records:
+                key = str(record.get(key_column, "")) if key_column else None
+                sent.append(producer.send(topic, value=record, key=key))
+                if len(sent) % batch_size == 0:
+                    producer.flush()
+            producer.flush()
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(
+                f"Kafka Sink: messages could not be written to topic '{topic}' at "
+                f"{settings.brokers}: {settings.hide(error_text(exc))}"
+            ) from None
+        finally:
+            producer.close()
+        failed = [future.exception for future in sent if future.failed()]
+        if failed:
+            raise ValueError(
+                f"Kafka Sink: {len(failed)} of {len(sent)} messages were not written to topic "
+                f"'{topic}' at {settings.brokers}: {settings.hide(error_text(failed[0]))}"
+            )
 
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "connection_id": "", "topic": "", "bootstrap_servers": "localhost:9092",
-            "key_column": "", "batch_size": 500,
+            "connection_id": "", "topic": "", "key_column": "",
+            "compression": "none", "batch_size": 500,
         }
 
     @staticmethod
     def param_schema() -> list[dict]:
+        # 2026-11-11: only settings a run uses. The broker list and the sign-in
+        # come from the saved connection; Value Serializer was never read.
         return [
             {"name": "connection_id", "type": "connection_picker", "label": "Connection",
-             "description": "Select a saved Kafka connection, or fill fields below."},
+             "required": True,
+             "description": "A saved Kafka connection. Its brokers and sign-in are used."},
             {"name": "topic", "type": "text", "label": "Topic", "required": True,
              "placeholder": "events.processed"},
-            {"name": "bootstrap_servers", "type": "text", "label": "Bootstrap Servers",
-             "default": "localhost:9092"},
             {"name": "key_column", "type": "text", "label": "Key Column",
              "description": "Column to use as Kafka message key. Leave empty for no key."},
+            {"name": "compression", "type": "select", "label": "Compression",
+             "options": list(_KAFKA_COMPRESSION), "default": "none",
+             "description": "How messages are compressed on the way to Kafka."},
             {"name": "batch_size", "type": "number", "label": "Batch Size", "default": 500,
-             "description": "Number of messages between producer flushes."},
+             "description": "Messages sent before the step waits for Kafka to confirm them."},
         ]
 
 
@@ -1172,16 +1297,20 @@ class WebhookSinkNode(BaseNode):
             raise ValueError(f"Webhook Sink: URL blocked by SSRF policy: {exc}") from exc
 
         req = urllib.request.Request(webhook_url, method="POST", headers=headers, data=body)
+        # Only the host goes in an error, which is kept with the run: the rest
+        # of a webhook URL is often the secret.
+        from urllib.parse import urlsplit
+        webhook_host = urlsplit(webhook_url).hostname or "the webhook URL"
         try:
             with _no_redirect_opener().open(req, timeout=30):
                 pass
         except urllib.error.HTTPError as exc:
             raise ValueError(
-                f"Webhook Sink: HTTP {exc.code} from {webhook_url}: {exc.reason}"
+                f"Webhook Sink: HTTP {exc.code} from {webhook_host}: {exc.reason}"
             ) from exc
         except urllib.error.URLError as exc:
             raise ValueError(
-                f"Webhook Sink: cannot reach {webhook_url}: {exc.reason}"
+                f"Webhook Sink: cannot reach {webhook_host}: {exc.reason}"
             ) from exc
 
         return source
@@ -1359,9 +1488,59 @@ class EmailSinkNode(BaseNode):
 
 # ── Delta Sink ──
 
+def _delta_partition_columns(value: Any) -> list[str]:
+    """Partition columns from the step: a list, or a comma-separated string."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        items: list[Any] = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        items = list(value)
+    else:
+        items = [value]
+    return [str(item).strip() for item in items if str(item).strip()]
+
+
+def _delta_storage_options(value: Any) -> dict[str, str] | None:
+    """Storage options as key/value text. Older steps saved them as JSON text."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            raise ValueError("Delta Sink: Storage Options must be key and value pairs.") from None
+    if not isinstance(value, dict):
+        raise ValueError("Delta Sink: Storage Options must be key and value pairs.")
+    options = {
+        str(key).strip(): str(val)
+        for key, val in value.items()
+        if str(key).strip() and val not in (None, "")
+    }
+    return options or None
+
+
+def _delta_merge_predicate(keys: Any, predicate: Any) -> str:
+    """The merge condition: the one typed on the step, or one built from the keys."""
+    typed = str(predicate or "").strip()
+    if typed:
+        return typed
+    columns = _delta_partition_columns(keys)
+    if not columns:
+        raise ValueError(
+            "Delta Sink: Merge needs Merge Key Columns or a Merge Predicate, "
+            "so it knows which rows are the same."
+        )
+
+    def quoted(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"'
+
+    return " AND ".join(f"target.{quoted(c)} = source.{quoted(c)}" for c in columns)
+
+
 @register(StepType.DELTA_SINK)
 class DeltaSinkNode(BaseNode):
-    """Write data as Parquet files in a Delta-compatible layout."""
+    """Write data as a Delta Lake table: Parquet files plus a `_delta_log`."""
     display_name = "Delta Lake Sink"
     category = "output"
     description = "Write data as a Delta Lake table"
@@ -1369,91 +1548,138 @@ class DeltaSinkNode(BaseNode):
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
         source = _get_input(ctx, self.params)
 
-        table_path = self.params.get("table_path", "")
+        table_path = str(self.params.get("table_path") or "").strip()
         if not table_path:
             raise ValueError("Delta Sink: table_path is required")
 
-        if not os.path.isabs(table_path):
+        # A cloud address (s3://, abfss://, gs://) is used as typed. Only a
+        # plain relative folder goes under the data folder.
+        if "://" not in table_path and not os.path.isabs(table_path):
             table_path = os.path.join(ctx.data_dir, table_path)
 
-        mode = self.params.get("mode", "overwrite")
-        partition_by = self.params.get("partition_by", [])
+        # The step form saves `write_mode`. `mode` is the older name, still read
+        # so pipelines saved through the API keep their choice. Before
+        # 2026-11-11 the form's choice was never read: every run overwrote,
+        # even with Append picked.
+        mode = str(
+            self.params.get("write_mode") or self.params.get("mode") or "overwrite"
+        ).strip().lower()
+        if mode not in ("overwrite", "append", "merge"):
+            raise ValueError(
+                f"Delta Sink: Write Mode must be overwrite, append or merge, not '{mode}'."
+            )
+        partition_by = _delta_partition_columns(self.params.get("partition_by"))
+        storage_options = _delta_storage_options(self.params.get("storage_options"))
+        predicate = (
+            _delta_merge_predicate(self.params.get("merge_keys"), self.params.get("merge_predicate"))
+            if mode == "merge" else ""
+        )
+        # Schema Mode: the form shows "overwrite" until changed, meaning an
+        # overwrite may change the columns. "merge" lets an append or merge add
+        # new columns. Anything else keeps the table's columns as they are.
+        schema_mode = str(self.params.get("schema_mode") or "overwrite").strip().lower()
 
-        # Try deltalake library first
+        # 2026-11-11: without the deltalake package this used to write plain
+        # Parquet files with no `_delta_log`. No Delta reader can open that
+        # folder, yet the run reported success. Refuse instead.
         try:
-            import deltalake  # type: ignore
-            self._write_with_deltalake(ctx, source, table_path, mode, partition_by)
-            return source
+            import deltalake  # type: ignore  # noqa: F401
         except ImportError:
-            pass
+            raise ValueError(
+                "Delta Lake Sink needs an add-on that isn't included in this "
+                "Revoluzen Flow install, so nothing was written. Ask whoever set "
+                "up Revoluzen Flow to add the Delta Lake add-on."
+            ) from None
 
-        # Fallback: write as plain Parquet in Delta-like directory structure
-        self._write_parquet_fallback(ctx, source, table_path, mode, partition_by)
+        self._write_with_deltalake(
+            ctx, source, table_path, mode, partition_by,
+            storage_options=storage_options, schema_mode=schema_mode, predicate=predicate,
+        )
         return source
 
     @staticmethod
     def _write_with_deltalake(ctx: ExecutionContext, source: duckdb.DuckDBPyRelation,
                                table_path: str, mode: str,
-                               partition_by: list[str]):
+                               partition_by: list[str], *,
+                               storage_options: dict[str, str] | None = None,
+                               schema_mode: str = "",
+                               predicate: str = ""):
         """Write using the deltalake Python library."""
         import deltalake  # type: ignore
 
         ctx.conn.register("__delta_sink_data", source)
-        arrow_table = ctx.conn.sql("SELECT * FROM __delta_sink_data").arrow()
+        # DuckDB hands the rows over as a stream that keeps the run's
+        # connection busy until it is read to the end. A write that fails part
+        # way would leave every later step unable to query, so close it.
+        data = ctx.conn.sql("SELECT * FROM __delta_sink_data").arrow()
+        try:
+            if mode == "merge":
+                from deltalake.exceptions import TableNotFoundError  # type: ignore
 
-        write_kwargs: dict[str, Any] = {"mode": mode}
-        if partition_by:
-            write_kwargs["partition_by"] = partition_by
+                try:
+                    table = deltalake.DeltaTable(table_path, storage_options=storage_options)
+                except TableNotFoundError:
+                    table = None
+                if table is not None:
+                    (
+                        table.merge(
+                            source=data, predicate=predicate,
+                            source_alias="source", target_alias="target",
+                            merge_schema=schema_mode == "merge",
+                        )
+                        .when_matched_update_all()
+                        .when_not_matched_insert_all()
+                        .execute()
+                    )
+                    return
+                # First run: there is no table to merge into yet, so create it.
+                mode = "overwrite"
 
-        deltalake.write_deltalake(table_path, arrow_table, **write_kwargs)
-
-    @staticmethod
-    def _write_parquet_fallback(ctx: ExecutionContext, source: duckdb.DuckDBPyRelation,
-                                 table_path: str, mode: str,
-                                 partition_by: list[str]):
-        """Fallback: write as Parquet files in a Delta-like directory."""
-        os.makedirs(table_path, exist_ok=True)
-
-        ctx.conn.register("__delta_sink_data", source)
-
-        if mode == "overwrite":
-            # Remove existing Parquet files
-            import glob as glob_mod
-            for old_file in glob_mod.glob(os.path.join(table_path, "*.parquet")):
-                os.remove(old_file)
-
-        # Generate a unique filename
-        import uuid
-        file_name = f"part-{uuid.uuid4().hex[:12]}.parquet"
-        file_path = os.path.join(table_path, file_name)
-
-        if partition_by:
-            # Use DuckDB's partitioned COPY
-            part_cols = ", ".join(f'"{c}"' for c in partition_by)
-            ctx.conn.sql(
-                f"COPY __delta_sink_data TO '{table_path}' "
-                f"(FORMAT PARQUET, PARTITION_BY ({part_cols}))"
-            )
-        else:
-            ctx.conn.sql(
-                f"COPY __delta_sink_data TO '{file_path}' (FORMAT PARQUET)"
-            )
+            write_kwargs: dict[str, Any] = {"mode": mode}
+            if partition_by:
+                write_kwargs["partition_by"] = partition_by
+            if storage_options:
+                write_kwargs["storage_options"] = storage_options
+            if schema_mode == "merge":
+                write_kwargs["schema_mode"] = "merge"
+            elif schema_mode == "overwrite" and mode == "overwrite":
+                write_kwargs["schema_mode"] = "overwrite"
+            deltalake.write_deltalake(table_path, data, **write_kwargs)
+        finally:
+            # duckdb 1.4+ returns a stream reader; older versions a table.
+            close = getattr(data, "close", None)
+            if close is not None:
+                close()
 
     @staticmethod
     def default_params() -> dict[str, Any]:
-        return {"table_path": "", "mode": "overwrite", "partition_by": []}
+        return {"table_path": "", "write_mode": "overwrite", "partition_by": []}
 
     @staticmethod
     def param_schema() -> list[dict]:
         return [
             {"name": "table_path", "type": "text", "label": "Table Path", "required": True,
              "placeholder": "lakehouse/silver/customers",
-             "description": "Directory path for the Delta Lake table."},
-            {"name": "mode", "type": "select", "label": "Write Mode",
-             "options": ["overwrite", "append"], "default": "overwrite",
-             "description": "overwrite = replace table, append = add to existing data"},
+             "description": "Folder for the Delta Lake table: a path inside the data folder, "
+                            "or a cloud address such as s3://bucket/customers."},
+            {"name": "write_mode", "type": "select", "label": "Write Mode",
+             "options": ["overwrite", "append", "merge"], "default": "overwrite",
+             "description": "overwrite = replace the table, append = add rows, "
+                            "merge = update rows whose keys match and add the rest."},
+            {"name": "merge_keys", "type": "column_list", "label": "Merge Key Columns",
+             "show_when": {"write_mode": ["merge"]},
+             "description": "Columns that identify a row, e.g. id. Used when no Merge Predicate is given."},
+            {"name": "merge_predicate", "type": "text", "label": "Merge Predicate",
+             "show_when": {"write_mode": ["merge"]},
+             "description": "Optional condition such as source.id = target.id. Wins over Merge Key Columns."},
             {"name": "partition_by", "type": "column_list", "label": "Partition By",
              "description": "Columns to partition the data by (e.g. date, region)."},
+            {"name": "storage_options", "type": "key_value", "label": "Storage Options",
+             "description": "Sign-in and settings for a cloud address, e.g. AWS_ACCESS_KEY_ID. Stored encrypted."},
+            {"name": "schema_mode", "type": "select", "label": "Schema Mode",
+             "options": ["overwrite", "merge"], "default": "overwrite",
+             "description": "overwrite = an overwrite may change the columns; "
+                            "merge = an append or merge may add new columns."},
         ]
 
 

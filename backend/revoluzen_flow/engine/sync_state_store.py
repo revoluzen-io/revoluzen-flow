@@ -50,6 +50,7 @@ See `_migrate_v31_sync_state` in revoluzen_flow/storage/database.py.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -149,6 +150,106 @@ class SyncStateStore:
                 state.workflow_id, state.step_id, exc,
             )
 
+    def save_if_unchanged(self, state: SyncState, expected: Optional[SyncState]) -> bool:
+        """Save ``state`` only if the row is still ``expected`` (None = no row).
+
+        Streaming sources (2026-11-13, ``streams/positions.py``) save their
+        read position this way after a successful run, so a run never
+        overwrites a position another run, or a Reset, moved while it was
+        reading. One statement, so it holds across servers sharing one
+        PostgreSQL metastore. True when saved.
+        """
+        if self._db is None:
+            logger.debug("SyncStateStore.save_if_unchanged: no db wired; skipping")
+            return False
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            if expected is None:
+                cur = self._write(
+                    "INSERT OR IGNORE INTO sync_state (workflow_id, step_id, cursor_column, "
+                    "last_cursor, last_run_at, rows_last_run, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (state.workflow_id, state.step_id, state.cursor_column, state.last_cursor,
+                     state.last_run_at or now, state.rows_last_run, now),
+                )
+            else:
+                same_cursor = "last_cursor = ?" if expected.last_cursor is not None else "last_cursor IS NULL"
+                params: list = [state.cursor_column, state.last_cursor, state.last_run_at or now,
+                                state.rows_last_run, now, state.workflow_id, state.step_id,
+                                expected.cursor_column]
+                if expected.last_cursor is not None:
+                    params.append(expected.last_cursor)
+                cur = self._write(
+                    "UPDATE sync_state SET cursor_column = ?, last_cursor = ?, last_run_at = ?, "
+                    "rows_last_run = ?, updated_at = ? WHERE workflow_id = ? AND step_id = ? "
+                    f"AND cursor_column = ? AND {same_cursor}",
+                    tuple(params),
+                )
+            return (getattr(cur, "rowcount", 0) or 0) == 1
+        except Exception as exc:  # noqa: BLE001 — never fail the run on cursor write
+            logger.warning(
+                "SyncStateStore.save_if_unchanged failed for workflow=%s step=%s: %s",
+                state.workflow_id, state.step_id, exc,
+            )
+            return False
+
+    def _write(self, sql: str, params: tuple):
+        """Run one write and commit it."""
+        write = getattr(self._db, "execute_write", None)
+        if callable(write):
+            return write(sql, params)
+        cur = self._db.execute(sql, params)
+        self._db.commit()
+        return cur
+
+    # ── Columns of the last run with rows ───────────────────────────────
+    #
+    # 2026-11-11: an incremental REST run with nothing new has no rows to
+    # take column names from, and the next step failed on its first column.
+    # The source keeps the [name, type] columns of its last run with rows
+    # here. The table is made on first use, like `pipeline_git_copies`, so
+    # it needs no schema version.
+
+    def _ensure_columns_table(self) -> None:
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS sync_state_columns ("
+            " workflow_id TEXT NOT NULL,"
+            " step_id TEXT NOT NULL,"
+            " columns_json TEXT NOT NULL,"
+            " updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            " PRIMARY KEY (workflow_id, step_id))"
+        )
+
+    def save_columns(self, workflow_id: str, step_id: str, columns: list) -> None:
+        """Keep the [name, type] columns this step's last run with rows produced."""
+        if self._db is None:
+            return
+        try:
+            self._ensure_columns_table()
+            self._db.execute(
+                "INSERT OR REPLACE INTO sync_state_columns "
+                "(workflow_id, step_id, columns_json, updated_at) VALUES (?, ?, ?, ?)",
+                (workflow_id, step_id, json.dumps(columns), datetime.now(timezone.utc).isoformat()),
+            )
+            self._db.commit()
+        except Exception as exc:  # noqa: BLE001 — never fail the run over this
+            logger.warning("SyncStateStore.save_columns failed for workflow=%s step=%s: %s",
+                           workflow_id, step_id, exc)
+
+    def get_columns(self, workflow_id: str, step_id: str) -> Optional[list]:
+        if self._db is None:
+            return None
+        try:
+            self._ensure_columns_table()
+            row = self._db.fetchone(
+                "SELECT columns_json FROM sync_state_columns WHERE workflow_id = ? AND step_id = ?",
+                (workflow_id, step_id),
+            )
+            return json.loads(row["columns_json"]) if row else None
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("SyncStateStore.get_columns failed for workflow=%s step=%s: %s",
+                           workflow_id, step_id, exc)
+            return None
+
     def reset(self, workflow_id: str, step_id: str) -> None:
         """Delete the cursor for this (workflow, step) so the next run
         behaves like a full refresh again. Surfaced as the UI's
@@ -161,6 +262,14 @@ class SyncStateStore:
                 "DELETE FROM sync_state WHERE workflow_id = ? AND step_id = ?",
                 (workflow_id, step_id),
             )
+            try:
+                self._ensure_columns_table()
+                self._db.execute(
+                    "DELETE FROM sync_state_columns WHERE workflow_id = ? AND step_id = ?",
+                    (workflow_id, step_id),
+                )
+            except Exception:  # noqa: BLE001 — the cursor reset above still stands
+                pass
             self._db.commit()
         except Exception as exc:  # noqa: BLE001
             logger.warning(

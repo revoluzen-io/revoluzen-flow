@@ -81,8 +81,12 @@ def _run_one_window(
     """Execute one window and stamp the child row with the outcome."""
     bound = build_window_params(parent, child, extra_params)
     # Stamp the resolved params on the child so the UI can render exactly
-    # what was used.
-    store.update_status(child.id, BackfillStatus.RUNNING, params_template=bound)
+    # what was used. A secret parameter's value is kept encrypted.
+    from revoluzen_flow.ir.step_secrets import seal_parameter_values
+    store.update_status(
+        child.id, BackfillStatus.RUNNING,
+        params_template=seal_parameter_values(bound, getattr(workflow, "parameters", None)),
+    )
 
     from revoluzen_flow.monitoring.store import ExecutionRecord  # local import — avoid cycle
 

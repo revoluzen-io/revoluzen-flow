@@ -608,7 +608,9 @@ class SchemaDetector:
 
     def _detect_xml(self, raw_data: str) -> DetectedSchema:
         """Detect schema from XML string."""
-        root = ElementTree.fromstring(raw_data)
+        from revoluzen_flow.common.safe_xml import parse_xml
+
+        root = parse_xml(raw_data)
 
         # Walk XML tree to extract records
         records, record_tag = self._extract_xml_records(root)

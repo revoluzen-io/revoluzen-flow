@@ -44,6 +44,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger("revoluzen_flow.worker_pool")
 
 
+class RunStoppedBeforeStart(Exception):
+    """A run was stopped while it waited for a pool slot."""
+
+
+def _run_stopped(run_id: str) -> bool:
+    """Whether someone stopped this run (its cancellation token is set).
+
+    The pool's job id is the run id, so the token Stop cancels is found by
+    it. Never raises: admission must not fail over the stop plumbing."""
+    try:
+        from revoluzen_flow.engine.cancellation import get_token
+        token = get_token(run_id)
+        return token is not None and token.is_cancelled
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _status_of(result: Any) -> str:
     """Derive a job status from whatever the run returned.
 
@@ -422,6 +439,9 @@ class WorkerPool:
         self._total_submitted = 0
         self._total_completed = 0
         self._total_errors = 0
+        # Stopped runs: neither a success nor a failure, so they are kept
+        # out of the success rate.
+        self._total_cancelled = 0
         self._total_rejected = 0
         self._started_at: datetime | None = None
 
@@ -689,6 +709,24 @@ class WorkerPool:
 
         return job
 
+    def live_run_ids(
+        self, workflow_id: str | None = None, workspace_id: str | None = None,
+    ) -> list[str]:
+        """Run ids that are running or waiting for a slot, optionally for
+        one pipeline in one workspace. A job's id is its run id, so these
+        are what Stop cancels."""
+        with self._lock:
+            jobs = list(self._active.values()) + [job for job, _ in self._waiting.values()]
+        out: list[str] = []
+        for job in jobs:
+            if workflow_id is not None and job.workflow_id != workflow_id:
+                continue
+            if workspace_id is not None and (job.workspace_id or "default") != workspace_id:
+                continue
+            if job.id not in out:
+                out.append(job.id)
+        return out
+
     def cancel(self, job_id: str) -> bool:
         """Cancel a queued or running job."""
         with self._lock:
@@ -817,6 +855,11 @@ class WorkerPool:
 
         try:
             worker = self._acquire_admission(job)
+        except RunStoppedBeforeStart:
+            # Stopped while it waited for a slot. Run it without one: the
+            # executor finds the run cancelled before its first step and
+            # returns at once, so it is recorded as stopped like any other.
+            return fn(**(kwargs or {}))
         except BaseException:
             # A cancelled or interrupted wait must not leave the run
             # showing as waiting forever.
@@ -868,6 +911,11 @@ class WorkerPool:
         with self._slot_free:
             self._total_submitted += 1
             while True:
+                # Stop pressed while this run waits: leave the queue now
+                # rather than hold the place until a slot frees.
+                if _run_stopped(job.id):
+                    self._waiting.pop(job.id, None)
+                    raise RunStoppedBeforeStart(job.id)
                 worker = self._find_free_worker()
                 if worker is None and not self._capped:
                     # Uncapped means uncapped: `MAX_CONCURRENT_RUNS=0` is
@@ -1020,6 +1068,8 @@ class WorkerPool:
             self._total_completed += 1
             if status == "error":
                 self._total_errors += 1
+            elif status == "cancelled":
+                self._total_cancelled += 1
 
             # Update worker stats
             worker.jobs_completed += 1
@@ -1208,10 +1258,11 @@ class WorkerPool:
                     "total_submitted": self._total_submitted,
                     "total_completed": self._total_completed,
                     "total_errors": self._total_errors,
+                    "total_cancelled": self._total_cancelled,
                     "total_rejected": self._total_rejected,
                     "success_rate": round(
-                        (self._total_completed - self._total_errors)
-                        / max(self._total_completed, 1) * 100,
+                        (self._total_completed - self._total_errors - self._total_cancelled)
+                        / max(self._total_completed - self._total_cancelled, 1) * 100,
                         1,
                     ),
                 },

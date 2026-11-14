@@ -6,18 +6,21 @@ Flow Control:
   WAIT_DELAY, SET_VARIABLE, EXECUTE_PIPELINE
 
 Action Nodes:
-  HTTP_REQUEST, WEBHOOK_TRIGGER, CODE_SCRIPT, SEND_EMAIL,
+  HTTP_REQUEST, CODE_SCRIPT, SEND_EMAIL,
   SLACK_NOTIFY, COPY_DATA, DELETE_DATA, GET_METADATA
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import re
 import smtplib
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -30,6 +33,22 @@ if TYPE_CHECKING:
     import duckdb
 
 from revoluzen_flow.common.duckdb_compat import fetch_one, fetch_scalar
+from revoluzen_flow.common.http_reply import (
+    BODY_CONTENT_TYPES,
+    accept_header,
+    fault_in_reply,
+    rows_from_reply,
+)
+from revoluzen_flow.common.safe_xml import render_xml_template
+from revoluzen_flow.connections.http_auth import (
+    HTTP_CONNECTION_TYPES,
+    connection_base_url,
+    connection_url,
+    request_auth,
+    ssl_context_for,
+    with_query,
+    without_query,
+)
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -537,12 +556,14 @@ class SetVariableNode(BaseNode):
             try:
                 row = fetch_one(ctx.conn.sql(sql))
             except Exception as e:  # noqa: BLE001 — surface a clear message
+                # Not the expression itself: by now ${param.*} values are filled
+                # in, and one may be a secret.
                 raise ValueError(
-                    f"Set Variable '{name}': could not evaluate expression "
-                    f"{expr!r}: {e}"
+                    f"Set Variable '{name}': could not evaluate its expression: {e}"
                 ) from e
             ctx.vars[name] = row[0] if row else None
-            logger.info("SetVariable: $vars.%s = %r", name, ctx.vars[name])
+            # The value may come from a secret parameter; never log it.
+            logger.info("SetVariable: $vars.%s set (%s)", name, type(ctx.vars[name]).__name__)
 
         # Control-flow semantics: input passes straight through.
         if source is not None:
@@ -712,8 +733,9 @@ def _run_subpipeline(ctx: ExecutionContext, pipeline_id: str, overrides: dict, w
         raise ValueError(f"{who}: no workflow store available to run the sub-pipeline.")
     parent = getattr(ctx, "_workflow_ref", None)
     workspace = getattr(parent, "workspace_id", None) or "default"
-    # A pipeline can only start another in its own workspace.
-    sub = store.get(pipeline_id, workspace_id=workspace)
+    # A pipeline can only start another in its own workspace, and a published
+    # one is started at its published version.
+    sub = store.live_version(pipeline_id, workspace_id=workspace)
     if not sub:
         raise ValueError(f"{who}: pipeline '{pipeline_id}' not found.")
 
@@ -733,15 +755,71 @@ def _run_subpipeline(ctx: ExecutionContext, pipeline_id: str, overrides: dict, w
     from revoluzen_flow.security.execution_codes import mint_for_run
     started = time.time()
     _inside_pipelines.ids = (*inside, *([parent_id] if parent_id else []), pipeline_id)
+    # Stopping the parent run (Stop, or its time limit) stops the child it is
+    # waiting on, rather than leaving the parent stuck until the child ends.
+    import uuid as _uuid
+    child_run_id = _uuid.uuid4().hex[:12]
+    parent_token, relay = None, None
+    try:
+        from revoluzen_flow.engine.cancellation import create_token, get_token
+        parent_token = get_token(getattr(ctx, "run_id", "") or "")
+        if parent_token is not None:
+            child_token = create_token(child_run_id)
+            relay = lambda: child_token.cancel(parent_token.reason)  # noqa: E731
+            parent_token.register_cancel_callback(relay)
+    except Exception:  # noqa: BLE001 — stop plumbing must never break a run
+        parent_token, relay = None, None
     try:
         result = sub_exec.execute_workflow(
             wf, preview_limit=0, full_run=ctx.full_run, parameter_values=filtered,
             execution_code=mint_for_run(wf),
+            run_id=child_run_id,
         )
     finally:
         _inside_pipelines.ids = inside
+        if parent_token is not None and relay is not None:
+            parent_token.unregister_cancel_callback(relay)
     _record_child_run(ctx, wf, getattr(sub, "version", 1), parent, result, started)
     return result
+
+
+# At most this many sub-pipeline runs at once, whatever a step asks for. Each
+# one is a whole pipeline run with its own DuckDB connection and memory limit,
+# so the ceiling is about memory, not threads.
+_FOREACH_PARALLEL_CEILING = 16
+
+# How each row ended, as the `results` output reports it.
+_ITEM_SUCCESS, _ITEM_ERROR, _ITEM_NOT_RUN = "success", "error", "not_run"
+
+
+def _memory_under_pressure(ctx: ExecutionContext) -> bool:
+    """True when the run governor reads memory as orange or red.
+
+    ForEach then starts one row at a time until the reading recovers, so a
+    wide fan-out is never the reason the box runs out of memory. With no
+    governor (a test, a bare executor) there is nothing to read and no
+    throttle.
+    """
+    manager = ctx.app_state.get("execution_manager") if ctx.app_state else None
+    governor = getattr(manager, "_governor", None) if manager is not None else None
+    if governor is None:
+        return False
+    try:
+        tier = governor.sample().tier
+    except Exception:  # noqa: BLE001 — a failed reading must not stop the loop
+        return False
+    return getattr(tier, "value", str(tier)) in ("orange", "red")
+
+
+def _child_error(res: Any) -> str:
+    """The first reason a child run gives for failing, in words."""
+    err = getattr(res, "error", "") or ""
+    if err:
+        return str(err)
+    for step in (getattr(res, "step_results", None) or {}).values():
+        if getattr(step, "error", None):
+            return str(step.error)
+    return "unknown error"
 
 
 @register(StepType.FOREACH_PIPELINE)
@@ -753,15 +831,21 @@ class ForEachPipelineNode(BaseNode):
     ``${param.<column>}``). The whole row is also passed as a single JSON
     parameter (default name ``item``) for children that prefer ``@item``.
 
-    This is the per-row loop pattern — the
-    sub-pipeline IS the loop body / child scope. Distinct from the
-    foreach_loop node, which only chunks rows into batches.
+    This is the per-row loop pattern — the sub-pipeline IS the loop body /
+    child scope. Distinct from the foreach_loop node, which only chunks rows
+    into batches.
 
-    Iteration is sequential and capped (``max_iterations``) — running a
-    full sub-pipeline per row is expensive, so the node refuses oversized
-    inputs rather than silently spawning thousands of child runs. The input
-    relation passes through unchanged (ForEach is control flow / side
-    effects); collecting child outputs is a future option.
+    Rows run one at a time by default. ``max_parallel`` runs up to that many
+    at once (never more than 16), each as its own sub-pipeline run. While the
+    run governor reads memory as orange or red, it starts one row at a time
+    until the reading recovers. ``max_iterations`` still refuses oversized
+    inputs rather than silently spawning thousands of child runs, and Stop
+    ends the loop: no new row starts once the run is cancelled.
+
+    Output: the input rows unchanged (default), or with ``output: results``
+    the input rows plus ``_item``, ``_status`` (success, error, not_run),
+    ``_error`` and ``_duration_ms``, so a later step can pick out the rows
+    that failed and send them somewhere.
     """
     display_name = "ForEach"
     category = "flow_control"
@@ -792,13 +876,36 @@ class ForEachPipelineNode(BaseNode):
             raise ValueError("For Each (Run Pipeline): 'max_iterations' must be a number.")
         if max_iter <= 0:
             raise ValueError("For Each (Run Pipeline): 'max_iterations' must be greater than 0.")
+        try:
+            max_parallel = int(self.params.get("max_parallel", 1) or 1)
+        except (TypeError, ValueError):
+            raise ValueError("For Each (Run Pipeline): 'max_parallel' must be a number.")
+        if max_parallel < 1:
+            raise ValueError("For Each (Run Pipeline): 'max_parallel' must be 1 or more.")
+        max_parallel = min(max_parallel, _FOREACH_PARALLEL_CEILING)
+        output = (self.params.get("output") or "input").strip().lower()
+        if output not in ("input", "results"):
+            raise ValueError(
+                f"For Each (Run Pipeline): invalid output '{output}'. Allowed: input, results."
+            )
         item_param = (self.params.get("item_param") or "item").strip() or "item"
         static = self.params.get("parameters") or {}
         if not isinstance(static, dict):
             static = {}
 
-        cols = source.columns
-        rows = [dict(zip(cols, r)) for r in source.fetchall()]
+        # Number the rows once, so a row has the same number when it runs, in
+        # an error message and in the results output.
+        staged = ctx.register_scoped("__foreach_pipeline_input", source)
+        numbered = ctx.scoped_name("__foreach_pipeline_rows")
+        ctx.conn.execute(
+            f"CREATE OR REPLACE TEMP TABLE {numbered} AS "
+            f"SELECT (row_number() OVER ()) - 1 AS __foreach_idx, * FROM {staged}"
+        )
+        cur = ctx.conn.execute(
+            f"SELECT * EXCLUDE (__foreach_idx) FROM {numbered} ORDER BY __foreach_idx"
+        )
+        cols = [d[0] for d in cur.description]
+        rows = [dict(zip(cols, r)) for r in cur.fetchall()]
         if len(rows) > max_iter:
             raise ValueError(
                 f"For Each (Run Pipeline): input has {len(rows)} rows but max_iterations is "
@@ -806,33 +913,165 @@ class ForEachPipelineNode(BaseNode):
                 f"deliberately or reduce the input first."
             )
 
-        failures = 0
-        for i, row in enumerate(rows):
-            overrides = {**static, **row, item_param: row}
-            try:
-                res = _run_subpipeline(ctx, pipeline_id, overrides)
-            except Exception as exc:
-                if on_item_error == "fail":
-                    raise ValueError(
-                        f"For Each (Run Pipeline): item {i + 1}/{len(rows)} failed: {exc}"
-                    ) from exc
-                failures += 1
-                logger.warning("ForEachPipeline: item %d failed (continuing): %s", i + 1, exc)
-                continue
-            if res is not None and getattr(res, "status", None) == "error":
-                if on_item_error == "fail":
-                    raise ValueError(
-                        f"For Each (Run Pipeline): item {i + 1}/{len(rows)} sub-pipeline failed: "
-                        f"{getattr(res, 'error', '') or 'unknown error'}"
-                    )
-                failures += 1
+        run_one = self._item_runner(ctx, pipeline_id, static, item_param)
+        if max_parallel == 1:
+            outcomes = self._run_in_order(ctx, run_one, rows, on_item_error)
+        else:
+            outcomes = self._run_in_parallel(ctx, run_one, rows, on_item_error, max_parallel)
 
+        failures = sum(1 for o in outcomes if o["status"] == _ITEM_ERROR)
         if failures:
             logger.info(
                 "ForEachPipeline: %d of %d items failed (on_item_error=continue)",
                 failures, len(rows),
             )
-        return source
+        if output == "input":
+            return source
+        return self._results_relation(ctx, numbered, outcomes)
+
+    # ── One row ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _item_runner(ctx: ExecutionContext, pipeline_id: str, static: dict, item_param: str):
+        """A function that runs the sub-pipeline for one row and never raises.
+
+        What happened comes back as a record, so the sequential and parallel
+        loops apply the same error policy and report rows the same way.
+        """
+        def run_one(i: int, row: dict) -> dict:
+            started = time.time()
+            outcome: dict[str, Any] = {
+                "index": i, "status": _ITEM_SUCCESS, "error": "", "exc": None, "kind": "",
+            }
+            try:
+                res = _run_subpipeline(ctx, pipeline_id, {**static, **row, item_param: row})
+            except Exception as exc:  # noqa: BLE001 — reported per row by the loop
+                outcome.update(status=_ITEM_ERROR, error=str(exc), exc=exc, kind="raised")
+            else:
+                if res is not None and getattr(res, "status", None) == "error":
+                    outcome.update(status=_ITEM_ERROR, error=_child_error(res), kind="child")
+            outcome["duration_ms"] = round((time.time() - started) * 1000, 1)
+            return outcome
+        return run_one
+
+    @staticmethod
+    def _failure(outcome: dict, total: int) -> ValueError:
+        n = outcome["index"] + 1
+        if outcome["kind"] == "raised":
+            return ValueError(f"For Each (Run Pipeline): item {n}/{total} failed: {outcome['error']}")
+        return ValueError(
+            f"For Each (Run Pipeline): item {n}/{total} sub-pipeline failed: {outcome['error']}"
+        )
+
+    @staticmethod
+    def _not_run(i: int) -> dict:
+        return {"index": i, "status": _ITEM_NOT_RUN, "error": "", "exc": None, "kind": "", "duration_ms": 0.0}
+
+    # ── The loops ────────────────────────────────────────────────────────
+
+    def _run_in_order(self, ctx: ExecutionContext, run_one, rows: list[dict], on_item_error: str) -> list[dict]:
+        from revoluzen_flow.engine.cancellation import RunCancelled, get_token
+
+        token = get_token(ctx.run_id) if ctx.run_id else None
+        outcomes: list[dict] = []
+        for i, row in enumerate(rows):
+            # Stop ends the loop here. Without this, `continue` would keep
+            # starting children that the cancelled parent stops at once.
+            if token is not None and token.is_cancelled:
+                raise RunCancelled(ctx.run_id or "", token.reason or "")
+            o = run_one(i, row)
+            outcomes.append(o)
+            if o["status"] == _ITEM_ERROR:
+                if on_item_error == "fail":
+                    raise self._failure(o, len(rows)) from o["exc"]
+                logger.warning("ForEachPipeline: item %d failed (continuing): %s", i + 1, o["error"])
+        return outcomes
+
+    def _run_in_parallel(
+        self, ctx: ExecutionContext, run_one, rows: list[dict], on_item_error: str, max_parallel: int,
+    ) -> list[dict]:
+        from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
+        from revoluzen_flow.engine.cancellation import RunCancelled, get_token
+
+        token = get_token(ctx.run_id) if ctx.run_id else None
+        # The pipelines this run is inside. A worker thread starts with an
+        # empty chain, so without handing it over, a child that starts its own
+        # parent would loop instead of stopping with a clear message.
+        chain = getattr(_inside_pipelines, "ids", ())
+
+        def in_worker(i: int, row: dict) -> dict:
+            _inside_pipelines.ids = chain
+            try:
+                return run_one(i, row)
+            finally:
+                _inside_pipelines.ids = ()
+
+        outcomes: dict[int, dict] = {}
+        pending: set = set()
+        next_i, stop = 0, False
+        with ThreadPoolExecutor(max_workers=max_parallel, thread_name_prefix="foreach") as pool:
+            while True:
+                while not stop and next_i < len(rows):
+                    if token is not None and token.is_cancelled:
+                        stop = True
+                        break
+                    limit = 1 if _memory_under_pressure(ctx) else max_parallel
+                    if len(pending) >= limit:
+                        break
+                    pending.add(pool.submit(in_worker, next_i, rows[next_i]))
+                    next_i += 1
+                if not pending:
+                    break
+                done, pending = wait(pending, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    o = fut.result()
+                    outcomes[o["index"]] = o
+                    if o["status"] == _ITEM_ERROR:
+                        if on_item_error == "fail":
+                            # Rows already running finish; no new row starts.
+                            stop = True
+                        else:
+                            logger.warning(
+                                "ForEachPipeline: item %d failed (continuing): %s",
+                                o["index"] + 1, o["error"],
+                            )
+
+        ordered = [outcomes.get(i) or self._not_run(i) for i in range(len(rows))]
+        if token is not None and token.is_cancelled:
+            raise RunCancelled(ctx.run_id or "", token.reason or "")
+        if on_item_error == "fail":
+            first = next((o for o in ordered if o["status"] == _ITEM_ERROR), None)
+            if first is not None:
+                err = self._failure(first, len(rows))
+                not_started = sum(1 for o in ordered if o["status"] == _ITEM_NOT_RUN)
+                if not_started:
+                    err = ValueError(f"{err} {not_started} more row(s) were not started.")
+                raise err from first["exc"]
+        return ordered
+
+    @staticmethod
+    def _results_relation(ctx: ExecutionContext, numbered: str, outcomes: list[dict]):
+        """The input rows with how each one ended, in row order."""
+        status_tbl = ctx.scoped_name("__foreach_pipeline_results")
+        ctx.conn.execute(
+            f"CREATE OR REPLACE TEMP TABLE {status_tbl} "
+            "(__foreach_idx BIGINT, _status VARCHAR, _error VARCHAR, _duration_ms DOUBLE)"
+        )
+        if outcomes:
+            ctx.conn.executemany(
+                f"INSERT INTO {status_tbl} VALUES (?, ?, ?, ?)",
+                [
+                    (o["index"], o["status"], o["error"] or None, float(o.get("duration_ms") or 0.0))
+                    for o in outcomes
+                ],
+            )
+        return ctx.conn.sql(
+            f"SELECT r.* EXCLUDE (__foreach_idx), r.__foreach_idx + 1 AS _item, "
+            f"s._status, s._error, s._duration_ms "
+            f"FROM {numbered} r JOIN {status_tbl} s ON r.__foreach_idx = s.__foreach_idx "
+            f"ORDER BY r.__foreach_idx"
+        )
 
     @staticmethod
     def default_params() -> dict[str, Any]:
@@ -840,7 +1079,9 @@ class ForEachPipelineNode(BaseNode):
             "pipeline_id": "",
             "item_param": "item",
             "max_iterations": 100,
+            "max_parallel": 1,
             "on_item_error": "fail",
+            "output": "input",
             "parameters": {},
         }
 
@@ -854,9 +1095,14 @@ class ForEachPipelineNode(BaseNode):
              "description": "The whole row is also passed as one JSON parameter under this name (for children that take a single item param)."},
             {"name": "max_iterations", "type": "number", "label": "Max Iterations", "default": 100,
              "description": "Safety cap — the node refuses inputs larger than this (a sub-pipeline per row is expensive)."},
+            {"name": "max_parallel", "type": "number", "label": "Rows at Once", "default": 1,
+             "description": "How many rows run at the same time, each as its own run of the sub-pipeline. 1 runs them in order; the most is 16. When memory runs short, rows start one at a time until it recovers."},
             {"name": "on_item_error", "type": "select", "label": "On Item Error",
              "options": ["fail", "continue"], "default": "fail",
-             "description": "fail = stop on the first failed item; continue = skip failures and finish the rest."},
+             "description": "fail = stop on the first failed item (rows already running finish, no new row starts); continue = skip failures and finish the rest."},
+            {"name": "output", "type": "select", "label": "Output",
+             "options": ["input", "results"], "default": "input",
+             "description": "input = the input rows, unchanged. results = the input rows plus _item, _status (success, error or not_run), _error and _duration_ms for each row."},
             {"name": "parameters", "type": "key_value_map", "label": "Static Parameters", "default": {},
              "description": "Fixed key/value parameters passed to every iteration (the row's columns override these per item)."},
         ]
@@ -866,14 +1112,50 @@ class ForEachPipelineNode(BaseNode):
 #  ACTION NODES
 # ═════════════════════════════════════════════════════════
 
+_HTTP_ALLOW_PRIVATE_ENV = "REVOLUZEN_FLOW_HTTP_ALLOW_PRIVATE"
+_BODY_TYPES = ("json", "xml", "form", "text")
+_BODY_TYPE_BY_CONTENT_TYPE = {
+    "application/xml": "xml",
+    "text/xml": "xml",
+    "application/x-www-form-urlencoded": "form",
+    "text/plain": "text",
+}
+_CREDENTIAL_HEADER = re.compile(r"authorization|cookie|api.?key|token|secret", re.I)
+
+
+def _site(url: str) -> tuple[str, str | None, int | None]:
+    parts = urllib.parse.urlsplit(url)
+    return parts.scheme, parts.hostname, parts.port or (443 if parts.scheme == "https" else 80)
+
+
+class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+    """A redirect has to pass the address rules the first request passed, and
+    credentials stay with the site they were written for."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        from revoluzen_flow.security.ssrf import check_url
+
+        check_url(newurl, allow_private_env=_HTTP_ALLOW_PRIVATE_ENV)
+        follow = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if follow is not None and _site(req.full_url) != _site(newurl):
+            for name, _ in list(follow.header_items()):
+                if _CREDENTIAL_HEADER.search(name):
+                    follow.remove_header(name)
+        return follow
+
+
+_HTTP_OPENER = urllib.request.build_opener(_CheckedRedirects)
+
+
 @register(StepType.HTTP_REQUEST)
 class HttpRequestNode(BaseNode):
     """
     HTTP Request — make an HTTP call per row or as a single batch request.
 
-    In batch mode (default), sends one request and returns the parsed JSON.
-    In per-row mode, sends one request per row, embedding column values
-    into the URL/body via {column_name} placeholders.
+    In batch mode (default), sends one request and returns the rows in the
+    reply: JSON as it comes, XML through a row path. In per-row mode, sends one
+    request per row, embedding column values into the URL/body via
+    {column_name} placeholders.
     """
 
     @staticmethod
@@ -925,6 +1207,17 @@ class HttpRequestNode(BaseNode):
                 for h in headers
                 if isinstance(h, dict) and h.get("key")
             }
+        # A saved connection gives the address and sign-in. The step's Auth
+        # Type fields win over the connection's, and a typed header wins over both.
+        connection = self._saved_connection(ctx)
+        if connection is not None:
+            try:
+                url = connection_url(connection["base_url"], url)
+            except ValueError as exc:
+                raise ValueError(f"HTTP Request: {exc}") from None
+        headers = {**(connection["headers"] if connection else {}), **self._auth_headers(), **headers}
+        self._query_auth = connection["query"] if connection else {}
+        self._ssl_context = connection["ssl"] if connection else None
         body = self.params.get("body", "")
         per_row = self.params.get("per_row", False)
         timeout_s = self._resolve_timeout(self.params.get("timeout"))
@@ -949,7 +1242,7 @@ class HttpRequestNode(BaseNode):
     def _batch_request(self, ctx: ExecutionContext, url: str, method: str,
                        headers: dict, body: str, timeout_s: int) -> duckdb.DuckDBPyRelation:
         """Single request, return response as relation."""
-        rows = self._do_request(url, method, headers, body, timeout_s)
+        rows = self._call(url, method, headers, self._render_body(body, None), timeout_s)
         return _rows_to_relation(ctx.conn, rows, "__http_batch")
 
     def _per_row_request(self, ctx: ExecutionContext,
@@ -985,13 +1278,12 @@ class HttpRequestNode(BaseNode):
         for _, row in input_rows.iterrows():
             row_dict = row.to_dict()
             rendered_url = url_template
-            rendered_body = body_template
             for col, val in row_dict.items():
                 rendered_url = rendered_url.replace(f"{{{col}}}", str(val))
-                rendered_body = rendered_body.replace(f"{{{col}}}", str(val))
 
             try:
-                resp = self._do_request(rendered_url, method, headers, rendered_body, timeout_s)
+                rendered_body = self._render_body(body_template, row_dict)
+                resp = self._call(rendered_url, method, headers, rendered_body, timeout_s)
                 if resp:
                     # Merge input row with first response row
                     merged = {**row_dict, **resp[0]}
@@ -1006,16 +1298,122 @@ class HttpRequestNode(BaseNode):
 
         return _rows_to_relation(ctx.conn, result_rows, "__http_per_row")
 
+    # Set from the step's saved connection when it runs.
+    _query_auth: dict[str, str] = {}
+    _ssl_context = None
+
+    def _saved_connection(self, ctx: ExecutionContext) -> dict | None:
+        """The address and sign-in of the connection the step names, if any."""
+        connection_id = self.params.get("connection_id")
+        if not connection_id:
+            return None
+        from revoluzen_flow.nodes.db_source import _get_connection_config
+
+        workflow = getattr(ctx, "_workflow_ref", None)
+        workspace = getattr(workflow, "workspace_id", None) or "default"
+        found = _get_connection_config(connection_id, getattr(ctx, "app_state", None) or None, workspace_id=workspace)
+        if not found:
+            raise ValueError(
+                "HTTP Request: the saved connection this step uses no longer exists. Choose another in the step's settings."
+            )
+        config, kind = found
+        if kind not in HTTP_CONNECTION_TYPES:
+            raise ValueError(f"HTTP Request: a {kind} connection cannot make web requests. Choose a REST API connection.")
+        headers, query = request_auth(config, allow_private_env=_HTTP_ALLOW_PRIVATE_ENV)
+        return {"base_url": connection_base_url(config), "headers": headers, "query": query, "ssl": ssl_context_for(config)}
+
+    def _call(self, url: str, method: str, headers: dict, body: str, timeout_s: int) -> list[dict]:
+        return self._do_request(
+            with_query(url, self._query_auth), method, headers, body, timeout_s,
+            body_type=self._body_type(),
+            reply_format=str(self.params.get("response_format") or "auto"),
+            row_path=str(self.params.get("row_path") or ""),
+            ssl_context=self._ssl_context,
+        )
+
+    def _body_type(self) -> str:
+        """JSON, XML, form or text. Steps saved before Body Type existed have a Content Type."""
+        chosen = str(self.params.get("body_type") or "").lower()
+        if chosen in _BODY_TYPES:
+            return chosen
+        declared = str(self.params.get("content_type") or "").split(";")[0].strip().lower()
+        return _BODY_TYPE_BY_CONTENT_TYPE.get(declared, "json")
+
+    def _auth_headers(self) -> dict[str, str]:
+        kind = str(self.params.get("auth_type") or "none").lower()
+        if kind == "bearer":
+            token = self.params.get("auth_token") or self.params.get("bearer_token")
+            return {"Authorization": f"Bearer {token}"} if token else {}
+        if kind == "basic":
+            user = self.params.get("auth_user") or self.params.get("username") or ""
+            password = self.params.get("auth_pass") or self.params.get("password") or ""
+            if not user and not password:
+                return {}
+            encoded = base64.b64encode(f"{user}:{password}".encode("utf-8")).decode("ascii")
+            return {"Authorization": f"Basic {encoded}"}
+        if kind == "api_key":
+            value = self.params.get("api_key_value") or self.params.get("api_key")
+            return {str(self.params.get("api_key_header") or "X-API-Key"): value} if value else {}
+        return {}
+
+    def _render_body(self, template: str, row: dict | None) -> str:
+        """The body to send. Column values are escaped for the body's own format."""
+        if not template:
+            return template
+        kind = self._body_type()
+        if kind == "form":
+            return self._form_body(template, row or {})
+        if row is None:
+            return template
+        if kind == "xml":
+            return render_xml_template(template, row)
+        for col, val in row.items():
+            text = str(val)
+            if kind == "json":
+                # A quote or backslash in a value must not break the JSON around it.
+                text = json.dumps(text, ensure_ascii=False)[1:-1]
+            template = template.replace(f"{{{col}}}", text)
+        return template
+
+    @staticmethod
+    def _form_body(template: str, row: dict) -> str:
+        """``name=value&...``, or a JSON object of names and values, as a form body."""
+        text = template.strip()
+        pairs: list[tuple[str, str]] = []
+        if text.startswith("{"):
+            try:
+                fields = json.loads(text)
+            except ValueError:
+                fields = None
+            if isinstance(fields, dict):
+                pairs = [(str(k), "" if v is None else str(v)) for k, v in fields.items()]
+        if not pairs and "=" in text:
+            pairs = urllib.parse.parse_qsl(text, keep_blank_values=True)
+        if not pairs:
+            raise ValueError("HTTP Request: a form body is name=value&name=value, or a JSON object of names and values.")
+
+        def fill(value: str) -> str:
+            for col, val in row.items():
+                value = value.replace(f"{{{col}}}", str(val))
+            return value
+
+        return urllib.parse.urlencode([(fill(k), fill(v)) for k, v in pairs])
+
     @staticmethod
     def _do_request(url: str, method: str, headers: dict,
-                    body: str, timeout_s: int) -> list[dict]:
-        """Execute a single HTTP request, return parsed JSON rows."""
-        req_headers = {"Accept": "application/json", "User-Agent": "Revoluzen Flow/0.6.0"}
+                    body: str, timeout_s: int,
+                    *,
+                    body_type: str = "json",
+                    reply_format: str = "auto",
+                    row_path: str = "",
+                    ssl_context=None) -> list[dict]:
+        """Execute a single HTTP request, return the rows in the reply."""
+        req_headers = {"Accept": accept_header(reply_format), "User-Agent": "Revoluzen Flow/0.6.0"}
         req_headers.update(headers)
 
         data = body.encode("utf-8") if body else None
-        if data:
-            req_headers.setdefault("Content-Type", "application/json")
+        if data and not any(str(name).lower() == "content-type" for name in req_headers):
+            req_headers["Content-Type"] = BODY_CONTENT_TYPES.get(body_type, BODY_CONTENT_TYPES["json"])
 
         # SSRF guard — validate the user-supplied URL against the shared
         # policy (blocks loopback / private / link-local / multicast /
@@ -1024,50 +1422,82 @@ class HttpRequestNode(BaseNode):
         # REVOLUZEN_FLOW_HTTP_ALLOW_PRIVATE=1.
         from revoluzen_flow.security.ssrf import check_url, SsrfBlockedError
         try:
-            check_url(url, allow_private_env="REVOLUZEN_FLOW_HTTP_ALLOW_PRIVATE")
+            check_url(url, allow_private_env=_HTTP_ALLOW_PRIVATE_ENV)
         except SsrfBlockedError as exc:
             raise ValueError(f"HTTP Request blocked: {exc}") from exc
 
         req = urllib.request.Request(url, method=method, headers=req_headers, data=data)
+        opener = _HTTP_OPENER
+        if ssl_context is not None:
+            # The step's connection was saved with Verify SSL turned off.
+            opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ssl_context), _CheckedRedirects)
+        # A key can travel in the query string, so messages leave it out.
+        shown = without_query(url)
         try:
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                raw = json.loads(resp.read().decode("utf-8"))
+            with opener.open(req, timeout=timeout_s) as resp:
+                raw = resp.read()
+                content_type = resp.headers.get("Content-Type", "")
         except urllib.error.HTTPError as exc:
+            # A SOAP service reports what went wrong in the body of a 500.
+            try:
+                fault = fault_in_reply(exc.read(1024 * 1024), exc.headers.get("Content-Type", ""))
+            except OSError:
+                fault = None
+            reason = (fault or {}).get("message") or exc.reason
             raise ValueError(
-                f"HTTP Request: {exc.code} from {url}: {exc.reason}"
+                f"HTTP Request: {exc.code} from {shown}: {reason}"
             ) from exc
         except urllib.error.URLError as exc:
             raise ValueError(
-                f"HTTP Request: cannot reach {url}: {exc.reason}"
+                f"HTTP Request: cannot reach {shown}: {exc.reason}"
             ) from exc
+        except SsrfBlockedError as exc:
+            raise ValueError(f"HTTP Request blocked: {exc}") from exc
 
-        if isinstance(raw, list):
-            return raw
-        if isinstance(raw, dict):
-            for key in ("data", "results", "items", "records", "rows", "values"):
-                if key in raw and isinstance(raw[key], list):
-                    return raw[key]
-            return [raw]
-        return [{"response": str(raw)}]
+        return rows_from_reply(raw, content_type, reply_format=reply_format, row_path=row_path)
 
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "url": "", "method": "GET", "headers": {}, "body": "",
+            "url": "", "method": "GET", "headers": {}, "body": "", "body_type": "json",
+            "response_format": "auto", "row_path": "",
             "per_row": False, "timeout": 0,  # 0 = use _DEFAULT_TIMEOUT_S / env override
         }
 
     @staticmethod
     def param_schema() -> list[dict]:
         return [
+            {"name": "connection_id", "type": "connection_picker", "label": "Connection",
+             "description": "A saved REST API connection gives the address and sign-in. The URL can then be a path such as /orders, or / for the connection's own address."},
             {"name": "url", "type": "text", "label": "URL", "required": True,
              "placeholder": "https://api.example.com/data",
              "description": "Use {column} placeholders for per-row mode."},
             {"name": "method", "type": "select", "label": "Method",
              "options": ["GET", "POST", "PUT", "PATCH", "DELETE"], "default": "GET"},
             {"name": "headers", "type": "key_value", "label": "Headers"},
-            {"name": "body", "type": "code", "label": "Request Body (JSON)",
-             "description": "Supports {column} placeholders in per-row mode."},
+            {"name": "body_type", "type": "select", "label": "Body Type",
+             "options": list(_BODY_TYPES), "default": "json",
+             "description": "Sets the Content-Type header, unless a header on this step already does."},
+            {"name": "body", "type": "code", "label": "Request Body",
+             "description": "Supports {column} placeholders in per-row mode, escaped to suit the body type."},
+            {"name": "auth_type", "type": "select", "label": "Auth Type",
+             "options": ["none", "bearer", "basic", "api_key"], "default": "none"},
+            {"name": "auth_token", "type": "password", "label": "Bearer Token",
+             "show_when": {"auth_type": ["bearer"]}},
+            {"name": "auth_user", "type": "text", "label": "Username",
+             "show_when": {"auth_type": ["basic"]}},
+            {"name": "auth_pass", "type": "password", "label": "Password",
+             "show_when": {"auth_type": ["basic"]}},
+            {"name": "api_key_header", "type": "text", "label": "API Key Header", "default": "X-API-Key",
+             "show_when": {"auth_type": ["api_key"]}},
+            {"name": "api_key_value", "type": "password", "label": "API Key Value",
+             "show_when": {"auth_type": ["api_key"]}},
+            {"name": "response_format", "type": "select", "label": "Reply Format",
+             "options": ["auto", "json", "xml", "text"], "default": "auto",
+             "description": "Auto reads the reply by what it says it is."},
+            {"name": "row_path", "type": "text", "label": "Row Path (XML)",
+             "placeholder": "//order",
+             "description": "The element that is one row. Empty finds the repeating element."},
             {"name": "per_row", "type": "boolean", "label": "Send Per Row",
              "default": False,
              "description": "Send a separate request for each input row."},
@@ -1431,22 +1861,24 @@ class SendEmailNode(BaseNode):
 
     # ── SMTP resolution ─────────────────────────────────────────────
     def _resolve_smtp(self, ctx: ExecutionContext) -> dict:
-        """Return {host, port, user, password, from, security} from connection or inline."""
+        """Return {host, port, user, password, from, security} from connection or inline.
+
+        A saved connection is read the way every other step reads one: its
+        settings with the secrets decrypted and any linked credential merged.
+        (Until November 2026 this called ``.get()`` on the Connection object,
+        so a step with a saved SMTP connection always failed.) A connection
+        that is set but cannot be loaded is an error, never a silent skip.
+        """
         conn_id = self.params.get("connection_id", "")
-        if conn_id:
-            store = ctx.app_state.get("connection_store")
-            if store:
-                conn_cfg = store.get(conn_id)
-                if conn_cfg:
-                    config = conn_cfg.get("config", conn_cfg)
-                    return {
-                        "host": config.get("host", ""),
-                        "port": int(config.get("port", 587)),
-                        "user": config.get("user") or config.get("username", ""),
-                        "password": config.get("password", ""),
-                        "from": config.get("from") or config.get("sender", ""),
-                        "security": config.get("security", "tls"),
-                    }
+        if conn_id and ctx.app_state.get("connection_store"):
+            from revoluzen_flow.nodes.db_source import _get_connection_config
+            resolved = _get_connection_config(conn_id, ctx.app_state)
+            if resolved is None:
+                raise ValueError(
+                    f"Send Email: could not load the SMTP connection '{conn_id}'. "
+                    "Check that it still exists, or fill in the SMTP fields instead."
+                )
+            return self._smtp_from_connection(resolved[0])
         return {
             "host": self.params.get("smtp_host", ""),
             "port": int(self.params.get("smtp_port", 587)),
@@ -1454,6 +1886,30 @@ class SendEmailNode(BaseNode):
             "password": self.params.get("smtp_pass", ""),
             "from": self.params.get("from", ""),
             "security": self.params.get("security", "tls"),
+        }
+
+    @staticmethod
+    def _smtp_from_connection(config: dict) -> dict:
+        """Map an SMTP connection's settings onto what ``_send_one`` uses.
+
+        The Connections form saves ``username``, ``from_address`` and a
+        ``tls`` switch (STARTTLS, on by default); connections made through
+        the API may use ``user``, ``from``/``sender`` or an explicit
+        ``security`` of tls / ssl / none. Port 465 means implicit TLS.
+        """
+        port = int(config.get("port") or 587)
+        security = str(config.get("security") or "").strip().lower()
+        if security not in ("tls", "ssl", "none"):
+            tls = config.get("tls", config.get("use_tls", True))
+            tls_on = tls if isinstance(tls, bool) else str(tls).strip().lower() in ("true", "1", "yes", "on")
+            security = "ssl" if port == 465 else ("tls" if tls_on else "none")
+        return {
+            "host": config.get("host", ""),
+            "port": port,
+            "user": config.get("username") or config.get("user", ""),
+            "password": config.get("password", ""),
+            "from": config.get("from_address") or config.get("from") or config.get("sender", ""),
+            "security": security,
         }
 
     # ── Send a single email ─────────────────────────────────────────
@@ -1763,6 +2219,24 @@ class CopyDataNode(BaseNode):
         config, conn_type = result
 
         source_kind = (self.params.get("source_kind") or "table").lower()
+        if source_kind == "stored_procedure":
+            # 2026-11-11: the form offered this, but the step asked for a table.
+            from revoluzen_flow.nodes.db_source import procedure_args, procedure_call
+            # Before 2026-11-11 the form saved `stored_procedure` and named
+            # parameters as `proc_params`; both are still read.
+            name = self.params.get("source_procedure") or self.params.get("stored_procedure") or ""
+            raw_args = self.params.get("source_proc_args")
+            if raw_args in (None, "", [], {}):
+                raw_args = self.params.get("proc_params")
+            try:
+                statement, values = procedure_call(
+                    conn_type, self.params.get("source_schema") or "", name, procedure_args(raw_args),
+                )
+            except ValueError as exc:
+                raise ValueError(f"Copy Data: {exc}") from None
+            helper = DbSourceNode({"connection_id": connection_id})
+            rows, columns = helper._execute_real(conn_type, config, statement, params=values)
+            return helper._relation_from_rows(ctx, rows, columns)
         if source_kind == "query":
             query = (self.params.get("source_query") or "").strip()
             if not query:
@@ -2045,7 +2519,14 @@ class CopyDataNode(BaseNode):
             {"name": "source_connection_id", "type": "connection_picker", "label": "Source Connection",
              "description": "Leave empty to copy from the upstream node instead.", "tab": "Source"},
             {"name": "source_kind", "type": "select", "label": "Source Type",
-             "options": ["table", "query"], "default": "table", "tab": "Source"},
+             "options": ["table", "query", "stored_procedure"], "default": "table", "tab": "Source"},
+            {"name": "source_procedure", "type": "text", "label": "Stored Procedure",
+             "placeholder": "dbo.GetOrders", "tab": "Source",
+             "show_when": {"source_kind": ["stored_procedure"]},
+             "description": "SQL Server, MySQL, or a PostgreSQL function that returns a table."},
+            {"name": "source_proc_args", "type": "json", "label": "Procedure Arguments", "tab": "Source",
+             "show_when": {"source_kind": ["stored_procedure"]},
+             "description": 'A JSON list in order, e.g. [42, "EU"], or by name, e.g. {"@StartDate": "2025-01-01"}.'},
             {"name": "source_table", "type": "text", "label": "Source Table",
              "placeholder": "schema.table_name", "tab": "Source"},
             {"name": "source_query", "type": "sql", "label": "Source Query",

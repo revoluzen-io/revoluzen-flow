@@ -68,8 +68,10 @@ const SOURCE_REQUIREMENTS: Record<string, string[]> = {
   gcs: ['bucket', 'path'],
   gcs_source: ['bucket', 'path'],
   gcs_sink: ['bucket', 'path'],
-  kafka_source: ['topic', 'bootstrap_servers'],
-  kafka: ['topic', 'bootstrap_servers'],
+  // 2026-11-11: brokers and sign-in come from the saved Kafka connection; the
+  // step has no broker field (nodes/sources.py KafkaSourceNode.param_schema).
+  kafka_source: ['topic', 'connection_id'],
+  kafka: ['topic', 'connection_id'],
   gsheet_source: ['spreadsheet_id'],
   delta_source: ['path'],
   graphql: ['url', 'query'],
@@ -148,7 +150,6 @@ const FLOW_REQUIREMENTS: Record<string, string[]> = {
 
 const ACTION_REQUIREMENTS: Record<string, string[]> = {
   http_request: ['url'],
-  webhook_trigger: [],      // special: needs url OR path
   webhook: [],              // special: needs url OR path
   code_script: ['code'],
   code: ['code'],
@@ -240,7 +241,9 @@ export const ONE_OF_FIELD_GROUPS: Record<string, string[][]> = {
   // (`functions`) now lives in TRANSFORM_REQUIREMENTS above and
   // doesn't need a special branch.
   webhook:           [['url', 'path']],
-  webhook_trigger:   [['url', 'path']],
+  // 2026-11-11: a Data Quality step checks its own rules and/or shared rule
+  // sets; one of them is enough (the data_quality branch of validate()).
+  data_quality:      [['rules', 'rule_sets']],
   // slack_notify/slack: webhook_url is HARD-required (the node POSTs to it);
   // `channel` is an optional override. Not a one-of group — see the
   // slack branch in validate() and the `*` in SlackNotifyConfig. (2026-06-17)
@@ -483,7 +486,51 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
     // freshly-imported pipelines work without manual steps.
     const FILE_CONNECTORS = new Set([
       'csv', 'json', 'parquet', 'excel', 'xml',
+      // The File step (any format, mainframe files, PGP), 2026-11-11.
+      'file',
     ]);
+    // The File step's mainframe formats and PGP need their settings before a
+    // run. Same rules as backend/revoluzen_flow/ir/validator.py.
+    {
+      const connector = String(params?.connector_type || '').toLowerCase();
+      const fileSource = stepType === 'file_source' || (stepType === 'source' && connector === 'file');
+      const fileSink = stepType === 'file_sink' || (stepType === 'destination' && connector === 'file');
+      const format = String(params?.format || 'auto').toLowerCase();
+      if (fileSource && format === 'copybook' && !hasAnyParam(params, ['copybook', 'copybook_path'])) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'copybook',
+          message: 'COBOL copybook records need the copybook: paste it, or give its file.',
+        });
+      }
+      if (fileSource && format === 'fixed_width'
+          && !(Array.isArray(params?.fixed_columns) && params.fixed_columns.length) && !hasParam(params, 'fixed_widths')) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'fixed_columns',
+          message: 'Fixed-width text needs its columns: start and length, or a list of widths.',
+        });
+      }
+      const wantsPgp = fileSource ? params?.pgp_decrypt : fileSink ? params?.pgp_encrypt : false;
+      if ((wantsPgp === true || wantsPgp === 'true') && !hasParam(params, 'pgp_credential_id')) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'pgp_credential_id',
+          message: 'Choose the PGP key credential, or turn PGP off.',
+        });
+      }
+      // Signatures: checked when reading, made when writing; each needs its key.
+      const isOn = (v: unknown) => v === true || v === 'true';
+      if (isOn(wantsPgp) && fileSource && isOn(params?.pgp_verify) && !hasParam(params, 'pgp_verify_credential_id')) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'pgp_verify_credential_id',
+          message: "Choose the credential with the sender's public key, or turn off the signature check.",
+        });
+      }
+      if (isOn(wantsPgp) && fileSink && isOn(params?.pgp_sign) && !hasParam(params, 'pgp_sign_credential_id')) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'pgp_sign_credential_id',
+          message: 'Choose the credential with your private key for signing, or turn off signing.',
+        });
+      }
+    }
     if (stepType === 'source' || stepType === 'destination') {
       const connector = String(params?.connector_type || '').toLowerCase();
       const hasConn = hasParam(params, 'connection_id');
@@ -495,8 +542,21 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
         'file_path', 'dataset_id', 'file_id',
       ]);
       const isFileConnector = !connector || FILE_CONNECTORS.has(connector);
+      // 2026-11-11: a Delta table is a folder or cloud address in Table Path;
+      // the Delta steps take no saved connection (mirrors ir/validator.py).
+      const PATH_CONNECTORS: Record<string, string[]> = { delta: ['table_path'] };
 
-      if (isFileConnector) {
+      if (PATH_CONNECTORS[connector]) {
+        if (!hasConn && !hasAnyParam(params, PATH_CONNECTORS[connector])) {
+          issues.push({
+            nodeId: node.id,
+            nodeLabel: label,
+            level: 'error',
+            message: 'Give the Delta table\'s path: a folder in the data folder, or a cloud address such as s3://bucket/table.',
+            field: 'table_path',
+          });
+        }
+      } else if (isFileConnector) {
         if (!hasConn && !hasFileInput) {
           issues.push({
             nodeId: node.id,
@@ -747,7 +807,7 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
 
     // --- Action requirements ---
     if (ACTION_REQUIREMENTS[stepType] !== undefined) {
-      if (stepType === 'webhook_trigger' || stepType === 'webhook') {
+      if (stepType === 'webhook') {
         if (!hasAnyParam(params, ['url', 'path'])) {
           issues.push({
             nodeId: node.id,
@@ -1130,6 +1190,14 @@ export function validateWorkflow(nodes: any[], edges: any[], pipelineParameters?
     // Keys the step does not read (a rule's `check` / `min` / `max`, the step's
     // `on_failure`) are a warning: the step still runs, but not as they say.
     if (stepType === 'data_quality') {
+      const ownRules = Array.isArray(params?.rules) ? params.rules.length : 0;
+      const sharedSets = Array.isArray(params?.rule_sets) ? params.rule_sets.length : 0;
+      if (!ownRules && !sharedSets) {
+        issues.push({
+          nodeId: node.id, nodeLabel: label, level: 'error', field: 'rules',
+          message: 'Add a validation rule or pick a shared rule set: with neither, the step checks nothing.',
+        });
+      }
       for (const issue of dqRuleIssues(params?.rules)) {
         issues.push({ nodeId: node.id, nodeLabel: label, level: issue.level, field: 'rules', message: issue.message });
       }

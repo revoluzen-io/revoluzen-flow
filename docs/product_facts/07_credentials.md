@@ -40,12 +40,47 @@ Hit **Save**. Revoluzen Flow:
    credentials by ID — the encrypted value is never embedded in the
    pipeline IR.
 
+Which values count as secret: every field you mark with the eye switch,
+and every field whose name says it holds one (password, passphrase,
+secret, token, API key, private key, connection string, or a name ending
+in `_key`; not a name ending in `_id`, `_url` or `_name`). No character of
+a secret is ever sent back to the browser: the Credentials page shows a
+stored secret as •••••••• with a **Replace** button, and saving without
+replacing it keeps the stored value.
+
 To use the credential, pick it under **Saved credential** on a
 connection: the fields it holds fill themselves, for example the
 username and password. A **SaaS Connector** step has the same picker,
 and the pipeline stores only which credential to use. Connection
 strings are reconstituted at runtime by the backend; the frontend
 never sees plaintext.
+
+A password, key or webhook URL typed straight into a pipeline step, instead
+of linked from a connection, is protected the same way (since November 2026).
+It is encrypted when the pipeline is saved, including in older versions, the
+Bin and run history, and it is read only while the step runs. The step shows
+it as ••••••••, and saving without changing it keeps the stored value. A
+saved connection is still the better place for a secret that several
+pipelines share.
+
+The default value of a pipeline parameter is kept the same way when the
+parameter's name says it holds a secret, such as `db_password` or `api_key`,
+or when you tick **Secret** for it under **Parameters**. Step settings can
+use it as usual with `${param.db_password}`. A value typed for such a
+parameter when starting a run is encrypted in the run's history and shown as
+••••••••; leaving the field empty uses the stored default. A value saved for
+it on a schedule or a backfill is kept the same way.
+
+- An exported pipeline, or a template made from one, does not carry these
+  secrets. Enter them again after importing it or using the template.
+- Compare cannot show whether a stored secret changed, because both versions
+  show the same dots. The change still makes a new version.
+- A value containing `{{ }}` or `${ }` is a reference filled in when the step
+  runs, so it stays readable.
+- A secret inside free text, such as SQL, a request body or a URL with a
+  password in it, cannot be detected. Use a saved connection for those.
+- Database backups taken before the upgrade still hold the old values.
+  Change any password that matters.
 
 Set an **expiry date** if the secret has one. Administrators are warned
 on the notification bell and by email a week ahead, a day ahead and when
