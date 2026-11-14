@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-13T12:48:19.040867+00:00",
+  "generated_at": "2026-11-14T11:54:28.223346+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -21,10 +21,10 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "9416f1144aee15971790d0de5388e7ad88a6fdad759fdb729bf94b8414bfb57f",
+      "fingerprint": "f7a3de68869181d34b232d88840d31f8157ade45cad1746eaab90cd3c801b31c",
       "kind": "spec",
-      "observed": "9416f1144aee",
-      "pinned": "2a93393cfccb",
+      "observed": "f7a3de688691",
+      "pinned": "9416f1144aee",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -39,21 +39,21 @@
     },
     {
       "connector_id": "mailchimp",
-      "fingerprint": "16aa86dccbeee5b027434a7bb4405667d23c4956f8902ba54e375a5bed8757fd",
+      "fingerprint": "20f1e27435a72a1e3636ae5afc2d016a827105e7edee9995e8a1d3b435c4e891",
       "kind": "spec",
-      "observed": "16aa86dccbee",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "20f1e27435a7",
+      "pinned": "16aa86dccbee",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "pagerduty",
       "fingerprint": "cbae7d77f588e8fb5b14118003c9b8a71f274c57719ddc39eb8e77a71994f6d8",
       "kind": "spec",
       "observed": "cbae7d77f588",
-      "pinned": "6471be3950a0",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "slack_api",
