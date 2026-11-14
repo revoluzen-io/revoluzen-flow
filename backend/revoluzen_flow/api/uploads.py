@@ -58,6 +58,19 @@ def _safe_workspace_id(request: Request) -> str:
         return "default"
 
 
+def _workspace_upload_dir(workspace_id: str) -> str:
+    """This workspace's folder under ``uploads/``, and never anywhere else.
+
+    The id comes from the X-Workspace-Id header, which instance admins and
+    local-mode callers may set to anything, ``../..`` included.
+    """
+    uploads_root = os.path.realpath(os.path.join(_get_data_dir(), "uploads"))
+    ws_dir = os.path.realpath(os.path.join(uploads_root, workspace_id))
+    if not ws_dir.startswith(uploads_root + os.sep) or os.path.dirname(ws_dir) != uploads_root:
+        raise HTTPException(status_code=400, detail="Invalid workspace id.")
+    return ws_dir
+
+
 def _sanitize(name: str) -> str:
     base = os.path.basename(name or "").strip()
     base = _SAFE_NAME.sub("_", base)
@@ -148,7 +161,7 @@ async def upload_file(
         )
 
     data_dir = _get_data_dir()
-    ws_dir = os.path.join(data_dir, "uploads", workspace_id)
+    ws_dir = _workspace_upload_dir(workspace_id)
     os.makedirs(ws_dir, exist_ok=True)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -198,7 +211,7 @@ async def upload_file(
 async def list_uploads(workspace_id: str = Depends(_safe_workspace_id)):
     """List previously uploaded files for this workspace."""
     data_dir = _get_data_dir()
-    ws_dir = os.path.join(data_dir, "uploads", workspace_id)
+    ws_dir = _workspace_upload_dir(workspace_id)
     if not os.path.isdir(ws_dir):
         return {"files": []}
 

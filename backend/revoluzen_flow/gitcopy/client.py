@@ -105,7 +105,7 @@ def commit_page(repo_url: str, sha: str) -> str:
         return f"{base}/-/commit/{sha}"
     if "bitbucket" in host:
         return f"{base}/commits/{sha}"
-    if "github" in host or "dev.azure.com" in host or "visualstudio.com" in host or "gitea" in host:
+    if "github" in host or host == "dev.azure.com" or host.endswith(".visualstudio.com") or "gitea" in host:
         return f"{base}/commit/{sha}"
     return ""
 

@@ -1832,8 +1832,10 @@ async def health_ready():
     try:
         database.fetchone("SELECT 1 AS ping")
         checks["sqlite"] = {"status": "ok", "path": database.db_path}
-    except Exception as exc:
-        checks["sqlite"] = {"status": "error", "detail": str(exc)}
+    except Exception:
+        # This probe answers anonymous callers: the reason goes to the log only.
+        logger.warning("Readiness: the metadata database did not answer", exc_info=True)
+        checks["sqlite"] = {"status": "error", "detail": "database unreachable"}
         ready = False
 
     # 2) Scheduler

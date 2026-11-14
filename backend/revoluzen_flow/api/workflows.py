@@ -2282,8 +2282,10 @@ async def cancel_workflow_run(
             for run_id in pool.live_run_ids(workflow_id=workflow_id, workspace_id=workspace_id):
                 cancel_run(run_id, reason, create=True)
                 stopped_runs.append(run_id)
-    except Exception as exc:  # noqa: BLE001
-        cancel_errors.append(f"pool lookup: {exc}")
+    except Exception:  # noqa: BLE001
+        # Reasons go to the log; the caller gets a fixed phrase.
+        logger.warning("Stop: pool lookup failed for %s", workflow_id, exc_info=True)
+        cancel_errors.append("pool lookup failed")
 
     # Cancel registered live handles (best-effort — manager may not be up).
     try:
@@ -2296,10 +2298,12 @@ async def cancel_workflow_run(
                     ok, _ = mgr.cancel_by_id(record.handle.id)
                     if ok:
                         cancelled_handles += 1
-                except Exception as exc:
-                    cancel_errors.append(f"{record.handle.id}: {exc}")
-    except Exception as exc:
-        cancel_errors.append(f"manager lookup: {exc}")
+                except Exception:
+                    logger.warning("Stop: could not cancel handle %s", record.handle.id, exc_info=True)
+                    cancel_errors.append(f"{record.handle.id}: could not be cancelled")
+    except Exception:
+        logger.warning("Stop: execution manager lookup failed for %s", workflow_id, exc_info=True)
+        cancel_errors.append("manager lookup failed")
 
     # Rows the store still shows as running. One the pool knows is live and
     # was stopped above; its run records the outcome when it ends. Any other
@@ -2328,8 +2332,9 @@ async def cancel_workflow_run(
                 workspace_id=workspace_id,
             )
             cleared_rows += 1
-    except Exception as exc:
-        cancel_errors.append(f"store update: {exc}")
+    except Exception:
+        logger.warning("Stop: could not mark stale runs of %s cancelled", workflow_id, exc_info=True)
+        cancel_errors.append("store update failed")
 
     return {
         "workflow_id": workflow_id,
