@@ -26,13 +26,8 @@ def saved_connection(ctx: Any, connection_id: str, who: str) -> tuple[dict, str]
             environment=environment_of(ctx) if environment_of is not None else None,
         )
     else:
-        # The run's own stores when it was given them, else the server's.
-        app_state = getattr(ctx, "app_state", None) or {}
-        workspace_id = getattr(ctx, "workspace_id", None) or None
-        if app_state.get("connection_store") is not None:
-            result = getter(connection_id, app_state=app_state, workspace_id=workspace_id)
-        else:
-            result = getter(connection_id, workspace_id=workspace_id)
+        app_state = getattr(ctx, "app_state", None) or None
+        result = getter(connection_id, app_state=app_state) if app_state else getter(connection_id)
     if not result:
         raise ValueError(f"{who}: the saved connection '{connection_id}' was not found.")
     config, conn_type = result

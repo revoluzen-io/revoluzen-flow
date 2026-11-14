@@ -78,6 +78,30 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
     }).catch(() => {});
   }, []);
 
+  // V7 round 4 — deep-link via ?entity=workflow:<id> in the page hash.
+  // Lets external callers (StoragePreviewDrawer's "View lineage"
+  // button, Pipelines row, Copilot suggestions) open this page focused
+  // on a specific entity. Resolved once on mount + on hashchange.
+  useEffect(() => {
+    const resolveEntity = () => {
+      const hash = window.location.hash;  // e.g. "#lineage?entity=workflow:wf_abc123"
+      const qIdx = hash.indexOf('?');
+      if (qIdx < 0) return;
+      const search = new URLSearchParams(hash.slice(qIdx + 1));
+      const entity = search.get('entity');
+      if (!entity) return;
+      const [kind, ref] = entity.split(':', 2);
+      if (kind === 'workflow' && ref) {
+        setSelectedWf(ref);
+      }
+      // `table:schema.name` is reserved for a future round once the
+      // backend exposes table-centric lineage; ignore unknown kinds.
+    };
+    resolveEntity();
+    window.addEventListener('hashchange', resolveEntity);
+    return () => window.removeEventListener('hashchange', resolveEntity);
+  }, []);
+
   const loadLineage = useCallback(async (wfId: string) => {
     if (!wfId) return;
     setLoading(true);
@@ -96,33 +120,6 @@ export default function LineagePage({ environment = 'dev', tier = 'free' }: { en
       setLoading(false);
     }
   }, []);
-
-  // V7 round 4 — deep-link via ?entity=workflow:<id> in the page hash.
-  // Lets external callers (StoragePreviewDrawer's "View lineage"
-  // button, Pipelines row, Copilot suggestions) open this page focused
-  // on a specific entity. Resolved once on mount + on hashchange.
-  // 2026-11-14: the link chose the pipeline but never loaded its lineage, so a
-  // table's "View lineage" opened a page that still asked to select one.
-  useEffect(() => {
-    const resolveEntity = () => {
-      const hash = window.location.hash;  // e.g. "#lineage?entity=workflow:wf_abc123"
-      const qIdx = hash.indexOf('?');
-      if (qIdx < 0) return;
-      const search = new URLSearchParams(hash.slice(qIdx + 1));
-      const entity = search.get('entity');
-      if (!entity) return;
-      const [kind, ref] = entity.split(':', 2);
-      if (kind === 'workflow' && ref) {
-        setSelectedWf(ref);
-        loadLineage(ref);
-      }
-      // `table:schema.name` is reserved for a future round once the
-      // backend exposes table-centric lineage; ignore unknown kinds.
-    };
-    resolveEntity();
-    window.addEventListener('hashchange', resolveEntity);
-    return () => window.removeEventListener('hashchange', resolveEntity);
-  }, [loadLineage]);
 
   const traceColumn = async (col: string) => {
     if (!selectedWf || !col) return;

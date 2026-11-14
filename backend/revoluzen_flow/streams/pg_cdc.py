@@ -153,17 +153,9 @@ def parse_tables(value: Any, default_schema: str = "public") -> list[tuple[str, 
             )
         if tuple(parts) not in out:
             out.append((parts[0], parts[1]))
+    if not out:
+        raise ValueError(f"{WHO}: name at least one table to capture, for example public.orders.")
     return out
-
-
-def publication_tables(cur, publication: str) -> list[tuple[str, str]]:
-    """The tables an existing publication holds (for a step that names only it)."""
-    cur.execute(
-        "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = %s "
-        "ORDER BY schemaname, tablename",
-        (publication,),
-    )
-    return [(r[0], r[1]) for r in cur.fetchall()]
 
 
 def _qident(name: str) -> str:
@@ -591,23 +583,9 @@ def names_for(ctx: Any, params: dict, step_id: str) -> tuple[str, str] | None:
     if who is None:
         return None
     base = default_name(*who)
-    # ``slot`` is the name steps saved before 2026-11-13 used.
-    slot = str(params.get("slot_name") or params.get("slot") or "").strip() or base
+    slot = str(params.get("slot_name") or "").strip() or base
     publication = str(params.get("publication") or "").strip() or base
     return slot, publication
-
-
-def _tables_or_publication(reader: "PgChangeReader", cur, named: str) -> None:
-    """With no tables named, capture every table of the step's own publication."""
-    if reader.tables:
-        return
-    found = publication_tables(cur, reader.publication) if named else []
-    if not found:
-        raise ValueError(
-            f"{WHO}: name at least one table to capture, for example public.orders, or the "
-            f"name of an existing publication."
-        )
-    reader.tables = found
 
 
 def read_postgres(ctx: Any, params: dict, config: dict, step_id: str, connect=None) -> Any:
@@ -625,15 +603,12 @@ def read_postgres(ctx: Any, params: dict, config: dict, step_id: str, connect=No
     preview = bool(getattr(ctx, "preview_mode", False) or getattr(ctx, "sandboxed", False))
     sample = _positive(getattr(ctx, "sample_row_limit", None), 100)
 
-    named_publication = str(params.get("publication") or "").strip()
     if names is None:
         # Test Node: no pipeline, so no slot of its own. Show current rows.
-        reader = PgChangeReader(config, "flow_preview", named_publication or "flow_preview",
-                                tables, connect, timeout)
+        reader = PgChangeReader(config, "flow_preview", "flow_preview", tables, connect, timeout)
         conn = reader.open()
         try:
             cur = conn.cursor()
-            _tables_or_publication(reader, cur, named_publication)
             columns = reader.table_columns(cur)
             return rows_to_relation(ctx.conn, reader.sample_rows(cur, columns, sample),
                                     "__cdc_rows", fixed=column_union(columns))
@@ -647,7 +622,6 @@ def read_postgres(ctx: Any, params: dict, config: dict, step_id: str, connect=No
     try:
         cur = conn.cursor()
         reader.check_server(cur)
-        _tables_or_publication(reader, cur, named_publication)
         columns = reader.table_columns(cur)
         state = reader.slot_state(cur)
         if state is not None and state["active"]:
@@ -703,7 +677,7 @@ def read_postgres(ctx: Any, params: dict, config: dict, step_id: str, connect=No
         "slot": slot,
         "publication": publication,
         "lsn": lsn_text(batch.end_lsn) if batch.end_lsn is not None else saved.value.get("lsn"),
-        "tables": [f"{s}.{t}" for s, t in reader.tables],
+        "tables": [f"{s}.{t}" for s, t in tables],
         "copied": bool(saved.value.get("copied")) or copied > 0,
     }
     pending = SlotAdvance(
