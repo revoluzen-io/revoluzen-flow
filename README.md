@@ -285,16 +285,12 @@ have an EV certificate and Apple notarization.
 
 ## What it looks like
 
-**Pipelines** — status, schedule, alerts, contracts and last run, with your
-projects in a panel beside the list.
+**Pipelines, projects and folders** — status, schedule, alerts, contracts and
+last run for every pipeline, with your projects and their folders in a panel
+beside the list. Pick a project to see only its pipelines and its owner, and
+add a folder or edit the project from the same place.
 
-<img src="docs/assets/screenshot-pipelines.png" alt="The Pipelines page with the projects panel on the left listing six projects and their pipeline counts, and the list of all 33 pipelines on the right, published and draft, with project and folder, last run, schedules from hourly to daily, alert and contract columns with one four-guarantee contract, and Run and Edit on every row" width="100%">
-
-**Projects and folders** — pick a project in the panel to see only its
-pipelines, its owner and its folders, and add a folder or edit the project
-from the same place.
-
-<img src="docs/assets/screenshot-projects.png" alt="The Pipelines page with the Supply Chain project selected in the projects panel and opened to its two folders, Partner feeds and Stock, showing its owner and eight pipelines with their schedules — every ten minutes, hourly, daily, and one that starts when a new file arrives — two with an alert, and the managed tables each one writes" width="100%">
+<img src="docs/assets/screenshot-pipelines.png" alt="The Pipelines page with the projects panel on the left and the Supply Chain project selected and opened to its two folders, Partner feeds and Stock; on the right its owner and eight pipelines, published and draft, with schedules every ten minutes, hourly, daily and one that starts when a new file arrives, two with an alert, and the managed tables each one writes" width="100%">
 
 **Connections** — one open framework across databases, warehouses, object
 stores, streams and SaaS APIs, each with its own health state.
