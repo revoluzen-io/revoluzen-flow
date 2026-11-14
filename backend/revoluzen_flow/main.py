@@ -55,6 +55,7 @@ from revoluzen_flow.feature_flags import FeatureDisabledError
 
 from revoluzen_flow.storage.database import Database
 from revoluzen_flow.ir.versioning import WorkflowStore
+from revoluzen_flow.reports.builder.store import ReportStore, note_app_version
 from revoluzen_flow.ir.lifecycle import LifecycleStore
 from revoluzen_flow.projects.store import ProjectStore
 from revoluzen_flow.folders.store import FolderStore
@@ -63,7 +64,7 @@ from revoluzen_flow.scheduling.store import ScheduleStore
 from revoluzen_flow.alerts.store import AlertStore
 from revoluzen_flow.monitoring.store import ExecutionStore
 from revoluzen_flow.auth.store import UserStore
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.variables.store import VariableStore
 from revoluzen_flow.credentials.store import CredentialStore
 from revoluzen_flow.connections.store import ConnectionStore
@@ -73,6 +74,9 @@ from revoluzen_flow.intelligence.schema_contract import SchemaContractStore
 from revoluzen_flow.intelligence.schema_history import SchemaHistoryStore
 from revoluzen_flow.engine.execution_log import ExecutionLogger
 from revoluzen_flow.contracts.store import ContractStore
+from revoluzen_flow.incidents.store import IncidentStore
+from revoluzen_flow.quality_rules.store import RuleSetStore
+from revoluzen_flow.glossary.store import GlossaryStore
 from revoluzen_flow.engine.step_output_store import StepOutputStore
 # 2026-05-26 — typed event bus + built-in Prometheus consumer.
 # Wired here at the lifespan boundary so every store/router shares
@@ -109,6 +113,9 @@ from revoluzen_flow.api import (
     intelligence_router,
     contracts_router,
     execution_contracts_router,
+    incidents_router,
+    quality_rule_sets_router,
+    glossary_router,
     schema_history_router,
     connections_router,
     extraction_router,
@@ -139,9 +146,11 @@ from revoluzen_flow.api import (
     health_memory_router,
     execution_manager_router,
     reports_router,
+    report_builder_router,
     pool_allocation_router,
     workspace_settings_router,
     ai_cost_rates_router,
+    ai_roles_router,
     deployments_router,
     recipes_router,
     agent_router,
@@ -158,7 +167,9 @@ from revoluzen_flow.api import (
     connector_drafts_router,
     ai_web_router,
     publish_policy_router,
+    git_copy_router,
     app_meta_router,
+    legacy_files_router,
 )
 
 
@@ -367,6 +378,7 @@ def _populate_state(data_dir: str) -> None:
         "workspace_store": WorkspaceStore(db=db),
         "schedule_store": ScheduleStore(db=db),
         "alert_store": AlertStore(db=db),
+        "report_store": ReportStore(db=db),
         "execution_store": ExecutionStore(db=db),
         "user_store": UserStore(db=db),
         "variable_store": VariableStore(db=db),
@@ -392,6 +404,13 @@ def _populate_state(data_dir: str) -> None:
         # receipts. The executor checks for one at the end of every run; a
         # pipeline without a contract costs a dict lookup and nothing else.
         "contract_store": ContractStore(db=db),
+        # Incidents: one record per pipeline that has started failing,
+        # opened and resolved from run outcomes (incidents/service.py).
+        "incident_store": IncidentStore(db=db),
+        # Shared quality rule sets many Data Quality steps use (quality_rules/).
+        "quality_rule_set_store": RuleSetStore(db=db),
+        # The workspace's business glossary, read by the Copilot (glossary/).
+        "glossary_store": GlossaryStore(db=db),
         "scheduler": PipelineScheduler(check_interval_seconds=30),
         "notifier": NotificationService(),
         "notification_store": NotificationStore(db=db),
@@ -868,6 +887,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _populate_state(data_dir)
     app.state.revoluzen_flow_state = app_state
 
+    # 0.05) Driver add-ons an admin installed on Settings > Add-ons become
+    # importable, after everything Revoluzen Flow ships (2026-11-11).
+    try:
+        from revoluzen_flow.connections.addon_installer import activate as _activate_addons
+        _activate_addons(data_dir)
+    except Exception as exc:
+        logger.warning("Add-ons folder skipped: %s", exc)
+
     # 0) Seed bundled demo data — copies revoluzen_flow/seed_data/orders.csv into
     # REVOLUZEN_FLOW_DATA_DIR/samples/orders.csv on first run. Idempotent: only
     # copies when the target is missing, so an operator who replaced the
@@ -888,6 +915,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _warn_if_bootstrap_password_lingers(data_dir)
     except Exception as exc:
         logger.warning("Bootstrap-password check skipped: %s", exc)
+
+    # Empty server-mode install: print the one-time setup token the first
+    # account needs (api/auth.py ensure_setup_token). `docker logs` shows it.
+    try:
+        from revoluzen_flow.api.auth import SETUP_TOKEN_FILENAME, ensure_setup_token
+        _setup_token = ensure_setup_token(data_dir)
+        if _setup_token:
+            _msg = (
+                "\n  FIRST RUN: this server has no account yet. Creating the first "
+                "account needs this one-time setup token:\n\n"
+                f"      {_setup_token}\n\n"
+                f"  (also saved as {os.path.join(data_dir, SETUP_TOKEN_FILENAME)}; "
+                "it stops working once the first account exists)\n"
+            )
+            print(_msg, flush=True)
+            logger.warning("First-run setup token required; see %s", SETUP_TOKEN_FILENAME)
+    except Exception as exc:  # noqa: BLE001 — never block startup on this
+        logger.warning("Setup-token check skipped: %s", exc)
 
     # 0.6) Datastore reconcile — back-fill storage_objects rows for any
     # files that exist on disk but predate the v25 index (legacy uploads,
@@ -911,6 +956,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.warning("Auto-backup skipped: %s", exc)
 
+    # 1.5) Encrypt the passwords and keys typed straight into connections,
+    # and the credential fields only the encryptor's short name list used to
+    # cover; both were stored as typed until November 2026. After the backup
+    # above, one transaction each; once every value is encrypted they write
+    # nothing, so they are safe at every start.
+    try:
+        from revoluzen_flow.security.migrate_existing import encrypt_connection_secrets
+        encrypt_connection_secrets(app_state["db"], app_state.get("encryptor"))
+    except Exception as exc:
+        logger.warning("Connection secret encryption skipped: %s", exc)
+    try:
+        from revoluzen_flow.security.migrate_existing import encrypt_credential_secrets
+        encrypt_credential_secrets(app_state["db"], app_state.get("encryptor"))
+    except Exception as exc:
+        logger.warning("Credential secret encryption skipped: %s", exc)
+    try:
+        from revoluzen_flow.security.migrate_existing import encrypt_pipeline_step_secrets
+        encrypt_pipeline_step_secrets(app_state["db"], app_state.get("encryptor"))
+    except Exception as exc:
+        logger.warning("Pipeline step secret encryption skipped: %s", exc)
+
     # 2) Node registry — DEFERRED to background _warmup().
     # The registry's import chain pulls duckdb in via 35 node modules, which
     # was previously paid synchronously here and counted toward "lifespan
@@ -927,6 +993,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.error("Worker pool failed to start: %s", exc)
 
+    # So a report can say when this version of Flow arrived.
+    try:
+        from revoluzen_flow import __version__ as _flow_version
+        note_app_version(app_state["db"], _flow_version)
+    except Exception as exc:
+        logger.warning("Could not record the running Flow version: %s", exc)
+
     # 4) Start background scheduler — unless this node is API-only.
     #
     # The scheduler object is always constructed (see app_state above) because
@@ -937,6 +1010,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         scheduler: PipelineScheduler = app_state["scheduler"]
         if feature_flags.is_enabled("scheduler"):
             scheduler.start()
+            # Table monitors run where schedules run, on the lease holder
+            # (datastore/table_monitor.py).
+            try:
+                from revoluzen_flow.datastore.table_monitor import TableMonitorLoop
+                app_state["table_monitor"] = TableMonitorLoop(app_state)
+                app_state["table_monitor"].start()
+            except Exception as exc:  # noqa: BLE001 — monitors never block startup
+                logger.warning("Table monitors not started: %s", exc)
         else:
             logger.info(
                 "Scheduler not started: REVOLUZEN_FLOW_ENABLE_SCHEDULER is off. "
@@ -1001,6 +1082,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Bin purge scheduled (daily 03:50 UTC, %d-day retention)",
             _bin_days,
         )
+
+    # 6b-quinquies) Copies of published pipelines to the customer's Git: picks
+    # up what failed or was left waiting by a restart. Idle when not set up.
+    from revoluzen_flow.gitcopy.service import retry_loop as _git_copy_retry_loop
+    app_state["git_copy_task"] = asyncio.create_task(_git_copy_retry_loop())
 
     # 6c) Product knowledge — Layer 2 of the chat knowledge architecture.
     # Indexes curated `docs/product_facts/*.md` so the AI Copilot can
@@ -1173,6 +1259,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             scheduler.stop()
     except Exception as exc:
         logger.error("Scheduler shutdown error: %s", exc)
+    try:
+        monitors = app_state.get("table_monitor")
+        if monitors:
+            monitors.stop()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Table monitor shutdown error: %s", exc)
 
     # 3) Event bus — drain pending publishes, close transport.
     # Before DB close so any final "shutdown" event lands first.
@@ -1493,6 +1585,9 @@ app.include_router(contracts_router)
 # Execution Contracts — distinct from the Schema Contracts router above:
 # the declarative run promise and its append-only receipts.
 app.include_router(execution_contracts_router)
+app.include_router(incidents_router)
+app.include_router(quality_rule_sets_router)
+app.include_router(glossary_router)
 app.include_router(schema_history_router)
 app.include_router(connections_router)
 app.include_router(extraction_router)
@@ -1509,6 +1604,7 @@ app.include_router(steward_router)
 app.include_router(backup_router)
 app.include_router(ai_web_router)
 app.include_router(publish_policy_router)
+app.include_router(git_copy_router)
 app.include_router(ws_router)
 app.include_router(ws_info_router)
 app.include_router(logs_router)
@@ -1551,13 +1647,20 @@ app.include_router(storage_router)
 app.include_router(health_memory_router)
 app.include_router(execution_manager_router)
 app.include_router(reports_router)
+app.include_router(report_builder_router)
+# File step helpers for mainframe files and PGP keys (November 2026).
+app.include_router(legacy_files_router)
 app.include_router(pool_allocation_router)
 app.include_router(workspace_settings_router)
 # Per-workspace AI cost rate table — admin-editable in Settings.
 app.include_router(ai_cost_rates_router)
+app.include_router(ai_roles_router)
 app.include_router(deployments_router)
 app.include_router(recipes_router)
 app.include_router(metrics_router)
+# Settings > Add-ons: vendor drivers an admin installs from the app (2026-11-11).
+from revoluzen_flow.api.addons import router as addons_router  # noqa: E402
+app.include_router(addons_router)
 
 
 # ── Inline endpoints (kept here because they reach into app_state) ──────
@@ -1566,14 +1669,20 @@ async def list_executions_alias(
     workflow_id: str | None = None,
     project_id: str | None = None,
     limit: int = 200,
+    workspace_id: str = Depends(current_workspace_id),
 ):
-    """Alias for /api/monitor/executions — used by ExecutionsPage."""
+    """Alias for /api/monitor/executions — used by ExecutionsPage.
+
+    2026-11-13: had no dependency and no workspace filter, so an anonymous
+    caller on a server-mode install read every workspace's run history.
+    Now scoped exactly like /api/monitor/executions.
+    """
     store = app_state["execution_store"]
     if workflow_id:
-        return store.list_by_workflow(workflow_id, limit)
+        return store.list_by_workflow(workflow_id, limit, workspace_id=workspace_id)
     if project_id:
-        return store.list_by_project(project_id, limit)
-    return store.list_all(limit)
+        return store.list_by_project(project_id, limit, workspace_id=workspace_id)
+    return store.list_all(limit, workspace_id=workspace_id)
 
 
 @app.get("/api/health")
@@ -1723,8 +1832,10 @@ async def health_ready():
     try:
         database.fetchone("SELECT 1 AS ping")
         checks["sqlite"] = {"status": "ok", "path": database.db_path}
-    except Exception as exc:
-        checks["sqlite"] = {"status": "error", "detail": str(exc)}
+    except Exception:
+        # This probe answers anonymous callers: the reason goes to the log only.
+        logger.warning("Readiness: the metadata database did not answer", exc_info=True)
+        checks["sqlite"] = {"status": "error", "detail": "database unreachable"}
         ready = False
 
     # 2) Scheduler
@@ -1768,7 +1879,11 @@ async def health_ready():
     return result
 
 
-@app.get("/api/system/metrics")
+# 2026-11-13: the system, scheduler and file-list routes below answered anonymous
+# callers in server mode (process ids, running pipeline names, schedules, data
+# files). `current_workspace_id` refuses anonymous callers on a server and is a
+# no-op on a loopback laptop install, so the local UI is unchanged.
+@app.get("/api/system/metrics", dependencies=[Depends(current_workspace_id)])
 async def system_metrics():
     """Return system resource usage — CPU, memory, disk, process info."""
     import time
@@ -1813,7 +1928,7 @@ async def system_metrics():
         }
 
 
-@app.get("/api/system/resource-alerts")
+@app.get("/api/system/resource-alerts", dependencies=[Depends(current_workspace_id)])
 async def check_resource_alerts():
     """Check system resources against thresholds and return any violations.
 
@@ -1886,7 +2001,7 @@ async def check_resource_alerts():
     }
 
 
-@app.get("/api/system/update-readiness")
+@app.get("/api/system/update-readiness", dependencies=[Depends(current_workspace_id)])
 async def update_readiness():
     """Check if the system is safe to update/restart.
 
@@ -1943,7 +2058,7 @@ async def update_readiness():
     }
 
 
-@app.get("/api/scheduler/status")
+@app.get("/api/scheduler/status", dependencies=[Depends(current_workspace_id)])
 async def scheduler_status():
     """Get background scheduler status and active jobs."""
     scheduler: PipelineScheduler = app_state["scheduler"]
@@ -2106,7 +2221,7 @@ async def saas_manifests(refresh: bool = False):
     return out
 
 
-@app.post("/api/upload")
+@app.post("/api/upload", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def upload_file(
     file: UploadFile = File(...),
     replaces: str | None = None,
@@ -2161,6 +2276,15 @@ async def upload_file(
     # Best-effort cleanup of the previous file. Path must resolve inside
     # data_dir (no traversal) and not be the file we just wrote.
     replaced = False
+    # 2026-11-13: ``replaces`` could name ANY file under data_dir — the master
+    # key, the SQLite database, another workspace's upload — and a viewer (or,
+    # on a local install, any web page via a cross-site form) deleted it. It
+    # must now be a bare data-file name of the kind this route writes, and
+    # never an internal or secret-bearing file.
+    if replaces and (os.path.basename(replaces) != replaces
+                     or "/" in replaces or "\\" in replaces
+                     or not _is_listable_data_file(replaces)):
+        replaces = None
     if replaces:
         try:
             prev_abs = os.path.normpath(os.path.join(dest_dir, replaces))
@@ -2185,7 +2309,7 @@ async def upload_file(
 # into the Source node's file picker. Exclude dotfiles and any
 # secret-bearing / Revoluzen Flow-internal file regardless of extension.
 _LISTABLE_DATA_EXTS = {".csv", ".json", ".parquet", ".tsv", ".txt", ".xlsx", ".xls", ".xml"}
-_SENSITIVE_BASENAMES = {"initial_admin_password.txt", "secret.key", ".env"}
+_SENSITIVE_BASENAMES = {"initial_admin_password.txt", "secret.key", ".env", "setup_token.txt"}
 
 
 def _is_listable_data_file(name: str) -> bool:
@@ -2198,7 +2322,7 @@ def _is_listable_data_file(name: str) -> bool:
     return os.path.splitext(low)[1] in _LISTABLE_DATA_EXTS
 
 
-@app.get("/api/files")
+@app.get("/api/files", dependencies=[Depends(current_workspace_id)])
 async def list_files():
     """List user data files in the data dir for the Source node picker.
 

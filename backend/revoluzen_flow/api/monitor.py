@@ -9,7 +9,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from revoluzen_flow.auth.deps import current_workspace_id, require_auth
+from revoluzen_flow.auth.deps import current_workspace_id, require_auth, require_min_rank_when_identified
+from revoluzen_flow.security.step_secret_routes import MaskRunSnapshotsRoute
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ router = APIRouter(
     prefix="/api/monitor",
     tags=["monitor"],
     dependencies=[_AUTH],
+    route_class=MaskRunSnapshotsRoute,
 )
 
 
@@ -561,7 +563,7 @@ def _diff_executions(a: dict, b: dict) -> dict[str, Any]:
     }
 
 
-@router.post("/executions/{execution_id}/replay")
+@router.post("/executions/{execution_id}/replay", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def replay_execution(
     execution_id: str,
     workspace_id: str = Depends(_safe_workspace_id),

@@ -20,9 +20,11 @@ import MoveToProjectButton from '../shared/MoveToProjectButton';
 import RowActionButton from '../shared/RowActionButton';
 import HubTabs, { CONNECTIONS_TABS } from '../HubTabs';
 import DetailDrawer from '../shared/DetailDrawer';
+import ConnectionHistory from '../connections/ConnectionHistory';
 import TimeAgo from '../shared/TimeAgo';
 import { CertChipsForType } from '../shared/CertChips';
 import { usePageContext } from '../../hooks/usePageContext';
+import { SECRET_PLACEHOLDER, isStoredSecret } from '../../utils/storedSecrets';
 
 interface Connection {
   id: string;
@@ -52,6 +54,11 @@ interface Connection {
 export const WRITE_ONLY_TYPES = new Set([
   'slack', 'teams', 'smtp', 'sendgrid', 'twilio', 'pagerduty',
 ]);
+
+// 2026-11-11: the reverse — pipelines read these but nothing writes to them,
+// so "Sink (write)" starts unticked. Mirrors READ_ONLY_TYPES in
+// connections/models.py.
+export const READ_ONLY_TYPES = new Set(['odbc', 'db2', 'sap_hana', 'teradata']);
 
 // Two-checkbox state → capabilities array on the wire. We always send
 // at least one capability (the form blocks save when both are off via
@@ -123,6 +130,8 @@ export const CONNECTION_TYPES = [
   { type: 'db2', label: 'IBM Db2', icon: '🔷', color: '#054ADA', category: 'Databases' },
   { type: 'sap_hana', label: 'SAP HANA', icon: '🔷', color: '#0FAAFF', category: 'Databases' },
   { type: 'teradata', label: 'Teradata', icon: '🟠', color: '#F37440', category: 'Databases' },
+  // 2026-11-11: any database with an ODBC driver on this computer. Read only.
+  { type: 'odbc', label: 'ODBC database', icon: '🔌', color: '#475569', category: 'Databases' },
   // ── 2. NoSQL / Document / Graph ──
   { type: 'mongodb', label: 'MongoDB', icon: '🍃', color: '#47A248', category: 'NoSQL' },
   { type: 'cassandra', label: 'Cassandra', icon: '👁️', color: '#1287B1', category: 'NoSQL' },
@@ -159,6 +168,9 @@ export const CONNECTION_TYPES = [
   { type: 'gdrive', label: 'Google Drive', icon: '📁', color: '#4285F4', category: 'Files & Enterprise' },
   { type: 'dropbox', label: 'Dropbox', icon: '📦', color: '#0061FE', category: 'Files & Enterprise' },
   { type: 'ftp', label: 'FTP / SFTP', icon: '📡', color: '#6366f1', category: 'Files & Enterprise' },
+  // 2026-11-11: \\server\share files with a saved sign-in, read and written by
+  // the File step on Windows, Linux and Docker (backend connections/file_share.py).
+  { type: 'smb', label: 'Windows File Share (SMB)', icon: '🗂️', color: '#0078D4', category: 'Files & Enterprise' },
   { type: 'gsheet', label: 'Google Sheets', icon: '📗', color: '#0F9D58', category: 'Files & Enterprise' },
   // ── 7. APIs & Integration ──
   { type: 'rest_api', label: 'REST API', icon: '🌐', color: '#0ea5e9', category: 'APIs & Integration' },
@@ -267,10 +279,15 @@ const CONNECTOR_STATUS: Record<string, ConnectorStatus> = {
   // Backend has catalog + (db2/sap_hana/teradata also) tester paths;
   // they ship as beta until F0.1 cert and a live instance exercise.
   db2: 'beta', sap_hana: 'beta', teradata: 'beta',
+  // 2026-11-11: generic ODBC — read only, behaviour depends on the driver.
+  odbc: 'beta',
   athena: 'beta', presto: 'beta',
   elasticsearch: 'beta', opensearch: 'beta', redis: 'beta',
   adls_gen2: 'beta', sharepoint: 'beta', onedrive: 'beta', gdrive: 'beta',
   dropbox: 'beta', gsheet: 'beta', odata: 'beta',
+  // 2026-11-11: Windows file shares. Checked with a stand-in SMB client and
+  // the real library; Certified once run against a real Windows server.
+  smb: 'beta',
   // Streaming: only Kafka has a pipeline source+sink runtime today
   // (nodes/generic.py SOURCE_MAP/DEST_MAP + KAFKA_SOURCE/KAFKA_SINK).
   // RabbitMQ / Kinesis / Event Hubs have connection + catalog (discovery)
@@ -320,6 +337,23 @@ const CONNECTOR_STATUS: Record<string, ConnectorStatus> = {
 export function connectorStatus(type: string): ConnectorStatus {
   return CONNECTOR_STATUS[type] || 'certified';
 }
+
+// What the Beta notice lists before a Beta connector's form opens. The default
+// list describes database and SaaS connectors; a connector whose gaps are
+// different says its own (2026-11-11).
+const DEFAULT_BETA_NOTES = [
+  'Pagination may be partial — large result sets can be capped',
+  'Sink writes use basic INSERT (no bulk-load optimization yet)',
+  'Schema drift is logged but not enforced',
+  'Test fixtures are incomplete — re-runs may reveal edge cases',
+];
+const BETA_NOTES: Record<string, string[]> = {
+  smb: [
+    'Tested with a simulated file server and the SMB library, not yet against a real Windows server',
+    'A new file on a share starts a pipeline at the next check of the folder (every 30 seconds at most), not the moment it lands',
+    'Signs in only with the account saved in the connection',
+  ],
+};
 
 const STATUS_BADGE_STYLE: Record<ConnectorStatus, { bg: string; text: string; label: string }> = {
   certified: { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Certified' },
@@ -603,6 +637,15 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
       { value: 'KRB5', label: 'Kerberos' },
     ]},
   ],
+  // 2026-11-11: any database with an ODBC driver installed on the computer
+  // running Revoluzen Flow (backend connections/odbc.py). Read only.
+  odbc: [
+    { key: 'driver', label: 'ODBC Driver', type: 'text', placeholder: 'IBM INFORMIX ODBC DRIVER', hint: 'The driver\'s name as this computer lists it. Test shows the drivers it has if the name is wrong. Leave blank when you use a DSN.' },
+    { key: 'dsn', label: 'Data Source Name (DSN)', type: 'text', placeholder: '', hint: 'Only if a DSN is set up on this computer instead of a driver name.' },
+    { key: 'settings', label: 'More Settings', type: 'text', placeholder: 'Server=db1;Port=9088;Database=sales', hint: 'Anything else the driver needs, as name=value pairs separated by semicolons. Put the username and password below, not here.' },
+    { key: 'username', label: 'Username', type: 'text', placeholder: '' },
+    { key: 'password', label: 'Password', type: 'password', placeholder: '' },
+  ],
   // ── Search & Cache ──
   elasticsearch: [
     { key: 'host', label: 'Host URL', type: 'text', placeholder: 'https://es-cluster:9200', required: true, hint: 'Include protocol and port' },
@@ -718,6 +761,18 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     { key: 'private_key', label: 'SSH Private Key (SFTP)', type: 'password', placeholder: '-----BEGIN OPENSSH PRIVATE KEY-----', hint: 'SFTP key-based auth (PEM) — optional; leave blank to use password.' },
     { key: 'remote_path', label: 'Remote Path', type: 'text', placeholder: '/upload', hint: 'Default directory on the server' },
   ],
+  // 2026-11-11: Windows file shares (SMB). Pipelines reach them with the File
+  // step: Source or Destination, then this connection.
+  smb: [
+    { key: 'host', label: 'Server', type: 'text', placeholder: 'fileserver01.corp.example.com', required: true, hint: 'The server\'s name or IP address, as in \\\\fileserver01\\share' },
+    { key: 'share', label: 'Share', type: 'text', placeholder: 'mainframe', required: true, hint: 'The part after the server in \\\\fileserver01\\mainframe' },
+    { key: 'base_folder', label: 'Folder', type: 'text', placeholder: 'outbound\\daily', hint: 'Optional. File paths in pipeline steps start in this folder of the share.' },
+    { key: 'domain', label: 'Domain', type: 'text', placeholder: 'CORP', hint: 'The account\'s Windows domain. Leave blank for an account on the server itself.' },
+    { key: 'username', label: 'User name', type: 'text', placeholder: 'svc_flow', required: true },
+    { key: 'password', label: 'Password', type: 'password', placeholder: '', required: true },
+    { key: 'port', label: 'Port', type: 'number', placeholder: '445', defaultValue: '445' },
+    { key: 'encrypt', label: 'Require encryption', type: 'checkbox', placeholder: '', hint: 'Connect only if the server encrypts the traffic (SMB 3). Shares that ask for encryption are always encrypted.' },
+  ],
   gsheet: [
     { key: 'credentials_json', label: 'Service Account JSON', type: 'textarea', placeholder: '{ "type": "service_account", ... }', required: true },
     { key: 'spreadsheet_id', label: 'Spreadsheet ID', type: 'text', placeholder: '1BxiM...', required: true, hint: 'From the Google Sheets URL' },
@@ -810,6 +865,13 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     ], hint: 'Required when using SASL_* security protocol' },
     { key: 'username', label: 'Username', type: 'text', placeholder: '', hint: 'For SASL authentication' },
     { key: 'password', label: 'Password', type: 'password', placeholder: '' },
+    // 2026-11-12: certificates for SSL and SASL_SSL, pasted as PEM text
+    // (backend connections/kafka_settings.py). The key and its password are
+    // kept encrypted and never sent back.
+    { key: 'ssl_ca_pem', label: 'CA Certificate', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', hint: 'For SSL or SASL_SSL when your company signs the brokers\' certificates. Paste the certificate of the authority that signed them. Leave blank to trust the certificates this computer trusts.' },
+    { key: 'ssl_certificate_pem', label: 'Client Certificate', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', hint: 'Only if the brokers ask Flow for a certificate. Paste the certificate Flow shows them.' },
+    { key: 'ssl_key_pem', label: 'Client Private Key', type: 'textarea', placeholder: '-----BEGIN PRIVATE KEY-----', hint: 'The private key of the client certificate. Stored encrypted and never shown again.' },
+    { key: 'ssl_key_password', label: 'Private Key Password', type: 'password', placeholder: '', hint: 'Only if the private key is locked with a password.' },
     { key: 'group_id', label: 'Consumer Group', type: 'text', placeholder: 'revoluzen-flow-consumer', hint: 'Default consumer group ID' },
   ],
   rabbitmq: [
@@ -1356,6 +1418,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // (< few hundred pipelines for SMB customers) so this is acceptable.
   const [usedByPipelines, setUsedByPipelines] = useState<Array<{ id: string; name: string; project_id?: string | null }>>([]);
   const [usedByLoading, setUsedByLoading] = useState(false);
+  // The detail page shows the connection as it is, or its kept versions.
+  const [detailTab, setDetailTab] = useState<'details' | 'history'>('details');
   // Mask state for sensitive config fields (password / token / secret).
   // Click-to-reveal per field, keyed by field name. Cleared on connection
   // switch so a peek doesn't survive into another connection.
@@ -1385,6 +1449,21 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   // Acknowledgment is persisted to localStorage as a Set of types so the
   // modal only appears once per connector per browser.
   const [pendingBetaType, setPendingBetaType] = useState<string | null>(null);
+  // 2026-11-11: connectors whose driver is an add-on this install lacks
+  // (Db2, Informix, SAP HANA, Teradata, Kafka). The server checks what is
+  // installed, so the note goes away once the driver is added.
+  const [addonMissing, setAddonMissing] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let live = true;
+    api.get<Array<{ type: string; addon_missing?: boolean }>>('/api/connections/types?detail=true')
+      .then(items => {
+        if (live && Array.isArray(items)) {
+          setAddonMissing(new Set(items.filter(item => item.addon_missing).map(item => item.type)));
+        }
+      })
+      .catch(() => { /* the picker still works without the note */ });
+    return () => { live = false; };
+  }, []);
   const ACK_BETA_KEY = 'revoluzen-flow-beta-acks';
   const getBetaAcks = (): Set<string> => {
     try {
@@ -1409,6 +1488,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
   const [formCredentialId, setFormCredentialId] = useState('');
   const [formCredentialFieldMap, setFormCredentialFieldMap] = useState<Record<string, string>>({});
   const [credentialFieldMenu, setCredentialFieldMenu] = useState<string | null>(null);
+  // The stored secret the user just chose to replace, so its new input opens focused.
+  const [secretReplaceKey, setSecretReplaceKey] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<CredentialOption[]>([]);
   useEffect(() => {
     const draft = takeApiConnection();
@@ -1794,31 +1875,15 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
     // from one connection doesn't leak into the next.
     setRevealedSecrets(new Set());
     setCopiedField(null);
-    // Compute the "Used By" list — pipelines whose IR mentions this
-    // connection. We deep-scan node configs because connection refs can
-    // appear under various keys (`connection_id`, `source_connection_id`,
-    // `sink_connection_id`, nested inside `params`, etc.). Match any
-    // string value equal to the connection's UUID.
+    setDetailTab('details');
+    // The "Used By" list: the pipelines whose steps use this connection,
+    // from the server's scan of each pipeline's saved steps (the same list
+    // the History tab shows before a restore). The pipeline listing has no
+    // steps, so scanning it here found nothing.
     setUsedByLoading(true);
-    api.listWorkflows()
-      .then((wfs: any[]) => {
-        const matches: Array<{ id: string; name: string; project_id?: string | null }> = [];
-        const target = conn.id;
-        const refsConnection = (obj: any): boolean => {
-          if (obj == null) return false;
-          if (typeof obj === 'string') return obj === target;
-          if (Array.isArray(obj)) return obj.some(refsConnection);
-          if (typeof obj === 'object') {
-            return Object.values(obj).some(refsConnection);
-          }
-          return false;
-        };
-        for (const wf of wfs) {
-          if (refsConnection(wf.ir) || refsConnection(wf.nodes) || refsConnection(wf.graph)) {
-            matches.push({ id: wf.id, name: wf.name, project_id: wf.project_id ?? null });
-          }
-        }
-        setUsedByPipelines(matches);
+    api.get<Record<string, Array<{ workflow_id: string; name: string }>>>('/api/connections/usage')
+      .then((usage) => {
+        setUsedByPipelines((usage?.[conn.id] || []).map((u) => ({ id: u.workflow_id, name: u.name })));
       })
       .catch(() => setUsedByPipelines([]))
       .finally(() => setUsedByLoading(false));
@@ -2679,6 +2744,9 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
       if (WRITE_ONLY_TYPES.has(type)) {
         setFormCanRead(false);
         setFormCanWrite(true);
+      } else if (READ_ONLY_TYPES.has(type)) {
+        setFormCanRead(true);
+        setFormCanWrite(false);
       } else {
         setFormCanRead(true);
         setFormCanWrite(true);
@@ -2813,6 +2881,11 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 <div className="text-center py-12 text-sm text-slate-500">
                   No connectors match "<span className="font-semibold text-slate-700">{connectorSearch}</span>".
                   <button onClick={() => setConnectorSearch('')} className="ml-2 text-blue-600 hover:text-blue-700 font-medium">Clear</button>
+                  {/soap|wsdl/i.test(connectorSearch) && (
+                    <div className="mt-2 text-xs">
+                      SOAP services are added in <a href="#author" className="text-blue-600 hover:underline">API Explorer</a>: import the WSDL, try an operation and save it as a connector.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2893,6 +2966,14 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                               {cs !== 'certified' && (
                                 <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${badge.bg} ${badge.text}`}>
                                   {badge.label}
+                                </span>
+                              )}
+                              {addonMissing.has(ct.type) && (
+                                <span
+                                  className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600"
+                                  title="This connector needs a driver that isn't included in this install. An admin can add it in Settings > Add-ons."
+                                >
+                                  Needs an add-on
                                 </span>
                               )}
                               {provBadge && (
@@ -3190,6 +3271,12 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     <span className="text-sm font-bold uppercase tracking-wider text-slate-800">Connection Details</span>
                     </div>
                   </div>
+                  {addonMissing.has(formType) && (
+                    <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      This connector needs an add-on that isn't included in this install, so Test and Browse won't work yet.
+                      An admin can add it in <a href="#settings/addons" className="font-semibold underline">Settings &gt; Add-ons</a>.
+                    </p>
+                  )}
 
                   <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
                     <label className="text-sm font-semibold text-slate-700 block mb-1.5">Saved credential</label>
@@ -3491,7 +3578,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       || formConfig['account_name'] || formConfig['account'] || '';
                     const auth = selectedCredential
                       ? `Saved credential: ${selectedCredential.name}`
-                      : formConfig['auth_method'] || (formConfig['username'] ? 'Basic auth' : formConfig['token'] || formConfig['api_key'] || formConfig['access_token'] ? 'API key' : 'None');
+                      : formConfig['auth_method'] || (formConfig['username'] ? (formType === 'smb' ? 'Windows sign-in' : 'Basic auth') : formConfig['token'] || formConfig['api_key'] || formConfig['access_token'] ? 'API key' : 'None');
                     const scopeLabel = formScope === 'global' ? 'Global' : (formProjectId ? `Project · ${(projects.find(p => p.id === formProjectId)?.name) || formProjectId}` : 'Project (not picked)');
                     return (
                       <>
@@ -3612,10 +3699,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       This connector works but has known gaps relative to a Certified one. Typical limitations:
                     </p>
                     <ul className="mt-2 text-xs text-slate-600 space-y-1 list-disc pl-4">
-                      <li>Pagination may be partial — large result sets can be capped</li>
-                      <li>Sink writes use basic INSERT (no bulk-load optimization yet)</li>
-                      <li>Schema drift is logged but not enforced</li>
-                      <li>Test fixtures are incomplete — re-runs may reveal edge cases</li>
+                      {(BETA_NOTES[pendingBetaType] || DEFAULT_BETA_NOTES).map(note => <li key={note}>{note}</li>)}
                     </ul>
                     <p className="text-xs text-slate-500 mt-3 leading-relaxed">
                       Use it for prototyping and testing freely; double-check with smaller data volumes before relying on it in scheduled production runs.
@@ -3641,6 +3725,9 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                       if (WRITE_ONLY_TYPES.has(t)) {
                         setFormCanRead(false);
                         setFormCanWrite(true);
+                      } else if (READ_ONLY_TYPES.has(t)) {
+                        setFormCanRead(true);
+                        setFormCanWrite(false);
                       } else {
                         setFormCanRead(true);
                         setFormCanWrite(true);
@@ -3952,12 +4039,35 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     const fieldValue = formConfig[f.key] ?? f.defaultValue ?? '';
                     const mappedCredentialKey = formCredentialFieldMap[f.key] || '';
                     const menuKey = `edit:${f.key}`;
+                    // A password or key saved on this connection comes back as the
+                    // placeholder; saving it unchanged keeps the stored value.
+                    const storedSecret = !mappedCredentialKey && f.type !== 'select' && f.type !== 'checkbox' && isStoredSecret(formConfig[f.key]);
+                    const replacingStoredSecret = !mappedCredentialKey && !storedSecret
+                      && isStoredSecret((selectedConnection.config as Record<string, unknown> | undefined)?.[f.key]);
                     return (
                     <div key={f.key}>
                       <label className="text-sm font-medium text-slate-600 block mb-1.5">
                         {f.label}{f.required && <span className="text-red-400 ml-0.5">*</span>}
                       </label>
-                      {f.type === 'select' && f.options ? (
+                      {storedSecret ? (
+                        <div className="flex items-center gap-2">
+                          <div className={`${inputCls} flex-1 min-w-0 flex items-center justify-between gap-3 bg-slate-50 text-slate-500`}>
+                            <span className="font-mono tracking-widest" aria-hidden="true">{SECRET_PLACEHOLDER}</span>
+                            <span className="text-xs">Stored encrypted</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSecretReplaceKey(f.key);
+                              setFormConfig({ ...formConfig, [f.key]: '' });
+                            }}
+                            aria-label={`Replace ${f.label}`}
+                            className="shrink-0 px-3 py-2.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                          >
+                            Replace
+                          </button>
+                        </div>
+                      ) : f.type === 'select' && f.options ? (
                         <select
                           value={formConfig[f.key] || f.defaultValue || ''}
                           onChange={e => {
@@ -3988,6 +4098,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                           onChange={e => setFormConfig({ ...formConfig, [f.key]: e.target.value })}
                           placeholder={f.placeholder}
                           rows={3}
+                          autoFocus={secretReplaceKey === f.key}
                           className={`${inputCls} font-mono text-sm`}
                         />
                       ) : (
@@ -4004,6 +4115,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                               setFormConfig({ ...formConfig, [f.key]: e.target.value });
                             }}
                             placeholder={credentialFieldPlaceholder(f, fieldCanUseCredential)}
+                            autoFocus={secretReplaceKey === f.key}
                             className={`${inputCls} ${fieldCanUseCredential ? 'pr-12' : ''} ${mappedCredentialKey ? 'border-blue-200 bg-blue-50 text-blue-800' : ''}`}
                           />
                           {fieldCanUseCredential && (
@@ -4054,6 +4166,18 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                             </div>
                           )}
                         </div>
+                      )}
+                      {replacingStoredSecret && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSecretReplaceKey(null);
+                            setFormConfig({ ...formConfig, [f.key]: SECRET_PLACEHOLDER });
+                          }}
+                          className="mt-1 text-xs font-semibold text-blue-700 hover:underline"
+                        >
+                          Keep the stored value
+                        </button>
                       )}
                       {f.hint && f.type !== 'checkbox' && (
                         <p className="text-xs mt-1 text-slate-500">{f.hint}</p>
@@ -4157,6 +4281,7 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
       setFormCanWrite(cf.canWrite);
       setFormCredentialId(selectedConnection.credential_id || '');
       setCreateStep(0);
+      setSecretReplaceKey(null);
       setView('edit');
     };
 
@@ -4313,10 +4438,47 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
               )}
             </div>
           </div>
+          {/* What the page shows: the connection as it is, or its kept versions. */}
+          <div className="px-8 -mt-2 flex gap-1" role="tablist" aria-label="Connection">
+            {(['details', 'history'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={detailTab === t}
+                onClick={() => setDetailTab(t)}
+                className={`px-3 py-2 text-[13px] font-semibold border-b-2 transition-colors ${
+                  detailTab === t
+                    ? (environment === 'prod' ? 'border-blue-400 text-white' : 'border-blue-600 text-blue-700')
+                    : (environment === 'prod' ? 'border-transparent text-slate-400 hover:text-white' : 'border-transparent text-slate-600 hover:text-slate-900')
+                }`}
+              >
+                {t === 'details' ? 'Details' : 'History'}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="p-6">
         <div className="max-w-[1400px] mx-auto">
+          {detailTab === 'history' ? (
+            <ConnectionHistory
+              connectionId={selectedConnection.id}
+              connectionName={selectedConnection.name}
+              canRestore={canCreate}
+              dark={dark}
+              names={{
+                credential: (id) => credentials.find((c) => c.id === id)?.name,
+                project: (id) => projects.find((p) => p.id === id)?.name,
+                type: (t) => CONNECTION_TYPES.find((x) => x.type === t)?.label,
+              }}
+              onRestored={(conn) => {
+                setSelectedConnection((prev) => (prev ? { ...prev, ...conn } : conn));
+                loadConnections();
+              }}
+            />
+          ) : (
+          <>
 
           {/* ── STAT STRIP — at-a-glance metrics (2026-05-25 polish) ──
               Lightweight tiles: reports, used-by pipelines, capabilities,
@@ -4397,37 +4559,43 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                     const entries = Object.entries(selectedConnection.config);
                     const hostKey = entries.find(([k]) => k === 'host' || k === 'server' || k === 'hostname')?.[0];
                     const portKey = entries.find(([k]) => k === 'port')?.[0];
-                    const rows: Array<{ key: string; label: string; value: string; secret: boolean }> = [];
+                    const rows: Array<{ key: string; label: string; value: string; secret: boolean; stored: boolean }> = [];
                     let mergedHost = false;
                     for (const [k, v] of entries) {
                       if (k === hostKey && portKey) {
                         const p = selectedConnection.config[portKey];
-                        rows.push({ key: 'server', label: 'Server', value: `${v}${p !== undefined && p !== '' ? ':' + p : ''}`, secret: false });
+                        rows.push({ key: 'server', label: 'Server', value: `${v}${p !== undefined && p !== '' ? ':' + p : ''}`, secret: false, stored: false });
                         mergedHost = true;
                       } else if (k === portKey && mergedHost) {
                         continue;
                       } else {
                         const lk = k.toLowerCase();
-                        const isSecret = typeof v === 'string' && (
+                        // A stored password or key arrives as the placeholder: the
+                        // server keeps it encrypted, so there is nothing to reveal.
+                        const stored = isStoredSecret(v);
+                        const isSecret = stored || (typeof v === 'string' && (
                           lk.includes('password') || lk.includes('token') ||
                           lk.includes('secret') || lk.includes('api_key') ||
                           lk.includes('apikey')
-                        );
-                        rows.push({ key: k, label: k.replace(/_/g, ' '), value: String(v), secret: isSecret });
+                        ));
+                        rows.push({ key: k, label: k.replace(/_/g, ' '), value: String(v), secret: isSecret, stored });
                       }
                     }
-                    return rows.map(({ key, label, value, secret }) => {
-                      const revealed = revealedSecrets.has(key);
-                      const displayValue = secret && !revealed ? '••••••••' : value;
-                      const canCopy = !secret || revealed;
+                    return rows.map(({ key, label, value, secret, stored }) => {
+                      const revealed = !stored && revealedSecrets.has(key);
+                      const displayValue = secret && !revealed ? SECRET_PLACEHOLDER : value;
+                      const canCopy = !stored && (!secret || revealed);
                       return (
                         <div key={key} className={`group flex items-center gap-2 px-3 py-2 rounded-lg ${dark ? 'bg-white/[0.03]' : 'bg-slate-50'}`}>
                           <div className="flex-1 min-w-0">
                             <div className={`text-[10px] font-semibold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>{label}</div>
-                            <div className={`text-sm font-medium font-mono truncate ${dark ? 'text-slate-200' : 'text-slate-700'}`} title={displayValue}>{displayValue}</div>
+                            <div className={`text-sm font-medium font-mono truncate ${dark ? 'text-slate-200' : 'text-slate-700'}`} title={stored ? 'Stored encrypted. Edit the connection to replace it.' : displayValue}>{displayValue}</div>
                           </div>
+                          {stored && (
+                            <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider ${dark ? 'text-slate-500' : 'text-slate-500'}`}>Encrypted</span>
+                          )}
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                            {secret && (
+                            {secret && !stored && (
                               <button
                                 onClick={() => {
                                   setRevealedSecrets(prev => {
@@ -4748,6 +4916,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
                 </div>
               ))}
             </div>
+          )}
+          </>
           )}
         </div>
         </div>

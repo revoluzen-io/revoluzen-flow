@@ -174,6 +174,17 @@ class ContractStore:
         raw = rows[0]["receipt"] if isinstance(rows[0], dict) else rows[0][0]
         return ContractVerification(**json.loads(raw))
 
+    def workflow_for_run(self, run_id: str) -> str | None:
+        """Which pipeline a run's receipt belongs to, so a reader can be
+        checked against that pipeline's workspace."""
+        rows = self.db.fetchall(
+            "SELECT workflow_id FROM contract_verifications WHERE run_id = ? LIMIT 1",
+            (run_id,),
+        )
+        if not rows:
+            return None
+        return rows[0]["workflow_id"] if isinstance(rows[0], dict) else rows[0][0]
+
     def chain(self, workflow_id: str) -> list[ContractVerification]:
         """Oldest-first, the order ``contracts/chain.py`` expects."""
         return list(reversed(self.list_receipts(workflow_id, limit=1000)))

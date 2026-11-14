@@ -100,6 +100,8 @@ def test_scheduled_execution_captures_rows_under_history_id(
     ], connections=[StepConnection(from_step='source', to_step='filter')])
     workflows = Mock()
     workflows.get.return_value = SimpleNamespace(workflow=workflow)
+    # The scheduler runs the live (published, else newest) version.
+    workflows.live_version.return_value = SimpleNamespace(workflow=workflow)
     history = ExecutionStore(_revoluzen_flow_test_db)
     monkeypatch.setattr(main, 'app_state', {
         'store': workflows, 'execution_store': history,

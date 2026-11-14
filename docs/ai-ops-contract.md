@@ -97,7 +97,7 @@ The shortest version a new operator needs to be useful in 10 minutes.
 
 ### One sentence
 
-> Revoluzen Flow AI is 32 tools the user can authorize an LLM to call on their behalf, with sanitization at the boundary, governance gates between the LLM and any side effect, and a daily-rebuilt retrieval layer that grounds answers in the user's own pipeline history.
+> Revoluzen Flow AI is 37 tools the user can authorize an LLM to call on their behalf, with sanitization at the boundary, governance gates between the LLM and any side effect, and a daily-rebuilt retrieval layer that grounds answers in the user's own pipeline history.
 
 ### One diagram
 

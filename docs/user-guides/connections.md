@@ -122,7 +122,32 @@ The plaintext password / API key is **never** returned by any API endpoint after
 
 ---
 
-## 8. API reference (essentials)
+## 8. Version history
+
+Every change to a connection keeps a version: its name, type, settings, linked credential, project, environment, roles, description and tags, with who changed it and when. Saving the form unchanged, or testing the connection, keeps none.
+
+Open a connection and choose **History** at the top of the page:
+
+- The versions are listed newest first, each with what changed ("Host and password changed"), who changed it and when.
+- Click a version to set it against the settings now, setting by setting. **Show every setting** lists the ones that are the same too.
+- **Restore version N…** puts the version's settings back. The restore is saved as a new version, so nothing is lost and a restore can itself be undone.
+
+**Passwords and keys are never kept in the history.** Each one is kept as a fingerprint, a one-way code made with your install's master key that only shows whether two passwords are the same. So the history can say a password changed, never what it was. When the version you restore had a different password, Flow asks for it: type it to use it again, or leave it blank to keep today's password.
+
+Before restoring, Flow lists the pipelines that use the connection, and which of them are published or live in PROD. Their next runs use the restored settings.
+
+When restoring, Flow keeps today's value for:
+
+- a linked credential, project or environment that no longer exists or that you can no longer use;
+- the name, when another connection has it now. The restored connection gets a number instead, as in "Orders DB (2)".
+
+Flow keeps the newest 50 versions of each connection and always its first one. Set `REVOLUZEN_FLOW_CONNECTION_VERSION_RETENTION` to change the number (`0` keeps every version). Deleting a connection deletes its history.
+
+A connection made before version history existed has none until it is next changed. That change keeps its settings as they were as version 1, and the change as version 2.
+
+---
+
+## 9. API reference (essentials)
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -134,16 +159,18 @@ The plaintext password / API key is **never** returned by any API endpoint after
 | `PUT` | `/api/connections/{id}` | Update |
 | `DELETE` | `/api/connections/{id}` | Delete |
 | `POST` | `/api/connections/{id}/test` | Live test |
+| `GET` | `/api/connections/{id}/versions` | Kept versions, newest first, with each one's settings (secrets as tags only), the settings now and the pipelines that use the connection |
+| `POST` | `/api/connections/{id}/versions/{n}/restore` | Restore version `n`. Body `{"secrets": {"password": "..."}}` for old passwords typed in; any other secret keeps today's value |
 
 ---
 
-## 9. Revoluzen Flow Enterprise: team-oriented governance for connections
+## 10. Revoluzen Flow Enterprise: team-oriented governance for connections
 
 Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance on top of OSS connections — see [revoluzen.io/flow](https://revoluzen.io/flow).
 
 ---
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -159,5 +186,6 @@ Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance
 
 | Date | Change |
 |---|---|
+| 2026-11-10 | Section 8, version history: every change kept, compared with the settings now and restored; passwords and keys kept only as fingerprints. |
 | 2026-05-03 | Rewritten for Revoluzen Flow audience. Vault references + DEV/PROD scoping consolidated into section 9 (Revoluzen Flow Enterprise section). Connector status badges section added. |
 | 2026-04-22 | Initial publication. |

@@ -6,11 +6,11 @@ import { useEffect, useMemo, useState } from 'react';
  * It answers one question: how mature are the connectors a user can set up?
  * "Can set up" means the types the New Connection page offers: everything
  * declared in ConnectionsPage.tsx except the entries marked 'roadmap'. That is
- * the same 66 the Dashboard, About and the Connections gallery quote.
+ * the same 68 the Dashboard, About and the Connections gallery quote.
  *
  * The live catalog (`/api/v1/catalog/connectors`) registers more types than
- * that (102 today): the 14 still marked Coming soon, plus 22 that the page
- * never lists. Its `count` is the size of the registry, not the number of
+ * that (102 on 2026-11-11): the 14 still marked Coming soon, plus 21 that the
+ * page never lists. Its `count` is the size of the registry, not the number of
  * connectors, so it is no longer shown as the headline. The certification mix
  * is tallied over the offered types only, so the chips add up to the number in
  * the headline.

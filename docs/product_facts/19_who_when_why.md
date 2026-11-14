@@ -32,6 +32,14 @@ at rest with Fernet; the frontend never sees plaintext. The runtime
 backend reconstitutes the value at pipeline-run time. The agent's
 `inspect_connections` tool returns key NAMES only.
 
+The same holds for a password or key typed straight into a connection
+instead of linked from a credential (since November 2026): it is
+encrypted with the same key, and the Connections page shows it as
+•••••••• with a **Replace** button. Saving without replacing it keeps
+the stored value. A secret typed into a pipeline step is kept the same
+way: encrypted in the pipeline, shown as ••••••••, and read only while
+the step runs.
+
 The master encryption key file (`~/.revoluzen-flow/secret.key`) is the only
 artifact that can decrypt credentials. Whoever has filesystem access
 to the host can read it.
@@ -246,13 +254,15 @@ per-row commit. At >10k rows the per-row overhead dominates.
 - Snowflake: `PUT` to user stage + `COPY INTO target`. Compresses
   + bulk-loads in one shot. Even faster ratio at large scale.
 
-### Why are credentials encrypted but the workflow IR is not?
+### Why are credentials encrypted but most of the workflow IR is not?
 
-Workflow IR contains node configs + connections by ID — never raw
-secrets. Encrypting the IR would add operator pain (can't read
-pipeline definitions in DB tooling) for zero security benefit.
-Credentials, by contrast, contain reversible secrets that need
-encryption.
+Workflow IR is node configs plus connections by ID, and keeping it
+readable lets operators inspect pipeline definitions with database
+tools. The exception is a secret typed straight into a step's own
+settings, such as an SMTP password, a Slack webhook URL or an
+`Authorization` header, or given as the default of a secret parameter.
+Since November 2026 only those values are encrypted inside the IR, in
+every version, the Bin and the copy kept with each run.
 
 ### Why does the agent never run a pipeline directly?
 

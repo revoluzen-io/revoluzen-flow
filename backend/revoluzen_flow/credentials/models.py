@@ -42,6 +42,10 @@ class Credential(BaseModel):
     description: str | None = None
     source: str | None = None          # 'local' (default) or vault provider
     vault_reference: str | None = None
+    # Fields the person marked sensitive in the form, in the form's spelling
+    # (lower case, underscores). Fields whose name says they hold a secret are
+    # protected without being listed; see credentials/sensitive_fields.py.
+    sensitive_fields: list[str] = Field(default_factory=list)
 
 
 class CredentialCreate(BaseModel):
@@ -56,6 +60,7 @@ class CredentialCreate(BaseModel):
     description: str | None = None
     source: str | None = None
     vault_reference: str | None = None
+    sensitive_fields: list[str] | None = None
 
 
 class CredentialUpdate(BaseModel):
@@ -68,3 +73,5 @@ class CredentialUpdate(BaseModel):
     description: str | None = None
     source: str | None = None
     vault_reference: str | None = None
+    # Omitted = keep what is stored; a list replaces it.
+    sensitive_fields: list[str] | None = None

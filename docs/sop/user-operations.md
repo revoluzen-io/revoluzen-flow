@@ -89,6 +89,13 @@ outside the machine can reach it until you choose otherwise.
 Open the printed URL. The first screen offers **Create first account**: there is
 no default password, and the account you create becomes the operator.
 
+In server security mode (Docker, or `REVOLUZEN_FLOW_SECURITY_MODE=server`) the
+form also asks for a one-time **setup token**, so a stranger who reaches the page
+first cannot claim the install. The server prints it at startup (look for
+`FIRST RUN` in the log or `docker compose logs`) and saves it as
+`SETUP_TOKEN.txt` in the data folder. It stops working once the first account
+exists.
+
 **Verify:**
 
 ```bash

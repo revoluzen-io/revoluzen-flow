@@ -98,6 +98,35 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
     }
   }, [open, workflowName]);
 
+  // Start from what the pipeline already has. The form used to open blank,
+  // so saving through it moved the pipeline to the Default project, cleared
+  // its description and tags, and switched off its time limit.
+  useEffect(() => {
+    if (!open || !workflowId) return;
+    let stale = false;
+    api.getWorkflow(workflowId).then((fetched: any) => {
+      if (stale) return;
+      const wf = (fetched && (fetched.workflow || fetched)) || {};
+      setDescription(wf.description || '');
+      setProjectId(wf.project_id || 'default');
+      const savedTags = Array.isArray(wf.tags) && wf.tags.length ? wf.tags : wf.metadata?.tags;
+      setTags(Array.isArray(savedTags) ? savedTags.join(', ') : '');
+      const ex = wf.metadata?.execution_settings || {};
+      const minutes = Number(ex.max_runtime_minutes) || 0;
+      const limitOn = ex.enable_timeout !== false && minutes > 0;
+      setEnableTimeout(limitOn);
+      setMaxRuntimeMinutes(limitOn ? minutes : 0);
+      setCustomRuntime(limitOn && !MAX_RUNTIME_PRESETS.some(p => p.minutes === minutes) ? String(minutes) : '');
+      // Only a pipeline saved with overlap settings has them; one without
+      // keeps the form's suggestion.
+      if (typeof ex.enable_overlap_detection === 'boolean') {
+        setEnableOverlapDetection(ex.enable_overlap_detection);
+        if (ex.overlap_policy && ex.overlap_policy !== 'parallel') setOverlapPolicy(ex.overlap_policy);
+      }
+    }).catch(() => {});
+    return () => { stale = true; };
+  }, [open, workflowId]);
+
   if (!open) return null;
 
   const toggleAlertCondition = (val: string) => {
@@ -408,7 +437,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                         </svg>
                         Maximum Running Time
                       </div>
-                      <div className="text-xs text-slate-500 mt-0.5">Alert if pipeline exceeds this duration</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Stop the run and mark it failed if it takes longer than this</div>
                     </div>
                     <button
                       onClick={() => setEnableTimeout(!enableTimeout)}
@@ -460,7 +489,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                           <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                         </svg>
                         <span className="text-amber-700">
-                          Pipeline will be flagged if it runs longer than <strong>{formatRuntime(maxRuntimeMinutes)}</strong>
+                          A run still going after <strong>{formatRuntime(maxRuntimeMinutes)}</strong> is stopped and marked failed, so failure alerts go out. A step waiting on another system stops when that call returns.
                         </span>
                       </div>
                     )}
@@ -534,7 +563,7 @@ export default function SaveDialog({ open, onClose }: SaveDialogProps) {
                     {enableTimeout && maxRuntimeMinutes > 0 && (
                       <div className="text-xs text-blue-700 flex items-center gap-1.5">
                         <span className="text-amber-500">\u23f1</span>
-                        Timeout alert after {formatRuntime(maxRuntimeMinutes)}
+                        Stops a run after {formatRuntime(maxRuntimeMinutes)}
                       </div>
                     )}
                     {enableOverlapDetection && (

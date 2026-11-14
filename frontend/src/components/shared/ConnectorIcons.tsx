@@ -159,6 +159,7 @@ const OneDrive = ({ size = 24, className }: IconProps) => <CdnImg size={size} cl
 const GDrive = ({ size = 24, className }: IconProps) => <CdnImg size={size} className={className} alt="Google Drive" src={LOCAL('gdrive')} />;
 const Dropbox = ({ size = 24, className }: IconProps) => <CdnImg size={size} className={className} alt="Dropbox" src={LOCAL('dropbox')} />;
 const FTP = ({ size = 24, className }: IconProps) => <Mono size={size} className={className} color="#6366f1" text="FTP" />;
+const SMB = ({ size = 24, className }: IconProps) => <Mono size={size} className={className} color="#0078D4" text="SMB" />;
 const GSheet = ({ size = 24, className }: IconProps) => <CdnImg size={size} className={className} alt="Google Sheets" src={LOCAL('gsheet')} />;
 
 // ─── APIs & Integration ───
@@ -391,6 +392,7 @@ const ICON_MAP: Record<string, React.FC<IconProps>> = {
   gdrive: GDrive,
   dropbox: Dropbox,
   ftp: FTP,
+  smb: SMB,
   gsheet: GSheet,
   rest_api: RestAPI,
   graphql: GraphQL,

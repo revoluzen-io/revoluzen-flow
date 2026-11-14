@@ -33,8 +33,8 @@ The backend boots on loopback, your browser opens, and you're in. Needs Python
 3.11+ and Node 20+. On Windows, or for Docker, see [Quick start](#quick-start).
 
 <div align="center">
-  <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a ten-node pipeline taking two sources through validation and dedupe, into a join, a derived column and an aggregation, then a conditional branch out to a Slack alert and a managed table" width="100%">
-  <em>Build pipelines on a canvas · 45 node types · 66 connectors · run, schedule and alert from the same place</em>
+  <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a nine-node pipeline, Revenue by Region, open as a draft of a published pipeline, taking orders through a data-quality check and a filter, and customers through a dedupe, into a join, then a derived revenue column and an aggregation by region into a managed table" width="100%">
+  <em>Build pipelines on a canvas · 45 node types · 68 connectors · run, schedule and alert from the same place</em>
 </div>
 
 > [!NOTE]
@@ -285,67 +285,76 @@ have an EV certificate and Apple notarization.
 
 ## What it looks like
 
-**Pipelines** — status, owner, schedule, alerts and last run, per project.
+**Pipelines, projects and folders** — status, schedule, alerts, contracts and
+last run for every pipeline, with your projects and their folders in a panel
+beside the list. Pick a project to see only its pipelines and its owner, and
+add a folder or edit the project from the same place.
 
-<img src="docs/assets/screenshot-pipelines.png" alt="The Pipelines list showing eight pipelines across four projects with published and draft status, schedules, alerts and last-run times" width="100%">
+<img src="docs/assets/screenshot-pipelines.png" alt="The Pipelines page with the projects panel on the left and the Supply Chain project selected and opened to its two folders, Partner feeds and Stock; on the right its owner and eight pipelines, published and draft, with schedules every ten minutes, hourly, daily and one that starts when a new file arrives, two with an alert, and the managed tables each one writes" width="100%">
 
 **Connections** — one open framework across databases, warehouses, object
 stores, streams and SaaS APIs, each with its own health state.
 
-<img src="docs/assets/screenshot-connections.png" alt="The Connections page listing twelve connections across Postgres, MySQL, Snowflake, BigQuery, S3, Kafka, MongoDB, Redshift, ClickHouse, SFTP, Elasticsearch and Databricks with per-connection test status" width="100%">
+<img src="docs/assets/screenshot-connections.png" alt="The Connections page listing seven connections — three REST APIs, a partner FTP server, a Windows file share, a Kafka stream and a SQLite database — with scope, the pipelines using each, a description and the last test: four passing, one failing and two untested" width="100%">
 
 **Executions** — every run, its steps, rows and duration.
 
-<img src="docs/assets/screenshot-executions.png" alt="The Executions page showing run history with status, pipeline, environment, trigger, start time, elapsed time and step counts" width="100%">
+<img src="docs/assets/screenshot-executions.png" alt="The Executions page filtered to one pipeline over the last 24 hours: eight Store Footfall runs, seven successful and one error with one of its three steps failed, started by the schedule or a pre-publish test, each with environment, start time, elapsed time and step count" width="100%">
 
 **One run, opened** — runtime lineage of what actually ran, with rows in and
 out of each step, per-step timings, peak memory and CPU. Click any node to
 read the rows it produced, as a table, a schema or raw JSON, and export them.
 Re-run and Replay sit on the same screen.
 
-<img src="docs/assets/screenshot-execution-detail.png" alt="An execution summary showing four passed steps in sequence — source, filter, aggregate, sink — each with its row count and duration, with the aggregate node selected and its three output rows of revenue and order counts per region open below the graph, exportable as CSV or JSON" width="100%">
+<img src="docs/assets/screenshot-execution-detail.png" alt="An execution summary for Stock Value by Warehouse showing six passed steps — two sources joined, a derived stock value, an aggregate by warehouse and a managed-table sink — each with its row count and duration, with the aggregate node selected and its output rows of stock value and line count per warehouse open below the graph, exportable as CSV or JSON" width="100%">
 
 **Every step, with its data** — open a step to see the parameters it ran with,
 the rows it received from upstream, and the rows it produced. Samples are
 captured at run time, so you are reading what the run actually did rather than
 re-querying a source that has since moved on.
 
-<img src="docs/assets/screenshot-step-output.png" alt="An expanded aggregate step showing three panels: its group-by and function configuration, a sample of the six rows received from the upstream filter, and the three rows it produced — revenue and order counts per region, with column types" width="100%">
+<img src="docs/assets/screenshot-step-output.png" alt="An expanded aggregate step showing three panels: its group-by and sum and count configuration, a sample of the 1,300 rows received from the upstream derived column, and the five rows it produced — stock value and line count per warehouse, with column types" width="100%">
+
+**Triggers** — let another application start a pipeline and pass it values.
+Give the pipeline an endpoint, choose how callers prove who they are, and
+copy the ready-to-use curl or PowerShell command.
+
+<img src="docs/assets/screenshot-triggers.png" alt="The Triggers page with two endpoints, one checked by a signature and one by an API key, and the ready-to-use curl command for the regional-revenue endpoint — a POST to localhost:8001 with an X-API-Key header and a JSON body setting the region to EMEA — explained line by line, with the pipeline's region parameter listed below" width="100%">
 
 **Storage** — managed parquet tables written by your pipelines.
 
-<img src="docs/assets/screenshot-storage.png" alt="The Storage page listing managed parquet tables with row counts, column counts and sizes" width="100%">
+<img src="docs/assets/screenshot-storage.png" alt="The Managed Tables page listing 22 parquet tables across crm, finance and other schemas, each with the pipeline and version that prepared it and when it was loaded, its row count, column count, size and the pipelines that use it" width="100%">
 
 **Any dataset, inspected** — open a table to read its rows and column types,
 see which pipeline produced it and which ones consume it.
 
-<img src="docs/assets/screenshot-dataset.png" alt="A managed parquet table opened in the dataset viewer, showing a thousand rows across nine typed columns with the file it was promoted from and how many pipelines consume it" width="100%">
+<img src="docs/assets/screenshot-dataset.png" alt="The sales.orders_clean managed table opened in the dataset viewer: 34,285 rows across ten typed columns, produced by Orders Daily Load with its last successful run, consumed by two pipelines, and Preview, Schema, Profile, Tests and History tabs" width="100%">
 
 **Steward** — a read-only reliability layer that watches for schema drift,
 null and duplicate spikes, connector failures and PII exposure, and tells you
 how many scans it has seen each one in.
 
-<img src="docs/assets/screenshot-steward.png" alt="The Steward findings panel showing eight open findings across schema drift, null spikes, a duplicate-key spike and PII detections, each with severity, category and resolve or dismiss actions" width="100%">
+<img src="docs/assets/screenshot-steward.png" alt="The Steward findings panel open over the Pipelines page, its findings split across architecture, connector, data, governance and node checks and filtered to node findings: row counts that changed in steps that should preserve them, each with priority, severity, how many scans have seen it, and resolve, dismiss or Ask Copilot actions" width="100%">
 
 **Bring your own LLM — or keep it on your machine.** Ten providers, two of
 them local. Point it at Ollama and pull a model from the list; nothing leaves
 the host. AI is optional throughout: turn it off and every feature falls back
 to a deterministic path, with the engine unchanged.
 
-<img src="docs/assets/screenshot-ai.png" alt="The AI provider page with AI enabled and Ollama selected as a local provider, showing ten providers, a catalogue of recommended local models with their RAM and speed trade-offs and a pull button for each, and a localhost base URL" width="100%">
+<img src="docs/assets/screenshot-ai.png" alt="The AI provider page with AI enabled and Claude selected from ten providers, two of them local, the active provider shown as connected with its model and 37 tools, and the API key held on file rather than displayed" width="100%">
 
 <details>
 <summary><strong>More screens — Execution Pool, API Explorer</strong></summary>
 
-**Execution Pool** — concurrency, reserved capacity per environment, and what
-is waiting for a slot.
+**Execution Pool** — concurrency, what is waiting for a slot, and what each
+run cost in time, memory and CPU.
 
-<img src="docs/assets/screenshot-pool.png" alt="The Execution Pool page showing worker slots, reserved capacity split between production and development, and queue depth" width="100%">
+<img src="docs/assets/screenshot-pool.png" alt="The Execution Pool's run history: 200 recent runs with priority, worker, status, trigger, a duration bar, start time, peak memory and CPU seconds for each" width="100%">
 
 **API Explorer** — load a spec, send one authenticated request, assert on the
 response, then generate a connector from it.
 
-<img src="docs/assets/screenshot-api-explorer.png" alt="The API Explorer page for loading an OpenAPI spec, sending an authenticated request and generating a connector from the response" width="100%">
+<img src="docs/assets/screenshot-api-explorer.png" alt="The API Explorer after one GET request to a public exchange-rates API with two query parameters: an HTTP 200 response shown as a JSON tree, the choose-an-endpoint and test-it steps ticked, and generating a connector as the next step" width="100%">
 
 </details>
 

@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field, model_validator
 # lives in a separate model so the OSS Workflow IR stays clean. See
 # revoluzen_flow/ir/governance.py for the full rationale and field set.
 from revoluzen_flow.ir.governance import WorkflowGovernance
+# The intent spec: who a pipeline is for and how to tell it worked.
+from revoluzen_flow.ir.spec import PipelineSpec
 
 
 class StepType(str, Enum):
@@ -40,7 +42,7 @@ class StepType(str, Enum):
     KAFKA_SOURCE = "kafka_source"    # Read from a Kafka topic
     FTP_SOURCE = "ftp_source"        # Read from an FTP server
     GSHEET_SOURCE = "gsheet_source"  # Google Sheets via public CSV export
-    DELTA_SOURCE = "delta_source"    # Read Delta Lake tables via Parquet
+    DELTA_SOURCE = "delta_source"    # Read a Delta Lake table (latest, a version or a time)
     # Cloud object storage (each cloud has its own auth + URI scheme — separate nodes)
     ADLS_GEN2_SOURCE = "adls_gen2_source"   # Azure Data Lake Storage Gen2 (abfss://) — hierarchical, AAD/SAS/Key auth
     AZURE_BLOB_SOURCE = "azure_blob_source" # Azure Blob Storage (wasbs://) — flat, SAS/Key/AAD auth
@@ -65,6 +67,9 @@ class StepType(str, Enum):
     # into these tables.
     LOCAL_TABLE_SOURCE = "local_table_source"
     LOCAL_TABLE_SINK = "local_table_sink"
+    # 2026-11-10: one file in Storage -> Pipeline Outputs per pipeline and
+    # name, replaced on every run (nodes/pipeline_output.py).
+    PIPELINE_OUTPUT = "pipeline_output"
 
     # Row-level transforms
     FILTER = "filter"                 # Drops rows that don't match a predicate
@@ -119,7 +124,9 @@ class StepType(str, Enum):
 
     # Action Nodes
     HTTP_REQUEST = "http_request"         # Make an outbound HTTP request
-    WEBHOOK_TRIGGER = "webhook_trigger"   # Start a workflow from an inbound webhook
+    # (webhook_trigger was retired 2026-11-11: an inbound webhook starts a run
+    # through a signed published endpoint on the Triggers page, not a step.
+    # Old saves are rewritten on load, see ir/migrations.RETIRED_STEP_TYPES.)
     CODE_SCRIPT = "code_script"           # Run a user-provided code snippet
     SEND_EMAIL = "send_email"             # Send an email via SMTP
     SLACK_NOTIFY = "slack_notify"         # Post a message to a Slack channel
@@ -138,7 +145,7 @@ class StepType(str, Enum):
     API_SINK = "api_sink"            # POST data to REST API
     WEBHOOK_SINK = "webhook_sink"    # POST to webhook URL
     EMAIL_SINK = "email_sink"        # Send data via email (SMTP)
-    DELTA_SINK = "delta_sink"        # Write as Parquet (Delta-compatible)
+    DELTA_SINK = "delta_sink"        # Write a Delta Lake table (overwrite, append or merge)
     WAREHOUSE_SINK = "warehouse_sink"  # Write to data warehouse with schema evolution
     FTP_SINK = "ftp_sink"               # Upload a file to an FTP / FTPS / SFTP server
     # Cloud object storage sinks
@@ -169,6 +176,7 @@ class StepType(str, Enum):
     UPSERT = "upsert"                   # Idempotent merge: insert/update on key, no duplicates
     SCHEMA_MAPPER = "schema_mapper"     # Source-to-target field mapping with type coercion
     DATA_PROFILE = "data_profile"       # Column statistics (null %, distinct, min/max, top values)
+    RECONCILE = "reconcile"             # Compare with the system of record: row count, totals, keys
 
     # AI primitives (Sprint C)
     EMBEDDER = "embedder"               # Text column → vector column (openai/cohere/st/hash)
@@ -252,6 +260,9 @@ class WorkflowParameter(BaseModel):
     default: Any = None
     description: str = ""
     required: bool = False
+    # Keep `default` encrypted and show it as dots. A name that says it holds
+    # a secret is treated that way without this (ir/step_secrets.py).
+    secret: bool = False
 
 
 class Workflow(BaseModel):
@@ -293,6 +304,15 @@ class Workflow(BaseModel):
     status: PipelineStatus = PipelineStatus.DRAFT
     published_at: datetime | None = None
     published_by: str | None = None
+    # The version that is live: what schedules, endpoints and every other run
+    # nobody is watching execute. Publish, Deploy and Rollback set it, Unpublish
+    # clears it, and no save can move it (see WorkflowStore.save). None on a
+    # draft, and on a pipeline published before this field existed, whose
+    # newest version is the live one until its next save pins it.
+    published_version: int | None = None
+    # True when the newest saved version does something the live one does not:
+    # a draft waiting to be published. Worked out at each save.
+    has_unpublished_changes: bool = False
     test_results: dict[str, Any] | None = None  # Last test run summary
     # Deployment tracking — which version is live in PROD
     deployed_version: int | None = None  # None = latest published
@@ -326,6 +346,12 @@ class Workflow(BaseModel):
     business_purpose: str = ""
     readme: str = ""
     tags: list[str] = Field(default_factory=list)
+    # The intent spec (ir/spec.py): who answers for this pipeline, who uses
+    # its output, where its data comes from, how to tell it worked and what
+    # it should change. Saved with every version, so each version keeps the
+    # spec it was built to. Its acceptance criteria become the Execution
+    # Contract (contracts/from_spec.py). None on a pipeline that has none.
+    spec: PipelineSpec | None = None
 
     # ── Governance (PR 3) ─────────────────────────────────────────────
     # Revoluzen Flow Enterprise approval / deploy / PROD-toggle state. Always None on
@@ -600,6 +626,8 @@ class StepErrorType(str, Enum):
     CREDENTIAL_EXPIRED = "credential_expired"
     # Step was cancelled by the watchdog after exceeding its time budget.
     TIMEOUT = "timeout"
+    # Someone stopped the run while this step was running.
+    CANCELLED = "cancelled"
     # Upstream step failed; this step couldn't run.
     UPSTREAM_FAILED = "upstream_failed"
     # Workflow-level validation rejected the IR before execution started.
@@ -651,3 +679,11 @@ class WorkflowRunResult(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     duration_ms: float = 0
+    # The wall-clock limit this run ran under (None = no limit), and whether
+    # it was stopped for going past it. See engine/run_time_limit.py.
+    time_limit_seconds: float | None = None
+    stopped_by_time_limit: bool = False
+    # Why a run ended before its last step, in words for the run record:
+    # "Stopped by Priya while Load orders was running." None for a run that
+    # finished or failed on its own.
+    stop_message: str | None = None

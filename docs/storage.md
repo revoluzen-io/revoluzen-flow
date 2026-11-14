@@ -24,9 +24,29 @@ Toggle **Show deleted (trash)** in the panel header to surface soft-deleted rows
 Parquet-backed tables addressable as `schema.name` from pipeline nodes. Each row shows:
 
 * **Schema** + **Table** name (monospaced — these are SQL-like identifiers)
+* **Prepared by** — under the table name: the pipeline that writes the table, the version of it whose result the table holds (`v3`), and when it ran. Click the pipeline's name to open it in the Editor; change the preparation there, then run it to reload the table. When the pipeline was saved again after the last load, the line says so: *edited to v4, not run yet*. A table loaded before Data Prep saved its steps as a pipeline shows **Make it editable** instead.
 * **Rows / Columns / Size / Parts** — refreshed automatically after every write
 * **Used by N pipelines** — same pill as Files
 * Drop action — hard-deletes the index row AND the on-disk Parquet parts
+
+Open a table (the eye icon) and pick **History** to see its last 20 loads, newest first: when each ran, which version of the preparation produced it, the rows written, the write mode and the run.
+
+The **Profile** tab shows each column's type, nulls, distinct values and range, read from up to 100,000 rows.
+
+#### Tests and monitors
+
+The **Tests** tab holds checks on the table: no empty values in a column (`not_null`), no duplicates (`unique`), only allowed values (`accepted_values`), every value present in another table (`relationships`), loaded within the last N minutes (`freshness`) and a row count within bounds or within N% of the previous load (`row_count_anomaly`). **Run tests** runs them now.
+
+Under the list, **Run these tests on their own** sets when they run without anyone pressing the button:
+
+* **After every load**: each time a pipeline writes the table, its tests run in the background, so the pipeline is not slowed down.
+* **Check every** 15 minutes, hour, 6 hours or day: this is what catches a table that stopped being loaded. With no load, nothing runs after a load, but the freshness test still fails on schedule.
+
+The periodic check runs on the server that runs the schedules (`REVOLUZEN_FLOW_ENABLE_SCHEDULER`), once per table even with several servers.
+
+Each test has a severity. A failed **fail** test becomes a finding in the Steward and a notification to the admins that opens Managed Tables. A failed **warn** test shows on the table only. The tab shows the newest result and what ran it: **Run tests**, a load or the periodic check.
+
+Freshness reads when the table was last loaded, not when its description or tests were last changed. Row-count drift compares with the load before the newest one.
 
 Reference a managed table from a pipeline via either:
 
@@ -36,6 +56,8 @@ Reference a managed table from a pipeline via either:
 ### Pipeline Outputs
 
 Files written by pipeline runs, grouped by `(pipeline_id, run_id)`. Each group is one dark-header card showing the pipeline + run + file count + total size, with a row per output file. Preview is the only action — outputs are read-only artifacts of past runs.
+
+The **Pipeline Output** node (Editor → Publish) writes here without a path or a connection: give it a name and a format (CSV, Parquet or JSON). It keeps one file per pipeline and name, at `outputs/{workspace}/{pipeline}/latest/{name}.{format}`, and every run replaces it, the way Managed Table Sink's replace mode replaces a table. The file is listed once, under the run that last wrote it.
 
 ## Reports auto-persist to Storage (added 2026-05-25)
 
@@ -67,6 +89,8 @@ The "Promote" row action turns any uploaded records-shaped file (CSV / JSON / Pa
 
 Promotion is **idempotent** on `(workspace_id, schema, name)` — re-promoting overwrites the existing part-000. For append / merge semantics use Managed Table Sink in a pipeline.
 
+Promote also saves the table's **preparation**: a pipeline that does what the promote did (this file, the columns kept and their new names, into this table), in the same shape Clean & promote builds: `Source → Data Wrangler → Managed Table Sink`. The toast names it, and the table's row shows *Prepared by … v1*. Open it from there to change how the table is prepared (add filters, casts, more renames) and run it with **Load to Managed Table**: the table reloads and records the new version. Promoting into the same table again saves a new version of that preparation; a pipeline you built that writes the table is never changed. A table promoted before this existed shows **Make it editable**, which saves a preparation for it (it says so when the table's columns were renamed and the renames need adding back).
+
 ## Clean & promote — fixing dirty data before landing it
 
 Plain **Promote** is a verbatim copy: source bytes → Parquet part-000, no transformation. That's fine when the file is already clean. When the file has trailing whitespace, NULLs you want to drop, dates as strings, dupes, mixed case keys — use **Clean & promote** instead.
@@ -77,7 +101,7 @@ Click the wand icon (amber hover) on a Files-tab row. Revoluzen Flow scaffolds a
 [Source: orders.csv] ─► [Data Wrangler: empty] ─► [Managed Table Sink: default.orders]
 ```
 
-The middle node is empty — you fill in the cleanup recipe:
+The sink's **Schema** list holds every schema with a table in it; **+ New schema…** names a new one, which appears on the Managed Tables tab once the first run writes its table. The middle node is empty — you fill in the cleanup recipe:
 
 | Wrangler sub-step | Typical use |
 |---|---|

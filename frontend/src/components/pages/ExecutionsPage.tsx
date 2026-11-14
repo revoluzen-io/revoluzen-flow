@@ -23,6 +23,7 @@ import RuntimeLineagePanel from '../lineage/RuntimeLineagePanel';
 import StepIODrawer from './StepIODrawer';
 import StepGantt, { type GanttStep } from '../shared/StepGantt';
 import BackfillsPanel from './BackfillsPanel';
+import IncidentsPanel from '../executions/IncidentsPanel';
 import { triggerLabel } from '../../utils/triggerLabel';
 
 
@@ -571,14 +572,17 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
   // 2026-05-27 — Runs vs Backfills sub-view inside DEV. PROD still shows
   // only Runs/Logs (backfills are a DEV-time workflow). Stored in
   // sessionStorage so navigating away and back doesn't snap to Runs.
-  const [mainView, setMainView] = useState<'runs' | 'backfills'>(() => {
+  const [mainView, setMainView] = useState<'runs' | 'backfills' | 'incidents'>(() => {
     try {
       const stashed = sessionStorage.getItem('revoluzen_flow_executions_main_view');
-      return stashed === 'backfills' ? 'backfills' : 'runs';
+      return stashed === 'backfills' || stashed === 'incidents' ? stashed : 'runs';
     } catch {
       return 'runs';
     }
   });
+  // Backfills are a DEV-time workflow; on PROD that tab is not offered, so a
+  // stashed 'backfills' reads as Runs there. Incidents show on both.
+  const shownView = environment === 'prod' && mainView === 'backfills' ? 'runs' : mainView;
   useEffect(() => {
     try { sessionStorage.setItem('revoluzen_flow_executions_main_view', mainView); } catch { /* ignore */ }
     // If Toolbar just submitted a backfill it stashed the id; auto-flip
@@ -1170,18 +1174,31 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
               workflow. The two pills sit just above the dashboard / filter
               bar so the user lands in Runs by default and can jump to
               Backfills with one click. */}
-          {environment !== 'prod' && (
+          {(
             <div className="flex items-center gap-1 border-b border-slate-200">
               <button
                 onClick={() => setMainView('runs')}
                 className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px ${
-                  mainView === 'runs'
+                  shownView === 'runs'
                     ? 'text-blue-700 border-blue-500'
                     : 'text-slate-500 border-transparent hover:text-slate-700'
                 }`}
               >
                 Runs
               </button>
+              {/* 2026-11-11: pipelines whose unattended runs are failing,
+                  grouped until one succeeds, with what changed since. */}
+              <button
+                onClick={() => setMainView('incidents')}
+                className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px ${
+                  shownView === 'incidents'
+                    ? 'text-red-700 border-red-500'
+                    : 'text-slate-500 border-transparent hover:text-slate-700'
+                }`}
+              >
+                Incidents
+              </button>
+              {environment !== 'prod' && (
               <button
                 onClick={() => setMainView('backfills')}
                 className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 -mb-px flex items-center gap-1.5 ${
@@ -1198,8 +1215,11 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 </svg>
                 Backfills
               </button>
+              )}
             </div>
           )}
+
+          {shownView === 'incidents' && <IncidentsPanel />}
 
           {/* Backfills sub-view — list of historical backfills + per-window
               Gantt strip. Clicking a window opens its execution in the
@@ -1217,7 +1237,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
           {/* Runs sub-view — existing table + dashboard. Wrap the whole
               block in `mainView === 'runs'` so DEV/Backfills switches
               clean. PROD always shows runs (mainView toggle is hidden). */}
-          {(environment === 'prod' || mainView === 'runs') && (
+          {shownView === 'runs' && (
           <>
           {/* Dashboard — collapsible stats overview.
               2026-05-27 (filter consolidation): the period selector
@@ -1754,18 +1774,18 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     onClick={async () => {
                       if (!selectedExec.workflow_id || cancellingId === selectedExec.id) return;
                       const ok = await uiConfirm({
-                        title: 'Cancel this run?',
-                        message: 'The pipeline will stop at the next safe checkpoint. Partial writes that already completed remain on the target.',
-                        confirmLabel: 'Cancel run',
+                        title: 'Stop this run?',
+                        message: 'A step running a query stops at once; a step waiting on another system stops when that call returns. Data already written stays written. The run is recorded as stopped, with your name.',
+                        confirmLabel: 'Stop run',
                         destructive: true,
                       });
                       if (!ok) return;
                       setCancellingId(selectedExec.id);
                       try {
                         await api.cancelExecution(selectedExec.workflow_id);
-                        toast.info('Cancelling…', 'The worker will stop at the next safe checkpoint.');
+                        toast.info('Stopping…', 'The run will show as stopped in a moment.');
                       } catch (err: any) {
-                        toast.error('Cancel failed', err?.message || 'The worker did not accept the cancel.');
+                        toast.error('Stop failed', err?.message || 'Could not stop the run.');
                       } finally {
                         setCancellingId(null);
                       }
@@ -1774,7 +1794,7 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                     className="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="6" y="6" width="12" height="12" /></svg>
-                    {cancellingId === selectedExec.id ? 'Cancelling…' : 'Cancel'}
+                    {cancellingId === selectedExec.id ? 'Stopping…' : 'Stop'}
                   </button>
                 ) : (
                   <>
@@ -2089,10 +2109,37 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                 per-tab body all share this scroll container. */}
             <div className="flex-1 overflow-auto">
 
+          {/* ===== STOPPED ===== */}
+          {/* A run someone stopped did not fail: its step reports an error
+              only because it was interrupted. It used to get the red Failure
+              Summary, with that step as its "Root Cause" and an AI Diagnose
+              button, for a stop that was asked for. */}
+          {selectedExec.status === 'cancelled' && (() => {
+            const at = selectedExec.step_logs?.find(s => s.status === 'error');
+            const said = selectedExec.error_message || 'Stopped before it finished.';
+            const atName = at ? (at.step_name || at.step_id) : '';
+            const after = !at ? '' : said.includes(atName) ? ' The steps after it did not run.' : ` Nothing after “${atName}” ran.`;
+            return (
+              <div className={`border-b shrink-0 ${dark ? 'bg-white/[0.03] border-white/10' : 'bg-slate-50 border-slate-200'}`} data-testid="run-stopped">
+                <div className="w-full px-6 py-3 flex items-center gap-2.5">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${dark ? 'bg-white/10 border border-white/10' : 'bg-slate-100 border border-slate-300'}`}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill={dark ? '#cbd5e1' : '#475569'}><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                  </div>
+                  <div className="min-w-0">
+                    <div className={`text-sm font-bold ${dark ? 'text-slate-100' : 'text-slate-800'}`}>Stopped</div>
+                    <div className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-600'}`}>
+                      {said}{after}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ===== FAILURE SUMMARY ===== */}
           {(() => {
             const failedSteps = selectedExec.step_logs?.filter(s => s.status === 'error') || [];
-            if (failedSteps.length === 0) return null;
+            if (failedSteps.length === 0 || selectedExec.status === 'cancelled') return null;
 
             // Build downstream impact from connections
             const connections = workflowDef?.connections || [];
@@ -3377,8 +3424,10 @@ export default function ExecutionsPage({ projectId, projectName = '', onClearPro
                                     {b.rows_before - b.rows_written === 1 ? '' : 's'} lost
                                   </div>
                                 )}
-                                <div className="text-[11px] text-slate-400 mt-1 font-mono">
-                                  at step {b.step_id}
+                                {/* The step by its name on the canvas; its
+                                    internal id meant nothing to people. */}
+                                <div className="text-[11px] text-slate-400 mt-1">
+                                  at step {(selectedExec.step_logs || []).find((s) => s.step_id === b.step_id)?.step_name || b.step_id}
                                 </div>
                               </div>
                             </div>

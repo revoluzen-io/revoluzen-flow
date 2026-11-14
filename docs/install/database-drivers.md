@@ -1,53 +1,113 @@
-# Database driver installation
+# Database drivers
 
-Revoluzen Flow ships the **engine + framework**; the actual database client
-libraries are *optional installs* keyed by extras. This lets a fresh
-`pip install revoluzen-flow` stay small (~80 MB) instead of pulling 600 MB of
-client libraries you may never use.
+Most connectors work as soon as Revoluzen Flow is installed: their Python
+drivers ship with it (`backend/requirements.txt`, mirrored in the
+`pyproject.toml` dependencies). A few need something more:
 
-The trade-off: the first time you create a connection to (say) Oracle,
-you'll see a friendly "oracledb not installed" message in the
-Connections page with the exact install command. This page is the
-master reference for every install command and any OS-level driver
-that needs to live alongside the Python wheel.
+* **An add-on driver.** Db2 and Informix, SAP HANA, Teradata, Kafka, Trino and
+  Presto use drivers that come under the vendors' own licences or are native
+  code, so a standard install leaves them out. An admin adds one on
+  **Settings > Add-ons** (below). Until then the New Connection page marks the
+  connector "Needs an add-on".
+* **A driver installed on the computer itself.** SQL Server, Azure SQL and
+  Azure Synapse need Microsoft's ODBC driver. Oracle needs Oracle Instant
+  Client only in thick mode. See the sections further down.
+* **Any other database** that has an ODBC driver: install the vendor's ODBC
+  driver on the computer running Revoluzen Flow and use the **ODBC database**
+  connection (below).
 
-`revoluzen` is published on PyPI. Use the `pip install revoluzen-flow[x]` commands
-below for normal installs. If you are developing from a source checkout,
-use the editable equivalent from the repo root, for example
-`pip install -e ".[postgres]"`.
+## What ships, and what does not
 
-## TL;DR
-
-| Database | Install command | OS-level driver also required? |
+| Database or service | Driver ships with Revoluzen Flow? | Also needed on the computer |
 |---|---|---|
-| PostgreSQL | `pip install revoluzen-flow[postgres]` | No |
-| MySQL / MariaDB | `pip install revoluzen-flow[mysql]` | No |
-| SQLite | (builtin, nothing to install) | No |
-| MS SQL Server / Azure SQL / Synapse / Fabric SQL | `pip install revoluzen-flow[mssql]` | **Yes** — see below |
-| Oracle (thin mode) | `pip install revoluzen-flow[oracle]` | No |
-| Oracle (thick mode) | `pip install revoluzen-flow[oracle]` | **Yes** — Oracle Instant Client |
-| IBM Db2 / Informix | `pip install revoluzen-flow[db2]` | **Yes** — IBM CLI Driver |
-| SAP HANA | `pip install revoluzen-flow[hana]` | Sometimes (Linux glibc-old) |
-| Teradata | `pip install revoluzen-flow[teradata]` | No |
-| Snowflake | `pip install revoluzen-flow[snowflake]` | No |
-| Google BigQuery | `pip install revoluzen-flow[bigquery]` | No |
-| Databricks SQL | `pip install revoluzen-flow[databricks]` | No |
-| ClickHouse (native) | `pip install revoluzen-flow[clickhouse]` | No |
-| MongoDB | `pip install revoluzen-flow[mongodb]` | No |
-| Cassandra | `pip install revoluzen-flow[cassandra]` | No |
-| Neo4j | `pip install revoluzen-flow[neo4j]` | No |
-| Redis | `pip install revoluzen-flow[redis]` | No |
-| Elasticsearch | `pip install revoluzen-flow[elasticsearch]` | No |
-| Trino / Starburst | `pip install revoluzen-flow[trino]` | No |
+| PostgreSQL, MySQL / MariaDB, SQLite | Yes | No |
+| SQL Server / Azure SQL / Azure Synapse | Yes (pyodbc) | **Microsoft ODBC Driver 17 or 18** |
+| Oracle | Yes (oracledb, thin mode) | No (Instant Client only for thick mode) |
+| Snowflake, BigQuery, Databricks, ClickHouse | Yes | No |
+| Amazon Redshift | Yes (psycopg2; Redshift speaks PostgreSQL's protocol) | No |
+| MongoDB, Redis | Yes | No |
+| Elasticsearch / OpenSearch | No driver needed (plain HTTP) | No |
+| S3 / MinIO, Azure Blob, ADLS Gen2, Google Cloud Storage | Yes | No |
+| SFTP, Windows file shares (SMB), Delta Lake | Yes | No |
+| IBM Db2 / Informix | **Add-on** (`ibm_db`) | Sometimes, see below |
+| SAP HANA | **Add-on** (`hdbcli`) | Sometimes, see below |
+| Teradata | **Add-on** (`teradatasql`) | No |
+| Kafka | **Add-on** (`confluent-kafka`) | No |
+| Trino / Presto (browsing only) | **Add-on** (`trino` / `presto-python-client`) | No |
+| Any other database with an ODBC driver | Yes (pyodbc) | That database's ODBC driver |
 
-Convenience bundles:
+`redshift_connector` is used for Redshift instead of psycopg2 when it is installed.
+
+## Adding a driver: Settings > Add-ons
+
+An admin opens **Settings > Add-ons**, reads the vendor's licence terms for
+the driver (each card links to them), ticks that they accept them, and clicks
+**Install**. The connector works straight away, with no restart.
+
+* Only the drivers listed there can be installed, each under a fixed package
+  name. Installing runs `pip` with `--only-binary=:all:`, so no build scripts run.
+* Drivers go into the data folder, under
+  `addons/py<version>-<system>-<machine>` (for example
+  `addons/py311-linux-x86_64`). They stay there across upgrades, and a data
+  folder moved to another kind of computer does not load drivers built for the
+  old one.
+* That folder is searched **after** everything Revoluzen Flow ships, so an
+  add-on can never replace one of its packages.
+* Installs come from the package index pip is set up to use. A company mirror
+  works through pip's usual settings (`PIP_INDEX_URL` and so on).
+* **No internet on the server?** Download the driver's `.whl` files (and any it
+  needs) on another computer, for the server's operating system and Python
+  version. Then click **Upload wheel files…** and **Install from uploaded files**.
+* Every install is written to the audit log.
+* To remove a driver, delete its folder under `addons/` and restart.
+* To turn installing off on a locked-down server, set
+  `REVOLUZEN_FLOW_ADDON_INSTALLS=off`. The screen then only shows what is installed.
+
+With pip you can also install a driver into Revoluzen Flow's own environment:
+`pip install "revoluzen-flow[db2]"`, `[hana]`, `[teradata]` or `[kafka]`.
+
+## ODBC database (any database with an ODBC driver)
+
+1. Install the database vendor's ODBC driver on the computer running
+   Revoluzen Flow (on Linux, the driver and unixODBC).
+2. Add an **ODBC database** connection:
+   * **ODBC Driver**: the driver's name as the computer lists it, for example
+     `IBM INFORMIX ODBC DRIVER`. If the name is wrong, **Test** lists the
+     drivers the computer has. Alternatively, give a data source name (DSN) set
+     up on that computer.
+   * **More Settings**: anything else the driver needs, as `name=value` pairs
+     separated by semicolons, for example `Server=db1;Port=9088;Database=sales`.
+   * **Username** and **Password**: put them here, not in More Settings. They
+     are stored encrypted and passed to the driver escaped.
+3. **Test** connects and lists the tables. Browsing, the Database Source (query
+   or table) and the Execute SQL step all work through the driver.
+
+An ODBC database is **read only** as a pipeline destination: there is no one
+way to create a table or load rows that every ODBC database accepts. Write to
+it with an Execute SQL step instead. A sample run reads the first rows and stops.
+
+## Docker
+
+The image has unixODBC, so the ODBC database connection works with any ODBC
+driver added to the image. It also has the DuckDB extensions pipelines use
+for cloud files (`httpfs`, `azure`, `spatial`), so they load without internet
+access.
+
+Microsoft's ODBC driver for SQL Server comes under Microsoft's licence terms,
+so the image leaves it out unless you build with it and accept those terms:
 
 ```bash
-# Every database where the Python wheel works without OS-level drivers
-pip install revoluzen-flow[all-databases-no-os-deps]
+docker build --build-arg INSTALL_MSODBCSQL=yes -t revoluzen-flow .
+```
 
-# Everything (incl. AWS / Azure / Google cloud SDKs)
-pip install revoluzen-flow[all]
+Add-on drivers installed on Settings > Add-ons live in the data volume
+(`/data/addons/...`), so they survive upgrading the image. To build them into an
+image of your own instead:
+
+```dockerfile
+FROM revoluzen-flow
+# Installs into the image's own environment, next to what it ships.
+RUN python -m pip install --no-cache-dir --user hdbcli teradatasql
 ```
 
 ## What "OS-level driver" means
@@ -239,17 +299,11 @@ or OAuth M2M, both passed in the Revoluzen Flow connection config.
 
 ---
 
-## ClickHouse (native protocol)
+## ClickHouse
 
-Python install:
-```bash
-pip install revoluzen-flow[clickhouse]
-```
-
-The framework also speaks ClickHouse via the **HTTP interface** with
-zero install (the generic REST connector handles it). Use the native
-driver path only when you need binary transport or specific session
-settings.
+Ships with Revoluzen Flow (`clickhouse-connect`). Reading, writing, browsing
+and Test connection all use ClickHouse's HTTP interface: port 8123, or 8443
+with **Use SSL** ticked.
 
 ---
 
@@ -274,7 +328,8 @@ those each require the OS-level driver install documented above.
 
 | Error | Likely cause | Fix |
 |---|---|---|
-| `ModuleNotFoundError: No module named 'oracledb'` | Extra not installed | `pip install revoluzen-flow[oracle]` |
+| "The X connector needs an add-on that isn't included in this Revoluzen Flow install" | The driver is an add-on, or a shipped driver was removed | An admin installs it on Settings > Add-ons, or reinstall Revoluzen Flow |
+| "The ODBC driver or data source ... isn't set up on the computer" | The ODBC Driver name does not match an installed driver | Use one of the names the message lists, or install the driver |
 | `Can't open lib 'ODBC Driver 17 for SQL Server'` | Python wheel installed; OS driver missing | Install Microsoft ODBC Driver (see above) |
 | `DPI-1047: Cannot locate a 64-bit Oracle Client library` | `ORACLE_THICK_MODE=1` set but Instant Client missing | Install Instant Client + add to PATH/`LD_LIBRARY_PATH` |
 | `cffi.api.CDefError: ...` on Linux ARM64 (db2) | ARM64 wheel needs DSDriver | Install DSDriver, set `IBM_DB_HOME` |

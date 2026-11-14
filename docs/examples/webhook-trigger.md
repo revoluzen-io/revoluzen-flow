@@ -163,9 +163,13 @@ install-service`, or in Docker with a restart policy). "Real-time" comes from
 two triggers:
 
 - **Webhook (this example)** — the upstream system pushes an event and the
-  pipeline fires immediately. Best when you control the source.
-- **Interval schedule** — for sources you must poll (a table, a queue, files
-  landing), schedule the pipeline every N seconds/minutes for micro-batch.
+  pipeline fires immediately. Best when you control the source. An endpoint can
+  also require signed calls instead of a key, for senders that sign webhooks.
+- **File arriving** — for files landing in a folder or bucket, a file-arrival
+  trigger starts one run per new file, with its path as a parameter. See
+  [Scheduling and triggers](../user-guides/pipelines.md#7-scheduling-and-triggers).
+- **Interval schedule** — for sources you must poll (a table or a queue),
+  schedule the pipeline every N seconds/minutes for micro-batch.
 
 ## Notes for production
 

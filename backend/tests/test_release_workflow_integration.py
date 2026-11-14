@@ -28,9 +28,12 @@ def test_release_retains_org_publish_gates_and_adds_package_validation():
     assert 'PUBLISH_DOCKER' in jobs['docker']['if']
     assert 'PUBLISH_PYPI' in jobs['pypi']['if']
     assert 'environment' not in jobs['pypi']
-    assert jobs['pypi']['needs'] == 'package'
+    # 2026-11-11: publishing also waits for request-to-pipeline accuracy.
+    assert set(jobs['pypi']['needs']) == {'package', 'intent-eval'}
     assert jobs['docker']['needs'] == 'package'
-    assert set(jobs['github-release']['needs']) == {'package', 'linux-installers'}
+    assert set(jobs['github-release']['needs']) == {'package', 'linux-installers', 'intent-eval'}
+    gate = ' '.join(step.get('run', '') for step in jobs['intent-eval']['steps'])
+    assert '--drafter rule' in gate and '--min-accuracy' in gate
     # PyYAML's YAML 1.1 loader parses the GitHub Actions key "on" as True.
     events = workflow.get('on', workflow.get(True))
     assert 'version_suffix' in events['workflow_dispatch']['inputs']

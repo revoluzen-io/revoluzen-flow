@@ -91,28 +91,29 @@ count + actions.
 
 **Bad:** "Revoluzen Flow supports 124 connectors out of the box."
 
-**Why wrong:** The actual count is **66 connectors visible by default** —
-the New Connection picker's own number. `CONNECTION_TYPES` declares 80
+**Why wrong:** The actual count is **68 connectors visible by default** —
+the New Connection picker's own number. `CONNECTION_TYPES` declares 82
 entries and `CONNECTOR_STATUS` marks 14 as `roadmap`, which the picker
-filters out: 80 − 14 = 66. Earlier marketing claimed 60+, then 45, then
+filters out: 82 − 14 = 68 (66 until Windows File Share and the ODBC
+database connection were added on 2026-11-11). Earlier marketing claimed 60+, then 45, then
 43, then 37, then 33 — each pass counted a different population without
 saying which. The 33 counted only SaaS manifests on disk and missed every
 database, warehouse and file connector.
 
-**Correct:** "Revoluzen Flow ships 66 connectors visible by default:
-Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps 21
+**Correct:** "Revoluzen Flow ships 68 connectors visible by default:
+Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21
 · Operations & AI 11. Plus an OpenAPI import page to build your own."
 
 **Two traps when quoting this number:**
 
-- Say **"66 connectors"**, never *"66 open-source connectors"*. Nine
+- Say **"68 connectors"**, never *"68 open-source connectors"*. Nine
   (sap, sap_hana, netsuite, workday, dynamics365, servicenow, salesforce,
   teradata, db2) carry a Plus tier label in the catalog. There is no
   license check behind it — it is a pricing posture, not a runtime gate —
-  but marketing them as paid while calling all 66 open-source is an
+  but marketing them as paid while calling all 68 open-source is an
   overclaim.
 - The cert matrix grades a **different population**: the SaaS REST
-  manifests only, not the 66 connection types. Never say "19 of our 66 are
+  manifests only, not the 68 connection types. Never say "19 of our 68 are
   Beta" — say "of the listed SaaS connectors".
 
 **Definition — count what a user can actually use.** 45 manifest JSON
@@ -376,13 +377,13 @@ using a Database Source with an incremental query
 
 **Bad:** "The Copilot has 16 tools."
 
-**Why wrong:** The canonical count is **32 tools** (24 READ + 7
+**Why wrong:** The canonical count is **37 tools** (29 READ + 7
 SAFE_WRITE + 1 HIGH_IMPACT_WRITE), verified against the registry
-2026-11-03, plus 2 opt-in web tools registered only when the operator
+2026-11-11, plus 2 opt-in web tools registered only when the operator
 enables web access. 16 / 19 / 20 / 25 / 26 were all stale numbers from
 earlier reconciliations — this rule has now been wrong twice itself.
 
-**Correct:** "The Copilot has 32 tools organized in three tiers. Full
+**Correct:** "The Copilot has 37 tools organized in three tiers. Full
 list in `docs/product_facts/10_ai_copilot.md`."
 
 **Source:** `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`

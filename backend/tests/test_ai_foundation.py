@@ -223,6 +223,17 @@ def test_normalize_dict_schema_drops_extras_and_validates_types():
     assert out == {"node_count": 12, "name": "etl-1"}
 
 
+def test_normalize_an_empty_schema_keeps_the_whole_result():
+    # get_incidents, the glossary lookup and the shared rule sets declare {}:
+    # their results reached the model as an empty object.
+    clear_registry()
+    register_output_schema("get_incidents", {})
+    result = {"incidents": [{"id": "i1", "workflow_name": "Partner Price List"}], "count": 1}
+    assert normalize_tool_output("get_incidents", result) == result
+    with pytest.raises(SchemaError, match="expected dict"):
+        normalize_tool_output("get_incidents", ["not", "a", "dict"])
+
+
 def test_normalize_raises_on_missing_key():
     clear_registry()
     register_output_schema("t", {"a": "int", "b": "str"})

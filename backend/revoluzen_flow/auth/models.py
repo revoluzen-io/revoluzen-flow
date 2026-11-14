@@ -234,6 +234,9 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    # One-time setup token: required for the FIRST account on a server-mode
+    # install (see api/auth.py ensure_setup_token). Ignored otherwise.
+    setup_token: str = ""
 
 
 class InviteRequest(BaseModel):

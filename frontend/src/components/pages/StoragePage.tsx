@@ -89,6 +89,33 @@ interface StorageTable {
   prep_recipe?: Array<Record<string, unknown>> | null;
   prep_source_object_id?: string | null;
   prep_workflow_id?: string | null;
+  // 2026-11-10 — which version of that pipeline loaded the data now in the
+  // table, when, and the last loads (newest first). The list endpoint adds
+  // the pipeline's name and its newest saved version, so a preparation
+  // edited since the last load can be flagged.
+  prep_workflow_version?: number | null;
+  prep_loaded_at?: string | null;
+  load_history?: TableLoad[];
+  prep_workflow_name?: string | null;
+  prep_workflow_latest_version?: number | null;
+}
+
+/** A table with no preparation to open can be given one if it kept its Data
+ *  Prep steps or knows the file it was promoted from. */
+function canBeMadeEditable(t: StorageTable): boolean {
+  return !t.prep_workflow_name && (Array.isArray(t.prep_recipe) || !!t.created_from_object_id);
+}
+
+/** One write of a managed table, as the sink records it. */
+export interface TableLoad {
+  at: string;
+  workflow_id?: string | null;
+  version?: number | null;
+  run_id?: string | null;
+  mode?: string;
+  rows?: number | null;
+  /** 'promote' when Promote wrote the table rather than a run. */
+  source?: string;
 }
 
 interface StorageSummary {
@@ -476,20 +503,50 @@ export default function StoragePage({
   // those are the writers (the recipe that PRODUCES the table). If
   // there's exactly one writer, navigate straight there. If multiple,
   // open the usage popover so the user can pick.
-  const onOpenTableDataPrep = (table: StorageTable) => {
+  // 2026-11-10 — a table promoted before Promote saved a preparation has
+  // nothing to edit. This saves one for it: the file, the columns it kept,
+  // into this table.
+  // The same for a table loaded from a Data Prep that was never saved: it
+  // kept its steps, which become the pipeline. Returns the pipeline's id.
+  const onMakeTableEditable = async (table: StorageTable): Promise<string | null> => {
+    try {
+      const res = await api.post<{ workflow_id: string; workflow_name: string; warning: string | null }>(
+        `/api/storage/tables/${table.id}/preparation`,
+        {},
+      );
+      if (res.warning) {
+        toast.warning(`Saved its preparation as "${res.workflow_name}"`, res.warning);
+      } else {
+        toast.success(`Saved its preparation as "${res.workflow_name}"`, 'Open it from the table to change how the table is prepared.');
+      }
+      refresh();
+      return res.workflow_id;
+    } catch (err) {
+      toast.error(`Could not make ${table.schema_name}.${table.name} editable: ${(err as Error).message || err}`);
+      return null;
+    }
+  };
+
+  const onOpenTableDataPrep = async (table: StorageTable) => {
     // Z36 (2026-05-23) — if the table was produced by a Z1 wand pipeline,
     // prep_workflow_id is stamped on the row at sink-write time. Trust
     // that directly — it's faster than re-scanning workflows, and it
     // works even if the usage scanner missed the sink rule (e.g. a
     // generic destination step with connector_type=local_table that
-    // doesn't perfectly match the schema.name shape).
-    if (table.prep_workflow_id) {
+    // doesn't perfectly match the schema.name shape). The name is null
+    // once that pipeline has been deleted.
+    if (table.prep_workflow_id && table.prep_workflow_name) {
       window.location.hash = `editor/${table.prep_workflow_id}`;
       return;
     }
     const refs = (usage.tables[table.id] || []) as Array<UsageRef & { role?: string }>;
     const writers = refs.filter((r) => r.role === 'sink');
     if (writers.length === 0) {
+      if (canBeMadeEditable(table)) {
+        const id = await onMakeTableEditable(table);
+        if (id) window.location.hash = `editor/${id}`;
+        return;
+      }
       toast.info('No data prep pipeline writes to this table yet. Promote a file or create one from Storage → Files.');
       return;
     }
@@ -569,6 +626,12 @@ export default function StoragePage({
       created_at: table.created_at,
       updated_at: table.created_at,
       deleted_at: null,
+      // For the drawer's History tab: the table's loads and the name of the
+      // pipeline that prepares it (not file fields, hence the widening).
+      ...({
+        load_history: table.load_history || [],
+        prep_workflow_name: table.prep_workflow_name || null,
+      } as Partial<StorageObject>),
     });
   };
 
@@ -892,6 +955,7 @@ export default function StoragePage({
             }
             onEdit={setEditTable}
             onOpenDataPrep={onOpenTableDataPrep}
+            onMakeEditable={onMakeTableEditable}
           />
         ) : (
           <OutputsTab
@@ -1544,6 +1608,7 @@ function TablesTab({
   onShowUsage,
   onEdit,
   onOpenDataPrep,
+  onMakeEditable,
 }: {
   tables: StorageTable[];
   // Z33 (2026-05-23) — `objects` is the Files-tab data, threaded in so
@@ -1563,6 +1628,8 @@ function TablesTab({
   // Z22: jump to the writer pipeline (the data-prep recipe that fills
   // this table). Disabled when no workflow has a sink targeting it.
   onOpenDataPrep: (t: StorageTable) => void;
+  // Save a preparation for a table promoted before Promote saved one.
+  onMakeEditable: (t: StorageTable) => void;
 }) {
   // Z33: lookup map for the "From {filename}" badge. Computed once
   // per render (objects list is small — workspace-scoped uploads).
@@ -1691,6 +1758,97 @@ function TablesTab({
                             </span>
                           )}
                         </div>
+                        {/* 2026-11-10 — the pipeline that prepares this table,
+                            the version of it whose result the table holds,
+                            and a flag when it was edited after that load.
+                            Its name opens it in the Editor: change it there,
+                            then run it to reload the table. */}
+                        {t.prep_workflow_id && (() => {
+                          const edited = t.prep_workflow_version != null
+                            && t.prep_workflow_latest_version != null
+                            && t.prep_workflow_latest_version > t.prep_workflow_version;
+                          return (
+                            <div data-testid="table-prepared-by" className="mt-1 flex items-center gap-1.5 flex-wrap text-[11px] text-slate-500">
+                              {/* The {' '} keep words apart for screen readers
+                                  and copying; the flex gap does the spacing. */}
+                              <span>Prepared by</span>{' '}
+                              {t.prep_workflow_name ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenDataPrep(t)}
+                                  title="Open this preparation in the Editor. Change it there, then run it to reload the table."
+                                  className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline truncate max-w-[220px]"
+                                >
+                                  {t.prep_workflow_name}
+                                </button>
+                              ) : (
+                                <>
+                                  <span className="italic">a pipeline that was deleted</span>
+                                  {canBeMadeEditable(t) && (
+                                    <>
+                                      {' '}
+                                      <button
+                                        type="button"
+                                        onClick={() => onMakeEditable(t)}
+                                        title="Save a new preparation pipeline for this table, from the file it came from."
+                                        className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline"
+                                      >
+                                        Make it editable
+                                      </button>
+                                    </>
+                                  )}
+                                </>
+                              )}{' '}
+                              {t.prep_workflow_version != null && (
+                                <span
+                                  className="px-1 py-px rounded bg-slate-100 border border-slate-200 font-mono text-[10px] text-slate-700"
+                                  title={`The table holds what version ${t.prep_workflow_version} of the preparation produced.`}
+                                >
+                                  v{t.prep_workflow_version}
+                                </span>
+                              )}{' '}
+                              {t.prep_loaded_at && <span>· loaded {formatDate(t.prep_loaded_at)}</span>}{' '}
+                              {edited && (
+                                <span
+                                  className="font-semibold text-amber-700"
+                                  title="The preparation was changed after this table was loaded. Run it to reload the table."
+                                >
+                                  · edited to v{t.prep_workflow_latest_version}, not run yet
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {/* Loaded from a Data Prep that was never saved: the
+                            steps were kept, but there is no pipeline yet. */}
+                        {!t.prep_workflow_id && Array.isArray(t.prep_recipe) && (
+                          <div data-testid="table-prepared-by" className="mt-1 flex items-center gap-1.5 flex-wrap text-[11px] text-slate-500">
+                            <span>
+                              Prepared in Data Prep{prepStepCount > 0 ? ` (${prepStepCount} step${prepStepCount === 1 ? '' : 's'})` : ''}, not saved as a pipeline.
+                            </span>{' '}
+                            <button
+                              type="button"
+                              onClick={() => onMakeEditable(t)}
+                              title="Save these steps as a pipeline, so you can change them and run them again."
+                              className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline"
+                            >
+                              Make it editable
+                            </button>
+                          </div>
+                        )}
+                        {!t.prep_workflow_id && !Array.isArray(t.prep_recipe) && t.created_from_object_id && (
+                          <div data-testid="table-prepared-by" className="mt-1 flex items-center gap-1.5 flex-wrap text-[11px] text-slate-500">
+                            <span>Promoted as is, with no preparation to edit.</span>{' '}
+                            <button
+                              type="button"
+                              onClick={() => onMakeEditable(t)}
+                              title="Save a preparation pipeline for this table (the file and the columns it kept), so you can change it and run it like any other."
+                              className="font-semibold text-indigo-700 hover:text-indigo-900 hover:underline"
+                            >
+                              Make it editable
+                            </button>
+                          </div>
+                        )}
                       </td>
                     )}
                     {isV('rows') && (
@@ -1741,8 +1899,12 @@ function TablesTab({
                       // the wand lights up for Z1-scaffolded tables even
                       // if the usage scanner's sink rule missed them.
                       const sinkRefs = refs.filter((r: any) => r?.role === 'sink');
-                      const hasWriter = sinkRefs.length > 0 || !!t.prep_workflow_id;
+                      const hasPreparation = !!t.prep_workflow_id && !!t.prep_workflow_name;
+                      const hasWriter = sinkRefs.length > 0 || hasPreparation;
                       const writerCount = sinkRefs.length;
+                      // With nothing to open yet, the wand saves what the
+                      // table kept as a pipeline, then opens that.
+                      const canSavePreparation = !hasWriter && canBeMadeEditable(t);
                       return (
                         <td className="px-5 py-3">
                           <div className="flex justify-end gap-0.5">
@@ -1762,14 +1924,16 @@ function TablesTab({
                             </RowActionButton>
                             <RowActionButton
                               title={
-                                hasWriter
-                                  ? writerCount === 1
-                                    ? 'Open the data prep pipeline that fills this table'
-                                    : `Pick which of ${writerCount} pipelines to open`
-                                  : 'No data prep pipeline writes to this table yet'
+                                hasPreparation || writerCount === 1
+                                  ? 'Open the data prep pipeline that fills this table'
+                                  : writerCount > 1
+                                    ? `Pick which of ${writerCount} pipelines to open`
+                                    : canSavePreparation
+                                      ? 'Save how this table was prepared as a pipeline, then open it'
+                                      : 'No data prep pipeline writes to this table yet'
                               }
                               tone="amber"
-                              disabled={!hasWriter}
+                              disabled={!hasWriter && !canSavePreparation}
                               onClick={() => onOpenDataPrep(t)}
                             >
                               <CleanupIcon />

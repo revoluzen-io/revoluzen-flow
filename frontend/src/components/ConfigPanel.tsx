@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect, useRef, useMemo, lazy, Suspense, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { returnFromReveal, revealNode, setSettingsDockOpen } from './editor/revealNode';
 import { api } from '../api/client';
 import { ModuleIcon } from './ModulesPanel';
 import { InputPane, InspectPane } from './NodeDataPane';
@@ -13,8 +14,11 @@ import { securityLabel, type OpenApiSecurity } from './OpenApiSecurityReview';
 import { DataInBand, DataOutBand } from './NodeConfigFrame';
 import { buildDataIn, buildDataOut, deriveOutputColumns, resolveInputs } from '../utils/nodeUiContract';
 import { hasSideEffect } from '../utils/nodeArity';
+import { apiSourceOperation } from '../utils/apiSourcePaging';
 import ExpressionPreview from './ExpressionPreview';
 import DataQualityRules, { IgnoredStepSettings } from './DataQualityRules';
+import RuleSetPicker from './quality/RuleSetPicker';
+import JoinKeySuggester from './join/JoinKeySuggester';
 // P5 (2026-05-21): cast-safety classifier mirrors the backend taxonomy
 // so the Mapping tab renders ✓ / ⚠ / ✕ glyphs without a network hop.
 import { classifyCastUI, TIER_META, type CastTier } from '../lib/castSafety';
@@ -62,6 +66,7 @@ function CatalogPicker(props: any) {
 import { isRequiredFieldFor, isOneOfFieldFor } from '../utils/validateWorkflow';
 // FOLLOW-6 (2026-05-19): canonical navigate helper.
 import { navigateTo } from '../router';
+import { uiPrompt } from '../ui/dialog';
 // 2026-05-19 (P2 #14 of PAGE_BY_PAGE_AUDIT.md): DataWranglerConfig is the
 // first per-step-type config to migrate to React.lazy. It's the largest
 // already-extracted external config (~1500 lines of its own + a wide
@@ -74,6 +79,12 @@ import { navigateTo } from '../router';
 // (a one-line "Loading…" stub) so the user notices nothing on a hit and
 // sees a friendly placeholder on a miss.
 const DataWranglerConfig = lazy(() => import('./data-wrangler/DataWranglerConfig'));
+// File step: fixed-width, COBOL copybook and PGP settings (November 2026)
+// live in components/files/ and load only when one of them is shown.
+const LazyFixedWidthSettings = lazy(() => import('./files/LegacyFileSettings').then((m) => ({ default: m.FixedWidthSettings })));
+const LazyCopybookSettings = lazy(() => import('./files/LegacyFileSettings').then((m) => ({ default: m.CopybookSettings })));
+const LazyPgpSettings = lazy(() => import('./files/LegacyFileSettings').then((m) => ({ default: m.PgpSettings })));
+import { FILE_FORMATS, FORMAT_LABELS, TEXT_ENCODINGS, ENCODING_LABELS } from './files/legacyFileOptions';
 // 2026-05-19 (OSS-8): the standalone requireNamedWorkflow helper is
 // gone — the store's `ensureWorkflow` runs the prompt loop internally
 // and returns null on cancel. See the Test Node handler below.
@@ -116,7 +127,7 @@ const HARDCODED_CONFIGS = new Set([
   'api_sink', 'webhook_sink', 'email_sink', 'delta_sink', 'warehouse_sink',
   'if_condition', 'switch_case', 'foreach_loop', 'until_loop',
   'wait_delay', 'set_variable', 'execute_pipeline',
-  'http_request', 'webhook_trigger', 'code_script',
+  'http_request', 'code_script',
   'copy_data', 'delete_data', 'send_email', 'slack_notify',
   'append_variable', 'filter_array', 'validation', 'fail',
   'file_system', 'execute_sql_task',
@@ -297,9 +308,13 @@ export default function ConfigPanel() {
           chat: store.chatOpen ?? true,
         };
       }
+      // Before the rails move: the canvas then keeps the drawing where it
+      // is instead of refitting it (editor/revealNode.ts).
+      setSettingsDockOpen(true);
       store.setNodesPanelOpen?.(false);
       store.setChatOpen?.(false);
     } else if (prevPanelsRef.current) {
+      setSettingsDockOpen(false);
       store.setNodesPanelOpen?.(prevPanelsRef.current.nodes);
       store.setChatOpen?.(prevPanelsRef.current.chat);
       prevPanelsRef.current = null;
@@ -311,6 +326,7 @@ export default function ConfigPanel() {
   useEffect(() => () => {
     const prev = prevPanelsRef.current;
     if (!prev) return;
+    setSettingsDockOpen(false);
     const store = useWorkflowStore.getState();
     store.setNodesPanelOpen?.(prev.nodes);
     store.setChatOpen?.(prev.chat);
@@ -367,6 +383,28 @@ export default function ConfigPanel() {
         }
       : undefined,
   });
+
+  // The node being edited stays in full view (editor/revealNode.ts): above
+  // the dock while it is open, with the steps wired to it, both when it opens
+  // and when it follows another node; once it closes and the side rails come
+  // back, the canvas returns to where it was before the dock moved it, or at
+  // least keeps the node in view. Measured two frames on, once the rails have
+  // folded or returned and the canvas has its new size.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const dockShown = open && !!node && _activeStepType !== 'data_wrangler';
+  const lastShownRef = useRef<string | null>(null);
+  useEffect(() => {
+    const target = dockShown ? selectedNodeId : lastShownRef.current;
+    lastShownRef.current = dockShown ? selectedNodeId : null;
+    if (!target) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        if (dockShown) revealNode(target, dockRef.current?.getBoundingClientRect().top);
+        else if (!returnFromReveal()) revealNode(target);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dockShown, selectedNodeId]);
 
   // Reset modal width to the canonical default when switching between nodes.
   // Placed AFTER `_activeStepType` is initialized above so we don't hit the
@@ -709,6 +747,7 @@ export default function ConfigPanel() {
         panel publishes on every drag tick. Default 240px matches the
         legacy fixed height (h-60) so pre-Z8 sessions are unchanged. */}
     <div
+      ref={dockRef}
       className={`config-overlay fixed z-50 flex ${
         docked
           // A bottom panel between the side rails. No top bound and no
@@ -741,7 +780,10 @@ export default function ConfigPanel() {
           // Stacked no longer needs extra height: the two data panes are
           // collapsed to header strips by default, so the dock holds one
           // form plus two 44px bars, not three full panes.
-          ? { top: 'auto', height: 'clamp(320px, 52vh, 75vh)' }
+          // Never so tall that the canvas above loses room for a node: on a
+          // short window, 52vh left about 100px there, less than one node and
+          // its name. `100vh - 480px` keeps about 200px of canvas showing.
+          ? { top: 'auto', height: 'clamp(300px, min(52vh, calc(100vh - 480px)), 75vh)' }
           : { bottom: 'var(--revoluzen-flow-preview-panel-height, 240px)' }
       }
     >
@@ -1626,9 +1668,6 @@ export default function ConfigPanel() {
         {stepType === 'http_request' && (
           <HttpRequestConfig params={params} nodeId={node.id} onChange={updateNodeParams} />
         )}
-        {stepType === 'webhook_trigger' && (
-          <WebhookTriggerConfig params={params} nodeId={node.id} onChange={updateNodeParams} />
-        )}
         {stepType === 'code_script' && (
           <CodeScriptConfig params={params} nodeId={node.id} onChange={updateNodeParams} />
         )}
@@ -1692,7 +1731,7 @@ export default function ConfigPanel() {
         )}
         {/* Dynamic schema fallback — renders config from backend param_schema for any node type without a hardcoded config above */}
         {!HARDCODED_CONFIGS.has(stepType) && (
-          <DynamicConfig stepType={stepType} params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} />
+          <DynamicConfig stepType={stepType} params={params} nodeId={node.id} onChange={updateNodeParams} columns={upstreamColumns} upstreamSteps={upstreamNodes} />
         )}
         {!fullBleed && <DataOutBand d={frameDataOut} compact={docked} />}
       </div>
@@ -2533,7 +2572,7 @@ type ConnFamily =
   | 'other';
 
 const FAMILY_BY_TYPE: Record<string, ConnFamily> = {
-  postgresql: 'sql', mysql: 'sql', mssql: 'sql', oracle: 'sql', sqlite: 'sql', mariadb: 'sql', cockroachdb: 'sql',
+  postgresql: 'sql', mysql: 'sql', mssql: 'sql', oracle: 'sql', sqlite: 'sql', mariadb: 'sql', cockroachdb: 'sql', odbc: 'sql',
   snowflake: 'warehouse', bigquery: 'warehouse', redshift: 'warehouse', databricks: 'warehouse', synapse: 'warehouse', clickhouse: 'warehouse', trino: 'warehouse',
   mongodb: 'nosql', cassandra: 'nosql', couchbase: 'nosql', dynamodb: 'nosql', cosmosdb: 'nosql', neo4j: 'nosql', firebase: 'nosql',
   elasticsearch: 'search', opensearch: 'search', redis: 'search',
@@ -2646,17 +2685,23 @@ function FamilyAwareSourceFields({ family, params, set, prefix = '' }: FamilyFie
                   kinds={['procedure', 'function']}
                   label="Browse procedures"
                   compact
-                  onPick={(item) => set({ stored_procedure: item.parent ? `${item.parent}.${item.name}` : item.name })}
+                  onPick={(item) => set({ [k('procedure')]: item.parent ? `${item.parent}.${item.name}` : item.name })}
                 />
               </div>
+              {/* 2026-11-11: saved under the step's own prefix (source_procedure,
+                  source_proc_args), which the server and the checks read. The
+                  older stored_procedure / proc_params are still shown. */}
               <Field label="Procedure Name *">
-                <TextInput value={params.stored_procedure || ''} onChange={(v) => set({ stored_procedure: v })} placeholder="dbo.GetOrders" />
+                <TextInput value={params[k('procedure')] || params.stored_procedure || ''} onChange={(v) => set({ [k('procedure')]: v })} placeholder="dbo.GetOrders" />
               </Field>
               <Field label="Parameters (JSON)">
                 <textarea
-                  value={params.proc_params || ''}
-                  onChange={(e) => set({ proc_params: e.target.value })}
-                  placeholder='{ "@StartDate": "2025-01-01" }'
+                  value={(() => {
+                    const raw = params[k('proc_args')] ?? params.proc_params ?? '';
+                    return typeof raw === 'string' ? raw : JSON.stringify(raw);
+                  })()}
+                  onChange={(e) => set({ [k('proc_args')]: e.target.value })}
+                  placeholder='[42, "EU"] or { "@StartDate": "2025-01-01" }'
                   rows={3}
                   className="w-full px-2.5 py-1.5 text-xs font-mono text-slate-700 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300"
                 />
@@ -3325,11 +3370,13 @@ function FamilyAwareSinkFields({ family, params, set, prefix = '', columns = [],
 const EmbeddedConnectionContext = createContext(false);
 
 function ConnectionPicker({
-  value, onChange, filter, requireCapability,
+  value, onChange, filter, requireCapability, emptyLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   filter?: string[];
+  /** What "no connection" means for this step. */
+  emptyLabel?: string;
   /** When set, hides connections whose capabilities array doesn't
    *  include this role. Source nodes pass 'read', sink nodes 'write'.
    *  Empty / missing capabilities array on the connection = legacy row,
@@ -3445,7 +3492,7 @@ function ConnectionPicker({
                 : 'border-slate-200'
           }`}
         >
-          <option value="">— No connection (DuckDB in-memory) —</option>
+          <option value="">{emptyLabel || '— No connection (DuckDB in-memory) —'}</option>
           {connections.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name} ({c.type})
@@ -4249,6 +4296,32 @@ function LocalTableConfig({
 
   const schemas = Array.from(new Set(tables.map((t) => t.schema_name))).sort();
   const currentSchema = (params.schema_name as string) || 'default';
+  // Every schema that holds a table, plus `default` and the one this node
+  // names, each once. A schema has no record of its own: it exists once a
+  // table is written into it, so a new one is simply a name the sink writes
+  // under. (This list used to show `default` twice on a workspace with no
+  // tables: once as the fallback, once as "default (not in catalog)".)
+  const schemaChoices = Array.from(new Set(['default', ...schemas, currentSchema]))
+    .sort((a, b) => (a === 'default' ? -1 : b === 'default' ? 1 : a.localeCompare(b)));
+  const NEW_SCHEMA = '__new_schema__';
+  const addSchema = async () => {
+    const typed = await uiPrompt({
+      title: 'New schema',
+      message: 'A schema groups managed tables, such as sales or finance. It appears on Storage → Managed Tables when this node first writes a table into it.',
+      placeholder: 'sales',
+      confirmLabel: 'Use this schema',
+    });
+    if (typed === null) return;
+    // Same rule as the engine's: lower case, letters, digits and underscores.
+    const name = typed.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    if (!name) {
+      toast.error('Schema name needed', 'Use letters, digits and underscores, for example sales or finance_2026.');
+      return;
+    }
+    // A schema that already holds tables: pick one of them afresh. A new
+    // one has none, so a table name already typed stays.
+    onChange(nodeId, { schema_name: name, table_name: schemas.includes(name) ? '' : (params.table_name || '') });
+  };
   const tablesInSchema = tables.filter((t) => t.schema_name === currentSchema);
   const currentTable = (params.table_name as string) || '';
   const tableMeta = tablesInSchema.find((t) => t.name === currentTable);
@@ -4261,7 +4334,7 @@ function LocalTableConfig({
     <>
       <div className="bg-blue-50 rounded-md px-3 py-1.5 border border-blue-100 flex items-center justify-between">
         <span className="text-[10px] text-blue-700">
-          {isSink ? 'Writes to a managed Parquet table — pick or create one on Storage → Managed Tables.' : 'Reads from a managed Parquet table in this workspace.'}
+          {isSink ? 'Writes to a managed table on Storage → Managed Tables. Pick one, or name a new table or schema: the first run creates it.' : 'Reads from a managed Parquet table in this workspace.'}
         </span>
         <button
           type="button"
@@ -4276,17 +4349,20 @@ function LocalTableConfig({
       <Field label="Schema *">
         <select
           value={currentSchema}
-          onChange={(e) => onChange(nodeId, { schema_name: e.target.value, table_name: '' })}
+          onChange={(e) => {
+            if (e.target.value === NEW_SCHEMA) { void addSchema(); return; }
+            onChange(nodeId, { schema_name: e.target.value, table_name: '' });
+          }}
+          aria-label="Schema"
           className="w-full px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pipe-300 bg-white"
         >
-          {schemas.length === 0 ? (
-            <option value="default">default</option>
-          ) : (
-            schemas.map((s) => <option key={s} value={s}>{s}</option>)
-          )}
-          {!schemas.includes(currentSchema) && currentSchema && (
-            <option value={currentSchema}>{currentSchema} (not in catalog)</option>
-          )}
+          {schemaChoices.map((s) => (
+            <option key={s} value={s}>
+              {s}
+              {s === 'default' || schemas.includes(s) ? '' : isSink ? ' (new: made on the first run)' : ' (no tables yet)'}
+            </option>
+          ))}
+          {isSink && <option value={NEW_SCHEMA}>+ New schema…</option>}
         </select>
       </Field>
 
@@ -4428,10 +4504,11 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
   const [resetting, setResetting] = useState(false);
 
   // Resolve current sync_mode with back-compat for the legacy
-  // `incremental: true` boolean shape.
-  const syncMode: 'full_refresh' | 'incremental' | 'cdc' = (() => {
+  // `incremental: true` boolean shape. 2026-11-11: a step saved with the
+  // removed "cdc" option shows Full refresh, which is what it always did.
+  const syncMode: 'full_refresh' | 'incremental' = (() => {
     const sm = params.sync_mode;
-    if (sm === 'full_refresh' || sm === 'incremental' || sm === 'cdc') return sm;
+    if (sm === 'full_refresh' || sm === 'incremental') return sm;
     if (params.incremental === true) return 'incremental';
     return 'full_refresh';
   })();
@@ -4484,11 +4561,10 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
             // Clear the legacy boolean so a future round-trip doesn't reintroduce drift.
             incremental: undefined,
           })}
-          options={['full_refresh', 'incremental', 'cdc']}
+          options={['full_refresh', 'incremental']}
           labels={{
             full_refresh: 'Full refresh (re-read every row)',
             incremental: 'Incremental (cursor-tracked)',
-            cdc: 'CDC (use dedicated CDC Source node)',
           }}
         />
       </Field>
@@ -4533,11 +4609,6 @@ function SyncModeField({ params, nodeId, onChange }: ConfigProps) {
             )}
           </div>
         </>
-      )}
-      {syncMode === 'cdc' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-[11px] text-amber-900">
-          Log-based replication lives in the dedicated <strong>CDC Source</strong> node — use that instead of DB Source for true CDC. This option is informational here.
-        </div>
       )}
     </>
   );
@@ -4585,7 +4656,7 @@ function DbSourceConfig({ params, nodeId, onChange, hideConnection }: ConfigProp
             <ConnectionPicker
               value={params.connection_id || ''}
               onChange={(v) => onChange(nodeId, { connection_id: v })}
-              filter={['postgresql', 'mysql', 'mssql', 'sqlite', 'oracle']}
+              filter={['postgresql', 'mysql', 'mssql', 'synapse', 'sqlite', 'oracle', 'db2', 'sap_hana', 'teradata', 'odbc']}
               requireCapability="read"
             />
           </Field>
@@ -5429,6 +5500,8 @@ function JoinConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
       <JoinSidesPicker params={params} nodeId={nodeId} onChange={onChange} />
       {params.join_type !== 'CROSS' && (
         <>
+          {/* 2026-11-11: rank the keys from what both inputs share. */}
+          <JoinKeySuggester nodeId={nodeId} onChange={onChange} />
           <Field label="Key Mode">
             <Select value={keyMode} onChange={(v) => onChange(nodeId, { key_mode: v })} options={['same_key', 'mapped_keys', 'custom']} />
           </Field>
@@ -5583,6 +5656,7 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
             'sap_s4hana', 'sap_successfactors',
           ]}
           requireCapability="read"
+          emptyLabel="— Choose a connection —"
         />
       </Field>
       {useConnection ? (
@@ -5624,9 +5698,9 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
       )}
       <Field label="Operation *">
         <Select
-          value={params.operation || 'fetch'}
+          value={apiSourceOperation(params)}
           onChange={(v) => onChange(nodeId, { operation: v })}
-          options={['fetch', 'paginate', 'stream']}
+          options={['fetch', 'paginate']}
         />
       </Field>
       <div className="bg-slate-50 rounded-md px-3 py-1.5 border border-slate-200 -mt-1">
@@ -5634,7 +5708,7 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
           API Source is read-only (HTTP GET). To POST/PUT/PATCH/DELETE, use <strong>API Sink</strong> or <strong>HTTP Request</strong>.
         </span>
       </div>
-      {params.operation === 'paginate' && (
+      {apiSourceOperation(params) === 'paginate' && (
         <>
           <Field label="Pagination Style">
             <Select value={params.pagination || 'page_number'} onChange={(v) => onChange(nodeId, { pagination: v })}
@@ -5643,8 +5717,39 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
           <Field label="Page Size">
             <TextInput value={String(params.page_size ?? 100)} onChange={(v) => onChange(nodeId, { page_size: parseInt(v) || 100 })} placeholder="100" />
           </Field>
+          {['offset_limit', 'offset'].includes(params.pagination) && (
+            <>
+              <Field label="Offset Parameter">
+                <TextInput value={params.offset_param ?? 'offset'} onChange={(v) => onChange(nodeId, { offset_param: v })} placeholder="offset" />
+              </Field>
+              <Field label="Limit Parameter">
+                <TextInput value={params.limit_param ?? 'limit'} onChange={(v) => onChange(nodeId, { limit_param: v })} placeholder="limit" />
+                <span className="text-[10px] text-slate-500">Sends Page Size with each request. Leave empty if the API has no such setting.</span>
+              </Field>
+            </>
+          )}
+          {['page_number', 'page', undefined, ''].includes(params.pagination) && (
+            <>
+              <Field label="Page Parameter">
+                <TextInput value={params.page_param ?? 'page'} onChange={(v) => onChange(nodeId, { page_param: v })} placeholder="page" />
+              </Field>
+              <Field label="Page Size Parameter (optional)">
+                <TextInput value={params.page_size_param || ''} onChange={(v) => onChange(nodeId, { page_size_param: v })} placeholder="per_page" />
+              </Field>
+            </>
+          )}
+          {params.pagination === 'cursor' && (
+            <>
+              <Field label="Cursor Field (in the reply)">
+                <TextInput value={params.cursor_field ?? 'cursor'} onChange={(v) => onChange(nodeId, { cursor_field: v })} placeholder="next_cursor" />
+              </Field>
+              <Field label="Cursor Parameter (in the address)">
+                <TextInput value={params.cursor_param ?? 'cursor'} onChange={(v) => onChange(nodeId, { cursor_param: v })} placeholder="cursor" />
+              </Field>
+            </>
+          )}
           <Field label="Max Pages">
-            <TextInput value={String(params.max_pages ?? 10)} onChange={(v) => onChange(nodeId, { max_pages: parseInt(v) || 10 })} placeholder="10" />
+            <TextInput value={String(params.max_pages ?? 100)} onChange={(v) => onChange(nodeId, { max_pages: parseInt(v) || 100 })} placeholder="100" />
           </Field>
         </>
       )}
@@ -5661,6 +5766,12 @@ function ApiSourceConfig({ params, nodeId, onChange }: ConfigProps) {
       <Field label="Data Key">
         <TextInput value={params.data_key || ''} onChange={(v) => onChange(nodeId, { data_key: v })}
           placeholder="data or results (JSON key containing the array)" />
+      </Field>
+      <Field label="Row Path (XML)">
+        <TextInput value={params.row_path || ''} onChange={(v) => onChange(nodeId, { row_path: v })} placeholder="//order" />
+        <div className="text-[10px] text-slate-500 mt-1">
+          Only for an API that answers in XML: the element that is one row. Leave empty to use the one that repeats.
+        </div>
       </Field>
       {/* P0-4 (2026-05-18): per-node retry select removed. Retries are
           configured once in the Universal Settings tab (Retry On Fail +
@@ -7278,7 +7389,7 @@ function LocalFileUploader({ currentPath, onUploaded }: { currentPath: string; o
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
-  const ACCEPT = '.csv,.tsv,.txt,.json,.ndjson,.jsonl,.parquet,.pq,.xlsx,.xls,.xml';
+  const ACCEPT = '.csv,.tsv,.txt,.json,.ndjson,.jsonl,.parquet,.pq,.xlsx,.xls,.xml,.orc,.avro,.dat,.bin,.ebc,.fw,.pgp,.gpg,.asc';
 
   const pickFile = () => inputRef.current?.click();
 
@@ -7328,7 +7439,7 @@ function LocalFileUploader({ currentPath, onUploaded }: { currentPath: string; o
         </button>
       </div>
       <div className="text-[10px] text-emerald-700 leading-tight">
-        CSV, TSV, JSON, NDJSON, Parquet, Excel, XML. File is saved to the Revoluzen Flow data directory and the File Path below is filled in automatically.
+        CSV, TSV, JSON, NDJSON, Parquet, Excel, XML, mainframe files (.dat, .bin) and PGP files (.pgp, .asc). File is saved to the Revoluzen Flow data directory and the File Path below is filled in automatically.
       </div>
       {currentPath && currentPath.startsWith('uploads/') && (
         <div className="text-[10px] text-emerald-600 truncate" title={currentPath}>
@@ -7347,6 +7458,9 @@ function LocalFileUploader({ currentPath, onUploaded }: { currentPath: string; o
 }
 
 function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) {
+  // Inside the generic Source / Destination the connection is chosen above.
+  const embedded = useContext(EmbeddedConnectionContext);
+  const onShare = params._connection_type === 'smb';
   const fmt = params.format || 'auto';
   const showCsv = fmt === 'auto' || fmt === 'csv' || fmt === 'tsv';
   const showExcel = fmt === 'auto' || fmt === 'excel';
@@ -7354,20 +7468,26 @@ function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) 
   const showParquet = fmt === 'auto' || fmt === 'parquet';
   return (
     <>
-      <Field label="Connection (optional)">
-        <ConnectionPicker
-          value={params.connection_id || ''}
-          onChange={(v) => onChange(nodeId, { connection_id: v })}
-          filter={['s3', 'minio', 'local', 'nfs', 'smb']}
-          requireCapability={isSink ? 'write' : 'read'}
-        />
-      </Field>
+      {!embedded && (
+        <Field label="Connection (optional)">
+          <ConnectionPicker
+            value={params.connection_id || ''}
+            onChange={(v) => onChange(nodeId, { connection_id: v })}
+            filter={isSink ? ['s3', 'minio', 'local', 'nfs', 'smb'] : ['s3', 'minio', 'local', 'local_file', 'nfs', 'smb', 'ftp', 'sftp']}
+            requireCapability={isSink ? 'write' : 'read'}
+          />
+        </Field>
+      )}
       <div className="bg-indigo-50 rounded-md px-3 py-1.5 border border-indigo-100">
         <span className="text-[10px] text-indigo-700">
           Format is detected from the file extension. Override below only if needed.
+          {!isSink && ' Mainframe files: choose Fixed-width text or COBOL copybook records. With an FTP / SFTP connection, File is the path on the server.'}
+          {onShare && (isSink
+            ? ' On a Windows file share, the path starts in the connection\'s folder; the file appears there only once it is complete.'
+            : ' On a Windows file share, the path starts in the connection\'s folder; * and ? in the name read every matching file.')}
         </span>
       </div>
-      {!isSink && (
+      {!isSink && !params.connection_id && (
         <LocalFileUploader
           currentPath={params.file_path || ''}
           onUploaded={(p) => onChange(nodeId, { file_path: p })}
@@ -7377,16 +7497,35 @@ function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) 
         <TextInput
           value={params.file_path || ''}
           onChange={(v) => onChange(nodeId, { file_path: v })}
-          placeholder={isSink ? 'out/result.parquet' : 'data/input.csv (or .json/.parquet/.xlsx/.xml)'}
+          placeholder={onShare
+            ? (isSink ? 'results\\orders.csv' : 'daily\\CUSTMAST.DAT')
+            : (isSink ? 'out/result.parquet' : 'data/input.csv (or .json/.parquet/.xlsx/.xml/.dat/.pgp)')}
         />
       </Field>
       <Field label="Format Override">
         <Select
           value={fmt}
           onChange={(v) => onChange(nodeId, { format: v })}
-          options={['auto', 'csv', 'tsv', 'json', 'ndjson', 'parquet', 'excel', 'xml']}
+          options={isSink ? ['auto', 'csv', 'tsv', 'json', 'ndjson', 'parquet', 'excel', 'xml'] : FILE_FORMATS}
+          labels={FORMAT_LABELS}
         />
       </Field>
+      {!isSink && fmt === 'fixed_width' && (
+        <>
+          <Field label="Encoding">
+            <Select value={params.encoding || 'utf-8'} onChange={(v) => onChange(nodeId, { encoding: v })}
+              options={TEXT_ENCODINGS} labels={ENCODING_LABELS} />
+          </Field>
+          <Suspense fallback={<ConfigPanelLazyFallback />}>
+            <LazyFixedWidthSettings params={params} set={(patch) => onChange(nodeId, patch)} />
+          </Suspense>
+        </>
+      )}
+      {!isSink && fmt === 'copybook' && (
+        <Suspense fallback={<ConfigPanelLazyFallback />}>
+          <LazyCopybookSettings params={params} set={(patch) => onChange(nodeId, patch)} />
+        </Suspense>
+      )}
       {showCsv && (
         <>
           <Field label="Delimiter (CSV only)">
@@ -7399,7 +7538,7 @@ function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) 
             <>
               <Field label="Encoding">
                 <Select value={params.encoding || 'utf-8'} onChange={(v) => onChange(nodeId, { encoding: v })}
-                  options={['utf-8', 'utf-16', 'latin-1', 'iso-8859-1', 'cp1252', 'ascii']} />
+                  options={TEXT_ENCODINGS} labels={ENCODING_LABELS} />
               </Field>
               <Field label="Quote Character">
                 <Select value={params.quote_char || '"'} onChange={(v) => onChange(nodeId, { quote_char: v })}
@@ -7456,10 +7595,14 @@ function FileNodeConfig({ params, nodeId, onChange, isSink }: CloudConfigProps) 
           </Field>
         </>
       )}
+      <Suspense fallback={<ConfigPanelLazyFallback />}>
+        <LazyPgpSettings params={params} set={(patch) => onChange(nodeId, patch)}
+          purpose={isSink ? 'encrypt' : 'decrypt'} filePath={isSink ? params.file_path || '' : undefined} />
+      </Suspense>
       {!isSink && (
         <Field label="Dev Sample Limit">
           <TextInput value={String(params.dev_sample_rows ?? '')} onChange={(v) => onChange(nodeId, { dev_sample_rows: v ? parseInt(v) : undefined })}
-            placeholder="1000 (blank = no limit)" />
+            placeholder="1000 (0 = no limit)" />
         </Field>
       )}
     </>
@@ -7732,87 +7875,204 @@ function S3SourceConfig({ params, nodeId, onChange }: ConfigProps) {
   );
 }
 
-function KafkaSourceConfig({ params, nodeId, onChange }: ConfigProps) {
-  const hasConn = !!params.connection_id;
+/**
+ * Kafka Source and Kafka Sink (2026-11-11): the forms show only what a run
+ * uses. A Kafka step reads its broker list and sign-in from a saved Kafka
+ * connection (the validators have required one since May 2026), so the old
+ * inline broker and sign-in fields are gone. So are the Source's Operation,
+ * Auto Offset Reset, Partition, Starting Offset and Value Deserializer and the
+ * Sink's Value Serializer, which runs never read. See nodes/sources.py and
+ * nodes/sinks.py (KafkaSourceNode, KafkaSinkNode).
+ */
+function KafkaConnectionNote({ hasConn }: { hasConn: boolean }) {
+  return hasConn ? (
+    <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
+      Uses the broker addresses and sign-in saved in this connection. Change them on
+      the <strong>Connections</strong> page.
+    </div>
+  ) : (
+    <div className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+      Pick a saved Kafka connection. It holds the broker addresses and the sign-in;
+      create one on the <strong>Connections</strong> page.
+    </div>
+  );
+}
+
+/** Where the step's first run starts, as KafkaSourceNode reads it
+ *  (`_kafka_start_from`): a step saved with the old Operation =
+ *  consume_from_latest, or Auto Offset Reset = latest, starts at the newest. */
+function kafkaStartFrom(params: Record<string, any>): 'oldest' | 'newest' {
+  const chosen = String(params.start_from || '').toLowerCase();
+  if (chosen === 'oldest' || chosen === 'earliest') return 'oldest';
+  if (chosen === 'newest' || chosen === 'latest') return 'newest';
+  const operation = String(params.operation || '').toLowerCase();
+  if (operation) return operation === 'consume_from_latest' ? 'newest' : 'oldest';
+  return String(params.auto_offset_reset || '').toLowerCase() === 'latest' ? 'newest' : 'oldest';
+}
+
+/**
+ * The read position Flow keeps for a Kafka Source step (nodes/_kafka_positions.py):
+ * for each partition, the offset of the next message to read, saved after each
+ * successful run. Reset deletes it (`DELETE /api/sync-state/{pipeline}/{step}`),
+ * so the next run starts again as a first run does.
+ */
+function KafkaReadPosition({ nodeId, topic, startFrom }: { nodeId: string; topic: string; startFrom: 'oldest' | 'newest' }) {
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const [stored, setStored] = useState<{ cursor_column: string | null; last_cursor: string | null; last_run_at: string | null; rows_last_run: number } | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const [problem, setProblem] = useState('');
+  const authHeaders = () => ({ 'Authorization': `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}` });
+  const stateUrl = workflowId && nodeId
+    ? `/api/sync-state/${encodeURIComponent(workflowId)}/${encodeURIComponent(nodeId)}`
+    : '';
+
+  useEffect(() => {
+    if (!stateUrl) {
+      setStored(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(stateUrl, { headers: authHeaders() });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setStored(body.state || null);
+      } catch {
+        // Best effort: the panel then says no position is saved.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [stateUrl, topic]);
+
+  // A position saved for another topic is not used.
+  const offsets: Record<string, number> | null = (() => {
+    if (!stored || stored.cursor_column !== `kafka:${topic}` || !stored.last_cursor) return null;
+    try {
+      return JSON.parse(stored.last_cursor).next_offsets || null;
+    } catch {
+      return null;
+    }
+  })();
+  const firstRun = startFrom === 'newest'
+    ? 'only messages that arrive after it'
+    : 'the oldest message Kafka still keeps';
+
+  const onReset = async () => {
+    if (!stateUrl) return;
+    if (!window.confirm(`Reset this step's read position? The next run starts again as a first run does: at ${firstRun}.`)) return;
+    setResetting(true);
+    setProblem('');
+    try {
+      const res = await fetch(stateUrl, { method: 'DELETE', headers: authHeaders() });
+      if (res.ok) setStored(null);
+      else setProblem(res.status === 403 ? 'Your role cannot reset a read position.' : `The reset failed (${res.status}).`);
+    } catch {
+      setProblem('The reset failed: Flow could not be reached.');
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
-    <>
-      <Field label="Connection">
-        <ConnectionPicker
-          value={params.connection_id || ''}
-          onChange={(v) => onChange(nodeId, { connection_id: v })}
-          filter={['kafka', 'redpanda']}
-          requireCapability="read"
-        />
-      </Field>
-      {hasConn && (
-        // P0-3 finisher (2026-05-18): bootstrap + SASL credentials come
-        // from the saved connection. Inline overrides hidden.
-        <div className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-3 py-2">
-          Using bootstrap servers + SASL credentials from this connection.
-          Topic + consumer-side knobs below still apply per-pipeline.
+    <div className="bg-slate-50 border border-slate-200 rounded-md px-3 py-2 text-[11px] text-slate-600 space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wider text-[10px] text-slate-500">Read position</span>
+        {workflowId && (
+          <button
+            type="button"
+            onClick={onReset}
+            disabled={resetting || !stored}
+            className="text-[10px] font-medium text-red-700 hover:text-red-900 disabled:opacity-40"
+          >
+            {resetting ? 'Resetting…' : 'Reset'}
+          </button>
+        )}
+      </div>
+      {offsets ? (
+        <>
+          <div>The next run carries on from here:</div>
+          <div className="font-mono text-[10px] text-slate-700">
+            {Object.entries(offsets).map(([partition, offset]) => `partition ${partition}: next offset ${offset}`).join(' · ')}
+          </div>
+          <div>
+            Saved {stored?.last_run_at ? new Date(stored.last_run_at).toLocaleString() : ''} after
+            a successful run that read {stored?.rows_last_run ?? 0} messages.
+          </div>
+        </>
+      ) : (
+        <div>
+          {!workflowId
+            ? `Save the pipeline to keep a read position. Its first run starts at ${firstRun}.`
+            : stored
+              ? `The saved position belongs to another topic, so the next run starts at ${firstRun}.`
+              : `No position saved yet. The next run starts at ${firstRun}.`}
         </div>
       )}
-      {!hasConn && (
-        <Field label="Bootstrap Servers *">
-          <TextInput value={params.bootstrap_servers || ''} onChange={(v) => onChange(nodeId, { bootstrap_servers: v })} placeholder="localhost:9092" />
+      {problem && <div className="text-red-700">{problem}</div>}
+    </div>
+  );
+}
+
+function KafkaSourceConfig({ params, nodeId, onChange }: ConfigProps) {
+  // Inside the generic Source the connection is chosen above.
+  const embedded = useContext(EmbeddedConnectionContext);
+  const hasConn = !!params.connection_id;
+  const startFrom = kafkaStartFrom(params);
+  return (
+    <>
+      {!embedded && (
+        <Field label="Connection *">
+          <ConnectionPicker
+            value={params.connection_id || ''}
+            onChange={(v) => onChange(nodeId, { connection_id: v })}
+            filter={['kafka', 'redpanda']}
+            requireCapability="read"
+          />
         </Field>
       )}
+      <KafkaConnectionNote hasConn={hasConn} />
       <Field label="Topic *">
         <TextInput value={params.topic || ''} onChange={(v) => onChange(nodeId, { topic: v })} placeholder="orders-topic" />
       </Field>
-      <Field label="Operation *">
+      <Field label="First run starts at">
         <Select
-          value={params.operation || 'consume_from_latest'}
-          onChange={(v) => {
-            const patch: any = { operation: v };
-            if (v === 'consume_from_earliest') patch.auto_offset_reset = 'earliest';
-            if (v === 'consume_from_latest') patch.auto_offset_reset = 'latest';
-            onChange(nodeId, patch);
-          }}
-          options={['consume_from_earliest', 'consume_from_latest', 'consume_from_offset']}
+          value={startFrom}
+          onChange={(v) => onChange(nodeId, {
+            start_from: v,
+            // The old settings this replaces, which runs never read.
+            operation: undefined,
+            auto_offset_reset: undefined,
+            partition: undefined,
+            starting_offset: undefined,
+          })}
+          options={['oldest', 'newest']}
+          labels={{ oldest: 'The oldest message Kafka keeps', newest: 'Only new messages' }}
         />
+        <p className="text-[11px] text-slate-500 mt-1">
+          Later runs carry on after the last message the previous successful run read.
+        </p>
       </Field>
-      <Field label="Consumer Group ID *">
-        <TextInput value={params.group_id || ''} onChange={(v) => onChange(nodeId, { group_id: v })} placeholder="revoluzen-flow-consumer-group" />
-      </Field>
-      {params.operation === 'consume_from_offset' && (
-        <>
-          <Field label="Partition">
-            <TextInput value={String(params.partition ?? 0)} onChange={(v) => onChange(nodeId, { partition: parseInt(v) || 0 })} placeholder="0" />
-          </Field>
-          <Field label="Starting Offset *">
-            <TextInput value={String(params.starting_offset ?? 0)} onChange={(v) => onChange(nodeId, { starting_offset: parseInt(v) || 0 })} placeholder="0" />
-          </Field>
-        </>
-      )}
-      {params.operation !== 'consume_from_offset' && (
-        <Field label="Auto Offset Reset">
-          <Select value={params.auto_offset_reset || 'earliest'} onChange={(v) => onChange(nodeId, { auto_offset_reset: v })} options={['earliest', 'latest', 'none']} />
-        </Field>
-      )}
+      <KafkaReadPosition nodeId={nodeId} topic={String(params.topic || '').trim()} startFrom={startFrom} />
       <Field label="Max Messages">
-        <TextInput value={String(params.max_messages ?? 1000)} onChange={(v) => onChange(nodeId, { max_messages: parseInt(v) || 1000 })} placeholder="1000" />
+        <TextInput value={String(params.max_messages ?? 100)} onChange={(v) => onChange(nodeId, { max_messages: parseInt(v) || 100 })} placeholder="100" />
+        <p className="text-[11px] text-slate-500 mt-1">The most messages one run reads.</p>
       </Field>
-      {/* Security + SASL fields only shown when there's no connection.
-          With a saved connection, the SASL credentials are part of the
-          connection record. */}
-      {!hasConn && <>
-        <Field label="Security Protocol">
-          <Select value={params.security_protocol || 'PLAINTEXT'} onChange={(v) => onChange(nodeId, { security_protocol: v })} options={['PLAINTEXT', 'SSL', 'SASL_PLAINTEXT', 'SASL_SSL']} />
-        </Field>
-        <Field label="SASL Mechanism">
-          <Select value={params.sasl_mechanism || ''} onChange={(v) => onChange(nodeId, { sasl_mechanism: v })} options={['', 'PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512']} />
-        </Field>
-        <Field label="SASL Username">
-          <TextInput value={params.sasl_username || ''} onChange={(v) => onChange(nodeId, { sasl_username: v })} placeholder="username" />
-        </Field>
-        <Field label="SASL Password">
-          <SecretInput value={params.sasl_password || ''} onChange={(v) => onChange(nodeId, { sasl_password: v })} placeholder="••••••••" />
-        </Field>
-      </>}
-      <Field label="Value Deserializer">
-        <Select value={params.value_deserializer || 'json'} onChange={(v) => onChange(nodeId, { value_deserializer: v })} options={['json', 'avro', 'string', 'bytes']} />
+      <Field label="Timeout (seconds)">
+        <TextInput value={String(params.timeout_seconds ?? 10)} onChange={(v) => onChange(nodeId, { timeout_seconds: parseInt(v) || 10 })} placeholder="10" />
+        <p className="text-[11px] text-slate-500 mt-1">How long a run waits for messages.</p>
       </Field>
+      <Field label="Consumer Group (optional)">
+        <TextInput value={params.group_id || ''} onChange={(v) => onChange(nodeId, { group_id: v })} placeholder="The connection's, or revoluzen_flow-consumer" />
+        <p className="text-[11px] text-slate-500 mt-1">
+          The name Kafka sees for this step. It does not decide which messages a run reads:
+          Flow keeps each step's read position itself.
+        </p>
+      </Field>
+      <p className="text-[11px] text-slate-500">
+        A message that is a JSON object becomes a row with its fields as columns. Any other
+        message goes into a <code>value</code> column as text.
+      </p>
     </>
   );
 }
@@ -8083,41 +8343,37 @@ function S3SinkConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
   );
 }
 
-function KafkaSinkConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
+function KafkaSinkConfig({ params, nodeId, onChange }: ConfigProps) {
+  // Inside the generic Destination the connection is chosen above.
+  const embedded = useContext(EmbeddedConnectionContext);
+  const hasConn = !!params.connection_id;
   return (
     <>
-      <Field label="Connection">
-        <ConnectionPicker
-          value={params.connection_id || ''}
-          onChange={(v) => onChange(nodeId, { connection_id: v })}
-          filter={['kafka', 'redpanda']}
-          requireCapability="write"
-        />
-      </Field>
-      <Field label="Bootstrap Servers *">
-        <TextInput value={params.bootstrap_servers || ''} onChange={(v) => onChange(nodeId, { bootstrap_servers: v })} placeholder="localhost:9092" />
-      </Field>
+      {!embedded && (
+        <Field label="Connection *">
+          <ConnectionPicker
+            value={params.connection_id || ''}
+            onChange={(v) => onChange(nodeId, { connection_id: v })}
+            filter={['kafka', 'redpanda']}
+            requireCapability="write"
+          />
+        </Field>
+      )}
+      <KafkaConnectionNote hasConn={hasConn} />
       <Field label="Topic *">
         <TextInput value={params.topic || ''} onChange={(v) => onChange(nodeId, { topic: v })} placeholder="output-topic" />
       </Field>
       <Field label="Key Column (optional)">
         <TextInput value={params.key_column || ''} onChange={(v) => onChange(nodeId, { key_column: v })} placeholder="id" />
       </Field>
-      <Field label="Value Serializer">
-        <Select value={params.value_serializer || 'json'} onChange={(v) => onChange(nodeId, { value_serializer: v })} options={['json', 'avro', 'string']} />
-      </Field>
-      <Field label="Security Protocol">
-        <Select value={params.security_protocol || 'PLAINTEXT'} onChange={(v) => onChange(nodeId, { security_protocol: v })} options={['PLAINTEXT', 'SSL', 'SASL_PLAINTEXT', 'SASL_SSL']} />
-      </Field>
-      <Field label="SASL Mechanism">
-        <Select value={params.sasl_mechanism || ''} onChange={(v) => onChange(nodeId, { sasl_mechanism: v })} options={['', 'PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512']} />
-      </Field>
       <Field label="Compression">
         <Select value={params.compression || 'none'} onChange={(v) => onChange(nodeId, { compression: v })} options={['none', 'gzip', 'snappy', 'lz4', 'zstd']} />
       </Field>
       <Field label="Batch Size">
-        <TextInput value={String(params.batch_size ?? 16384)} onChange={(v) => onChange(nodeId, { batch_size: parseInt(v) || 16384 })} placeholder="16384" />
+        <TextInput value={String(params.batch_size ?? 500)} onChange={(v) => onChange(nodeId, { batch_size: parseInt(v) || 500 })} placeholder="500" />
+        <p className="text-[11px] text-slate-500 mt-1">Messages sent before the step waits for Kafka to confirm them.</p>
       </Field>
+      <p className="text-[11px] text-slate-500">Each row is sent as one JSON message.</p>
     </>
   );
 }
@@ -8388,7 +8644,7 @@ function WarehouseSinkConfig({ params, nodeId, onChange, columns = [], sourceTyp
         <ConnectionPicker
           value={params.connection_id || ''}
           onChange={(v) => onChange(nodeId, { connection_id: v })}
-          filter={['snowflake', 'bigquery', 'redshift', 'databricks', 'trino', 'clickhouse']}
+          filter={['snowflake', 'bigquery', 'redshift', 'databricks', 'clickhouse']}
           requireCapability="write"
         />
       </Field>
@@ -8404,7 +8660,7 @@ function WarehouseSinkConfig({ params, nodeId, onChange, columns = [], sourceTyp
       {!hasConn && <>
         <Field label="Warehouse Type *">
           <Select value={params.warehouse_type || 'snowflake'} onChange={(v) => onChange(nodeId, { warehouse_type: v })}
-            options={['snowflake', 'bigquery', 'redshift', 'databricks', 'trino', 'clickhouse']} />
+            options={['snowflake', 'bigquery', 'redshift', 'databricks', 'clickhouse']} />
         </Field>
         <Field label="Connection String / DSN *">
           <TextInput value={params.connection_string || ''} onChange={(v) => onChange(nodeId, { connection_string: v })}
@@ -9241,6 +9497,7 @@ function SaaSConnectorConfig({ params, nodeId, onChange }: ConfigProps) {
 
 function DataQualityConfig({ params, nodeId, onChange, columns = [], sourceTypes }: ConfigProps) {
   const rules = Array.isArray(params.rules) ? params.rules : [];
+  const ruleSets: string[] = Array.isArray(params.rule_sets) ? params.rule_sets : [];
 
   return (
     <>
@@ -9270,6 +9527,16 @@ function DataQualityConfig({ params, nodeId, onChange, columns = [], sourceTypes
           columns={columns}
           sourceTypes={sourceTypes}
           onChange={(next) => onChange(nodeId, { rules: next })}
+        />
+      </Field>
+      <Field label={`Shared Rule Sets (${ruleSets.length})`}>
+        {/* Named rule sets many pipelines use; their rules run with this step's own (quality_rules/). */}
+        <RuleSetPicker
+          selected={ruleSets}
+          ownRules={rules}
+          columns={columns}
+          sourceTypes={sourceTypes}
+          onChange={(patch) => onChange(nodeId, patch)}
         />
       </Field>
       <Field label="Quality Score Threshold (%)">
@@ -9892,6 +10159,21 @@ function RetryHandlerConfig({ params, nodeId, onChange }: ConfigProps) {
    Action Configs
    ═══════════════════════════════════════════════════════ */
 
+/** Saved connections that are a web address plus a sign-in. Mirrors HTTP_CONNECTION_TYPES in connections/http_auth.py. */
+const HTTP_CONNECTION_TYPES = ['rest_api', 'graphql', 'oracle_api', 'oracle_fusion', 'oracle_bip', 'sap_s4hana', 'sap_successfactors'];
+
+const HTTP_BODY_TYPE_BY_CONTENT_TYPE: Record<string, string> = {
+  'application/xml': 'xml',
+  'application/x-www-form-urlencoded': 'form',
+  'text/plain': 'text',
+};
+const HTTP_BODY_HINT: Record<string, string> = {
+  json: '{"key":"value"}',
+  xml: '<order><id>{order_id}</id></order>',
+  form: 'name=value&other=value',
+  text: 'Plain text',
+};
+
 function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
   const headers = Array.isArray(params.headers) ? params.headers : [];
 
@@ -9902,6 +10184,9 @@ function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
 
   const addHeader = () => onChange(nodeId, { headers: [...headers, { key: '', value: '' }] });
   const removeHeader = (idx: number) => onChange(nodeId, { headers: headers.filter((_: any, i: number) => i !== idx) });
+  // Steps saved before Body Type existed have a Content Type instead.
+  const bodyType = params.body_type || HTTP_BODY_TYPE_BY_CONTENT_TYPE[params.content_type] || 'json';
+  const replyFormat = params.response_format || 'auto';
 
   return (
     <>
@@ -9909,14 +10194,20 @@ function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
         <ConnectionPicker
           value={params.connection_id || ''}
           onChange={(v) => onChange(nodeId, { connection_id: v })}
-          filter={['rest_api', 'http', 'api']}
+          filter={HTTP_CONNECTION_TYPES}
+          emptyLabel="— No connection: type the full address —"
         />
+        {params.connection_id && (
+          <div className="text-[10px] text-slate-500 mt-1">
+            The connection's address and sign-in are used. Below, enter a path such as /orders, or / for the connection's own address. Sign-in set on this step wins over the connection's.
+          </div>
+        )}
       </Field>
       <Field label="Method *">
         <Select value={params.method || 'GET'} onChange={(v) => onChange(nodeId, { method: v })} options={['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']} />
       </Field>
-      <Field label="URL *">
-        <TextInput value={params.url || ''} onChange={(v) => onChange(nodeId, { url: v })} placeholder="https://api.example.com/endpoint" />
+      <Field label={params.connection_id ? 'Path or URL *' : 'URL *'}>
+        <TextInput value={params.url || ''} onChange={(v) => onChange(nodeId, { url: v })} placeholder={params.connection_id ? '/orders' : 'https://api.example.com/endpoint'} />
       </Field>
       <Field label="Headers">
         <div className="space-y-1.5">
@@ -9932,18 +10223,33 @@ function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
           <button onClick={addHeader} className="text-xs text-pipe-600 hover:text-pipe-800 font-medium">+ Add Header</button>
         </div>
       </Field>
+      <Field label="Body Type">
+        <Select value={bodyType} onChange={(v) => onChange(nodeId, { body_type: v, content_type: undefined })}
+          options={['json', 'xml', 'form', 'text']} labels={{ json: 'JSON', xml: 'XML', form: 'Form fields', text: 'Plain text' }} />
+      </Field>
       <Field label="Body">
         <TextArea
           value={params.body || ''}
           onChange={(v) => onChange(nodeId, { body: v })}
-          placeholder='{"key":"value"}'
+          placeholder={HTTP_BODY_HINT[bodyType] || HTTP_BODY_HINT.json}
           rows={5}
         />
+        <div className="text-[10px] text-slate-500 mt-1">
+          With Send Per Row on, {'{column}'} is replaced for each row and escaped for this body type.
+        </div>
       </Field>
-      <Field label="Content Type">
-        <Select value={params.content_type || 'application/json'} onChange={(v) => onChange(nodeId, { content_type: v })}
-          options={['application/json', 'application/x-www-form-urlencoded', 'multipart/form-data', 'text/plain', 'application/xml']} />
+      <Field label="Reply Format">
+        <Select value={replyFormat} onChange={(v) => onChange(nodeId, { response_format: v })}
+          options={['auto', 'json', 'xml', 'text']} labels={{ auto: 'Automatic', json: 'JSON', xml: 'XML', text: 'Plain text (one row)' }} />
       </Field>
+      {(replyFormat === 'auto' || replyFormat === 'xml') && (
+        <Field label="Row Path (XML)">
+          <TextInput value={params.row_path || ''} onChange={(v) => onChange(nodeId, { row_path: v })} placeholder="//order" />
+          <div className="text-[10px] text-slate-500 mt-1">
+            The element that is one row. Leave empty to use the one that repeats. Namespaces are ignored.
+          </div>
+        </Field>
+      )}
       {/* P2-A residual (2026-05-19): migrate http_request to <AuthSection>
           with a key-translation wrapper. http_request's backend executor
           reads auth_token / auth_user / auth_pass (non-canonical names),
@@ -9989,44 +10295,6 @@ function HttpRequestConfig({ params, nodeId, onChange }: ConfigProps) {
       {/* P0-4: per-node "Retry on Failure" + Max Retries removed —
           use the Universal Settings tab's retry block, or add a
           retry_handler node for an explicit override. */}
-    </>
-  );
-}
-
-function WebhookTriggerConfig({ params, nodeId, onChange }: ConfigProps) {
-  return (
-    <>
-      <Field label="Webhook Path *">
-        <TextInput value={params.path || ''} onChange={(v) => onChange(nodeId, { path: v })} placeholder="/webhook/my-trigger" />
-      </Field>
-      <Field label="HTTP Method">
-        <Select value={params.method || 'POST'} onChange={(v) => onChange(nodeId, { method: v })} options={['GET', 'POST', 'PUT', 'PATCH', 'DELETE']} />
-      </Field>
-      <Field label="Authentication">
-        {/* P0-2 (2026-05-18): 'basic_auth' was selectable but rendered no
-            Username/Password fields. Removed until the basic-auth UI ships
-            (rare use case for webhook receivers; header-auth covers most
-            shared-secret patterns). */}
-        <Select value={params.auth || 'none'} onChange={(v) => onChange(nodeId, { auth: v })} options={['none', 'header_auth']} />
-      </Field>
-      {params.auth === 'header_auth' && (
-        <>
-          <Field label="Header Name">
-            <TextInput value={params.auth_header || 'X-Webhook-Secret'} onChange={(v) => onChange(nodeId, { auth_header: v })} placeholder="X-Webhook-Secret" />
-          </Field>
-          <Field label="Header Value">
-            <SecretInput value={params.auth_value || ''} onChange={(v) => onChange(nodeId, { auth_value: v })} placeholder="secret-value" />
-          </Field>
-        </>
-      )}
-      <Field label="Response Code">
-        <Select value={String(params.response_code ?? 200)} onChange={(v) => onChange(nodeId, { response_code: parseInt(v) })}
-          options={['200', '201', '202', '204']} />
-      </Field>
-      <Field label="Response Body (optional)">
-        <TextArea value={params.response_body || ''} onChange={(v) => onChange(nodeId, { response_body: v })}
-          placeholder='{"status":"received"}' rows={3} />
-      </Field>
     </>
   );
 }
@@ -11267,6 +11535,8 @@ const CONNECTION_TO_CONNECTOR: Record<string, string> = {
   postgresql: 'database', mysql: 'database', mssql: 'database', oracle: 'database',
   sqlite: 'database', mariadb: 'database', db2: 'database', sap_hana: 'database',
   teradata: 'database', informix: 'database', cockroachdb: 'database',
+  // Any database with an ODBC driver (2026-11-11).
+  odbc: 'database',
   // NoSQL
   mongodb: 'database', cassandra: 'database', couchbase: 'database',
   dynamodb: 'database', cosmosdb: 'database', neo4j: 'database',
@@ -11277,13 +11547,14 @@ const CONNECTION_TO_CONNECTOR: Record<string, string> = {
   duckdb: 'database', trino: 'database', presto: 'database', athena: 'database',
   // Cloud Storage
   s3: 's3', gcs: 'gcs', azure_blob: 'azure_blob', adls_gen2: 'azure_blob', minio: 's3',
-  // File Systems
-  ftp: 'ftp', sftp: 'ftp', hdfs: 'ftp', local_file: 'csv',
+  // File Systems. A Windows file share is read and written by the File step
+  // only, so picking one needs no further choice (2026-11-11).
+  ftp: 'ftp', sftp: 'ftp', hdfs: 'ftp', local_file: 'csv', smb: 'file',
   // Streaming
   kafka: 'kafka', rabbitmq: 'kafka', pulsar: 'kafka',
   kinesis: 'kafka', eventhub: 'kafka', sqs: 'kafka', pubsub: 'kafka', nats: 'kafka',
   // APIs
-  rest_api: 'rest_api', graphql: 'rest_api', odata: 'rest_api', soap: 'rest_api',
+  rest_api: 'rest_api', graphql: 'rest_api', odata: 'rest_api',
   // SaaS
   salesforce: 'rest_api', hubspot: 'rest_api', zendesk: 'rest_api', jira: 'rest_api',
   servicenow: 'rest_api', sap: 'rest_api', netsuite: 'rest_api',
@@ -11306,7 +11577,7 @@ const CONNECTION_TO_CONNECTOR: Record<string, string> = {
 // Storage types show file format dropdown
 const STORAGE_CONN_TYPES = new Set([
   's3', 'gcs', 'azure_blob', 'adls_gen2', 'minio',
-  'ftp', 'sftp', 'hdfs', 'local_file',
+  'ftp', 'sftp', 'hdfs', 'local_file', 'smb',
   'sharepoint', 'onedrive', 'gdrive', 'dropbox', 'box',
 ]);
 
@@ -11314,7 +11585,7 @@ const STORAGE_CONN_TYPES = new Set([
 // connection is needed (the file picker handles it). The generic Source/Dest
 // defaults to `csv`, so the "Connection *" marker would otherwise lie about
 // file mode requiring a connection.
-const FILE_LOCAL_CONNECTORS = new Set(['csv', 'json', 'parquet', 'excel', 'xml']);
+const FILE_LOCAL_CONNECTORS = new Set(['csv', 'json', 'parquet', 'excel', 'xml', 'file']);
 
 const FILE_FORMAT_OPTIONS = [
   { value: 'csv', label: 'CSV / Delimited' },
@@ -11412,6 +11683,39 @@ function ConnectorConnectionPicker({ params, nodeId, onChange, connections, labe
   );
 }
 
+/* Read (or write) a file with the File step instead of the per-format step:
+   fixed-width text, COBOL copybook records, EBCDIC and PGP-encrypted files
+   (and JSON, Excel, XML, Parquet, Avro, ORC) from a local file, S3 / MinIO or
+   FTP / SFTP. Offered where the File step can reach the file. 2026-11-11.
+   A Windows file share (smb) is not listed: only the File step reads and
+   writes it, so CONNECTION_TO_CONNECTOR sends it there with no choice. */
+const FILE_STEP_CONNECTIONS = new Set(['s3', 'minio', 'local_file', 'ftp', 'sftp']);
+
+function FileReadAsChoice({ params, nodeId, onChange, isSink }: {
+  params: Record<string, any>; nodeId: string; onChange: (id: string, p: Record<string, any>) => void; isSink?: boolean;
+}) {
+  const connType = params._connection_type || '';
+  const reachable = isSink ? !params.connection_id : (!params.connection_id || FILE_STEP_CONNECTIONS.has(connType));
+  if (!reachable) return null;
+  const standard = params.connection_id ? (CONNECTION_TO_CONNECTOR[connType] || 'csv') : 'csv';
+  const standardLabel = isSink ? 'CSV file'
+    : !params.connection_id || connType === 'local_file' ? 'CSV file'
+    : standard === 'ftp' ? 'CSV, JSON or Parquet' : 'As before (S3 step)';
+  const fileLabel = isSink
+    ? 'Any format, with PGP encryption if needed'
+    : 'Any format: fixed-width, COBOL copybook, EBCDIC, PGP-encrypted, JSON, Excel, XML, Parquet';
+  return (
+    <Field label={isSink ? 'Write the file as' : 'Read the file as'}>
+      <Select
+        value={params.connector_type === 'file' ? 'file' : 'standard'}
+        onChange={(v) => onChange(nodeId, { connector_type: v === 'file' ? 'file' : standard })}
+        options={['standard', 'file']}
+        labels={{ standard: standardLabel, file: fileLabel }}
+      />
+    </Field>
+  );
+}
+
 function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigProps) {
   const [connections, setConnections] = useState<any[]>([]);
   useEffect(() => { api.listConnections().then(setConnections).catch(() => {}); }, []);
@@ -11428,9 +11732,11 @@ function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigP
         optional={!params.connection_id && FILE_LOCAL_CONNECTORS.has(connectorType || 'csv')}
       />
 
+      <FileReadAsChoice params={params} nodeId={nodeId} onChange={onChange} />
+
       {/* File format for storage connections. FTP has its own, which writes the
           key its node reads. */}
-      {params.connection_id && isStorage && connectorType !== 'ftp' && (
+      {params.connection_id && isStorage && connectorType !== 'ftp' && connectorType !== 'file' && (
         <Field label="File Format *">
           <Select
             value={params.file_format || 'csv'}
@@ -11462,6 +11768,7 @@ function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigP
       {connectorType === 'ftp' && <FtpSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
       {connectorType === 'gsheet' && <GSheetSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
       {connectorType === 'delta' && <DeltaSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
+      {connectorType === 'file' && <FileNodeConfig params={params} nodeId={nodeId} onChange={onChange} isSink={false} />}
       </EmbeddedConnectionContext.Provider>
     </>
   );
@@ -11504,9 +11811,11 @@ function GenericDestinationConfig({ params, nodeId, onChange, columns = [], sour
         optional={!params.connection_id && FILE_LOCAL_CONNECTORS.has(connectorType || 'csv')}
       />
 
+      <FileReadAsChoice params={params} nodeId={nodeId} onChange={onChange} isSink />
+
       {/* File format for storage connections. FTP has its own, which writes the
           key its node reads. */}
-      {params.connection_id && isStorage && connectorType !== 'ftp' && (
+      {params.connection_id && isStorage && connectorType !== 'ftp' && connectorType !== 'file' && (
         <Field label="File Format *">
           <Select
             value={params.file_format || 'csv'}
@@ -11539,6 +11848,7 @@ function GenericDestinationConfig({ params, nodeId, onChange, columns = [], sour
       {connectorType === 'email' && <EmailSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
       {connectorType === 'delta' && <DeltaSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
       {connectorType === 'warehouse' && <WarehouseSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} sourceTypes={sourceTypes} mappingOnly={mappingOnly} />}
+      {connectorType === 'file' && <FileNodeConfig params={params} nodeId={nodeId} onChange={onChange} isSink />}
       </EmbeddedConnectionContext.Provider>
     </>
   );

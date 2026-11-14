@@ -82,6 +82,27 @@ def _is_local_request(request: Request) -> bool:
     return is_loopback_client(request)
 
 
+def _arrived_on_network_address(request: Request) -> bool:
+    """True when the connection reached a non-loopback local IP address.
+
+    ``scope["server"]`` is the local end of the accepted socket. A test
+    client or a unix socket reports a name or nothing, not an IP: those are
+    not network requests and are left alone.
+    """
+    import ipaddress
+
+    server = request.scope.get("server")
+    if not server:
+        return False
+    try:
+        addr = ipaddress.ip_address(str(server[0]).strip("[]"))
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped:
+        addr = addr.ipv4_mapped
+    return not addr.is_loopback
+
+
 def _backend_bound_loopback_only() -> bool:
     """Inspect the resolved bind host the launcher chose.
 
@@ -162,9 +183,34 @@ class LocalOriginGuardMiddleware(BaseHTTPMiddleware):
         return raw.split(":", 1)[0].lower()
 
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # ── Local mode must never answer the network ──
+        # The CLI refuses "network bind + local mode", but the Docker image,
+        # plain uvicorn and main.cli() never run that check, and the bind
+        # inference below trusts env vars those entry points do not set. The
+        # Docker default therefore served anonymous local mode on 0.0.0.0
+        # (2026-11-13 pen test). Decide from the address the connection
+        # actually arrived on instead. Health probes stay reachable.
+        from revoluzen_flow import runtime_config
+        if (
+            runtime_config.IS_LOCAL_MODE
+            and _arrived_on_network_address(request)
+            and not any(path.startswith(p) for p in self._safe_prefixes)
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={
+                    "error": "local_mode_network_request",
+                    "detail": (
+                        "This Revoluzen Flow runs in local security mode, which "
+                        "allows access without signing in, so it only answers "
+                        "this machine. To serve a network, set "
+                        "REVOLUZEN_FLOW_SECURITY_MODE=server (sign-in required)."
+                    ),
+                },
+            )
         if not _backend_bound_loopback_only():
             return await call_next(request)
-        path = request.url.path
         if any(path.startswith(p) for p in self._safe_prefixes):
             return await call_next(request)
         # Static / non-API GETs have no Origin and aren't a CSRF vector
@@ -197,6 +243,25 @@ class LocalOriginGuardMiddleware(BaseHTTPMiddleware):
         referer = request.headers.get("referer") or ""
         origin_host = _origin_host(origin)
         referer_host = _origin_host(referer)
+
+        # `Origin: null` is what a sandboxed iframe, a data: URL or a
+        # no-referrer cross-site form sends. It parses to no host, so it used
+        # to fall through to the "no origin" branch below and any web page
+        # could POST multipart forms here (2026-11-13 pen test: a page deleted
+        # files in the data dir). A browser sends `null` only for opaque
+        # origins, never for our own pages, so refuse it on every method that
+        # can change state. curl and the CLI send no Origin at all and are
+        # unaffected.
+        if origin.strip().lower() == "null" and method not in {"GET", "HEAD", "OPTIONS"}:
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={
+                    "error": "cross_origin_blocked",
+                    "detail": "Requests from an opaque origin (Origin: null) are "
+                              "not allowed when Revoluzen Flow is running in "
+                              "loopback-only mode.",
+                },
+            )
 
         # Allow same-origin / no-origin (server-to-self, curl tests
         # without Origin) — Host check above is the outer guard.

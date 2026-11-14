@@ -37,6 +37,30 @@ RUN pip install --no-cache-dir --user -r requirements.txt \
 # ── Stage 3: runtime ──
 FROM python:3.11-slim AS runtime
 
+# Microsoft's ODBC driver for SQL Server, Azure SQL and Azure Synapse comes
+# under Microsoft's licence terms, so the image leaves it out unless it is
+# built with  --build-arg INSTALL_MSODBCSQL=yes  which accepts those terms.
+ARG INSTALL_MSODBCSQL=no
+
+# git is what copies published pipelines to the customer's own repository
+# (Settings > Security & Diagnostics). Only used when that is switched on.
+# unixodbc is the ODBC driver manager pyodbc loads, for SQL Server and the
+# ODBC database connection (2026-11-11); without it pyodbc cannot even import.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates unixodbc \
+    && if [ "$INSTALL_MSODBCSQL" = "yes" ]; then \
+         apt-get install -y --no-install-recommends curl gnupg \
+         && . /etc/os-release \
+         && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+              | gpg --dearmor -o /usr/share/keyrings/microsoft-prod.gpg \
+         && echo "deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/${VERSION_ID}/prod ${VERSION_CODENAME} main" \
+              > /etc/apt/sources.list.d/mssql-release.list \
+         && apt-get update \
+         && ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 \
+         && apt-get purge -y curl gnupg && apt-get autoremove -y; \
+       fi \
+    && rm -rf /var/lib/apt/lists/*
+
 # Non-root user — Revoluzen Flow never needs root.
 RUN groupadd -r revoluzen && useradd -r -g revoluzen -d /app -s /sbin/nologin revoluzen
 
@@ -57,7 +81,17 @@ ENV PATH=/home/revoluzen/.local/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     REVOLUZEN_FLOW_DATA_DIR=/data \
     REVOLUZEN_FLOW_PORT=8001 \
-    REVOLUZEN_FLOW_MODE=prod
+    REVOLUZEN_FLOW_MODE=prod \
+    REVOLUZEN_FLOW_SECURITY_MODE=server \
+    REVOLUZEN_FLOW_BIND_HOST=0.0.0.0
+
+# SECURITY_MODE=server: the container listens on 0.0.0.0 (CMD below), so it is
+# reachable by more than the local user. Without this the app resolved "local"
+# mode — anonymous access, and the password-reset token returned in the HTTP
+# response — and an anonymous network caller could take over the only account
+# (2026-11-13 pen test). BIND_HOST tells the loopback-only origin guard that
+# this is a network bind; uvicorn started directly never sets the resolved
+# bind host the CLI launcher writes.
 
 # Backend source
 COPY backend/ /app/backend/
@@ -70,6 +104,14 @@ COPY --from=frontend /build/dist /app/backend/revoluzen_flow/frontend_dist
 RUN mkdir -p /data && chown -R revoluzen:revoluzen /app /data /home/revoluzen
 
 USER revoluzen
+
+# The DuckDB extensions pipelines load for cloud files (httpfs, azure) and
+# spatial files, installed now so a container without internet access has
+# them (2026-11-11). They land in ~/.duckdb, which is this user's /app.
+RUN python -c "import duckdb; c = duckdb.connect(); [c.install_extension(e) for e in ('httpfs', 'azure', 'spatial')]"
+
+# Driver add-ons installed on Settings > Add-ons go into the data volume
+# (/data/addons/...), so they survive upgrading this image.
 
 EXPOSE 8001
 

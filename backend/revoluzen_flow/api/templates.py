@@ -21,7 +21,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.ir.schema import (
     Workflow,
     Step,
@@ -29,8 +29,10 @@ from revoluzen_flow.ir.schema import (
     StepType,
     NodePosition,
 )
+from revoluzen_flow.ir.step_secrets import blank_step_secrets
+from revoluzen_flow.security.step_secret_routes import MaskStepSecretsRoute
 
-router = APIRouter(prefix="/api/templates", tags=["templates"])
+router = APIRouter(prefix="/api/templates", tags=["templates"], route_class=MaskStepSecretsRoute)
 
 
 def _safe_workspace_id(request: Request) -> str:
@@ -191,7 +193,7 @@ async def list_user_templates(
     return {"templates": [_row_to_user_template(r) for r in rows]}
 
 
-@router.post("/user")
+@router.post("/user", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def create_user_template(
     body: UserTemplateCreate,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -214,7 +216,9 @@ async def create_user_template(
 
     tid = "ut_" + uuid.uuid4().hex[:10]
     now = datetime.now(timezone.utc).isoformat()
-    payload = {"steps": body.steps, "connections": body.connections}
+    # A template is for sharing, so it never keeps a secret typed into a step.
+    steps, _blanked = blank_step_secrets(body.steps)
+    payload = {"steps": steps, "connections": body.connections}
 
     db.execute_write_with_retry(
         """INSERT INTO user_templates
@@ -234,12 +238,12 @@ async def create_user_template(
         "source": "user",
         "created_at": now,
         "updated_at": now,
-        "steps": body.steps,
+        "steps": steps,
         "connections": body.connections,
     }
 
 
-@router.delete("/user/{template_id}")
+@router.delete("/user/{template_id}", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def delete_user_template(
     template_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -263,7 +267,7 @@ async def delete_user_template(
 # ═══════════════════════════════════════════════════════════════════════
 
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def import_pipeline(
     body: ImportRequest,
     workspace_id: str = Depends(_safe_workspace_id),

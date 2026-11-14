@@ -21,6 +21,45 @@ router = APIRouter(tags=["gateway"])
 # The `triggered_by` value on a run another application started. It counts as a
 # production trigger (monitoring/store.py) and shows as "API" on Executions.
 TRIGGER_API = "api"
+# The same for a call that proved itself with a signature (a webhook).
+TRIGGER_WEBHOOK = "webhook"
+
+
+def _encryptor():
+    from revoluzen_flow.main import app_state
+    return app_state.get("encryptor")
+
+
+def _seal_secret(secret: str) -> str:
+    """The signing secret as stored: encrypted with the key that protects
+    connection passwords. With encryption switched off (a test-only setting)
+    it is stored as it is, the same as Credentials."""
+    enc = _encryptor()
+    return enc.encrypt_value(secret) if enc is not None else secret
+
+
+def _open_secret(stored: str) -> str:
+    enc = _encryptor()
+    if enc is None or not stored:
+        return stored
+    try:
+        return enc.decrypt_value(stored)
+    except RuntimeError:
+        return ""
+
+
+def _signature_window(value: int | None) -> int:
+    from revoluzen_flow.triggers.webhook_signing import (
+        DEFAULT_TOLERANCE_SECONDS, MAX_TOLERANCE_SECONDS, MIN_TOLERANCE_SECONDS,
+    )
+    window = int(value or DEFAULT_TOLERANCE_SECONDS)
+    if not MIN_TOLERANCE_SECONDS <= window <= MAX_TOLERANCE_SECONDS:
+        raise HTTPException(
+            400,
+            f"The time window for signed calls must be between {MIN_TOLERANCE_SECONDS} and "
+            f"{MAX_TOLERANCE_SECONDS} seconds.",
+        )
+    return window
 
 
 def _get_store(request: Request):
@@ -159,6 +198,10 @@ class PublishEndpointRequest(BaseModel):
     description: str = ""
     method: str = "POST"
     require_api_key: bool = True
+    # Each call must be signed with a secret Flow makes and shows once
+    # (triggers/webhook_signing.py). Works with or without an API key.
+    require_signature: bool = False
+    signature_tolerance_seconds: int = 300
     rate_limit_rpm: int = 30
     timeout_seconds: int = 300
     input_schema: dict = {}
@@ -174,7 +217,17 @@ class UpdateEndpointRequest(BaseModel):
     timeout_seconds: int | None = None
     is_active: int | None = None
     require_api_key: bool | None = None
+    require_signature: bool | None = None
+    signature_tolerance_seconds: int | None = None
     allow_templated_sql_public: bool = False
+
+
+def _signed_methods_only(method: str) -> None:
+    if method not in ("POST", "PUT"):
+        raise HTTPException(
+            400,
+            "Signed calls must be POST or PUT, so that the values they carry are in the signed body.",
+        )
 
 
 # The path becomes part of a URL other systems store, so it stays URL-safe with
@@ -225,21 +278,37 @@ async def publish_endpoint(body: PublishEndpointRequest, request: Request,
         raise HTTPException(404, "Pipeline not found in this workspace")
     if store.get_endpoint_by_path(path):
         raise HTTPException(409, f"The path /{path} is already in use. Choose another.")
+    window = _signature_window(body.signature_tolerance_seconds)
+    if body.require_signature:
+        _signed_methods_only(method)
+    public = not body.require_api_key and not body.require_signature
     # Block a PUBLIC endpoint whose workflow has templated raw SQL (unauth SQLi).
-    if not body.require_api_key:
+    if public:
         _guard_public_templated_sql(body.workflow_id, body.allow_templated_sql_public)
+    secret = ""
+    if body.require_signature:
+        from revoluzen_flow.triggers.webhook_signing import new_secret
+        secret = new_secret()
     created = store.publish_endpoint(
         workflow_id=body.workflow_id, path=path, name=body.name,
         description=body.description, method=method, workspace_id=workspace_id,
         require_api_key=body.require_api_key, rate_limit_rpm=body.rate_limit_rpm,
         timeout_seconds=body.timeout_seconds, input_schema=body.input_schema,
-        allow_templated_sql_public=not body.require_api_key and body.allow_templated_sql_public,
+        allow_templated_sql_public=public and body.allow_templated_sql_public,
+        signing_secret=_seal_secret(secret) if secret else "",
+        signature_tolerance_seconds=window,
     )
     audit_action(
         action="gateway.endpoint.publish", resource_type="published_endpoint", resource_id=path,
         actor=actor_for(_user), workspace_id=workspace_id,
-        details={"workflow_id": body.workflow_id, "require_api_key": body.require_api_key},
+        details={
+            "workflow_id": body.workflow_id, "require_api_key": body.require_api_key,
+            "require_signature": body.require_signature,
+        },
     )
+    if secret:
+        # The only time the secret leaves the server.
+        created = {**created, "signing_secret": secret}
     return created
 
 
@@ -249,24 +318,66 @@ async def update_endpoint(endpoint_id: str, body: UpdateEndpointRequest, request
                           _user=Depends(require_min_rank("data_engineer"))):
     store = _get_store(request)
     existing = _require_endpoint(store, endpoint_id, workspace_id)
+    needs_key = bool(existing.get("require_api_key")) if body.require_api_key is None else body.require_api_key
+    needs_signature = (
+        bool(existing.get("require_signature")) if body.require_signature is None else body.require_signature
+    )
+    turning_public = not needs_key and not needs_signature and (
+        body.require_api_key is False or body.require_signature is False
+    )
     # If this update turns the endpoint PUBLIC, re-run the templated-SQL guard.
-    if body.require_api_key is False:
+    if turning_public:
         _guard_public_templated_sql(existing["workflow_id"], body.allow_templated_sql_public)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    # Only meaningful alongside turning the key off; the route re-checks it on
-    # every call to a public endpoint.
+    # Only meaningful alongside turning the checks off; the route re-checks it
+    # on every call to a public endpoint.
     override = updates.pop("allow_templated_sql_public", False)
-    if body.require_api_key is False:
+    if turning_public:
         updates["allow_templated_sql_public"] = 1 if override else 0
+    if "signature_tolerance_seconds" in updates:
+        updates["signature_tolerance_seconds"] = _signature_window(updates["signature_tolerance_seconds"])
+    signing = updates.pop("require_signature", None)
+    secret = ""
+    if signing is True and not existing.get("require_signature"):
+        _signed_methods_only((existing.get("method") or "POST").upper())
+        from revoluzen_flow.triggers.webhook_signing import new_secret
+        secret = new_secret()
+        store.set_signing_secret(endpoint_id, _seal_secret(secret))
+    elif signing is False and existing.get("require_signature"):
+        store.set_signing_secret(endpoint_id, "")
     result = store.update_endpoint(endpoint_id, **updates)
     if not result:
         raise HTTPException(404, "Endpoint not found")
     audit_action(
         action="gateway.endpoint.update", resource_type="published_endpoint",
         resource_id=existing.get("path", endpoint_id), actor=actor_for(_user),
-        workspace_id=workspace_id, details=updates,
+        workspace_id=workspace_id,
+        details={**updates, **({"require_signature": signing} if signing is not None else {})},
     )
+    if secret:
+        result = {**result, "signing_secret": secret}
     return result
+
+
+@router.post("/api/gateway/endpoints/{endpoint_id}/signing-secret")
+async def new_signing_secret(endpoint_id: str, request: Request,
+                             workspace_id: str = Depends(current_workspace_id),
+                             _user=Depends(require_min_rank("data_engineer"))):
+    """Replace a signed endpoint's secret. Calls signed with the old one are
+    refused from now on; the new one is returned this once."""
+    store = _get_store(request)
+    existing = _require_endpoint(store, endpoint_id, workspace_id)
+    if not existing.get("require_signature"):
+        raise HTTPException(400, "This endpoint does not require signed calls. Turn them on first.")
+    from revoluzen_flow.triggers.webhook_signing import new_secret
+    secret = new_secret()
+    result = store.set_signing_secret(endpoint_id, _seal_secret(secret))
+    audit_action(
+        action="gateway.endpoint.signing_secret", resource_type="published_endpoint",
+        resource_id=existing.get("path", endpoint_id), actor=actor_for(_user),
+        workspace_id=workspace_id, details={"rotated": True},
+    )
+    return {**(result or {}), "signing_secret": secret}
 
 
 @router.delete("/api/gateway/endpoints/{endpoint_id}")
@@ -382,6 +493,21 @@ def _audit_invocation(request: Request, path: str, endpoint: dict, key_info: dic
         pass
 
 
+def _after_endpoint_run(workflow, workspace_id: str, status: str, execution_id: str, trigger: str) -> None:
+    """Tell the pipelines set to run after this one (triggers/chain.py)."""
+    from revoluzen_flow.main import app_state
+    from revoluzen_flow.triggers.chain import on_run_finished
+    on_run_finished(
+        app_state,
+        workflow_id=workflow.id,
+        workspace_id=workspace_id,
+        workflow_name=workflow.name or "",
+        status=status,
+        execution_id=execution_id,
+        triggered_by=trigger,
+    )
+
+
 def _compact_run(workflow, run: dict, parameter_values: dict) -> dict[str, Any]:
     """What an outside caller gets back: the outcome of the run, never its data.
 
@@ -484,8 +610,25 @@ async def invoke_published_endpoint(path: str, request: Request):
     else:
         # No key to count against, so a public endpoint is limited as a whole.
         # Otherwise anyone could start runs as fast as they can send requests.
-        rate_subject = f"public:{endpoint['id']}"
+        rate_subject = f"public:{endpoint['id']}" if not endpoint.get("require_signature") else f"signed:{endpoint['id']}"
         rpm = endpoint.get("rate_limit_rpm", 30)
+
+    # Signed calls: the signature is checked before anything else happens, and
+    # the message id is used up only once the run is about to start, so a call
+    # turned away for being too fast or the wrong method can be sent again.
+    signed_call = None
+    if endpoint.get("require_signature"):
+        from revoluzen_flow.triggers.webhook_signing import SignatureError, verify
+        try:
+            signed_call = verify(
+                _open_secret(store.get_signing_secret(endpoint["id"])),
+                request.headers,
+                await request.body(),
+                tolerance_seconds=int(endpoint.get("signature_tolerance_seconds") or 300),
+            )
+        except SignatureError as exc:
+            _audit_invocation(request, path, endpoint, key_info, "rejected_signature")
+            raise HTTPException(exc.status, str(exc)) from None
 
     # Rate limiting
     if not store.check_rate_limit(rate_subject, rpm, endpoint["id"]):
@@ -504,7 +647,12 @@ async def invoke_published_endpoint(path: str, request: Request):
 
     from revoluzen_flow.main import app_state
     wf_store = app_state["store"]
-    wf_version = wf_store.get(endpoint["workflow_id"])
+    # Another application always gets the published version.
+    from revoluzen_flow.ir.versioning import PublishedVersionMissing
+    try:
+        wf_version = wf_store.live_version(endpoint["workflow_id"])
+    except PublishedVersionMissing as exc:
+        raise HTTPException(409, str(exc)) from None
     if not wf_version:
         raise HTTPException(404, "Associated workflow not found")
 
@@ -525,7 +673,10 @@ async def invoke_published_endpoint(path: str, request: Request):
 
     # A pipeline can change after publishing, so the check made when a public
     # endpoint was published is repeated before every run.
-    if not endpoint.get("require_api_key") and not endpoint.get("allow_templated_sql_public"):
+    if (
+        not endpoint.get("require_api_key") and not endpoint.get("require_signature")
+        and not endpoint.get("allow_templated_sql_public")
+    ):
         if _templated_sql_step_ids(wf):
             _audit_invocation(request, path, endpoint, key_info, "blocked_templated_sql")
             raise HTTPException(
@@ -549,23 +700,44 @@ async def invoke_published_endpoint(path: str, request: Request):
         raise HTTPException(400, str(exc)) from exc
     parameter_values = {k: v for k, v in resolved.items() if v is not None}
 
+    if signed_call is not None:
+        window = int(endpoint.get("signature_tolerance_seconds") or 300)
+        if not store.remember_message(endpoint["id"], signed_call.message_id, keep_seconds=2 * window):
+            _audit_invocation(request, path, endpoint, key_info, "rejected_replay")
+            raise HTTPException(
+                409,
+                "This message was already received, so it did not start another run. "
+                "Give each new call its own webhook-id.",
+            )
+
     # Run via the shared path
     from revoluzen_flow.api.execution import run_saved_workflow
     ki = key_info or {}
+    trigger = TRIGGER_WEBHOOK if signed_call is not None else TRIGGER_API
+    run_metadata = {
+        "published_endpoint": f"/{endpoint['path']}",
+        "api_key_id": ki.get("id"),
+        "api_key_name": ki.get("name"),
+    }
+    if signed_call is not None:
+        run_metadata["webhook_id"] = signed_call.message_id
+    run_workspace = endpoint_ws or workflow_ws or "default"
     try:
         run = await run_saved_workflow(
             wf_version,
             workflow_id=endpoint["workflow_id"],
-            workspace_id=endpoint_ws or workflow_ws or "default",
+            workspace_id=run_workspace,
             parameter_values=parameter_values,
             full_run=True,
-            triggered_by=TRIGGER_API,
-            run_user_id=f"api-key:{ki['id']}" if ki else "public-endpoint",
-            run_metadata={
-                "published_endpoint": f"/{endpoint['path']}",
-                "api_key_id": ki.get("id"),
-                "api_key_name": ki.get("name"),
-            },
+            triggered_by=trigger,
+            run_user_id=(
+                f"api-key:{ki['id']}" if ki else ("signed-endpoint" if signed_call is not None else "public-endpoint")
+            ),
+            run_metadata=run_metadata,
+            # The endpoint's timeout (300 s unless set) used to be stored and
+            # ignored. The caller is waiting on this request, so the run now
+            # stops at it, or at the pipeline's own limit if that is shorter.
+            time_limit_seconds=endpoint.get("timeout_seconds"),
         )
     except HTTPException as exc:
         # The run path puts the raw exception text in this detail. It is on the
@@ -573,6 +745,8 @@ async def invoke_published_endpoint(path: str, request: Request):
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         execution_id = detail.get("execution_id")
         _audit_invocation(request, path, endpoint, key_info, "error", execution_id=execution_id)
+        if execution_id:
+            _after_endpoint_run(wf, run_workspace, "error", execution_id, trigger)
         raise HTTPException(
             exc.status_code,
             {
@@ -584,4 +758,9 @@ async def invoke_published_endpoint(path: str, request: Request):
     _audit_invocation(
         request, path, endpoint, key_info, str(run.get("status")), execution_id=run.get("execution_id"),
     )
-    return _compact_run(wf, run, parameter_values)
+    if run.get("execution_id"):
+        _after_endpoint_run(wf, run_workspace, str(run.get("status") or ""), run["execution_id"], trigger)
+    # `resolved` above includes defaults, and a default that is a secret must
+    # never reach an outside caller.
+    from revoluzen_flow.ir.step_secrets import mask_parameter_values
+    return _compact_run(wf, run, mask_parameter_values(parameter_values, wf.parameters))

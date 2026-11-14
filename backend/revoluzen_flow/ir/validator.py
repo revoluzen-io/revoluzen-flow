@@ -126,8 +126,13 @@ def validate_workflow(workflow: Workflow) -> list[ValidationError]:
     # The inline-url escape hatch was deliberately removed so the
     # Connections page stays the single source of truth for
     # network-side credentials, audit, and env scoping.
-    _FILE_CONNECTORS: set[str] = {"csv", "json", "parquet", "excel", "xml"}
+    # "file" is the File step (any format, mainframe files, PGP), 2026-11-11.
+    _FILE_CONNECTORS: set[str] = {"csv", "json", "parquet", "excel", "xml", "file"}
     _FILE_INPUT_KEYS: tuple[str, ...] = ("file_path", "dataset_id", "file_id")
+    # 2026-11-11: a Delta table is a folder or a cloud address the step reads
+    # from `table_path`. The Delta steps take no saved connection, so asking
+    # for one made Delta impossible to use from Source and Destination.
+    _PATH_CONNECTORS: dict[str, tuple[str, ...]] = {"delta": ("table_path",)}
 
     # Check: a merge write declares what it merges ON.
     #
@@ -152,6 +157,38 @@ def validate_workflow(workflow: Workflow) -> list[ValidationError]:
                 "duplicate copy instead of updating.",
             ))
 
+    # Check: the File step's mainframe formats and PGP have what they need
+    # before a run starts (2026-11-11). The same rules are in
+    # frontend/src/utils/validateWorkflow.ts.
+    for step in workflow.steps:
+        connector = str(step.params.get("connector_type") or "").strip().lower()
+        is_file_source = step.type == StepType.FILE_SOURCE or (step.type == StepType.SOURCE and connector == "file")
+        is_file_sink = step.type == StepType.FILE_SINK or (step.type == StepType.DESTINATION and connector == "file")
+        if not (is_file_source or is_file_sink):
+            continue
+        params = step.params
+        fmt = str(params.get("format") or "auto").strip().lower()
+        if is_file_source and fmt == "copybook" and not (
+            str(params.get("copybook") or "").strip() or str(params.get("copybook_path") or "").strip()
+        ):
+            errors.append(ValidationError(step.id, "COBOL copybook records need the copybook: paste it, or give its file."))
+        if is_file_source and fmt == "fixed_width" and not (
+            params.get("fixed_columns") or str(params.get("fixed_widths") or "").strip()
+        ):
+            errors.append(ValidationError(step.id, "Fixed-width text needs its columns: start and length, or a list of widths."))
+        wants_pgp = params.get("pgp_decrypt") if is_file_source else params.get("pgp_encrypt")
+        if wants_pgp in (True, "true") and not params.get("pgp_credential_id"):
+            errors.append(ValidationError(step.id, "Choose the PGP key credential, or turn PGP off."))
+        # Signatures (checked on read, made on write) need their own key.
+        if wants_pgp in (True, "true"):
+            if is_file_source and params.get("pgp_verify") in (True, "true") \
+                    and not params.get("pgp_verify_credential_id"):
+                errors.append(ValidationError(
+                    step.id, "Choose the credential with the sender's public key, or turn off the signature check."))
+            if is_file_sink and params.get("pgp_sign") in (True, "true") and not params.get("pgp_sign_credential_id"):
+                errors.append(ValidationError(
+                    step.id, "Choose the credential with your private key for signing, or turn off signing."))
+
     # Check: each step has required params
     for step in workflow.steps:
         if step.type == StepType.SOURCE:
@@ -166,6 +203,13 @@ def validate_workflow(workflow: Workflow) -> list[ValidationError]:
                         step.id,
                         f"Source ({connector}) requires either a 'connection_id' or a file input "
                         f"(file_path / dataset_id / file_id).",
+                    ))
+            elif connector in _PATH_CONNECTORS:
+                if not step.params.get("connection_id") and not any(
+                    step.params.get(k) for k in _PATH_CONNECTORS[connector]
+                ):
+                    errors.append(ValidationError(
+                        step.id, f"Source ({connector}) requires a Table Path.",
                     ))
             else:
                 # Network connector — connection_id required.
@@ -189,6 +233,13 @@ def validate_workflow(workflow: Workflow) -> list[ValidationError]:
                     errors.append(ValidationError(
                         step.id,
                         f"Destination ({connector}) requires either a 'connection_id' or a file output path.",
+                    ))
+            elif connector in _PATH_CONNECTORS:
+                if not step.params.get("connection_id") and not any(
+                    step.params.get(k) for k in _PATH_CONNECTORS[connector]
+                ):
+                    errors.append(ValidationError(
+                        step.id, f"Destination ({connector}) requires a Table Path.",
                     ))
             else:
                 if not step.params.get("connection_id"):

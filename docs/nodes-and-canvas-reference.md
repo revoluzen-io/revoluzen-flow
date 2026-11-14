@@ -29,7 +29,6 @@ The canvas section covers the editor architecture: ReactFlow integration, the wo
 | | `ftp_source` | FTP Source | 0 | FTP/FTPS download → format-aware read |
 | | `gsheet_source` | Google Sheets Source | 0 | CSV export URL of a public sheet |
 | | `delta_source` | Delta Lake Source | 0 | Time-travel-capable Delta read |
-| | `webhook_trigger` | Webhook Trigger | 0 | HTTP entry point |
 | | `http_request` | HTTP Request | 1 | Outbound call with response capture |
 | **Data Movement / Sink** | `csv_sink` | CSV Sink | 1 | DuckDB `COPY ... TO CSV` |
 | | `json_sink` | JSON Sink | 1 | array or newline-delimited |
@@ -239,7 +238,7 @@ The locked rule (2026-05-09): every caller that may create a workflow row goes t
 
 **Resume from here** (right-click context menu) — cache-aware rerun; reuses upstream `stepResults` if their params are unchanged.
 
-WebSocket lifecycle: `useExecutionWS(workflowId)` opens `ws://host:8001/ws/execution/{wfId}?token=...&workspace_id=...`, parses incoming events, applies `.revoluzen-flow-executing` CSS class to running nodes, animates edges from completed → running steps.
+WebSocket lifecycle: `useExecutionWS(workflowId)` opens `/ws/execution/{wfId}?token=...&workspace_id=...` on the address the app was loaded from (the dev server proxies `/ws`), pings every 25 s, parses incoming events, applies `.revoluzen-flow-executing` CSS class to running nodes, animates edges from completed → running steps, and clears the step states 4 s after `workflow_completed`. The server refuses a socket for a pipeline outside the socket's workspace ("Workflow not found", close code 1008).
 
 ## 1.9 PreviewPanel (bottom 240px)
 
@@ -421,7 +420,7 @@ Legacy per-format types (csv_source, json_sink, etc.) are remapped to generic eq
 
 **Arity:** 0 · **Category:** source · **Description:** Read data from a REST API endpoint.
 
-**Behavior:** GET against HTTP endpoints. Pagination strategies: none / offset / page / cursor / link. Auto-detects JSON response shape (looks for `data` / `results` / `items` keys). Retries on 429/5xx with exponential backoff.
+**Behavior:** GET against HTTP endpoints. Pagination strategies: none / offset / page / cursor / link (the form's `page_number`, `offset_limit` and `link_header` mean the same; `link` also reads a `Link: <…>; rel="next"` header and never follows a next page to another site). Auto-detects JSON response shape (looks for `data` / `results` / `items` keys); an XML reply becomes rows at `row_path`. A web page, a file or plain text is an error that says what came back. Signs in the way the saved connection says, with all seven sign-in types of the REST connection form (`connections/http_auth.py`) and its Verify SSL setting. Retries on 429/5xx with exponential backoff.
 
 **Fields:**
 - `connection_id` (connection-picker, optional)
@@ -429,6 +428,7 @@ Legacy per-format types (csv_source, json_sink, etc.) are remapped to generic eq
 - `path` (text, optional) — appended to connection's base_url
 - `headers` (key-value list, optional)
 - `data_key` (text, optional) — JSON key containing the array
+- `row_path` (text, optional) — XML only: the element that is one row, e.g. `//order`; empty finds the repeating one
 - `file_path` (text, optional) — local JSON for testing
 - `pagination` (select, default `none`) — `none` / `offset` / `page` / `cursor` / `link`
 - `max_pages` (number, default 100)
@@ -460,16 +460,32 @@ Legacy per-format types (csv_source, json_sink, etc.) are remapped to generic eq
 
 **Arity:** 0 · **Category:** source · **Description:** Read messages from a Kafka topic.
 
-**Behavior:** Consumes up to `max_messages` within `timeout_seconds`. Tries `confluent_kafka` then falls back to `kafka-python`. Each message JSON-parsed; adds `_kafka_offset` / `_kafka_partition` / `_kafka_topic` columns.
+**Behavior:** Reads up to `max_messages` within `timeout_seconds`. Tries `confluent_kafka` then falls back to `kafka-python`. With confluent-kafka a run stops as soon as every partition is caught up; with kafka-python, after `timeout_seconds` with no new message. A message that is a JSON object becomes a row with its fields as columns; any other message goes into a `value` column as text. Adds `_kafka_offset` / `_kafka_partition` / `_kafka_topic` columns. A message with no value (a delete marker) gives no row.
+
+**Connection and sign-in (2026-11-11):** a Kafka step uses a saved Kafka connection, which the validators require: its `brokers` (older connections: `bootstrap_servers`) and its sign-in. With `SASL_PLAINTEXT` or `SASL_SSL`, the connection's SASL mechanism (`PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`), username and password reach the Kafka client; with `PLAINTEXT` or `SSL` no username or password is sent. `SSL` and `SASL_SSL` also use the connection's certificates (next paragraph). One helper, `connections/kafka_settings.py`, turns the connection into each client library's settings for the Kafka Source, the Kafka Sink, Test connection and topic browsing. Until then none of them signed in, so a secured cluster could not be used. A sign-in that cannot work (SASL with no mechanism, no username or no password) stops the run before Kafka is contacted. The password never appears in a message or a log line. A step created through the API with no connection still uses its own `bootstrap_servers`, `security_protocol`, `sasl_mechanism`, `sasl_username` and `sasl_password`; the form no longer offers them.
+
+**Certificates (2026-11-12):** with `SSL` or `SASL_SSL`, a Kafka connection can hold certificates, pasted as PEM text, so there is no file to copy to the Flow server.
+- **CA Certificate** (`ssl_ca_pem`): the certificate of the authority that signed the brokers' certificates, for a cluster whose certificates the company signs itself. The brokers' certificates are then checked against it. Left blank, they are checked against the certificates the computer trusts, as before.
+- **Client Certificate** (`ssl_certificate_pem`), **Client Private Key** (`ssl_key_pem`) and **Private Key Password** (`ssl_key_password`): for brokers that ask each client for a certificate (mutual TLS). The key may be locked with a password, in PKCS#8 or the older OpenSSL format. A file that holds the certificate and its key together can be pasted whole into Client Certificate.
+
+They reach confluent-kafka as `ssl.ca.pem`, `ssl.certificate.pem`, `ssl.key.pem` and `ssl.key.password`, and kafka-python as an `ssl_context`. kafka-python reads a client key only from a file, so the certificate and key go through a temporary file in which the key is locked with a one-time password; the file is deleted as soon as it is read. Every certificate is read before Kafka is contacted: one that cannot be read, a client certificate with no key, a locked key with no password or a wrong one, or a key that does not belong to its certificate stops the run, and Test connection, with a plain message. The private key and its password are stored encrypted and never sent back to the browser, nor is any setting whose value holds a private key, such as a certificate pasted with its key. Certificates are used only on `SSL` and `SASL_SSL` connections and only from a saved connection; a step with no connection checks the brokers against the computer's certificates.
+
+**Where a run starts (2026-11-11):** each run carries on after the last message the previous successful run read. Flow keeps that read position itself, for each pipeline step: for every partition, the offset of the next message to read, stored in `sync_state` next to the incremental-load cursors (`nodes/_kafka_positions.py`). The step joins no consumer group and commits nothing to Kafka. It takes every partition of the topic and starts each at its saved offset, or at the oldest message kept when it has none. So two pipelines reading one topic each get every message, whatever group name they use. Kafka's own tools do not show these positions.
+
+**Where the first run starts:** "First run starts at" (`start_from`). `oldest`, the default, is the oldest message the topic still keeps. `newest` means only messages that arrive after the first run: that run starts where each partition ends at that moment, usually reads nothing, and keeps that place once it succeeds, so the next run carries on from it. The setting matters only for a step's first run and the first run after a Reset; a partition added to the topic later starts at its oldest message. A step saved before this setting existed with Operation = `consume_from_latest`, or Auto Offset Reset = `latest`, starts at the newest message; any other old choice starts at the oldest.
+
+**When the position moves:** only after the whole run succeeds, destinations included. A run that fails or is stopped leaves it where it was, so the next run reads those messages again: after a failure a message can arrive twice, but none is skipped. This matches the incremental Database Source. Sample runs, sandbox runs and Test Node never move it; nor does a run resumed from a failed one, which does not read the topic again. Changing the topic starts again as a first run does, and so does Reset under "Read position" in the step's form, which deletes the step's saved state (`DELETE /api/sync-state/{pipeline}/{step}`; the developer role or above). The form shows the saved offset for each partition. When the broker has deleted the message at a saved offset, the run carries on at the oldest message still kept. Two runs of one pipeline at the same time would both start at the same position and read the same messages; Overlap Detection (Save dialog, Execution tab), on with Skip by default, prevents that.
+
+**Errors:** a topic Kafka does not know, a broker that cannot be reached, a refused sign-in, a broker certificate the connection does not trust, or brokers that ask for a client certificate the connection does not have stops the run with a plain message. With confluent-kafka the message adds what Kafka reported, such as "SASL authentication error" or "certificate verify failed". A topic that is not there and a broker out of reach used to give an empty result and a successful run.
 
 **Fields:**
-- `connection_id` (connection-picker, optional)
+- `connection_id` (connection-picker, required). The connection's brokers, sign-in, certificates and default consumer group.
 - `topic` (text, required)
-- `bootstrap_servers` (text, default `localhost:9092`)
-- `group_id` (text, default `revoluzen-flow-consumer`)
+- `start_from` (select `oldest` / `newest`, default `oldest`). Where the step's first run starts.
 - `max_messages` (number, default 100)
 - `timeout_seconds` (number, default 10)
-- Frontend bonus: operation select (consume_from_earliest / latest / offset)
+- `group_id` (text, optional). The name the step gives Kafka; empty uses the connection's, then `revoluzen_flow-consumer`. It does not decide which messages a run reads.
+- Removed from the form on 2026-11-11 because runs never read them: Operation and Auto Offset Reset (an old choice of "latest" now sets where the first run starts, see above), Partition, Starting Offset, Value Deserializer, and the step's own broker and sign-in fields.
 
 ## ftp_source — FTP Source
 
@@ -502,7 +518,7 @@ Legacy per-format types (csv_source, json_sink, etc.) are remapped to generic eq
 
 **Arity:** 0 · **Category:** source · **Description:** Read a Delta Lake table.
 
-**Behavior:** `deltalake` Python library with Parquet-glob fallback. Time-travel via `version`.
+**Behavior:** reads through the `deltalake` Python library, so only the table's live rows come back. If that package is not installed, the step stops and reads nothing; it no longer reads every Parquet file in the folder. Time travel uses `version`, or `timestamp` (ISO 8601) when no version is set. `predicate` keeps the rows matching a SQL condition. `storage_options` signs in to a cloud address.
 
 **Fields:**
 - `table_path` (text, required) — directory path
@@ -551,9 +567,9 @@ Stages a temp file (Parquet/CSV/JSON), uploads via boto3.
 
 ## kafka_sink — Kafka Sink
 
-One JSON message per row, batched flush.
+One JSON message per row, sent in batches. Uses the saved Kafka connection's brokers, sign-in and certificates, as the Kafka Source does (2026-11-11: it read only the older `bootstrap_servers` key, so with a saved connection it wrote to `localhost:9092`, and it never signed in). With confluent-kafka it first asks Kafka about the topic, so a broker out of reach or a refused sign-in stops the run at once; then it checks each message's delivery report. kafka-python connects when the step starts and checks each message the same way. A message Kafka did not take stops the run with a plain message saying how many were not written; the step used to finish as if every message had gone. With no rows to send, it does not contact Kafka.
 
-**Fields:** `connection_id`, `topic` (required), `bootstrap_servers`, `key_column` (optional — message partitioning key), `batch_size` (default 500).
+**Fields:** `connection_id` (required), `topic` (required), `key_column` (optional — message partitioning key), `compression` (`none` / `gzip` / `snappy` / `lz4` / `zstd`, default `none`; with kafka-python, `snappy`, `lz4` and `zstd` need the python-snappy, lz4 and zstandard packages, and the run names the one missing), `batch_size` (default 500: messages sent before the step waits for Kafka to confirm them). Removed from the form on 2026-11-11 because runs never read them: Value Serializer (messages are always JSON) and the step's own broker and sign-in fields.
 
 ## api_sink — API Sink
 
@@ -569,9 +585,15 @@ Writes the relation to a temp file and emails it via SMTP. Auto-generates body w
 
 ## delta_sink — Delta Lake Sink
 
-Append or overwrite a Delta table via `deltalake`.
+Writes a Delta Lake table (Parquet files plus a `_delta_log`) through the `deltalake` package. If that package is not installed, the step stops and writes nothing.
 
-**Fields:** `table_path` (required), `mode` (`append`/`overwrite`, default `append`).
+**Fields:**
+- `table_path` (required): a folder inside the data folder, or a cloud address such as `s3://bucket/customers`.
+- `write_mode`: `overwrite` (default), `append`, or `merge`. `mode` is the older name and is still read.
+- `merge_keys`: comma-separated columns that identify a row. `merge_predicate` is an optional condition such as `source.id = target.id`, and wins over `merge_keys`. A merge updates matching rows and adds the rest. On the first run it creates the table.
+- `partition_by`: a list or comma-separated text.
+- `storage_options`: key and value pairs for a cloud address, stored encrypted.
+- `schema_mode`: `overwrite` (default; an overwrite may change the columns) or `merge` (an append or merge may add new columns).
 
 ## warehouse_sink — Warehouse Sink
 
@@ -937,9 +959,9 @@ Supports column mapping (auto/explicit), table actions (none/create/truncate/rec
 
 ## http_request — HTTP Request
 
-**Arity:** 1 · **Behavior:** Makes HTTP calls (GET / POST / PUT / PATCH / DELETE) and captures JSON responses. Batch (single call) or per-row (one call per input row with `{column}` placeholders rendered per row). Merges response with input columns.
+**Arity:** 1 · **Behavior:** Makes HTTP calls (GET / POST / PUT / PATCH / DELETE) and captures JSON or XML responses as rows. Batch (single call) or per-row (one call per input row with `{column}` placeholders rendered per row). Merges response with input columns.
 
-**Fields:** `url` (text, required — supports `{column}` per-row), `method` (default `GET`), `headers` (key-value list), `body` (code — JSON; supports `{column}` per-row), `per_row` (bool, default false), `timeout` (number, default 0 — 0 means use 30 s or `REVOLUZEN_FLOW_HTTP_DEFAULT_TIMEOUT` env).
+**Fields:** `connection_id` (connection-picker, optional — a saved REST API connection gives the address and sign-in; `url` is then a path such as `/orders`, `/` for the connection's own address, and a full address must be on the connection's site), `url` (text, required — supports `{column}` per-row), `method` (default `GET`), `headers` (key-value list), `body_type` (`json`/`xml`/`form`/`text`, default `json`), `body` (code — supports `{column}` per-row, escaped for the body type), `auth_type` with its credential fields, `response_format` (`auto`/`json`/`xml`/`text`, default `auto`), `row_path` (text — the XML element that is one row, e.g. `//order`), `per_row` (bool, default false), `timeout` (number, default 0 — 0 means use 30 s or `REVOLUZEN_FLOW_HTTP_DEFAULT_TIMEOUT` env).
 
 ---
 
@@ -1206,7 +1228,6 @@ All sinks return the input relation unchanged so downstream nodes can chain off 
 | `ftp_source` | none | Format-handler dependent (same as s3_source). | none |
 | `gsheet_source` | none | Sheet's first row as headers; types inferred from CSV export. | none |
 | `delta_source` | none | Delta table schema (Parquet types preserved). With `version`, time-travel reads. | none |
-| `webhook_trigger` | none | At runtime, derived from the inbound POST body. In editor preview, synthetic sample columns. | none (HTTP listener) |
 | `source` (generic) | none | Driven by the picked connector — file path / dataset / table. Same shape as the corresponding typed source. | none |
 
 ## 11.2 Sinks (1 input each)
@@ -1222,7 +1243,7 @@ All sinks return the input relation unchanged so downstream nodes can chain off 
 | `kafka_sink` | 1 (`key_column` if set must exist) | passthrough | Publishes one JSON message per row |
 | `api_sink` | 1 | passthrough | POSTs all rows (bulk) or one HTTP call per row (per_record) |
 | `email_sink` | 1 | passthrough | Sends SMTP email with the relation attached as csv/json/parquet |
-| `delta_sink` | 1 (schema compatible with existing Delta table for `mode=append`) | passthrough | Append or overwrite Delta table at `table_path` |
+| `delta_sink` | 1 (schema compatible with existing Delta table for `mode=append`) | passthrough | Overwrite, append or merge a Delta table at `table_path` |
 | `warehouse_sink` | 1 (cols align with target) | passthrough | Writes to Snowflake / BigQuery / Redshift; `merge` mode uses `merge_key` |
 | `file_sink` | 1 | passthrough | Format detected from file extension; delegates to csv/json/parquet sink |
 | Cloud-storage sinks (`sharepoint_sink`, `onedrive_sink`, `gdrive_sink`, `dropbox_sink`, `box_sink`, `adls_gen2_sink`, `azure_blob_sink`, `gcs_sink`) | 1 | passthrough | Format-encode the relation locally; upload to the vendor API |
@@ -1362,7 +1383,7 @@ Three tiers via `schemaStabilityFor(stepType) → 'static' | 'inference' | 'dyna
 
 - **`static`** — output schema is deterministic from params alone. Cache indefinitely. Most transforms (rename / select / typecast / derived_column / filter / sort / dedup / schema_mapper / aggregate / window / sample / validate / conditional_split / lookup / union / scd2 / data_quality / upsert / wrangler).
 - **`inference`** — DuckDB-inferred from a sample at first read. Safe to cache after first run; may shift if upstream data shape changes (CSV column type drift across uploads). All file/network sources: csv_source / json_source / xml_source / excel_source / gsheet_source / ftp_source / s3_source / db_source / parquet_source / delta_source / kafka_source.
-- **`dynamic`** — output schema is fully data-dependent and only known at runtime. Column dropdowns downstream MUST either rebuild after every run OR fall back to free-text input. Currently: `pivot`, `unpivot`, `transform`, `api_source`, `webhook_trigger`, `code_script`, `flatten_explode`.
+- **`dynamic`** — output schema is fully data-dependent and only known at runtime. Column dropdowns downstream MUST either rebuild after every run OR fall back to free-text input. Currently: `pivot`, `unpivot`, `transform`, `api_source`, `code_script`, `flatten_explode`.
 
 ## A4 — Dynamic-schema downstream UI banner
 
@@ -1431,7 +1452,7 @@ Intent classification (full map in `INTENT_FOR_STEP_TYPE` in `modulesPanelData.t
 
 | Intent | What | Stepst types |
 |---|---|---|
-| **Import** | Read data in | sources + `webhook_trigger` |
+| **Import** | Read data in | sources |
 | **Prepare** | Clean / shape / validate | `data_wrangler`, `filter`, `derived_column`, `rename`, `typecast`, `schema_mapper`, `sort`, `deduplicate`, `sample`, `data_quality`, `flatten_explode`, `upsert`, `validate`, `llm_guardrail` |
 | **Analyze** | Combine / aggregate / classify | `transform`, `join`, `lookup`, `union`, `aggregate`, `pivot`, `unpivot`, `window`, `embedder`, `semantic_router`, `conditional_split`, `scd2` |
 | **Automate** | Calls / messages / control flow | `http_request`, `send_email`, `slack_notify`, `code_script`, `copy_data`, `execute_pipeline`, `execute_sql_task`, `file_system`, `delete_data`, `get_metadata`, control-flow nodes |
@@ -1600,7 +1621,7 @@ Combine (join, union, window)
 Control Flow (if_condition, switch_case, foreach_loop, until_loop, wait_delay,
               set_variable, execute_pipeline, retry_handler, fail,
               append_variable, filter_array, validation)
-Action (http_request, webhook_trigger, code_script, copy_data, delete_data,
+Action (http_request, code_script, copy_data, delete_data,
         get_metadata, send_email, slack_notify, file_system, execute_sql_task)
 Generic Source / Destination
 SaaS Connector

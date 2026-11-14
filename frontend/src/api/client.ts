@@ -286,6 +286,315 @@ export interface WorkflowBinItem {
   version_count: number;
   purge_at: string | null;
 }
+/** One way to tell a pipeline worked (backend `ir/spec.py` SpecCriterion).
+ * `check` names the contract guarantee that proves it, or is '' when a
+ * person judges it. */
+export interface SpecCriterion {
+  id: string;
+  text: string;
+  check: string;
+  min_rows?: number | null;
+  max_rows?: number | null;
+  expected_rows?: number | null;
+  /** A fraction: 0.1 means within 10%. */
+  variance_pct?: number | null;
+  columns?: string[] | null;
+  key?: string | null;
+  time_column?: string | null;
+  max_age_seconds?: number | null;
+  output_step?: string | null;
+}
+
+/** What a pipeline was asked to do (backend `ir/spec.py` PipelineSpec).
+ * The goal is the pipeline's business purpose, kept on the pipeline itself. */
+export interface PipelineSpec {
+  business_owner: string;
+  consumers: string;
+  sources: string[];
+  acceptance: SpecCriterion[];
+  outcome: string;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+/** A shared quality rule set: Data Quality rules many pipelines use
+ *  (backend quality_rules/store.py). Rules have the step's {column, op, value} shape. */
+export interface QualityRuleSet {
+  id: string;
+  name: string;
+  description: string;
+  rules: Array<Record<string, any>>;
+  rule_count: number;
+  version: number;
+  updated_at: string;
+  updated_by: string;
+  used_by_count?: number;
+  published_count?: number;
+  used_by?: Array<{ id: string; name: string; published: boolean }>;
+  history?: Array<{ version: number; rules: Array<Record<string, any>>; description: string; saved_at: string; saved_by: string }>;
+}
+
+/** A business glossary entry: the workspace's own term or metric, which the
+ *  Copilot reads when a request uses it (backend glossary/store.py). */
+export interface GlossaryTerm {
+  id: string;
+  name: string;
+  kind: 'term' | 'metric';
+  definition: string;
+  synonyms: string[];
+  sql: string;
+  where: string;
+  owner: string;
+  updated_at: string;
+  updated_by: string;
+}
+
+/** Open incidents that fail for one reason: one connection, or one error
+ *  (backend incidents/shared.py). */
+export interface SharedCause {
+  cause: string;
+  failure_class: string;
+  connection: { id: string; name: string } | null;
+  pipelines: Array<{ workflow_id: string; workflow_name: string; incident_id: string; failed_step: string; last_seen_at: string }>;
+  count: number;
+}
+
+/** One pipeline that has started failing (backend incidents/store.py). */
+export interface Incident {
+  id: string;
+  workspace_id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: 'open' | 'resolved';
+  failure_class: string;
+  failed_step: string;
+  error: string;
+  opened_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  resolution: string;
+  occurrences: number;
+  first_run_id: string;
+  last_run_id: string;
+  auto_attempts: number;
+}
+
+export interface IncidentEvent {
+  id: string;
+  incident_id: string;
+  at: string;
+  kind: string;
+  run_id: string;
+  detail: Record<string, any>;
+}
+
+export interface AutoRecoverPolicy {
+  enabled: boolean;
+  failure_classes: string[];
+  max_attempts: number;
+  delay_seconds: number;
+}
+
+export interface IncidentDetail {
+  incident: Incident;
+  events: IncidentEvent[];
+  context: {
+    last_success: { run_id: string; started_at: string; triggered_by: string } | null;
+    changes_since: { version: number; created_by: string; created_at: string; change_summary: string; kind: string; live: boolean }[];
+    upstream: string[];
+    downstream: string[];
+  };
+  policy: AutoRecoverPolicy;
+}
+
+/** Ranked join keys for a two-input step (backend intelligence/join_discovery.py). */
+export interface JoinKeySuggestion {
+  left: string;
+  right: string;
+  same_name: boolean;
+  score: number;
+  shape: 'many-to-one' | 'one-to-one' | 'one-to-many' | 'many-to-many';
+  evidence: string[];
+  left_matched_pct: number;
+  right_matched_pct: number;
+  /** A share above was scaled from the samples to the whole side, not counted. */
+  estimated?: boolean;
+  /** The key side repeats a few of its values: how many sampled rows, as a sentence. */
+  repeat_note?: string | null;
+}
+
+export interface JoinKeySuggestions {
+  step_id: string;
+  left_step: string;
+  right_step: string;
+  left_label: string;
+  right_label: string;
+  sampled_rows: { left: number; right: number };
+  suggestions: JoinKeySuggestion[];
+}
+
+export interface ContractFromSpecResult {
+  workflow_id: string;
+  contract: any;
+  from_spec: number;
+  kept: number;
+  checked_by_people: { criterion: string; text: string }[];
+  incomplete: { criterion: string; number: number; text: string; reason: string }[];
+  spec_version: number | null;
+}
+
+export interface ContractStatus {
+  workflow_id: string;
+  contract: null | {
+    guarantees: number;
+    from_spec: number;
+    spec_version: number | null;
+    behind_spec: boolean;
+  };
+  last_verdict?: null | {
+    run_id: string;
+    verdict: 'verified' | 'failed';
+    verified_at: string;
+    failed: string[];
+    spec_version: number | null;
+  };
+}
+
+/** Where published pipelines are copied to. The access token is never sent back. */
+export interface GitCopySettings {
+  enabled: boolean;
+  repo_url: string;
+  branch: string;
+  folder: string;
+  username: string;
+  token_set: boolean;
+  updated_at: string;
+  updated_by: string;
+  git_installed: boolean;
+  git_version: string;
+}
+export interface GitCopySettingsInput {
+  enabled: boolean;
+  repo_url: string;
+  branch: string;
+  folder: string;
+  username: string;
+  /** Blank keeps the saved token. */
+  token: string;
+}
+/** How one copy to Git went. */
+export interface GitCopyRecord {
+  id: string;
+  workflow_id: string;
+  version: number | null;
+  event: string;
+  status: 'pending' | 'working' | 'saved' | 'unchanged' | 'failed' | 'skipped';
+  commit_sha: string;
+  commit_url: string;
+  error: string;
+  actor_name: string;
+  note: string;
+  attempts: number;
+  will_retry_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+/** One kept version in a pipeline's version history. */
+export interface VersionHistoryItem {
+  version: number;
+  /** What made it: Save and the like, auto-save, a restore, or a review step. */
+  kind: 'saved' | 'auto' | 'restored' | 'review';
+  name: string;
+  created_by: string;
+  created_at: string;
+  change_summary: string;
+  step_count: number;
+  content_hash: string;
+  /** The version a Publish was made on. */
+  published: boolean;
+  published_at: string | null;
+  /** The version deployed to PROD. */
+  deployed: boolean;
+  /** What schedules and endpoints run on a published pipeline. */
+  live?: boolean;
+  runs: number;
+  last_run_status: string;
+  last_run_at: string;
+}
+export interface VersionHistory {
+  workflow_id: string;
+  current_version: number;
+  status: string;
+  deployed_version: number | null;
+  /** The live version of a published pipeline; null on a draft. */
+  published_version?: number | null;
+  /** The newest saved version is a draft beside the live one. */
+  has_unpublished_changes?: boolean;
+  /** Versions the keeping rules have removed so far. */
+  removed: number;
+  /** The keeping rules: newest saves and auto-saves kept (0 = no limit). */
+  keep: { saves: number; auto_saves: number };
+  /** Newest first. */
+  versions: VersionHistoryItem[];
+}
+/** A connection's settings as its version history shows them. Each password
+ *  or key in `config` is `{ secret: true, tag }`: two with the same tag hold
+ *  the same secret. The value itself is never sent, and Flow does not keep
+ *  old ones. */
+export interface ConnectionSettings {
+  name: string;
+  type: string;
+  config: Record<string, any>;
+  credential_id: string | null;
+  project_id: string | null;
+  environment: string | null;
+  description: string;
+  tags: string[];
+  capabilities: string[] | null;
+}
+export interface ConnectionVersionItem {
+  version: number;
+  /** Empty for the version kept from before the history began. */
+  created_by: string;
+  created_at: string;
+  note: string;
+  kind: 'saved' | 'restored';
+  /** The settings that changed from the version before it. */
+  changed: string[];
+  same_as_current: boolean;
+  settings: ConnectionSettings;
+}
+/** A pipeline that uses a connection now. */
+export interface ConnectionPipelineUse {
+  workflow_id: string;
+  name: string;
+  role: string;
+  status: string;
+  deployed_version: number | null;
+}
+export interface ConnectionVersionHistory {
+  connection_id: string;
+  /** Newest first. */
+  versions: ConnectionVersionItem[];
+  current: ConnectionSettings;
+  /** The newest this many are kept, and the first version always (0 = all). */
+  keep: number;
+  used_by: ConnectionPipelineUse[];
+}
+export interface ConnectionRestoreResult {
+  connection: any;
+  restored_from: number;
+  /** The version the restore was saved as; null when nothing changed. */
+  version: number | null;
+  unchanged: boolean;
+  /** Secrets that kept today's value although the version had another. */
+  kept_secrets: string[];
+  /** Secrets the version had that the connection has no value for now. */
+  missing_secrets: string[];
+  /** Linked credential, project or environment kept because the version's is gone. */
+  kept_settings: string[];
+  renamed_to: string | null;
+}
 export interface WorkflowBin {
   retention_days: number;
   count: number;
@@ -474,11 +783,35 @@ export const api = {
   },
   createWorkflow: (name: string, projectId?: string) =>
     request<any>('/workflows/', { method: 'POST', body: JSON.stringify({ name, project_id: projectId }) }),
+  // A new pipeline with its steps in one call (New pipeline from a saved
+  // version). The server suffixes the name if it is taken.
+  createWorkflowWithSteps: (body: {
+    name: string;
+    project_id?: string | null;
+    folder_id?: string | null;
+    description?: string;
+    business_purpose?: string;
+    readme?: string;
+    tags?: string[];
+    parameters?: any[];
+    steps: any[];
+    connections: any[];
+  }) => request<{ id: string; version: number; workflow: any }>('/workflows/', { method: 'POST', body: JSON.stringify(body) }),
   getWorkflow: (id: string) => request<any>(`/workflows/${id}`),
-  updateWorkflow: (id: string, workflow: any, changeSummary = '') =>
+  // Save a file's Data Prep canvas as the preparation of the table it loads:
+  // a new pipeline, or a new version of the one that table already has.
+  saveFilePreparation: (workflow: any, projectId?: string | null, folderId?: string | null) =>
+    request<{ workflow_id: string; workflow_name: string; version: number; created: boolean; unchanged: boolean; status: string }>(
+      '/storage/preparations',
+      { method: 'POST', body: JSON.stringify({ workflow, project_id: projectId || null, folder_id: folderId || null }) },
+    ),
+  // `kind` tells the version history what made the save: the Save button
+  // ('saved', the default), auto-save or the save before a run ('auto'), or
+  // an older version saved again ('restored').
+  updateWorkflow: (id: string, workflow: any, changeSummary = '', kind: 'saved' | 'auto' | 'restored' = 'saved') =>
     request<any>(`/workflows/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({ workflow, change_summary: changeSummary }),
+      body: JSON.stringify({ workflow, change_summary: changeSummary, kind }),
     }),
   // Delete moves the pipeline to the Bin, where it stays until the retention
   // window ends (retention_days in the reply; purge_at is the date). With
@@ -507,6 +840,14 @@ export const api = {
         })
       : request<StepSchemaResponse>(`/workflows/${workflowId}/step/${stepId}/schema`),
   getWorkflowVersions: (id: string) => request<any[]>(`/workflows/${id}/versions`),
+  // The pipeline tab's Versions view: kept versions newest first, with the
+  // kind of save, name, author, runs, and the keeping rules.
+  getWorkflowHistory: (id: string) => request<VersionHistory>(`/workflows/${id}/history`),
+  nameWorkflowVersion: (id: string, version: number, name: string) =>
+    request<{ workflow_id: string; version: number; name: string }>(`/workflows/${id}/versions/${version}/name`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
   getWorkflowVersion: (id: string, version: number) => request<any>(`/workflows/${id}?version=${version}`),
   diffWorkflowVersions: (id: string, v1: number, v2: number) =>
     request<any>(`/workflows/${id}/diff?v1=${v1}&v2=${v2}`),
@@ -550,9 +891,10 @@ export const api = {
     request<any>(`/workflows/${id}/rollback?to_version=${toVersion}`, { method: 'POST' }),
   getUpdateReadiness: () => request<any>('/system/update-readiness'),
 
-  // Pipeline Export / Import / Clone
-  exportPipeline: (id: string) =>
-    request<any>(`/workflows/${id}/export`),
+  // Pipeline Export / Import / Clone. `version` exports that saved version
+  // instead of the newest one.
+  exportPipeline: (id: string, version?: number) =>
+    request<any>(`/workflows/${id}/export${version ? `?version=${version}` : ''}`),
   // Project Export — GET /api/projects/{id}/export returns a JSON project
   // bundle. include_schedules / include_alerts are optional (default on the
   // server). Mirrors exportPipeline.
@@ -625,8 +967,11 @@ export const api = {
     environment = 'dev',
     safetyMode: 'live' | 'sample' | 'dry_run' | 'validate_only' = 'live',
     parameterValues?: Record<string, unknown>,
+    // A published pipeline runs its published version. `draft` runs the newest
+    // saved version instead, which is what the Editor is showing.
+    draft = false,
   ) => {
-    const qs = `?full_run=${fullRun}&environment=${environment}&safety_mode=${safetyMode}`;
+    const qs = `?full_run=${fullRun}&environment=${environment}&safety_mode=${safetyMode}${draft ? '&draft=true' : ''}`;
     const body = parameterValues && Object.keys(parameterValues).length > 0
       ? { parameter_values: parameterValues }
       : undefined;
@@ -675,6 +1020,13 @@ export const api = {
     request<any>(`/execute/workflow/ephemeral/step/${stepId}`, {
       method: 'POST',
       body: JSON.stringify({ workflow, preview_limit: previewLimit }),
+    }),
+  // Rank the column pairs a Join step should match on, from samples of both
+  // inputs (run in preview: nothing is written). Names and percentages only.
+  suggestJoinKeys: (workflow: any, stepId: string, sampleRows = 2000) =>
+    request<JoinKeySuggestions>(`/execute/workflow/ephemeral/step/${stepId}/join-keys`, {
+      method: 'POST',
+      body: JSON.stringify({ workflow, sample_rows: sampleRows }),
     }),
   resumeFromStep: (workflowId: string, stepId: string) =>
     request<any>(`/execute/workflow/${workflowId}/step/${stepId}/resume`, { method: 'POST' }),
@@ -1186,8 +1538,13 @@ export const api = {
   // Auth
   login: (email: string, password: string) =>
     request<any>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (email: string, password: string, name?: string) =>
-    request<any>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) }),
+  // `setupToken`: the one-time token a server-mode install requires for its
+  // FIRST account (signup-policy `setup_token_required`). Omitted otherwise.
+  register: (email: string, password: string, name?: string, setupToken?: string) =>
+    request<any>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(setupToken ? { email, password, name, setup_token: setupToken } : { email, password, name }),
+    }),
   getMe: () => {
     const token = localStorage.getItem('revoluzen_flow_token');
     return request<any>('/auth/me', { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } });
@@ -1276,6 +1633,14 @@ export const api = {
     request<any>(`/connections/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteConnection: (id: string) => request<any>(`/connections/${id}`, { method: 'DELETE' }),
   testConnection: (id: string, signal?: AbortSignal) => request<any>(`/connections/${id}/test`, { method: 'POST', signal }),
+  getConnectionVersions: (id: string) => request<ConnectionVersionHistory>(`/connections/${id}/versions`),
+  /** `secrets` holds old passwords typed in for the restore, by setting name
+   *  ('password', or 'auth.password' for a nested one). */
+  restoreConnectionVersion: (id: string, version: number, secrets: Record<string, string> = {}) =>
+    request<ConnectionRestoreResult>(`/connections/${id}/versions/${version}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ secrets }),
+    }),
   getConnectionTableColumns: (id: string, table: string, schema?: string) => {
     const qs = new URLSearchParams({ table });
     if (schema) qs.set('schema', schema);
@@ -1324,10 +1689,13 @@ export const api = {
   // Pipeline Lifecycle
   testWorkflow: (id: string) =>
     request<any>(`/workflows/${id}/test`, { method: 'POST' }),
-  publishWorkflow: (id: string) =>
-    request<any>(`/workflows/${id}/publish`, { method: 'POST' }),
-  revokeWorkflow: (id: string) =>
-    request<any>(`/workflows/${id}/revoke`, { method: 'POST' }),
+  publishWorkflow: (id: string, note = '') =>
+    request<any>(`/workflows/${id}/publish`, { method: 'POST', body: JSON.stringify({ note }) }),
+  revokeWorkflow: (id: string, note = '') =>
+    request<any>(`/workflows/${id}/revoke`, { method: 'POST', body: JSON.stringify({ note }) }),
+  // Throw away saved changes that were never published, back to what is live.
+  discardDraft: (id: string) =>
+    request<any>(`/workflows/${id}/discard-draft`, { method: 'POST' }),
   archiveWorkflow: (id: string) =>
     request<any>(`/workflows/${id}/archive`, { method: 'POST' }),
   restoreWorkflow: (id: string) =>
@@ -1342,7 +1710,7 @@ export const api = {
     ),
   updateWorkflowDocs: (
     id: string,
-    data: { business_purpose?: string; readme?: string; tags?: string[] },
+    data: { business_purpose?: string; readme?: string; tags?: string[]; spec?: PipelineSpec },
   ) =>
     request<any>(`/workflows/${id}/docs`, {
       method: 'PATCH',
@@ -1358,6 +1726,21 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ require_business_purpose: requireBusinessPurpose }),
     }),
+
+  // The copy of every published pipeline in the customer's own Git repository.
+  getGitCopySettings: () => request<GitCopySettings>('/git-copy/settings'),
+  saveGitCopySettings: (settings: GitCopySettingsInput) =>
+    request<GitCopySettings>('/git-copy/settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  testGitCopy: (settings: GitCopySettingsInput) =>
+    request<{ ok: boolean; message: string; branch_exists?: boolean }>('/git-copy/test', {
+      method: 'POST',
+      body: JSON.stringify(settings),
+    }),
+  saveAllToGit: () => request<{ queued: number }>('/git-copy/save-all', { method: 'POST' }),
+  getPipelineGitCopy: (id: string) =>
+    request<{ enabled: boolean; latest: GitCopyRecord | null }>(`/git-copy/pipelines/${id}`),
+  retryPipelineGitCopy: (id: string) =>
+    request<{ status: string }>(`/git-copy/pipelines/${id}/retry`, { method: 'POST' }),
 
   // Execution Contracts — the declarative run promise and its receipts.
   // NOT the Schema Contracts below: those are expected-columns + drift.
@@ -1723,6 +2106,49 @@ export const api = {
     request<any>(`/execution-contracts/${workflowId}/receipts?limit=${limit}`),
   verifyExecutionContractChain: (workflowId: string) =>
     request<any>(`/execution-contracts/${workflowId}/chain`),
+  // Make the contract from the pipeline's intent spec: criteria that name a
+  // check become guarantees; hand-written guarantees are kept.
+  contractFromSpec: (workflowId: string) =>
+    request<ContractFromSpecResult>(`/execution-contracts/${workflowId}/from-spec`, { method: 'POST' }),
+  // Where the pipeline stands against its contract: size, whether it is
+  // behind the spec, and the last verdict on the newest version.
+  getExecutionContractStatus: (workflowId: string) =>
+    request<ContractStatus>(`/execution-contracts/${workflowId}/status`),
+
+  // ── Incidents (one per pipeline that has started failing) ──
+  listIncidents: (status: 'open' | 'resolved' | 'all' = 'open') =>
+    request<{ incidents: Incident[]; count: number; shared_causes?: SharedCause[] }>(`/incidents?status=${status}`),
+  getIncident: (id: string) => request<IncidentDetail>(`/incidents/${id}`),
+  resolveIncident: (id: string, note = '') =>
+    request<{ incident: Incident }>(`/incidents/${id}/resolve`, { method: 'POST', body: JSON.stringify({ note }) }),
+  addIncidentNote: (id: string, note: string) =>
+    request<any>(`/incidents/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
+  getAutoRecoverPolicy: () =>
+    request<{ policy: AutoRecoverPolicy; allowed_classes: string[] }>('/incidents/policy'),
+  putAutoRecoverPolicy: (policy: AutoRecoverPolicy) =>
+    request<{ policy: AutoRecoverPolicy; allowed_classes: string[] }>('/incidents/policy', {
+      method: 'PUT', body: JSON.stringify(policy),
+    }),
+
+  // ── Shared quality rule sets (Data Quality rules many pipelines use) ──
+  listQualityRuleSets: () => request<{ rule_sets: QualityRuleSet[] }>('/quality-rule-sets'),
+  getQualityRuleSet: (id: string) => request<QualityRuleSet>(`/quality-rule-sets/${id}`),
+  createQualityRuleSet: (body: { name: string; description?: string; rules: Array<Record<string, any>> }) =>
+    request<QualityRuleSet>('/quality-rule-sets', { method: 'POST', body: JSON.stringify(body) }),
+  updateQualityRuleSet: (id: string, body: { name?: string; description?: string; rules: Array<Record<string, any>> }) =>
+    request<QualityRuleSet>(`/quality-rule-sets/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteQualityRuleSet: (id: string) =>
+    request<{ deleted: string }>(`/quality-rule-sets/${id}`, { method: 'DELETE' }),
+
+  // ── Business glossary (terms and metrics the Copilot reads) ──
+  listGlossary: (q = '') =>
+    request<{ terms: GlossaryTerm[] }>(`/glossary${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  addGlossaryTerm: (body: Omit<GlossaryTerm, 'id' | 'updated_at' | 'updated_by'>) =>
+    request<GlossaryTerm>('/glossary', { method: 'POST', body: JSON.stringify(body) }),
+  updateGlossaryTerm: (id: string, body: Partial<Omit<GlossaryTerm, 'id' | 'updated_at' | 'updated_by'>>) =>
+    request<GlossaryTerm>(`/glossary/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteGlossaryTerm: (id: string) =>
+    request<{ deleted: string }>(`/glossary/${id}`, { method: 'DELETE' }),
 
   // Per-pipeline compute rollup — what each pipeline actually costs in
   // RAM, wall-clock and CPU across its recorded runs, so concurrency and

@@ -5,7 +5,7 @@ Revoluzen Flow is built around **three connector tiers** — a first-party catal
 | Tier | What you get | How to use it |
 |---|---|---|
 | **1. First-party catalog** (37 manifests) | 4 database dialects (PostgreSQL / MySQL / MSSQL / SQLite) + 2 bulk-load dialects (Postgres `COPY FROM STDIN`, Snowflake `PUT` + `COPY INTO`) + ~31 SaaS manifests, all tested + tracked in the cert matrix | Drop in any connection via the Connections page — no setup beyond credentials |
-| **2. Open framework** (any connector you need, without a vendor release cycle) | Build a connector from an OpenAPI spec or a response you tested — no compile step, no LLM required | **Insights → API Explorer**. See [docs/extend/build-a-connector.md](extend/build-a-connector.md) for the end-to-end tutorial |
+| **2. Open framework** (any connector you need, without a vendor release cycle) | Build a connector from an OpenAPI spec, a SOAP WSDL, an XML request or a response you tested — no compile step, no LLM required | **Insights → API Explorer**. See [docs/extend/build-a-connector.md](extend/build-a-connector.md) for the end-to-end tutorial |
 | **3. Community contributions** | Share your manifest as a Gist for quick reuse, or open a PR to ship it first-party in the next release | [Open a connector-contribution PR](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose) |
 
 **No connector is Plus-gated.** Every manifest, every authoring path, every extension point is open in OSS. The first-party catalog is the starter pack; the framework is the product.
@@ -24,7 +24,7 @@ Required Airbyte fields:
 
 > Don't see your tool in the first-party list below? Three options, in increasing order of effort:
 >
-> 1. **Build it yourself** — `Insights → API Explorer`: test an endpoint, generate from its OpenAPI spec, review the inferred auth, save. Works for any vendor with a public OpenAPI spec ([tutorial](extend/build-a-connector.md)).
+> 1. **Build it yourself** — `Insights → API Explorer`: test an endpoint, generate from its OpenAPI spec, review the inferred auth, save. Works for any vendor with a public OpenAPI spec ([tutorial](extend/build-a-connector.md)). For a SOAP service, import its WSDL there, try an operation and save it. For an XML API, try the request and save that ([details](api-explorer.md)).
 > 2. **Request it** — [open a connector-request issue](https://github.com/revoluzen-io/revoluzen-flow/issues/new/choose). Tell us what system + paste the API docs.
 > 3. **Use a generic Database Source / HTTP API / CSV / Parquet connector** as a workaround for the specific pipeline.
 
@@ -106,26 +106,33 @@ Reads and sinks are wired for all of these; schema-drift fixtures are still bein
 - MongoDB
 - ClickHouse
 
-PostgreSQL, MySQL, and SQLite are the most exercised in the test suite (the demo template + Postgres bulk-load fixtures cover the happy path). MariaDB, CockroachDB, Trino, and Synapse are functional but lighter on test coverage.
+PostgreSQL, MySQL, and SQLite are the most exercised in the test suite (the demo template + Postgres bulk-load fixtures cover the happy path). MariaDB, CockroachDB and Azure Synapse (read and written through the SQL Server path) are functional but lighter on test coverage. Db2, SAP HANA and Teradata are read only, through add-on drivers. Trino and Presto can be browsed with their add-on clients, but not read in pipelines.
 
-### Driver installation
+### Drivers
 
-Each database connector needs its Python driver installed separately — the base `pip install revoluzen-flow` keeps the install small (~80 MB) by leaving driver libraries optional. **Without the driver the connection fails at runtime with a `ModuleNotFoundError`.** Some (MSSQL family, Oracle thick mode, DB2) also need an OS-level driver alongside the Python wheel.
+Most drivers ship with Revoluzen Flow. Db2 / Informix, SAP HANA, Teradata, Kafka, Trino and Presto need an add-on driver, which an admin installs on **Settings > Add-ons**. SQL Server, Azure SQL and Azure Synapse also need Microsoft's ODBC driver on the computer. What ships, the add-ons and Docker: **[`install/database-drivers.md`](install/database-drivers.md)**.
 
-Full per-database install commands + OS-driver instructions: **[`install/database-drivers.md`](install/database-drivers.md)**
+## ODBC database
 
-Quick examples:
-```bash
-pip install revoluzen-flow[postgres]      # PostgreSQL
-pip install revoluzen-flow[oracle]        # Oracle (thin mode — no OS install)
-pip install revoluzen-flow[mssql]         # Also install Microsoft ODBC Driver
-pip install revoluzen-flow[snowflake]     # Snowflake
-pip install revoluzen-flow[bigquery]      # Google BigQuery
-pip install revoluzen-flow[all-databases-no-os-deps]   # All pip-only databases at once
-```
+**ODBC database** (2026-11-11, Beta) reads any database that has an ODBC driver
+installed on the computer running Revoluzen Flow. Name the driver (or a DSN set
+up there), add whatever else the driver needs as `name=value` pairs, and a
+username and password. Test connection, browsing, the Database Source and the
+Execute SQL step work through it; it cannot be a pipeline destination. Setup:
+[`install/database-drivers.md`](install/database-drivers.md#odbc-database-any-database-with-an-odbc-driver).
 
-Developing from a source checkout? Use the editable equivalent from the repo
-root, for example `pip install -e ".[postgres]"`.
+## Windows file shares (SMB)
+
+**Windows File Share (SMB)** (2026-11-11, Beta) reads and writes `\\server\share`
+files with a saved sign-in: server, share, an optional folder, domain, user
+name and password, on Windows, Linux and Docker alike. Pipelines use it through
+the File step (pick the connection in a Source or Destination), so every format
+the File step reads works on a share, including fixed-width text, COBOL
+copybook records, EBCDIC and PGP-encrypted files. A file landing in a folder on
+the share can also start a pipeline (Schedule dialog, **A file arriving**, **A
+Windows file share**). Its client, `smbprotocol` (MIT), ships with Flow. How to
+set it up:
+[`user-guides/mainframe-and-legacy-files.md`](user-guides/mainframe-and-legacy-files.md).
 
 ## SaaS — v2 (beta validation in progress)
 

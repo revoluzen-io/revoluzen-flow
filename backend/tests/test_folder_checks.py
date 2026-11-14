@@ -224,7 +224,7 @@ class TestPublishedPipelinesBlockAFolderDelete:
         assert detail["code"] == "published_pipelines_in_folder"
         assert detail["published_workflow_count"] == 1 and detail["published_workflow_ids"] == [live]
         assert detail["published_workflow_names"] == ["Folder published: refuse live"]
-        assert '"Folder published: refuse live"' in detail["message"] and "revoke" in detail["message"]
+        assert '"Folder published: refuse live"' in detail["message"] and "unpublish" in detail["message"]
         # All or nothing: the draft was not sent to the Bin either, and the folder is still there.
         assert authed_client.get(f"/api/folders/{folder_id}").status_code == 200
         for wid in (live, draft):

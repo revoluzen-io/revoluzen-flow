@@ -59,6 +59,14 @@ class _CloudStorageBase(BaseNode):
         ext = self.cloud_kind
         if not ext:
             return
+        # LOAD first: under the SQL sandbox (security/sql_sandbox.py) the
+        # extension is preloaded before the connection is locked, and INSTALL
+        # is refused afterwards. Only install when it is genuinely missing.
+        try:
+            conn.execute(f"LOAD {ext}")
+            return
+        except Exception:  # noqa: BLE001
+            pass
         try:
             conn.execute(f"INSTALL {ext}")
             conn.execute(f"LOAD {ext}")

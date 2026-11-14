@@ -44,6 +44,11 @@ services:
       REVOLUZEN_FLOW_DATA_DIR: /data
       REVOLUZEN_FLOW_PORT: "8001"
       REVOLUZEN_FLOW_MODE: prod
+      # Published on 8001 to the network: require sign-in (see Dockerfile).
+      # Set REVOLUZEN_FLOW_PUBLIC_URL to the address users open so password
+      # reset emails carry a clickable link.
+      REVOLUZEN_FLOW_SECURITY_MODE: server
+      REVOLUZEN_FLOW_BIND_HOST: 0.0.0.0
       # Ollama wiring (only needed when `--profile ai` is active).
       #
       # Setting OLLAMA_URL forces the AI provider to Ollama and SKIPS the

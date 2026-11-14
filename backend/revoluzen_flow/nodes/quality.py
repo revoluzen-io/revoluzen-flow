@@ -185,6 +185,71 @@ def dq_rule_problems(rules: Any) -> list[str]:
     return problems
 
 
+def _name_words(name: str) -> set[str]:
+    """The words of a column name long enough to mean something (list_price -> list, price)."""
+    return {w for w in re.split(r"[^a-z0-9]+", str(name).lower()) if len(w) >= 4}
+
+
+def _missing_columns_message(set_name: str, rules: list[dict], missing: list[str], columns: list[str]) -> str:
+    """Why a shared rule set cannot run on this input, with what the input has.
+
+    The message used to name only the missing column, so whoever (or
+    whatever: the AI diagnosis) read it guessed at the rest, and said the
+    input had no columns at all. It now lists them, and when exactly one
+    unchecked column shares a word with a missing one (a partner's
+    list_price arriving as price_inr), says it may be that column renamed.
+    """
+    checked = {str(r.get("column")) for r in rules}
+    text = (
+        f'Data Quality: the shared rule set "{set_name}" checks '
+        f"{'columns' if len(missing) > 1 else 'column'} {', '.join(missing)}, "
+        f"which this step's input does not have. The input has {', '.join(columns) or 'no columns'}."
+    )
+    for col in missing:
+        near = [c for c in columns if c not in checked and _name_words(col) & _name_words(c)]
+        if len(near) == 1:
+            text += f" {near[0]} may be {col} under a new name."
+    return text
+
+
+def _shared_rules(ctx: ExecutionContext, set_ids: Any, columns: list[str]) -> tuple[list[dict], list[dict]]:
+    """The rules of the shared rule sets a step picked, as they are now, and
+    ``[{id, name, version}]`` of the sets used (quality_rules/store.py).
+
+    Refuses, before any row is checked: a set that no longer exists, a set
+    whose rules cannot run, and a rule on a column the step's input does not
+    have, naming the set, so the person who reads the error knows the fix
+    is in the set and not in this step.
+    """
+    if not set_ids:
+        return [], []
+    if not isinstance(set_ids, (list, tuple)):
+        set_ids = [set_ids]
+    store = (getattr(ctx, "app_state", None) or {}).get("quality_rule_set_store")
+    if store is None:
+        raise ValueError("Data Quality: shared rule sets are not available on this server")
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
+    rules: list[dict] = []
+    used: list[dict] = []
+    available = set(columns)
+    for set_id in set_ids:
+        rs = store.get(str(set_id), workspace_id=workspace_id)
+        if rs is None:
+            raise ValueError(
+                f"Data Quality: the shared rule set {set_id} no longer exists. "
+                "Remove it from the step, or pick another set."
+            )
+        problems = dq_rule_problems(rs.rules)
+        if problems:
+            raise ValueError(f'Data Quality: the shared rule set "{rs.name}" has a rule that cannot be used. ' + "; ".join(problems))
+        missing = sorted({str(r.get("column")) for r in rs.rules if str(r.get("column")) not in available})
+        if missing:
+            raise ValueError(_missing_columns_message(rs.name, rs.rules, missing, list(columns)))
+        rules.extend(rs.rules)
+        used.append({"id": rs.id, "name": rs.name, "version": rs.version})
+    return rules, used
+
+
 def _build_rule_sql(rule: dict) -> str:
     # dq_rule_problems has already refused a rule that cannot run, so there is no
     # silent fallback here: a failure to build raises instead of passing every row.
@@ -239,6 +304,21 @@ class DataQualityNode(BaseNode):
                 + ". Fix the rule in the step's settings."
             )
 
+        # 2026-11-11: rules from the shared rule sets this step picked, as the
+        # sets are now. Which version of each ran is kept for the run.
+        shared, used_sets = _shared_rules(ctx, self.params.get("rule_sets"), list(source.columns))
+        if used_sets:
+            rules = list(rules) + shared
+            ctx.vars[f"_dq_rule_sets_{self.params.get('_step_id', 'dq')}"] = used_sets
+            logger.info(
+                "Data Quality: checking shared rule sets %s",
+                ", ".join(f"{u['name']} v{u['version']}" for u in used_sets),
+            )
+        sets_note = (
+            " (shared rule sets: " + ", ".join(f"{u['name']} v{u['version']}" for u in used_sets) + ")"
+            if used_sets else ""
+        )
+
         dq_input = ctx.register_scoped("__dq_input", source)
 
         # ── Column profiling (logged, not in output) ──
@@ -284,7 +364,7 @@ class DataQualityNode(BaseNode):
                 if pass_rate < threshold:
                     if mode == "fail":
                         raise ValueError(
-                            f"Data Quality: pass rate {pass_rate:.1f}% below threshold {threshold}%"
+                            f"Data Quality: pass rate {pass_rate:.1f}% below threshold {threshold}%{sets_note}"
                         )
                     logger.warning(
                         "DQ: pass rate %.1f%% below threshold %.1f%% — applying %s mode",
@@ -304,7 +384,7 @@ class DataQualityNode(BaseNode):
             check_sql = f"SELECT COUNT(*) FROM {dq_input} WHERE NOT ({passed_expr})"
             failed = fetch_scalar(ctx.conn.sql(check_sql))
             if failed:
-                raise ValueError(f"Data Quality: {failed} row(s) failed validation")
+                raise ValueError(f"Data Quality: {failed} row(s) failed validation{sets_note}")
             if score_expr:
                 return ctx.conn.sql(
                     f"SELECT *, {score_expr} AS __dq_score FROM {dq_input}"
@@ -343,7 +423,7 @@ class DataQualityNode(BaseNode):
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "rules": [], "mode": "drop",
+            "rules": [], "rule_sets": [], "mode": "drop",
             "quality_threshold": 0,
             "include_score": False,
             "include_profile": False,
@@ -366,6 +446,20 @@ class DataQualityNode(BaseNode):
                     "under a comparison) counts as failed. A rule the step "
                     "cannot use (no column, a value it cannot read) stops the "
                     "run with a message naming the rule."
+                ),
+            },
+            {
+                "name": "rule_sets",
+                "type": "rule_set_list",
+                "label": "Shared Rule Sets",
+                "required": False, "tab": "Rules",
+                "description": (
+                    "Named rule sets many pipelines share (ids from "
+                    "/api/quality-rule-sets). Their rules run with this step's "
+                    "own, as the sets are at run time; the run records which "
+                    "version of each set it checked. A set that no longer "
+                    "exists, or that checks a column this step's input does "
+                    "not have, stops the run with a message naming the set."
                 ),
             },
             {

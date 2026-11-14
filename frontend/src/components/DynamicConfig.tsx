@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect, useMemo } from 'react';
 import { autoMapSchema } from '../utils/schemaAutoMap';
-import { authHeaders } from '../api/client';
+import { api, authHeaders } from '../api/client';
+import { useWorkflowStore } from '../stores/workflowStore';
 import ExpressionPreview from './ExpressionPreview';
 
 /**
@@ -88,6 +89,8 @@ interface DynamicConfigProps {
   nodeId: string;
   onChange: (nodeId: string, params: Record<string, any>) => void;
   columns?: string[];
+  /** The steps wired into this one, for `upstream_step` fields. */
+  upstreamSteps?: Array<{ id: string; label: string }>;
 }
 
 // ── Shared CSS classes (matches ConfigPanel primitives) ──────────────────────
@@ -158,6 +161,48 @@ function DynConnectionPicker({ value, onChange, filter }: { value: string; onCha
         <option key={c.id} value={c.id}>{c.name} ({c.type})</option>
       ))}
     </select>
+  );
+}
+
+// ── Pipeline Picker (workflow_picker) ────────────────────────────────────────
+// A saved pipeline, chosen by name: ForEach's sub-pipeline. The id is what is
+// stored. Without this the field fell through to a text box holding the id,
+// although the step's own help says to pick from the list. The pipeline being
+// edited is left out, because a pipeline that runs itself never ends and the
+// engine refuses it.
+
+function DynWorkflowPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const currentId = useWorkflowStore((s) => s.workflowId);
+  const [rows, setRows] = useState<Array<{ id: string; name: string }> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.listWorkflows()
+      .then((list: any[]) => {
+        if (cancelled) return;
+        setRows((Array.isArray(list) ? list : [])
+          .map((w) => w?.workflow || w)
+          .filter((w) => w?.id && w.id !== currentId)
+          .map((w) => ({ id: String(w.id), name: String(w.name || w.id) }))
+          .sort((a, b) => a.name.localeCompare(b.name)));
+      })
+      .catch((e) => { if (!cancelled) setError(e?.message || 'Could not load the pipelines'); });
+    return () => { cancelled = true; };
+  }, [currentId]);
+
+  if (error) return <div className="text-xs text-red-500">{error}</div>;
+  if (!rows) return <div className="text-xs text-slate-500 italic">Loading pipelines…</div>;
+  const missing = !!value && !rows.some((w) => w.id === value);
+  return (
+    <>
+      <select value={value || ''} onChange={(e) => onChange(e.target.value)} className={SELECT_CLS}>
+        <option value="">— Select a pipeline —</option>
+        {missing && <option value={value}>{value}</option>}
+        {rows.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+      </select>
+      {missing && <div className={REQUIRED_CLS}>No saved pipeline has this id any more. Pick another.</div>}
+    </>
   );
 }
 
@@ -394,8 +439,9 @@ function DynAggregateList({ value, onChange, columns }: {
 
 // ── Single Field Renderer ────────────────────────────────────────────────────
 
-function DynField({ field, value, onChange, columns }: {
+function DynField({ field, value, onChange, columns, upstreamSteps = [] }: {
   field: ParamField; value: any; onChange: (v: any) => void; columns: string[];
+  upstreamSteps?: Array<{ id: string; label: string }>;
 }) {
   const label = `${field.label || humanizeName(field.name)}${field.required ? ' *' : ''}`;
   // Auto-derived from param_schema `required`: flag empty required fields
@@ -521,6 +567,34 @@ function DynField({ field, value, onChange, columns }: {
         </div>
       );
 
+    case 'workflow_picker':
+      return (
+        <div>
+          <label className={LABEL_CLS}>{label}</label>
+          <DynWorkflowPicker value={value || ''} onChange={onChange} />
+          {field.description && <div className={DESC_CLS}>{field.description}</div>}
+        </div>
+      );
+
+    // One of the steps wired into this one, by id — e.g. which input of a
+    // Reconcile step is the system of record. Empty = the step's default.
+    case 'upstream_step':
+      return (
+        <div>
+          <label className={LABEL_CLS}>{label}</label>
+          <select value={value || ''} onChange={(e) => onChange(e.target.value)} className={SELECT_CLS}>
+            <option value="">{upstreamSteps.length > 1 ? `Default (${upstreamSteps[1].label})` : 'Default'}</option>
+            {upstreamSteps.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </select>
+          {value && !upstreamSteps.some((s) => s.id === value) && (
+            <div className={REQUIRED_CLS}>That step is no longer wired into this one.</div>
+          )}
+          {field.description && <div className={DESC_CLS}>{field.description}</div>}
+        </div>
+      );
+
     case 'column':
       return (
         <div>
@@ -637,7 +711,7 @@ interface PreviewResult {
   duration_ms?: number;
 }
 
-export default function DynamicConfig({ stepType, params, nodeId, onChange, columns = [] }: DynamicConfigProps) {
+export default function DynamicConfig({ stepType, params, nodeId, onChange, columns = [], upstreamSteps = [] }: DynamicConfigProps) {
   const meta = useMemo(() => getNodeMeta(stepType), [stepType]);
   const stepTypeLower = (stepType || '').toLowerCase();
   const previewEligible = PREVIEW_ELIGIBLE_SOURCES.has(stepTypeLower);
@@ -748,6 +822,7 @@ export default function DynamicConfig({ stepType, params, nodeId, onChange, colu
       value={params[field.name]}
       onChange={(v) => onChange(nodeId, { [field.name]: v })}
       columns={columns}
+      upstreamSteps={upstreamSteps}
     />
   );
 

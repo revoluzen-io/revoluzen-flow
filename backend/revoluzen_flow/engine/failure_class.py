@@ -79,6 +79,10 @@ _MESSAGE_RULES: list[tuple[re.Pattern[str], FailureClass]] = [
 
     # ── DEPENDENCY (external system; retry might fix if external recovers) ─
     (re.compile(r"\b(connection (?:refused|reset|aborted)|could not connect|unreachable)\b", re.IGNORECASE), FailureClass.DEPENDENCY),
+    # The same on Windows, which words it differently: "[WinError 10061] No
+    # connection could be made because the target machine actively refused
+    # it". Without this a server that is down read as an unknown failure.
+    (re.compile(r"(\bno connection could be made\b|\bactively refused\b|\bwinerror 10061\b|\beconnrefused\b)", re.IGNORECASE), FailureClass.DEPENDENCY),
     (re.compile(r"\b(name or service not known|dns|getaddrinfo|host not found|no route to host)\b", re.IGNORECASE), FailureClass.DEPENDENCY),
     # NOTE: trailing \b dropped on 'credential' / 'token' / 'key' so the
     # plural variants ('credentials', 'tokens') still match — word
@@ -95,6 +99,9 @@ _MESSAGE_RULES: list[tuple[re.Pattern[str], FailureClass]] = [
     (re.compile(r"\b(lock (?:timeout|acquired)|deadlock|lock wait)", re.IGNORECASE), FailureClass.TRANSIENT),
     (re.compile(r"\b(500|internal server error|temporarily unavailable)\b", re.IGNORECASE), FailureClass.TRANSIENT),
     (re.compile(r"\b(network (?:is )?unreachable|broken pipe|connection (?:lost|closed))\b", re.IGNORECASE), FailureClass.TRANSIENT),
+    # Windows: 10060 is a connect that timed out, 10054 a connection the
+    # other side dropped.
+    (re.compile(r"(\bwinerror 1006[0]\b|\bwinerror 10054\b|\bforcibly closed by the remote host\b|\bdid not properly respond after a period of time\b)", re.IGNORECASE), FailureClass.TRANSIENT),
 ]
 
 

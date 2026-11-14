@@ -60,11 +60,9 @@ class VariableStore:
                 continue
             # Mask secrets
             if v.get("type") == "secret":
-                val = v.get("value", "")
-                if len(val) > 4:
-                    v["value"] = val[:2] + "***" + val[-2:]
-                else:
-                    v["value"] = "***"
+                # Fully masked. The old "ab***yz" form gave away four
+                # characters, half of a short secret.
+                v["value"] = "***"
             result.append(v)
         return sorted(result, key=lambda x: x.get("key", ""))
 

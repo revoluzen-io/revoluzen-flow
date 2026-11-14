@@ -85,6 +85,27 @@ class GatewayStore:
                 "ALTER TABLE published_endpoints "
                 "ADD COLUMN allow_templated_sql_public INTEGER DEFAULT 0"
             )
+        # Signed calls (triggers/webhook_signing.py). The secret is stored
+        # encrypted and never leaves through _ep_to_dict.
+        for column, ddl in (
+            ("require_signature", "INTEGER DEFAULT 0"),
+            ("signing_secret", "TEXT DEFAULT ''"),
+            ("signing_secret_set_at", "REAL DEFAULT 0"),
+            ("signature_tolerance_seconds", "INTEGER DEFAULT 300"),
+        ):
+            if column not in columns:
+                self._db.execute_write(f"ALTER TABLE published_endpoints ADD COLUMN {column} {ddl}")
+        # The message ids of signed calls already accepted, so a recorded call
+        # cannot start a second run. Kept for twice the time window.
+        self._db.execute("""
+            CREATE TABLE IF NOT EXISTS webhook_receipts (
+                endpoint_id TEXT NOT NULL,
+                message_id  TEXT NOT NULL,
+                received_at REAL NOT NULL,
+                PRIMARY KEY (endpoint_id, message_id)
+            )
+        """)
+        self._db.commit()
 
     # ── API Keys ──────────────────────────────────────────────────────
 
@@ -205,8 +226,14 @@ class GatewayStore:
         timeout_seconds: int = 300,
         input_schema: dict | None = None,
         allow_templated_sql_public: bool = False,
+        signing_secret: str = "",
+        signature_tolerance_seconds: int = 300,
     ) -> dict:
-        """Publish a pipeline as a REST endpoint."""
+        """Publish a pipeline as a REST endpoint.
+
+        ``signing_secret`` is stored as given, so the caller encrypts it first.
+        Given one, the endpoint requires signed calls.
+        """
         ep_id = f"ep_{uuid.uuid4().hex[:8]}"
         path = path.strip("/")
         now = time.time()
@@ -214,12 +241,15 @@ class GatewayStore:
             "INSERT INTO published_endpoints "
             "(id, workflow_id, path, method, name, description, workspace_id, "
             "require_api_key, rate_limit_rpm, timeout_seconds, input_schema, "
-            "allow_templated_sql_public, is_active, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+            "allow_templated_sql_public, require_signature, signing_secret, signing_secret_set_at, "
+            "signature_tolerance_seconds, is_active, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
             (ep_id, workflow_id, path, method.upper(), name, description,
              workspace_id, 1 if require_api_key else 0, rate_limit_rpm,
              timeout_seconds, json.dumps(input_schema or {}),
-             1 if allow_templated_sql_public else 0, now, now),
+             1 if allow_templated_sql_public else 0,
+             1 if signing_secret else 0, signing_secret or "", now if signing_secret else 0,
+             int(signature_tolerance_seconds or 300), now, now),
         )
         return self.get_endpoint(ep_id)
 
@@ -247,6 +277,7 @@ class GatewayStore:
         allowed = {
             "name", "description", "rate_limit_rpm", "timeout_seconds",
             "is_active", "require_api_key", "allow_templated_sql_public",
+            "signature_tolerance_seconds",
         }
         updates = {k: v for k, v in kwargs.items() if k in allowed}
         if not updates:
@@ -267,8 +298,43 @@ class GatewayStore:
             (time.time(), endpoint_id),
         )
 
+    # ── Signed calls ──────────────────────────────────────────────────
+
+    def get_signing_secret(self, endpoint_id: str) -> str:
+        """The stored secret, still encrypted. Only the call check reads it."""
+        row = self._db.fetchone(
+            "SELECT signing_secret FROM published_endpoints WHERE id=?", (endpoint_id,),
+        )
+        return (row or {}).get("signing_secret") or ""
+
+    def set_signing_secret(self, endpoint_id: str, stored_secret: str) -> dict | None:
+        """Require signed calls with this (encrypted) secret, or stop requiring
+        them when it is empty."""
+        now = time.time()
+        self._db.execute_write(
+            "UPDATE published_endpoints SET require_signature=?, signing_secret=?, signing_secret_set_at=?, "
+            "updated_at=? WHERE id=?",
+            (1 if stored_secret else 0, stored_secret or "", now if stored_secret else 0, now, endpoint_id),
+        )
+        return self.get_endpoint(endpoint_id)
+
+    def remember_message(self, endpoint_id: str, message_id: str, keep_seconds: int) -> bool:
+        """True the first time this endpoint accepts this message id, False for
+        a repeat. Ids older than ``keep_seconds`` are let go."""
+        now = time.time()
+        self._db.execute_write(
+            "DELETE FROM webhook_receipts WHERE received_at < ?", (now - max(60, keep_seconds),),
+        )
+        cur = self._db.execute_write(
+            "INSERT OR IGNORE INTO webhook_receipts (endpoint_id, message_id, received_at) VALUES (?, ?, ?)",
+            (endpoint_id, message_id, now),
+        )
+        return bool(cur.rowcount)
+
     def _ep_to_dict(self, row) -> dict:
         d = dict(row)
+        # Never part of what the endpoint looks like from outside this store.
+        d.pop("signing_secret", None)
         if "input_schema" in d and isinstance(d["input_schema"], str):
             try:
                 d["input_schema"] = json.loads(d["input_schema"])

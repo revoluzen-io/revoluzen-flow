@@ -231,7 +231,11 @@ class RulePlanner:
         """The two files a request joins, in the order it names them."""
         if not _JOIN_WORD_RE.search(intent_lower):
             return []
-        named = re.findall(r'[\w\-./\\]+\.(?:csv|json|parquet)', intent_original, re.IGNORECASE)
+        # One pass over each run of path characters. The old single pattern
+        # backtracked over a run from every start position: quadratic on a
+        # long run such as '-----'.
+        tokens = (t.rstrip(".") for t in re.findall(r"[\w\-./\\]+", intent_original))
+        named = [t for t in tokens if t.lower().endswith((".csv", ".json", ".parquet"))]
         distinct = list(dict.fromkeys(named))
         return distinct[:2] if len(distinct) >= 2 else []
 

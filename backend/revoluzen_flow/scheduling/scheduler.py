@@ -18,12 +18,13 @@ import logging
 import threading
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Any, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING
 
 from zoneinfo import ZoneInfo
 
 from revoluzen_flow.ir.governance import is_deactivated
-from revoluzen_flow.scheduling.models import Schedule, ScheduleType
+from revoluzen_flow.ir.versioning import PublishedVersionMissing, published_pin
+from revoluzen_flow.scheduling.models import EVENT_SCHEDULE_TYPES, Schedule, ScheduleType
 
 if TYPE_CHECKING:
     from revoluzen_flow.engine.execution_manager import TaskHandle
@@ -61,6 +62,16 @@ def _in_schedule_tz(dt: datetime, tz_name: str | None) -> datetime:
         return dt.astimezone(timezone.utc)
 
 
+def _as_datetime(value: Any) -> datetime | None:
+    """A stored time, which is a datetime or an ISO string, or None."""
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+    return value or None
+
+
 class PipelineScheduler:
     """Manager-backed scheduler that checks and runs scheduled pipelines."""
 
@@ -81,6 +92,116 @@ class PipelineScheduler:
         # Durable cross-instance lease. Built lazily on first tick because
         # app_state["db"] does not exist yet when main.py constructs this.
         self._lease_obj: "SchedulerLease | None" = None
+        # Event triggers (triggers/). The file watcher keeps what it has seen
+        # of each folder between looks; after-pipeline events are started by
+        # one thread at a time.
+        self._file_watcher_obj: Any = None
+        self._after_pipeline_lock = threading.Lock()
+
+    # ── Event triggers ───────────────────────────────────────────────────
+
+    @property
+    def file_watcher(self):
+        if self._file_watcher_obj is None:
+            from revoluzen_flow.triggers.file_watch import FileTriggerWatcher
+
+            self._file_watcher_obj = FileTriggerWatcher(self)
+        return self._file_watcher_obj
+
+    def is_trigger_busy(self, trigger_id: str) -> bool:
+        """True while a run this trigger started is still going. A trigger runs
+        one at a time; what arrives meanwhile waits for it."""
+        return trigger_id in self._running_jobs
+
+    def start_trigger_run(self, row: dict, **run_options: Any) -> bool:
+        """Start one run for an event trigger. False if it could not start."""
+        return self._execute_schedule(row["id"], row, **run_options)
+
+    def _spawn_side_job(self, name: str, fn: Callable[..., None], **kwargs: Any) -> bool:
+        """Run checking work off the scheduler's own thread."""
+        try:
+            from revoluzen_flow.engine.execution_manager import ExecutionManager
+            ExecutionManager.get().spawn_thread(name=name, fn=fn, owner="scheduler", kwargs=kwargs)
+        except RuntimeError:
+            threading.Thread(target=fn, kwargs=kwargs, daemon=True, name=name).start()
+        except Exception as exc:  # noqa: BLE001 — at capacity: the next tick tries again
+            logger.debug("Scheduler could not start %s: %s", name, exc)
+            return False
+        return True
+
+    def _holds_lease(self) -> bool:
+        """Only a running scheduler holding the lease starts anything. A node
+        that serves the API only must not take the lease from the one that
+        schedules."""
+        if not self.is_running:
+            return False
+        lease = self._lease()
+        return lease is not None and lease.acquire_or_renew()
+
+    def _check_file_triggers(self, now: datetime, schedules: list[dict]) -> None:
+        for row in schedules:
+            if row.get("schedule_type") != ScheduleType.FILE_ARRIVAL.value:
+                continue
+            if self.file_watcher.due(row, now):
+                self._spawn_file_check(row)
+
+    def _spawn_file_check(self, row: dict) -> bool:
+        watcher = self.file_watcher
+        if not watcher.begin(row["id"]):
+            return False
+        if not self._spawn_side_job(f"revoluzen_flow-files-{row['id'][:8]}", self._file_check, row=row):
+            watcher.end(row["id"])
+            return False
+        return True
+
+    def _file_check(self, row: dict) -> None:
+        try:
+            self.file_watcher.check(row)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("File trigger %s check failed: %s", row.get("id"), exc)
+        finally:
+            self.file_watcher.end(row["id"])
+
+    def check_file_trigger_now(self, row: dict) -> bool:
+        """Look at the folder now rather than at the next poll ("Check now")."""
+        if not self._holds_lease():
+            return False
+        return self._spawn_file_check(row)
+
+    def _recheck_file_trigger(self, trigger_id: str) -> None:
+        """After a file's run, start the next waiting file without waiting for
+        the poll. The folder is listed again first: the run may have moved files."""
+        try:
+            from revoluzen_flow.main import app_state
+
+            schedule = app_state["schedule_store"].get(trigger_id)
+            if schedule is None or not schedule.enabled or not self._holds_lease():
+                return
+            self._spawn_file_check(schedule.model_dump(mode="json"))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not look again for trigger %s: %s", trigger_id, exc)
+
+    def wake_after_pipeline_triggers(self) -> None:
+        """Start after-pipeline triggers whose pipeline just finished, now rather
+        than at the next tick. On a server that does not schedule, the event
+        waits for the one that does."""
+        if self.is_running:
+            self._spawn_side_job("revoluzen_flow-after-pipeline", self._dispatch_after_pipeline, check_lease=True)
+
+    def _dispatch_after_pipeline(self, check_lease: bool = False) -> None:
+        if check_lease and not self._holds_lease():
+            return
+        if not self._after_pipeline_lock.acquire(blocking=False):
+            return  # another pass is under way and will see this event too
+        try:
+            from revoluzen_flow.main import app_state
+            from revoluzen_flow.triggers.chain import dispatch_events
+
+            dispatch_events(self, app_state)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("After-pipeline triggers could not be checked: %s", exc)
+        finally:
+            self._after_pipeline_lock.release()
 
     def set_miss_notifier(self, notifier: Any) -> None:
         """Wire an ApprovalNotifier (or compatible) for schedule-miss alerts."""
@@ -276,6 +397,10 @@ class PipelineScheduler:
             )
             self._running_jobs.pop(sid, None)
             self._run_threads.pop(sid, None)
+            # A report is not a pipeline run: the next tick retries it, and it
+            # has no schedule row or run record to mark.
+            if sid.startswith("report:"):
+                continue
             # Best-effort: mark the schedule as errored so /api/schedules
             # shows a non-null last_run_at the user can see in the UI.
             try:
@@ -319,6 +444,10 @@ class PipelineScheduler:
             if not sched_dict.get("enabled", False):
                 continue
 
+            # File-arrival and after-pipeline triggers fire on events, below.
+            if sched_dict.get("schedule_type") in EVENT_SCHEDULE_TYPES:
+                continue
+
             # Skip if already running
             if schedule_id in self._running_jobs:
                 continue
@@ -351,6 +480,68 @@ class PipelineScheduler:
         # Same poll cadence, parallel loop. Failure to load / fire a
         # deployment is logged but never blocks the schedule loop above.
         self._check_deployments(now, wf_store)
+        self._check_reports(now)
+
+        # Event triggers: folders due a look, and pipelines that finished
+        # while their after-pipeline triggers were busy or on another server.
+        try:
+            self._check_file_triggers(now, schedules)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("File triggers could not be checked (non-fatal): %s", exc)
+        self._dispatch_after_pipeline()
+
+    def _check_reports(self, now: datetime) -> None:
+        """Send any saved report whose schedule has come round.
+
+        Same tick, same lease, same worker threads as pipeline schedules. A
+        report that cannot be read or sent never holds up the pipelines.
+        """
+        try:
+            from revoluzen_flow.main import app_state
+            from revoluzen_flow.reports.builder.deliver import due_reports
+
+            due = due_reports(app_state, now)
+        except Exception as exc:
+            logger.warning("Could not check for scheduled reports (non-fatal): %s", exc)
+            return
+
+        for report, occurrence in due:
+            job_key = f"report:{report.id}"
+            if job_key in self._running_jobs:
+                continue
+            self._running_jobs[job_key] = datetime.now(timezone.utc)
+            run_kwargs = {"job_key": job_key, "report_id": report.id, "occurrence": occurrence}
+            try:
+                from revoluzen_flow.engine.execution_manager import ExecutionManager
+                ExecutionManager.get().spawn_thread(
+                    name=f"revoluzen_flow-report-{report.id[:8]}",
+                    fn=self._send_report,
+                    owner="scheduler",
+                    kwargs=run_kwargs,
+                )
+            except RuntimeError:
+                threading.Thread(
+                    target=self._send_report, kwargs=run_kwargs,
+                    daemon=True, name=f"revoluzen_flow-report-{report.id[:8]}",
+                ).start()
+            except Exception as exc:
+                # At capacity: free the slot so the next tick tries again.
+                self._running_jobs.pop(job_key, None)
+                logger.error("Scheduler could not start report %s: %s", report.id, exc)
+
+    def _send_report(self, job_key: str, report_id: str, occurrence: datetime) -> None:
+        """One scheduled report, always releasing its slot."""
+        self._run_threads[job_key] = threading.current_thread()
+        try:
+            from revoluzen_flow.main import app_state
+            from revoluzen_flow.reports.builder.deliver import send_scheduled
+
+            send_scheduled(app_state, report_id, occurrence)
+        except Exception as exc:
+            logger.warning("Scheduled report %s failed (non-fatal): %s", report_id, exc)
+        finally:
+            self._running_jobs.pop(job_key, None)
+            self._run_threads.pop(job_key, None)
 
     def _check_deployments(self, now: datetime, wf_store) -> None:
         """Iterate enabled deployments with a cron schedule and fire
@@ -407,8 +598,6 @@ class PipelineScheduler:
                 "workspace_id": d.workspace_id,
                 "name": d.name,
                 "params": d.parameters or {},
-                # Pre-stamp last_run_at so a slow executor doesn't
-                # cause a double-fire on the next tick.
                 "schedule_type": "cron",
                 "cron_expression": cron_expr,
                 "enabled": True,
@@ -419,8 +608,10 @@ class PipelineScheduler:
                 d.id, d.name, cron_expr,
             )
             try:
-                mark_fired(d.id, now)
-                self._execute_schedule(running_key, sched_shaped)
+                # Stamped only once it has started: a run turned away at
+                # capacity tries again on the next tick of this minute.
+                if self._execute_schedule(running_key, sched_shaped):
+                    mark_fired(d.id, now)
             except Exception as exc:
                 logger.warning("Deployment %s fire failed: %s", d.id, exc)
 
@@ -481,19 +672,7 @@ class PipelineScheduler:
     def _is_due(self, sched: dict, now: datetime) -> bool:
         """Check if a schedule should run based on its type and timing."""
         stype = sched.get("schedule_type", "cron")
-        last_run = sched.get("last_run_at")
-
-        # Parse last_run
-        if last_run:
-            if isinstance(last_run, str):
-                try:
-                    last_run_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-                except (ValueError, TypeError):
-                    last_run_dt = None
-            else:
-                last_run_dt = last_run
-        else:
-            last_run_dt = None
+        last_run_dt = _as_datetime(sched.get("last_run_at"))
 
         if stype == ScheduleType.INTERVAL or stype == "interval":
             interval_min = sched.get("interval_minutes", 60)
@@ -525,12 +704,16 @@ class PipelineScheduler:
             cron_expr = sched.get("cron_expression", "")
             if not cron_expr:
                 return False
-            return self._check_cron(local_now, local_last, cron_expr)
+            # When the last run started, not when it finished: a long run can
+            # finish inside the next matching minute, and that minute is still
+            # owed its run. Rows written before last_fired_at existed have
+            # only the finish time.
+            fired = _as_datetime(sched.get("last_fired_at")) or last_run_dt
+            local_fired = _in_schedule_tz(fired, tz_name) if fired else None
+            return self._check_cron(local_now, local_fired, cron_expr)
 
-        elif stype == ScheduleType.EVENT or stype == "event":
-            # Event-based schedules are triggered externally, not by the scheduler
-            return False
-
+        # File-arrival and after-pipeline triggers are never due on the clock;
+        # triggers/ starts them when their event happens.
         return False
 
     def _check_daily(self, now: datetime, last_run: datetime | None, time_str: str) -> bool:
@@ -560,6 +743,9 @@ class PipelineScheduler:
         Simple cron expression checker.
         Supports: minute hour day_of_month month day_of_week
         Supports: *, */N, specific numbers, comma lists
+
+        ``last_run`` is when it last fired. It fires once in a matching
+        minute, however many ticks land in that minute.
         """
         parts = cron_expr.strip().split()
         if len(parts) < 5:
@@ -570,20 +756,35 @@ class PipelineScheduler:
             (now.hour, parts[1], 0, 23),        # hour
             (now.day, parts[2], 1, 31),          # day of month
             (now.month, parts[3], 1, 12),        # month
-            (now.weekday(), parts[4], 0, 6),     # day of week (0=Mon)
         ]
 
         for current_val, pattern, min_val, max_val in fields:
             if not self._cron_field_matches(current_val, pattern, min_val, max_val):
                 return False
 
-        # Ensure we haven't run in the last check_interval
-        if last_run:
-            elapsed = (now - last_run).total_seconds()
-            if elapsed < self._check_interval:
-                return False
+        if not self._cron_weekday_matches(now, parts[4]):
+            return False
 
-        return True
+        return last_run is None or not self._same_minute(now, last_run)
+
+    @classmethod
+    def _cron_weekday_matches(cls, now: datetime, pattern: str) -> bool:
+        """The day-of-week field, numbered as in standard cron and everywhere
+        Flow writes or shows one: 0 and 7 are Sunday, 1 is Monday, 6 is
+        Saturday. (A weekly schedule's ``weekly_days`` is a different field
+        and counts from Monday.)"""
+        day = now.isoweekday()  # Monday is 1, Sunday is 7
+        return any(
+            cls._cron_field_matches(value, pattern, 0, 7)
+            for value in ((0, 7) if day == 7 else (day,))
+        )
+
+    @staticmethod
+    def _same_minute(a: datetime, b: datetime) -> bool:
+        """Whether two times fall in one minute. A time with no zone is UTC."""
+        a = a if a.tzinfo else a.replace(tzinfo=timezone.utc)
+        b = b if b.tzinfo else b.replace(tzinfo=timezone.utc)
+        return a.replace(second=0, microsecond=0) == b.replace(second=0, microsecond=0)
 
     @staticmethod
     def _cron_field_matches(value: int, pattern: str, min_val: int, max_val: int) -> bool:
@@ -621,11 +822,15 @@ class PipelineScheduler:
         except ValueError:
             return False
 
-    def _execute_schedule(self, schedule_id: str, sched: dict) -> None:
-        """Execute a scheduled pipeline in a separate thread."""
+    def _execute_schedule(self, schedule_id: str, sched: dict, **run_options: Any) -> bool:
+        """Execute a scheduled pipeline in a separate thread. True if it started.
+
+        ``run_options`` are passed on to :meth:`_run_pipeline`: an event trigger
+        names itself and adds its own values (a file's path, say).
+        """
         workflow_id = sched.get("workflow_id")
         if not workflow_id:
-            return
+            return False
 
         # Pull the schedule's workspace_id — it was stamped at create
         # time and is the authoritative tenant for every run this
@@ -634,13 +839,18 @@ class PipelineScheduler:
         # place a background run can learn which tenant it belongs to.
         sched_workspace = sched.get("workspace_id") or "default"
 
+        if schedule_id in self._running_jobs and run_options:
+            return False  # an event trigger runs one at a time
         self._running_jobs[schedule_id] = datetime.now(timezone.utc)
         run_kwargs = {
             "schedule_id": schedule_id,
             "workflow_id": workflow_id,
             "schedule_name": sched.get("name", ""),
             "workspace_id": sched_workspace,
+            **run_options,
         }
+        if sched.get("schedule_type") in EVENT_SCHEDULE_TYPES:
+            run_kwargs["published_only"] = True
         try:
             from revoluzen_flow.engine.execution_manager import ExecutionManager
             ExecutionManager.get().spawn_thread(
@@ -667,6 +877,8 @@ class PipelineScheduler:
                 "Scheduler could not spawn run for schedule %s: %s",
                 schedule_id, e,
             )
+            return False
+        return True
 
     def _run_pipeline(
         self,
@@ -674,6 +886,12 @@ class PipelineScheduler:
         workflow_id: str,
         schedule_name: str,
         workspace_id: str = "default",
+        *,
+        triggered_by: str = "schedule",
+        parameter_overrides: dict | None = None,
+        run_metadata: dict | None = None,
+        published_only: bool = False,
+        on_finish: Callable[[str, str], None] | None = None,
     ) -> None:
         """Run a pipeline and update schedule status.
 
@@ -681,6 +899,13 @@ class PipelineScheduler:
         Every downstream write (execution record, execution log, alert
         log) inherits it so the background path can never silently
         cross a tenant boundary even if a workflow id collides.
+
+        Event triggers (triggers/) run through here too. ``triggered_by``
+        is what the run history shows; ``parameter_overrides`` go on top of
+        the schedule's saved values (a file trigger's file path);
+        ``run_metadata`` is kept on the run record; ``published_only`` refuses
+        a pipeline that is not published rather than running its draft; and
+        ``on_finish(status, execution_id)`` is told how the run ended.
 
         Defensive contract: this function GUARANTEES that
         `_running_jobs[schedule_id]` is popped before it returns. The
@@ -748,9 +973,17 @@ class PipelineScheduler:
                 started_at=datetime.fromtimestamp(start, timezone.utc),
                 workspace_id=workspace_id,
                 steps_total=0,
-                triggered_by="schedule",
+                triggered_by=triggered_by,
                 status="running",
             )
+            if run_metadata or triggered_by != "schedule":
+                # Which trigger started it, and on what (the file, the run
+                # that finished before it), for whoever reads the run later.
+                exe.metadata = {
+                    **(exe.metadata or {}),
+                    **(run_metadata or {}),
+                    "schedule_id": schedule_id,
+                }
             if execution_store is not None:
                 try:
                     execution_store.record(exe)
@@ -763,7 +996,25 @@ class PipelineScheduler:
                 error_msg = "Workflow store unavailable"
                 logger.error(error_msg)
                 return
-            versioned = store.get(workflow_id, workspace_id=workspace_id)
+            # A published pipeline runs its published version, whatever has
+            # been saved since.
+            try:
+                versioned = store.live_version(workflow_id, workspace_id=workspace_id)
+            except PublishedVersionMissing as exc:
+                error_msg = str(exc)
+                logger.error(error_msg + f" (schedule {schedule_id})")
+                return
+            if published_only and versioned is not None:
+                # An event trigger never runs a draft: no published version,
+                # no run, the same refusal as a published version gone missing.
+                latest = store.get(workflow_id, workspace_id=workspace_id)
+                if latest is None or published_pin(latest) is None:
+                    error_msg = (
+                        f'"{versioned.workflow.name or workflow_id}" is not published, so it was not run. '
+                        "Publish it to let its triggers start it."
+                    )
+                    logger.error(error_msg + f" (trigger {schedule_id})")
+                    return
             if not versioned:
                 error_msg = (
                     f"Workflow {workflow_id} not found in workspace {workspace_id} — "
@@ -801,6 +1052,22 @@ class PipelineScheduler:
                         )
                 except Exception:
                     schedule_param_values = {}
+            if parameter_overrides:
+                # The trigger's own values, such as the path of the file that
+                # arrived, win over the values saved on the schedule.
+                schedule_param_values = {**schedule_param_values, **parameter_overrides}
+            if schedule_param_values:
+                # Kept on the record, encrypted where secret, so a Replay of
+                # this run uses the same values (the same file, for a file
+                # trigger) as the run did.
+                try:
+                    from revoluzen_flow.ir.step_secrets import seal_parameter_values
+                    exe.metadata = {
+                        **(exe.metadata or {}),
+                        "parameter_values": seal_parameter_values(schedule_param_values, wf.parameters),
+                    }
+                except Exception:
+                    pass
 
             # Execute — pass through any parameter_values declared on the
             # schedule. System placeholders (${utcnow:%Y-%m-%d}, ${run_id})
@@ -852,7 +1119,7 @@ class PipelineScheduler:
                     workflow_name=getattr(wf, "name", "") or "scheduled run",
                     workspace_id=workspace_id,
                     environment=sched_env,
-                    triggered_by="schedule",
+                    triggered_by=triggered_by,
                     schedule_id=schedule_id,
                     fn=_execute,
                 )
@@ -882,6 +1149,13 @@ class PipelineScheduler:
                 status = "success"
                 exe.status = "success"
                 exe.steps_completed = exe.steps_total
+            elif result_status == "cancelled":
+                # Someone pressed Stop. Not a failure: no failure alert, and
+                # the record says who stopped it.
+                status = "cancelled"
+                exe.status = "cancelled"
+                error_msg = getattr(result, "stop_message", None) or "Stopped before it finished."
+                exe.error_message = error_msg
             else:
                 status = "error"
                 exe.status = "error"
@@ -1020,7 +1294,7 @@ class PipelineScheduler:
             # otherwise sit there forever.
             if exe is not None and execution_store is not None and exe.status == "running":
                 try:
-                    exe.status = status if status in ("success", "error") else "error"
+                    exe.status = status if status in ("success", "error", "cancelled") else "error"
                     exe.error_message = error_msg or exe.error_message
                     exe.duration_ms = int((time.time() - start) * 1000)
                     exe.completed_at = datetime.now(timezone.utc)
@@ -1031,7 +1305,10 @@ class PipelineScheduler:
             # Update schedule last_run_at — best-effort.
             if schedule_store is not None:
                 try:
-                    schedule_store.record_run(schedule_id, status)
+                    schedule_store.record_run(
+                        schedule_id, status,
+                        fired_at=datetime.fromtimestamp(start, timezone.utc),
+                    )
                 except Exception as exc:
                     logger.warning("Could not record schedule run: %s", exc)
 
@@ -1051,11 +1328,15 @@ class PipelineScheduler:
                     notification_store=app_state.get("notification_store"),
                     user_store=app_state.get("user_store"),
                     workflow_id=workflow_id,
-                    workflow_name=schedule_name or workflow_id,
+                    # The pipeline's name, read from it above, as the run's
+                    # record has it: the bell and the incident opened from
+                    # this used to read "Partner Price List schedule". The
+                    # schedule's name only when the pipeline was not found.
+                    workflow_name=(getattr(exe, "workflow_name", "") if exe is not None else "") or schedule_name or workflow_id,
                     execution_id=(exe.id if exe is not None else ""),
                     status=status,
                     workspace_id=workspace_id,
-                    triggered_by="schedule",
+                    triggered_by=triggered_by,
                     error_message=error_msg,
                     failed_step=locals().get("_alert_failed") or "",
                     duration_ms=int((time.time() - start) * 1000),
@@ -1086,7 +1367,7 @@ class PipelineScheduler:
                         # the right execution from a 16-line subject
                         # without having to grep workspaces.
                         execution_id=(exe.id if exe is not None else ""),
-                        triggered_by="schedule",
+                        triggered_by=triggered_by,
                         started_at=(exe.started_at.isoformat() if exe is not None and exe.started_at else ""),
                         completed_at=(datetime.now(timezone.utc).isoformat()),
                         project_id=(getattr(exe, "project_id", "") if exe is not None else ""),
@@ -1100,6 +1381,61 @@ class PipelineScheduler:
                     execution_store.record(exe)
                 except Exception as exc:
                     logger.warning("Could not persist final execution timing: %s", exc)
+
+            self._after_run(
+                schedule_id=schedule_id,
+                workflow_id=workflow_id,
+                workspace_id=workspace_id,
+                workflow_name=(getattr(exe, "workflow_name", "") if exe is not None else "") or schedule_name,
+                status=status,
+                execution_id=(exe.id if exe is not None else ""),
+                triggered_by=triggered_by,
+                run_metadata=run_metadata,
+                on_finish=on_finish,
+            )
+
+    def _after_run(
+        self,
+        *,
+        schedule_id: str,
+        workflow_id: str,
+        workspace_id: str,
+        workflow_name: str,
+        status: str,
+        execution_id: str,
+        triggered_by: str,
+        run_metadata: dict | None,
+        on_finish: Callable[[str, str], None] | None,
+    ) -> None:
+        """What happens once a run this scheduler started has ended: the
+        trigger that started it hears how it went, pipelines set to run after
+        it are told, and a file trigger moves on to its next waiting file."""
+        if on_finish is not None:
+            try:
+                on_finish(status, execution_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Trigger %s could not note how its run ended: %s", schedule_id, exc)
+        try:
+            from revoluzen_flow.main import app_state
+            from revoluzen_flow.triggers.chain import on_run_finished
+
+            on_run_finished(
+                app_state,
+                workflow_id=workflow_id,
+                workspace_id=workspace_id,
+                workflow_name=workflow_name,
+                status=status,
+                execution_id=execution_id,
+                triggered_by=triggered_by,
+                run_metadata=run_metadata,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("After-pipeline triggers were not told run %s ended: %s", execution_id, exc)
+        if triggered_by == ScheduleType.FILE_ARRIVAL.value:
+            self._recheck_file_trigger(schedule_id)
+        elif triggered_by == ScheduleType.AFTER_PIPELINE.value:
+            # A pipeline that finished while this one was running is waiting.
+            self.wake_after_pipeline_triggers()
 
     def _trigger_alerts(
         self,

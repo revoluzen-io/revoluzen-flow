@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 from revoluzen_flow.common.duckdb_compat import fetch_scalar
 from revoluzen_flow.datastore.models import (
+    LOAD_HISTORY_LIMIT,
     SINK_MODE_APPEND,
     SINK_MODE_MERGE,
     SINK_MODE_REPLACE,
@@ -225,6 +226,31 @@ def _datastore_for(ctx: ExecutionContext) -> DataStore:
             "Check revoluzen_flow.main._populate_state."
         )
     return store
+
+
+def _run_version(ctx: ExecutionContext) -> int | None:
+    """The saved version of the pipeline this run executes.
+
+    A run started over HTTP (Run, Load to Managed Table, an endpoint) passes
+    it in the run's copy of the workflow metadata (api/execution.py,
+    ``_run_version``). A scheduled or backfill run writes its record before
+    it starts, so the record holds it. None for a run of a canvas that was
+    never saved.
+    """
+    try:
+        meta = getattr(ctx, "workflow_metadata", None) or {}
+        if meta.get("_run_version") is not None:
+            return int(meta["_run_version"])
+        run_id = getattr(ctx, "run_id", None)
+        if not run_id:
+            return None
+        state = getattr(ctx, "app_state", None) or {}
+        executions = state.get("execution_store")
+        record = executions.get(run_id) if executions is not None else None
+        version = getattr(record, "workflow_version", None) if record is not None else None
+        return int(version) if version is not None else None
+    except Exception:  # noqa: BLE001 - provenance must never fail a write
+        return None
 
 
 def _data_dir(ctx: ExecutionContext) -> str:
@@ -662,8 +688,26 @@ class LocalTableSinkNode(BaseNode):
         except Exception as exc:  # noqa: BLE001
             logger.warning("prep provenance capture skipped: %s", exc)
 
+        # 2026-11-10: which version of the pipeline wrote this, and a short
+        # history of writes, so the Storage page can show what the table
+        # holds now and what each edit of the preparation changed.
+        loaded_at = datetime.now(timezone.utc)
+        run_version = _run_version(ctx) if prep_workflow_id else None
+        load = {
+            "at": loaded_at.isoformat(),
+            "workflow_id": prep_workflow_id,
+            "version": run_version,
+            "run_id": getattr(ctx, "run_id", None),
+            "mode": (self.params.get("mode") or SINK_MODE_REPLACE).lower(),
+            "rows": int(row_count) if row_count is not None else None,
+        }
+
         existing = store.find_table_by_name(workspace_id, schema_name, table_name)
         if existing:
+            existing.load_history = ([load] + list(existing.load_history or []))[:LOAD_HISTORY_LIMIT]
+            if prep_workflow_id is not None:
+                existing.prep_workflow_version = run_version
+                existing.prep_loaded_at = loaded_at
             if row_count is not None:
                 existing.row_count = int(row_count)
             if columns:
@@ -681,6 +725,18 @@ class LocalTableSinkNode(BaseNode):
                 existing.prep_workflow_id = prep_workflow_id
             store.save_table(existing)
             table_id = existing.id
+            # 2026-11-11: a table whose tests are set to run after each load
+            # is checked now, in the background, so this run is not slowed
+            # (datastore/table_monitor.py).
+            if existing.monitor_after_load and existing.tests:
+                try:
+                    from revoluzen_flow.datastore.table_monitor import run_in_background
+                    run_in_background(
+                        getattr(ctx, "app_state", None) or {}, existing.id, workspace_id,
+                        trigger="after_load", run_id=getattr(ctx, "run_id", None),
+                    )
+                except Exception:  # noqa: BLE001 — a monitor never fails the write
+                    pass
         else:
             table = StorageTable(
                 workspace_id=workspace_id,
@@ -694,6 +750,9 @@ class LocalTableSinkNode(BaseNode):
                 prep_recipe=prep_recipe,
                 prep_source_object_id=prep_source_object_id,
                 prep_workflow_id=prep_workflow_id,
+                prep_workflow_version=run_version,
+                prep_loaded_at=loaded_at if prep_workflow_id else None,
+                load_history=[load],
             )
             store.save_table(table)
             table_id = table.id

@@ -44,6 +44,12 @@ Manifest schema (top-level):
     }
   ]
 }
+
+A stream can also talk XML, which is how SOAP services run:
+  "response_format": "xml"               // the reply is XML; data_path is a row path such as //order
+  "body_format": "xml",                  // body_text is XML; {param} values are escaped, and an
+  "body_text": "<a><b>{value}</b></a>"   // element marked <!--Optional:--> is dropped when blank
+("body_format": "form" sends form fields the same way.)
 """
 
 from __future__ import annotations
@@ -64,6 +70,16 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
+from revoluzen_flow.common.http_reply import BODY_CONTENT_TYPES, accept_header, fault_in_reply
+from revoluzen_flow.common.safe_xml import (
+    SoapFaultError,
+    XmlError,
+    XmlReply,
+    parse_xml,
+    raise_for_soap_fault,
+    render_xml_template,
+    xml_placeholders,
+)
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
@@ -508,6 +524,43 @@ def _oauth2_refresh(manifest: RestConnectorManifest, params: dict[str, Any]) -> 
 
 # ─────────────────────────── HTTP fetch + pagination ───────────────────────────
 
+class _RawReply(dict):
+    """A reply that is not JSON: ``{"raw": text}``, with the original bytes kept
+    so an XML reply can be read in the encoding it declares."""
+
+    def __init__(self, text: str, content: bytes):
+        super().__init__(raw=text)
+        self.content = content
+
+
+def _xml_reply(payload: Any) -> XmlReply:
+    """Read a reply as XML. ``{"raw": ...}`` is also what a recorded cassette replays."""
+    if isinstance(payload, _RawReply):
+        content: bytes | str = payload.content
+    elif isinstance(payload, dict) and isinstance(payload.get("raw"), str):
+        content = payload["raw"]
+    else:
+        raise XmlError("This stream expects an XML reply, but the API answered with JSON.")
+    root = parse_xml(content)
+    raise_for_soap_fault(root)
+    return XmlReply(root)
+
+
+def _rows_in(payload: Any, data_path: str) -> Any:
+    if isinstance(payload, XmlReply):
+        return payload.rows(data_path or "")
+    return _dot_get(payload, data_path) if data_path else payload
+
+
+def _without_secrets(text: str, manifest: RestConnectorManifest, params: dict[str, Any]) -> str:
+    """A server may echo what it was sent, and its words end up in the run log."""
+    for param in manifest.params or []:
+        value = params.get(param.get("name"))
+        if param.get("secret") and isinstance(value, str) and value:
+            text = text.replace(value, "[redacted]")
+    return text
+
+
 def _http_request(
     url: str,
     headers: dict[str, str],
@@ -561,7 +614,8 @@ def _http_request(
     check_url(url, allow_private_env=API_SOURCE_ALLOW_PRIVATE_ENV)
     req = urllib.request.Request(url, data=data, headers=out_headers, method=method)
     with _GUARDED_OPENER.open(req, timeout=60) as resp:
-        resp_body = resp.read().decode("utf-8", errors="replace")
+        resp_content = resp.read()
+        resp_body = resp_content.decode("utf-8", errors="replace")
         resp_headers = dict(resp.headers.items())
 
     # Passive upstream-change detection. Vendors announce breaking changes in
@@ -576,7 +630,7 @@ def _http_request(
     try:
         return json.loads(resp_body), resp_headers
     except json.JSONDecodeError:
-        return {"raw": resp_body}, resp_headers
+        return _RawReply(resp_body, resp_content), resp_headers
 
 
 def _http_get(url: str, headers: dict[str, str]) -> tuple[Any, dict[str, str]]:
@@ -652,6 +706,7 @@ def _probe_has_more(
     body: Any,
     body_text: str | None,
     data_path: str,
+    expects_xml: bool = False,
 ) -> bool:
     """Fetch the page after the cap and report whether it holds any rows.
 
@@ -662,10 +717,39 @@ def _probe_has_more(
         if _origin(next_url) != _origin(base):
             return True
         payload, _ = _http_request(next_url, headers, method=method, body=body, body_text=body_text)
+        if expects_xml:
+            payload = _xml_reply(payload)
     except Exception:  # noqa: BLE001 — any failure means "cannot prove complete"
         return True
-    chunk = _dot_get(payload, data_path) if data_path else payload
-    return bool(chunk)
+    return bool(_rows_in(payload, data_path))
+
+
+def _template_values(manifest: RestConnectorManifest, params: dict[str, Any]) -> dict[str, Any]:
+    """Each declared field's value: what the step says, else the connector's default."""
+    return {
+        p["name"]: params.get(p["name"]) if params.get(p["name"]) not in (None, "") else p.get("default", "")
+        for p in manifest.params or []
+        if p.get("name")
+    }
+
+
+def _render_body_text(
+    text: str, body_format: str, manifest: RestConnectorManifest, params: dict[str, Any]
+) -> str:
+    """The text body to send. A value is escaped to suit the format it lands in."""
+    if body_format == "xml":
+        values = _template_values(manifest, params)
+        missing = [
+            p.get("label") or p["name"]
+            for p in manifest.params or []
+            if p.get("required") and p.get("name") in xml_placeholders(text) and values.get(p["name"]) in (None, "")
+        ]
+        if missing:
+            raise ValueError(f"This connector needs a value for: {', '.join(missing)}")
+        return render_xml_template(text, values)
+    if body_format == "form":
+        return _interpolate(text, {k: urllib.parse.quote_plus(str(v)) for k, v in params.items() if v is not None})
+    return _interpolate(text, params)
 
 
 def _execute_stream(
@@ -688,7 +772,8 @@ def _execute_stream(
     #   3. manifest.default_headers      — T1 (2026-05-23) shared defaults
     #   4. auth-derived headers          — built from params
     #   5. stream.headers                — per-stream overrides win
-    headers = {"Accept": "application/json", **(manifest.headers or {})}
+    expects_xml = str(stream.get("response_format") or "").lower() == "xml"
+    headers = {"Accept": accept_header("xml") if expects_xml else "application/json", **(manifest.headers or {})}
     headers.update(_interpolate_dict(manifest.default_headers or {}, params))
     auth = stream.get("auth", manifest.auth) or {}
     if auth.get("type") == "openapi":
@@ -751,8 +836,13 @@ def _execute_stream(
     if body is not None:
         body = _deep_interpolate(body, params)
     body_text = stream.get("body_text")
-    if isinstance(body_text, str):
-        body_text = _interpolate(body_text, params)
+    body_format = str(stream.get("body_format") or "").lower()
+    if body_format == "form" and isinstance(body, dict):
+        body_text, body = urllib.parse.urlencode({k: "" if v is None else v for k, v in body.items()}), None
+    elif isinstance(body_text, str):
+        body_text = _render_body_text(body_text, body_format, manifest, params)
+    if body_format in BODY_CONTENT_TYPES and body_text and not any(k.lower() == "content-type" for k in headers):
+        headers["Content-Type"] = BODY_CONTENT_TYPES[body_format]
 
     page_size = int(pagination.get("page_size", 100))
 
@@ -783,12 +873,22 @@ def _execute_stream(
             payload, resp_headers = _http_request(
                 next_url, headers, method=method, body=body, body_text=body_text
             )
+            if expects_xml:
+                payload = _xml_reply(payload)
         except urllib.error.HTTPError as e:
+            # A SOAP service explains itself in the body of its 500.
+            fault = fault_in_reply(e.read(1024 * 1024), e.headers.get("Content-Type", "")) if expects_xml else None
+            if fault:
+                raise RuntimeError(_without_secrets(str(SoapFaultError(fault)), manifest, params)) from None
             raise RuntimeError(f"API request failed (HTTP {e.code})") from None
+        except SoapFaultError as e:
+            raise RuntimeError(_without_secrets(str(e), manifest, params)) from None
+        except XmlError as e:
+            raise RuntimeError(f"The API's XML reply could not be read. {e}") from None
         except Exception:
             raise RuntimeError("API request failed; check connectivity and connection settings") from None
 
-        chunk = _dot_get(payload, data_path) if data_path else payload
+        chunk = _rows_in(payload, data_path)
         if isinstance(chunk, list):
             rows.extend(x if isinstance(x, dict) else {"value": x} for x in chunk)
         elif isinstance(chunk, dict):
@@ -876,7 +976,7 @@ def _execute_stream(
     # learns it is done from an empty page, and offset_limit from a short
     # one, so a stream that ends exactly on the cap still has a next_url.
     # One probe request settles it, so we never fail a complete read.
-    if next_url and _probe_has_more(next_url, base, headers, method, body, body_text, data_path):
+    if next_url and _probe_has_more(next_url, base, headers, method, body, body_text, data_path, expects_xml):
         msg = (
             f"Stream '{stream.get('name', '?')}' stopped at max_pages={max_pages} "
             f"after {len(rows)} rows, but the API reports more pages. "

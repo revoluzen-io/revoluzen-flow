@@ -16,16 +16,41 @@ Three previously backend-only types now visible in the picker: **DB2, SAP HANA, 
 
 ## Quantitative summary
 
-OSS Free ships **66 connection types visible by default** in the New Connection
-picker — Databases 11 · Warehouses & Lake 12 · Files & Storage 11 · APIs & Apps
-21 · Operations & AI 11. That is 80 declared types minus 14 marked roadmap
+OSS Free ships **68 connection types visible by default** in the New Connection
+picker — Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps
+21 · Operations & AI 11. That is 82 declared types minus 14 marked roadmap
 (UI-only today, hidden so they don't set false expectations). Verified against
 `CONNECTION_TYPES` / `CONNECTOR_STATUS` in
-`frontend/src/components/pages/ConnectionsPage.tsx` on 2026-10-28.
+`frontend/src/components/pages/ConnectionsPage.tsx` on 2026-11-11, when
+**Windows File Share (SMB)** became the 67th and the **ODBC database**
+connection the 68th (it was 66 from 2026-10-28).
 
 The figures below count a **different and narrower** population — execution
 dialects and SaaS REST manifests, not connection types — which is why they do
-not sum to 66. Keep the two apart when quoting either.
+not sum to 68. Keep the two apart when quoting either.
+
+## 2026-11-11 — Windows file shares (SMB)
+
+* **Windows File Share (SMB)** (`smb`, Files & Storage, Beta) — server, share,
+  optional folder, domain, user name and password (encrypted like every
+  connection secret), port 445 and an optional "Require encryption" (SMB 3).
+  Test connection signs in and lists the folder; browsing lists it too.
+* Pipelines reach it with the **File step**: pick the connection in a Source or
+  Destination. Reading copies the file, or every file matching `*` and `?` in
+  its name, to a private temporary folder and reads any format there
+  (fixed-width, COBOL copybook, EBCDIC, PGP-encrypted, CSV, JSON, Excel, XML,
+  Parquet, Avro, ORC). Writing uploads under a temporary name and renames, so
+  the file appears only when complete; PGP encryption works on the way out.
+* Same on Windows, Linux and Docker: Flow speaks SMB 2/3 itself through
+  `smbprotocol` (MIT, ships by default, with `pyspnego` and on Windows
+  `sspilib`, both MIT). It never uses the server's mapped drives or its own
+  Windows account.
+* Beta because it was checked with a stand-in SMB client and against the real
+  library, not yet against a real Windows server. The file-arrival trigger
+  watches a folder on a share too (`file_location: "smb"`, 2026-11-11): each new
+  file starts one run with its full `\\server\share\...` path, which the File
+  step reads with the same connection; sizes and times come from the folder
+  listing itself, and a file still open in the program writing it waits.
 - **4 database dialects** — PostgreSQL, MySQL, MS SQL Server, SQLite (used by Database Source/Sink).
 - **2 bulk-load dialects** — Postgres (`COPY FROM STDIN`) + Snowflake (`PUT` + `COPY INTO`). Other warehouse dialects (BigQuery, Redshift, Databricks, MSSQL bulk, Oracle, MongoDB, ClickHouse) are designed and on the post-1.0 roadmap.
 - **27 SaaS REST manifests visible by default** — 19 Beta tier + 8 Experimental tier. Read via the SaaS Connector node which picks any installed manifest at runtime. Tier per connector lives in `/api/connectors/cert-matrix`.

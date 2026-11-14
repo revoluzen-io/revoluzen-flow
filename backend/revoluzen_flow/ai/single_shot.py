@@ -132,11 +132,24 @@ _SHOT_PROMPT_TAIL = (
 )
 
 
-def _build_system_prompt(page_context: PageContext, app_state: dict[str, Any] | None) -> str:
+def _build_system_prompt(page_context: PageContext, app_state: dict[str, Any] | None, prompt: str = "") -> str:
     """Same Layer-1 session block the agent loop uses, plus a hard
     response-shape constraint. The shared block keeps the LLM grounded
-    in page state + edition boundary; the tail caps verbosity."""
+    in page state + edition boundary; the tail caps verbosity.
+
+    The business glossary goes first, as in the agent loop: the entries the
+    request names. Without it "what does our glossary say a paid order is?"
+    reached this lane and was told there was no glossary."""
     layer1 = build_session_block(page_context, app_state)
+    try:
+        from revoluzen_flow.glossary.store import glossary_block
+
+        workspace = getattr(page_context, "workspace_id", None) or getattr(page_context, "tenant_id", None) or "default"
+        terms = glossary_block(workspace, prompt, app_state)
+        if terms:
+            layer1 = f"{terms}\n\n{layer1}"
+    except Exception:  # noqa: BLE001 — the glossary never stops an answer
+        pass
     return layer1 + _SHOT_PROMPT_TAIL
 
 
@@ -162,7 +175,7 @@ async def run_single_shot(
     tools, on_token)`` signature the agent loop uses (Ollama / Anthropic /
     OpenAI clients all match).
     """
-    system = _build_system_prompt(page_context, app_state)
+    system = _build_system_prompt(page_context, app_state, prompt)
     messages = [{"role": "user", "content": prompt}]
     t0 = time.perf_counter()
     response = await llm_client.call(

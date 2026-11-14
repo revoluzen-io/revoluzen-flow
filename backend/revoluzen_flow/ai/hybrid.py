@@ -163,10 +163,23 @@ _HYBRID_PROMPT_TAIL = (
 def _build_hybrid_system_prompt(
     page_context: PageContext,
     app_state: dict[str, Any] | None,
+    prompt: str = "",
 ) -> str:
     """Reuses the shared session block (page state + edition boundary +
-    trust contract) then appends the hybrid-specific format rules."""
-    return build_session_block(page_context, app_state) + _HYBRID_PROMPT_TAIL
+    trust contract) then appends the hybrid-specific format rules. The
+    business glossary entries the request names go first, as in the agent
+    loop and the single-shot lane."""
+    block = build_session_block(page_context, app_state)
+    try:
+        from revoluzen_flow.glossary.store import glossary_block
+
+        workspace = getattr(page_context, "workspace_id", None) or getattr(page_context, "tenant_id", None) or "default"
+        terms = glossary_block(workspace, prompt, app_state)
+        if terms:
+            block = f"{terms}\n\n{block}"
+    except Exception:  # noqa: BLE001 — the glossary never stops an answer
+        pass
+    return block + _HYBRID_PROMPT_TAIL
 
 
 def _strip_card_blocks(text: str) -> str:
@@ -264,7 +277,7 @@ async def run_hybrid(
         )
 
     # Phase 2: LLM format pass.
-    system = _build_hybrid_system_prompt(page_context, app_state)
+    system = _build_hybrid_system_prompt(page_context, app_state, prompt)
     user_message = (
         f"User asked: {prompt}\n\n"
         f"## Fresh data fetched just now (from {intent.name})\n"

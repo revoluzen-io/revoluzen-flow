@@ -26,7 +26,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from revoluzen_flow.auth.deps import current_workspace_id
+from revoluzen_flow.auth.deps import current_workspace_id, require_min_rank_when_identified
 from revoluzen_flow.backfills.models import (
     BackfillCreate, BackfillRun, BackfillStatus, OnFailure, WindowSize,
 )
@@ -37,11 +37,13 @@ from revoluzen_flow.backfills.orchestrator import (
     first_unfinished_window_index,
     run_backfill_async,
 )
+from revoluzen_flow.ir.step_secrets import seal_parameter_values
+from revoluzen_flow.security.step_secret_routes import MaskStepSecretsRoute
 
 logger = logging.getLogger(__name__)
 
 
-router = APIRouter(prefix="/api/executions/backfill", tags=["backfill"])
+router = APIRouter(prefix="/api/executions/backfill", tags=["backfill"], route_class=MaskStepSecretsRoute)
 
 
 def _safe_workspace_id(request: Request) -> str:
@@ -56,6 +58,16 @@ def _safe_workspace_id(request: Request) -> str:
 def _get_workflow_store():
     from revoluzen_flow.main import app_state
     return app_state.get("store")
+
+
+def _live(wf_store, pipeline_id: str, workspace_id: str):
+    """The version a backfill runs: for a published pipeline, the published
+    one, because a backfill writes to the same places its schedule does."""
+    from revoluzen_flow.ir.versioning import PublishedVersionMissing
+    try:
+        return wf_store.live_version(pipeline_id, workspace_id=workspace_id)
+    except PublishedVersionMissing as exc:
+        raise HTTPException(409, str(exc)) from None
 
 
 def _get_execution_store():
@@ -80,7 +92,7 @@ def _serialize(row: BackfillRun) -> dict[str, Any]:
     return d
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def create_backfill(
     body: BackfillCreate,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -99,7 +111,7 @@ async def create_backfill(
     wf_store = _get_workflow_store()
     if wf_store is None:
         raise HTTPException(500, "workflow store not initialised")
-    versioned = wf_store.get(body.pipeline_id, workspace_id=workspace_id)
+    versioned = _live(wf_store, body.pipeline_id, workspace_id)
     if not versioned:
         raise HTTPException(404, f"pipeline {body.pipeline_id} not found")
     workflow = versioned.workflow
@@ -159,7 +171,7 @@ async def create_backfill(
         parent_backfill_id="",
         window_start=windows[0].start.isoformat(),
         window_end=windows[-1].end.isoformat(),
-        params_template=dict(body.parameter_values or {}),
+        params_template=seal_parameter_values(dict(body.parameter_values or {}), workflow.parameters),
         status=BackfillStatus.PENDING,
         window_size=body.window_size,
         window_size_hours=body.window_size_hours,
@@ -269,7 +281,7 @@ async def get_backfill(
     }
 
 
-@router.post("/preflight")
+@router.post("/preflight", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def preflight_backfill(
     body: BackfillCreate,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -297,7 +309,7 @@ async def preflight_backfill(
     wf_store = _get_workflow_store()
     if wf_store is None:
         raise HTTPException(500, "workflow store not initialised")
-    versioned = wf_store.get(body.pipeline_id, workspace_id=workspace_id)
+    versioned = _live(wf_store, body.pipeline_id, workspace_id)
     if not versioned:
         raise HTTPException(404, f"pipeline {body.pipeline_id} not found")
     workflow = versioned.workflow
@@ -366,7 +378,7 @@ async def preflight_backfill(
     }
 
 
-@router.post("/{backfill_id}/cancel")
+@router.post("/{backfill_id}/cancel", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def cancel_backfill(
     backfill_id: str,
     workspace_id: str = Depends(_safe_workspace_id),
@@ -381,7 +393,7 @@ async def cancel_backfill(
     return {"cancelled": ok, "backfill_id": backfill_id}
 
 
-@router.post("/{backfill_id}/resume")
+@router.post("/{backfill_id}/resume", dependencies=[Depends(require_min_rank_when_identified("developer"))])
 async def resume_backfill(
     backfill_id: str,
     request: Request,
@@ -443,7 +455,7 @@ async def resume_backfill(
     wf_store = _get_workflow_store()
     if wf_store is None:
         raise HTTPException(500, "workflow store not initialised")
-    versioned = wf_store.get(parent.pipeline_id, workspace_id=workspace_id)
+    versioned = _live(wf_store, parent.pipeline_id, workspace_id)
     if not versioned:
         raise HTTPException(
             404,

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
 from revoluzen_flow.nodes.registry import register
-from revoluzen_flow.connectors.jdbc_dialects import get_dialect, list_dialects
+from revoluzen_flow.connectors.jdbc_dialects import _import_or_raise, get_dialect, list_dialects
 
 
 def _get_connection_config(connection_id: str) -> tuple[dict, str] | None:
@@ -214,12 +214,12 @@ def _basic_insert(dialect_name: str, cfg: dict, table: str, cols: list[str], row
     col_list = ", ".join(f'"{c}"' for c in cols)
     sql = f'INSERT INTO {_safe_table(table)} ({col_list}) VALUES ({placeholders})'
 
+    # 2026-11-11: connections open through connections/warehouse_clients.py,
+    # as reads, Test connection and browsing do (see jdbc_dialects.py).
+    from revoluzen_flow.connections import warehouse_clients as wc
+
     if dialect_name == "snowflake":
-        import snowflake.connector as sf
-        conn = sf.connect(
-            user=cfg["user"], password=cfg["password"], account=cfg["account"],
-            warehouse=cfg.get("warehouse"), database=cfg.get("database"), schema=cfg.get("schema"),
-        )
+        conn = wc.snowflake_connect(cfg)
         try:
             cur = conn.cursor()
             cur.executemany(sql.replace("?", "%s"), rows)
@@ -229,10 +229,7 @@ def _basic_insert(dialect_name: str, cfg: dict, table: str, cols: list[str], row
             conn.close()
 
     if dialect_name == "redshift":
-        import redshift_connector
-        conn = redshift_connector.connect(
-            host=cfg["host"], database=cfg["database"], user=cfg["user"], password=cfg["password"],
-        )
+        conn = wc.redshift_connect(cfg)
         try:
             cur = conn.cursor()
             cur.executemany(sql.replace("?", "%s"), rows)
@@ -259,19 +256,17 @@ def _basic_insert(dialect_name: str, cfg: dict, table: str, cols: list[str], row
             conn.close()
 
     if dialect_name == "clickhouse":
-        import clickhouse_connect
-        client = clickhouse_connect.get_client(
-            host=cfg["host"], port=int(cfg.get("port", 8123)),
-            username=cfg.get("user", "default"), password=cfg.get("password", ""),
-            database=cfg.get("database", "default"),
-        )
-        client.insert(table, rows, column_names=cols)
+        client = wc.clickhouse_client(cfg)
+        try:
+            client.insert(_safe_table(table), rows, column_names=cols)
+        finally:
+            client.close()
         return len(rows)
 
     if dialect_name == "bigquery":
-        from google.cloud import bigquery
-        client = bigquery.Client(project=cfg.get("project"))
-        table_ref = f"{cfg.get('project')}.{cfg.get('dataset')}.{_safe_table(table)}"
+        client = wc.bigquery_client(cfg)
+        project = cfg.get("project") or cfg.get("project_id") or client.project
+        table_ref = f"{project}.{cfg.get('dataset')}.{_safe_table(table)}"
         json_rows = [dict(zip(cols, r)) for r in rows]
         errors = client.insert_rows_json(table_ref, json_rows)
         if errors:
@@ -279,10 +274,7 @@ def _basic_insert(dialect_name: str, cfg: dict, table: str, cols: list[str], row
         return len(rows)
 
     if dialect_name == "databricks":
-        from databricks import sql as dbsql
-        conn = dbsql.connect(
-            server_hostname=cfg["host"], http_path=cfg["http_path"], access_token=cfg["access_token"],
-        )
+        conn = wc.databricks_connect(cfg)
         try:
             cur = conn.cursor()
             cur.executemany(sql, rows)
@@ -291,9 +283,7 @@ def _basic_insert(dialect_name: str, cfg: dict, table: str, cols: list[str], row
             conn.close()
 
     if dialect_name == "oracle":
-        import oracledb
-        dsn = oracledb.makedsn(cfg["host"], int(cfg.get("port", 1521)), service_name=cfg.get("service_name"))
-        conn = oracledb.connect(user=cfg["user"], password=cfg["password"], dsn=dsn)
+        conn = wc.oracle_connect(cfg)
         try:
             cur = conn.cursor()
             placeholders = ", ".join(f":{i+1}" for i in range(len(cols)))

@@ -177,6 +177,59 @@ def preview_file(
         conn.close()
 
 
+# Rows a profile reads at most. A larger file or table is profiled on a
+# random sample of this many rows, and the result says so.
+PROFILE_SAMPLE_ROWS = 100_000
+
+
+def profile_relation(conn, rel, *, sample_rows: int = PROFILE_SAMPLE_ROWS) -> dict[str, Any]:
+    """Column statistics for a relation: what the Data Profile step reports.
+
+    Reuses that step, so the Storage profile and a pipeline's profile can
+    never disagree about what "distinct" or "null %" means. Returns
+    ``{columns: [...], rows_profiled, sampled}``; ``sampled`` is true when
+    the data had more rows than ``sample_rows`` and a sample was read.
+    """
+    from revoluzen_flow.nodes.base import ExecutionContext
+    from revoluzen_flow.nodes.quality import DataProfileNode
+
+    total = fetch_scalar(rel.count("*"), default=0) or 0
+    sampled = sample_rows > 0 and total > sample_rows
+    ctx = ExecutionContext(conn=conn)
+    ctx.set_result("__storage_profile_source", rel)
+    report = DataProfileNode(params={
+        "_input_step_ids": ["__storage_profile_source"],
+        "sample_rows": sample_rows if sampled else 0,
+        "include_top_value": True,
+    }).execute(ctx)
+    columns = [
+        {k: _json_safe(v) for k, v in zip(report.columns, row)}
+        for row in report.fetchall()
+    ]
+    return {
+        "columns": columns,
+        "rows_profiled": min(int(total), sample_rows) if sampled else int(total),
+        "row_count": int(total),
+        "sampled": sampled,
+    }
+
+
+def profile_file(abs_path: str, fmt: str, *, sample_rows: int = PROFILE_SAMPLE_ROWS) -> dict[str, Any]:
+    """Profile a stored file. A JSON document that is not a list of
+    records has no columns to profile, which is said plainly."""
+    import duckdb
+
+    if not os.path.isfile(abs_path):
+        raise FileNotFoundError(f"profile: file not found: {abs_path}")
+    if fmt == "json" and _peek_json_shape(abs_path) == "object":
+        raise ValueError("This JSON file is a single document, not a list of records, so it has no columns to profile.")
+    conn = duckdb.connect()
+    try:
+        return profile_relation(conn, _open_relation(conn, abs_path, fmt), sample_rows=sample_rows)
+    finally:
+        conn.close()
+
+
 def infer_schema(abs_path: str, fmt: str) -> list[dict[str, Any]]:
     """Return per-column schema (name + type + nullable + sample).
 

@@ -1693,7 +1693,7 @@ export default function AgentChatPanel() {
                 {(() => {
                   const TOOL_NAV: Record<string, { label: string; hash: string }> = {
                     list_pipelines:        { label: 'Open Pipelines',   hash: '#pipelines' },
-                    list_projects:         { label: 'Open Projects',    hash: '#projects' },
+                    list_projects:         { label: 'Open Projects',    hash: '#pipelines' },
                     list_executions:       { label: 'Open Executions',  hash: '#executions' },
                     list_alerts:           { label: 'Open Alerts',      hash: '#alerts' },
                     list_schedules:        { label: 'Open Schedules',   hash: '#schedules' },
@@ -1791,16 +1791,18 @@ export default function AgentChatPanel() {
           const draftIR = draftResult?.ir as { steps?: unknown[]; name?: string } | undefined;
           const canApplyToCanvas = !!draftIR && Array.isArray(draftIR.steps) && draftIR.steps.length > 0;
           const stepCount = canApplyToCanvas ? (draftIR!.steps as unknown[]).length : 0;
-          const existingNodeCount = useWorkflowStore.getState().nodes.length;
 
           const applyDraftToCanvas = () => {
             try {
-              useWorkflowStore.getState().loadWorkflow({ workflow: draftIR });
-              navigateTo('editor');
-              toast.success(
-                'Draft applied to canvas',
-                `${stepCount} step${stepCount === 1 ? '' : 's'} ready to edit`,
-              );
+              // The draft opens in a tab of its own (or the empty tab on
+              // screen), so the pipeline on the canvas stays as it is.
+              if (useWorkflowStore.getState().openInEditor({ workflow: draftIR })) {
+                navigateTo('editor');
+                toast.success(
+                  'Draft applied to canvas',
+                  `${stepCount} step${stepCount === 1 ? '' : 's'} ready to edit`,
+                );
+              }
             } catch {
               toast.error('Could not apply draft', 'The drafted pipeline could not be loaded onto the canvas.');
             }
@@ -1821,11 +1823,6 @@ export default function AgentChatPanel() {
                 { label: 'Outcome', value: pendingConfirm.safeWriteStep.outcome },
                 { label: 'Latency', value: `${pendingConfirm.safeWriteStep.latency_ms} ms` },
               ]}
-              warnings={
-                canApplyToCanvas && existingNodeCount > 0
-                  ? [`Applying replaces the ${existingNodeCount} node(s) currently on the canvas. Save your current pipeline first if you want to keep it.`]
-                  : undefined
-              }
               draftId={draftId}
               onConfirm={canApplyToCanvas ? applyDraftToCanvas : () => setPendingConfirm(null)}
               onCancel={() => setPendingConfirm(null)}

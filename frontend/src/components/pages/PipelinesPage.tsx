@@ -8,7 +8,7 @@ import { useTableColumns, type TColumn, type TColumnGroup } from '../shared/Tabl
 import { ReactFlow, Background, BackgroundVariant, MarkerType, type Node as FlowNode, type Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { api } from '../../api/client';
-import { navigateTo, navigateToSubRoute, navigateWithQuery } from '../../router';
+import { navigateTo, navigateToSubRoute, navigateWithQuery, readCurrentPage, readHashQuery, readSubRoute } from '../../router';
 import RunStatusSparkline, { type RunStatusKind } from '../shared/RunStatusSparkline';
 
 // Normalise a backend status string into the sparkline's union type.
@@ -23,13 +23,33 @@ function _toSparklineStatus(raw: string): RunStatusKind {
   if (s === 'skipped' || s === 'cancelled' || s === 'canceled') return 'skipped';
   return 'unknown';
 }
-import { useWorkflowStore } from '../../stores/workflowStore';
+import { useWorkflowStore, findPipelineTab, describeTab } from '../../stores/workflowStore';
+import PipelineViewTabs, { pipelinesAddress } from '../pipelines/PipelineViewTabs';
+import PipelineVersions, { VersionReadOnly } from '../pipelines/PipelineVersions';
+import GitCopyStatus from '../pipelines/GitCopyStatus';
+import { usePipelineViewTabs } from '../../stores/pipelineViewTabs';
 import { toast } from '../Toast';
 import { nodeTypes, edgeTypes } from '../nodes';
 import RoleGate, { useCan } from '../../auth/RoleGate';
 import ReadOnlyBanner from '../../auth/ReadOnlyBanner';
-import { uiConfirm, uiPrompt } from '../../ui/dialog';
-import ProjectContextBar from '../layout/ProjectContextBar';
+import { uiAlert, uiConfirm, uiPrompt } from '../../ui/dialog';
+import ProjectExplorer, { type ExplorerFolder } from '../pipelines/ProjectExplorer';
+import { cronDay } from '../pipelines/cronDay';
+import { AfterTriggerForm, FileTriggerForm } from '../pipelines/EventTriggerForm';
+import {
+  EMPTY_AFTER_DRAFT, EMPTY_FILE_DRAFT, afterDraftFrom, afterDraftProblem, afterPayload, checkedAgo,
+  describeEventTrigger, fileDraftFrom, fileDraftProblem, filePayload, isEventTrigger, shortTriggerLabel,
+  triggerKindOf, type TriggerKind,
+} from '../pipelines/triggerText';
+import {
+  ALL_SCOPE, countPipelines, inScope, queryHasScope, sameScope, scopeFolderId, scopeFromQuery,
+  scopeProjectId, scopeToQuery, validScope, type PipelineScope, type ScopeContext,
+} from '../pipelines/projectScope';
+import ProjectFormDialog, { type ProjectRecord } from '../projects/ProjectFormDialog';
+import ArchivedProjectsDialog from '../projects/ArchivedProjectsDialog';
+import { archiveProject, exportProjectBundle } from '../projects/projectActions';
+import { canManageProjects as canManageProjectsFor } from '../../auth/permissions';
+import { runFolderDelete } from '../../utils/folderDelete';
 import { PlanModal } from '../PlanModal';
 import TierChip from '../shared/TierChip';
 import PageHeader from '../shared/PageHeader';
@@ -38,7 +58,6 @@ import ContractDialog from './ContractDialog';
 import MoveToProjectButton from '../shared/MoveToProjectButton';
 import { DensityToggle, useDensity } from '../shared/DensityToggle';
 import TimeAgo from '../shared/TimeAgo';
-import DetailDrawer from '../shared/DetailDrawer';
 import Icon from '../shared/Icon';
 import HubTabs, { WORKFLOWS_TABS } from '../HubTabs';
 import PreRunBanner, { type RunSafetyMode } from '../PreRunBanner';
@@ -297,7 +316,7 @@ function parseCronToBuilder(cron: string): {
   const weeklyRe = /^\d+(?:,\d+)*$/;
   if (/^\d+$/.test(m) && weeklyRe.test(h) && weeklyRe.test(dow)) {
     const mi = parseInt(m, 10);
-    const days = dow.split(',').map(s => parseInt(s, 10)).filter(n => n >= 0 && n <= 6);
+    const days = [...new Set(dow.split(',').map(s => cronDay(parseInt(s, 10))))].filter(n => n >= 0 && n <= 6);
     const hours = h.split(',').map(s => parseInt(s, 10)).filter(n => n >= 0 && n <= 23);
     return {
       frequency: 'weekly',
@@ -360,7 +379,7 @@ function describeCron(cron: string): string {
   }
   // Weekly on day at HH:MM
   if (/^\d+$/.test(m) && /^\d+$/.test(h) && dom === '*' && mon === '*' && /^\d+$/.test(dow)) {
-    const day = WEEKDAYS[parseInt(dow, 10)]?.label || `day ${dow}`;
+    const day = WEEKDAYS[cronDay(parseInt(dow, 10))]?.label || `day ${dow}`;
     return `Every ${day} at ${fmtTime(h, m)}`;
   }
   return cron;
@@ -414,6 +433,28 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
 
+  // What starts it: a timetable, a file arriving, or another pipeline
+  // finishing. The last two are event triggers (backend triggers/), saved
+  // as schedule rows of their own kind.
+  const [kind, setKind] = useState<TriggerKind>('time');
+  const [fileDraft, setFileDraft] = useState(EMPTY_FILE_DRAFT);
+  const [afterDraft, setAfterDraft] = useState(EMPTY_AFTER_DRAFT);
+  const [pipelineNames, setPipelineNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    api.listWorkflows()
+      .then((list: any) => setPipelineNames(Object.fromEntries(
+        (Array.isArray(list) ? list : []).map((w: any) => [w.id, w.name]),
+      )))
+      .catch(() => setPipelineNames({}));
+  }, []);
+  const nameOf = (id: string) => pipelineNames[id];
+  const eventProblem = kind === 'file_arrival'
+    ? fileDraftProblem(fileDraft)
+    : kind === 'after_pipeline' ? afterDraftProblem(afterDraft, pipelineId) : null;
+  const eventPayload = kind === 'file_arrival'
+    ? filePayload(fileDraft)
+    : kind === 'after_pipeline' ? afterPayload(afterDraft) : null;
+
   const reloadExisting = useCallback(async () => {
     setLoadingExisting(true);
     try {
@@ -444,7 +485,23 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (editingScheduleId) {
+      if (kind !== 'time' && eventPayload) {
+        const said = describeEventTrigger(eventPayload, nameOf);
+        if (editingScheduleId) {
+          await api.updateSchedule(editingScheduleId, eventPayload);
+          toast.success('Trigger updated', said);
+          setEditingScheduleId(null);
+        } else {
+          await api.createSchedule({
+            workflow_id: pipelineId,
+            name: `${pipelineName} - ${kind === 'file_arrival' ? 'When a file arrives' : 'After another pipeline'}`,
+            enabled: true,
+            acknowledge_side_effects: acknowledgeUnsafe,
+            ...eventPayload,
+          });
+          toast.success('Trigger created', said);
+        }
+      } else if (editingScheduleId) {
         // Editing an existing schedule — always PUT a single cron. For
         // weekly mode we use the first cron from the multi-value
         // builder; if the user wanted a different-minute slot they'd
@@ -551,7 +608,27 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
     }
   };
 
+  // A file trigger looks in its folder now instead of at its next check.
+  const handleCheckNow = async (scheduleId: string) => {
+    try {
+      await api.post(`/api/schedules/${scheduleId}/run-now`);
+      toast.success('Looking in the folder now', 'New files start their runs as usual.');
+      setTimeout(() => { void reloadExisting(); }, 3000);
+    } catch (err: any) {
+      toast.error('Could not check the folder', err.message);
+    }
+  };
+
   const handleEditExisting = (s: any) => {
+    if (isEventTrigger(s)) {
+      setEditingScheduleId(s.id);
+      setKind(triggerKindOf(s));
+      if (triggerKindOf(s) === 'file_arrival') setFileDraft(fileDraftFrom(s));
+      else setAfterDraft(afterDraftFrom(s));
+      setTouched(true);
+      return;
+    }
+    setKind('time');
     // Pre-fill the builder with the existing schedule's cron so the
     // user can tweak it and Save Changes (which PUTs instead of POSTs).
     // Parse the cron back into friendly state; if it doesn't match a
@@ -590,11 +667,27 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
     </button>
   );
 
+  const KindChip = ({ value, label }: { value: TriggerKind; label: string }) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={kind === value}
+      onClick={() => { setKind(value); setTouched(true); }}
+      className={`px-2 py-2 rounded-lg border text-xs font-medium transition-all ${
+        kind === value
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+          : 'border-slate-200 hover:border-slate-300 text-slate-600'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-[60]" onClick={onClose} />
       <div className="fixed inset-0 z-[65] flex items-center justify-center pointer-events-none">
-        <div className="pointer-events-auto w-[460px] max-w-[95vw] bg-white rounded-2xl shadow-2xl border border-slate-200/60 overflow-hidden">
+        <div className="pointer-events-auto w-[500px] max-w-[95vw] bg-white rounded-2xl shadow-2xl border border-slate-200/60 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-200/60 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -614,7 +707,7 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
             {!loadingExisting && existing.length > 0 && (
               <div>
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                  Active schedules ({existing.length})
+                  Already set up ({existing.length})
                 </label>
                 <ul className="space-y-1.5">
                   {existing.map((s) => (
@@ -623,14 +716,37 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                     }`}>
                       <span className={`w-2 h-2 rounded-full shrink-0 ${s.enabled ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-slate-700 truncate">
-                          {describeCron(s.cron_expression || '')}
-                        </div>
+                        {isEventTrigger(s) ? (
+                          <>
+                            <div className="text-sm font-semibold text-slate-700 break-words">
+                              {describeEventTrigger(s, nameOf)}
+                            </div>
+                            {(s.status_message || s.last_checked_at) && (
+                              <div className="text-[11px] text-slate-500 truncate" title={s.status_message || ''} data-testid="trigger-status">
+                                {[s.last_checked_at ? `Checked ${checkedAgo(s.last_checked_at)}` : '', s.status_message || '']
+                                  .filter(Boolean).join(': ')}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="text-sm font-semibold text-slate-700 truncate">
+                            {describeCron(s.cron_expression || '')}
+                          </div>
+                        )}
                       </div>
+                      {triggerKindOf(s) === 'file_arrival' && s.enabled && (
+                        <button
+                          onClick={() => handleCheckNow(s.id)}
+                          className="px-2 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 rounded hover:bg-white border border-transparent hover:border-slate-200 whitespace-nowrap"
+                          title="Look in the folder now instead of at the next check"
+                        >
+                          Check now
+                        </button>
+                      )}
                       <button
                         onClick={() => handleEditExisting(s)}
                         className="px-2 py-1 text-xs font-medium text-slate-600 hover:text-slate-800 rounded hover:bg-white border border-transparent hover:border-slate-200"
-                        title="Edit cadence"
+                        title={isEventTrigger(s) ? 'Change this trigger' : 'Edit cadence'}
                       >
                         Edit
                       </button>
@@ -655,11 +771,37 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                 </ul>
                 <div className="mt-3 -mx-1 border-t border-slate-100" />
                 <div className="text-xs text-slate-500 mt-2">
-                  {editingScheduleId ? 'Editing existing schedule below.' : 'Add another schedule below, or edit/delete one above.'}
+                  {editingScheduleId ? 'Editing the one above, below.' : 'Add another below, or change one above.'}
                 </div>
               </div>
             )}
 
+            {/* What starts it: the clock, a file arriving, or another
+                pipeline finishing. */}
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                What starts it
+              </label>
+              <div role="radiogroup" aria-label="What starts it" className="grid grid-cols-3 gap-2">
+                <KindChip value="time" label="A timetable" />
+                <KindChip value="file_arrival" label="A file arriving" />
+                <KindChip value="after_pipeline" label="Another pipeline finishing" />
+              </div>
+            </div>
+
+            {kind === 'file_arrival' && (
+              <FileTriggerForm
+                pipelineId={pipelineId}
+                draft={fileDraft}
+                onChange={setFileDraft}
+                isNew={!editingScheduleId}
+              />
+            )}
+            {kind === 'after_pipeline' && (
+              <AfterTriggerForm pipelineId={pipelineId} draft={afterDraft} onChange={setAfterDraft} />
+            )}
+
+            {kind === 'time' && (<>
             {/* Frequency picker */}
             <div>
               <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
@@ -848,16 +990,23 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                 </div>
               </>
             )}
+            </>)}
 
             {/* Human-readable preview — shown only after the user has
                 actually interacted with the picker. The default "Every
                 day at 12:00 AM" preview on initial mount was misleading
                 (user feedback 2026-05-11) — it suggested the dialog had
                 already configured something. */}
-            {touched && (
+            {touched && kind === 'time' && (
               <div className="px-3 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
                 <div className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Runs</div>
                 <div className="text-sm font-semibold text-emerald-800 mt-0.5">{human}</div>
+              </div>
+            )}
+            {kind !== 'time' && eventPayload && !eventProblem && (
+              <div className="px-3 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200" data-testid="trigger-summary">
+                <div className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Runs</div>
+                <div className="text-sm font-semibold text-emerald-800 mt-0.5">{describeEventTrigger(eventPayload, nameOf)}</div>
               </div>
             )}
 
@@ -942,11 +1091,11 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
               {(() => {
                 const blockedByUnsafe = !!unsafeErrInfo && !acknowledgeUnsafe;
                 const acknowledged = !!unsafeErrInfo && acknowledgeUnsafe;
-                const baseDisabled =
-                  saving || !touched ||
-                  (frequency === 'weekly'
+                const baseDisabled = saving || (kind === 'time'
+                  ? (!touched || (frequency === 'weekly'
                     ? (weeklyDays.length === 0 || weeklyTimes.length === 0)
-                    : !cron.trim());
+                    : !cron.trim()))
+                  : !!eventProblem);
                 const disabled = baseDisabled || blockedByUnsafe;
                 const buttonClass = acknowledged
                   ? 'bg-amber-500 hover:bg-amber-600'
@@ -955,10 +1104,10 @@ function QuickScheduleDialog({ pipelineId, pipelineName, onClose, onConfigureAle
                   ? 'Save Changes'
                   : acknowledged
                     ? 'Schedule anyway'
-                    : 'Create Schedule';
+                    : kind === 'time' ? 'Create Schedule' : 'Create Trigger';
                 const tooltip = blockedByUnsafe
                   ? 'Tick the "I understand" box above to proceed despite the unsafe sink warning.'
-                  : undefined;
+                  : (kind !== 'time' && eventProblem) || undefined;
                 return (
                   <button
                     onClick={handleSave}
@@ -1355,6 +1504,10 @@ interface Pipeline {
   created_by?: string;
   published_by?: string;
   published_at?: string;
+  /** The live version of a published pipeline. */
+  published_version?: number | null;
+  /** The newest saved version is a draft beside the live one. */
+  has_unpublished_changes?: boolean;
   deployed_by?: string;
   deployed_at?: string;
   deployed_version?: number;
@@ -1455,27 +1608,7 @@ const PIPELINE_COLUMN_GROUPS: TColumnGroup[] = [
   { key: 'operational', label: 'Operational', icon: '⚙' },
 ];
 
-interface VersionInfo {
-  version: number;
-  created_by: string;
-  created_at: string;
-  change_summary: string;
-  step_count: number;
-  steps?: Array<{ id: string; type: string; label: string }>;
-  connections?: Array<{ from_step: string; to_step: string }>;
-  // Schema v15 — SHA-256 hash of the canonical workflow JSON. Used by
-  // rollback verification + the version-list "what changed" UI.
-  content_hash?: string;
-}
-
-interface VersionDiff {
-  addedSteps: string[];
-  removedSteps: string[];
-  addedConns: number;
-  removedConns: number;
-}
-
-export default function PipelinesPage({ onOpenEditor, projectId, projectName = '', onClearProject, onGoToProjects, environment: _environment, tier = 'free' }: { onOpenEditor: () => void; projectId?: string | null; projectName?: string; onClearProject?: () => void; onGoToProjects?: () => void; environment?: 'dev' | 'prod'; tier?: string }) {
+export default function PipelinesPage({ onOpenEditor, projectId, onScopeChange, environment: _environment, tier = 'free' }: { onOpenEditor: () => void; projectId?: string | null; projectName?: string; onScopeChange?: (projectId: string | null, projectName: string) => void; environment?: 'dev' | 'prod'; tier?: string }) {
   // Defaulting `environment = 'dev'` in the destructure narrows its TS type
   // to literal 'dev' for the rest of the function, which makes
   // `environment === 'prod'` an "always false" comparison error in strict
@@ -1509,15 +1642,75 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // Approval workflow — leads/admins can approve; any dev can submit
   const canApprove = useCan('approve', 'prod');
   const canSubmitForReview = useCan('edit', 'dev');
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  // Every pipeline the user can see. `pipelines` (below) is the part of it
+  // the table shows: the project, folder or other place picked in the panel.
+  const [allPipelines, setAllPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  // Project dropdown filter for the workflow table. 'all' means no
-  // filter; any other value matches `pipelines[].project_id`. Loaded
-  // once on mount from /api/projects so the dropdown stays meaningful
-  // even if the active workspace has projects with no pipelines yet.
-  const [projectFilter, setProjectFilter] = useState<string>('all');
-  const [projectsList, setProjectsList] = useState<Array<{ id: string; name: string }>>([]);
+  // Projects and folders for the panel on the left. This page replaced the
+  // separate Projects page on 2026-11-10. The place picked in the panel lives
+  // in the address (#pipelines?project=…&folder=…), so reload, links and Back
+  // return to it. It used to be two filters that could disagree: the project
+  // the page was opened for, and an "All projects" dropdown on the table.
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<ProjectRecord[]>([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [foldersByProject, setFoldersByProject] = useState<Record<string, ExplorerFolder[]>>({});
+  const [scope, setScope] = useState<PipelineScope>(() => {
+    const query = readHashQuery();
+    if (queryHasScope(query)) return scopeFromQuery(query);
+    // Arriving from another page that was looking at a project (its blue
+    // project bar): keep looking at that project here.
+    return projectId ? { kind: 'project', projectId } : ALL_SCOPE;
+  });
+  // Bumped on every address change, so links that open something on this
+  // page (`#pipelines/<id>`, `?new=project`) are handled while it is open too.
+  const [hashTick, setHashTick] = useState(0);
+  // The pipeline shown in full in its tab (`#pipelines/<id>`); null on Home,
+  // the list. Its tab is this page's (stores/pipelineViewTabs.ts); the
+  // Editor's tabs hold only what is being built there. A saved version opened
+  // read-only has a tab of its own, `#pipelines/<id>~v<N>`: overviewTabId is
+  // the tab, overviewId its pipeline and overviewVersion the version.
+  const overviewTabId = useMemo(
+    () => (readCurrentPage() === 'pipelines' ? readSubRoute() : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hashTick],
+  );
+  const overviewId = overviewTabId ? overviewTabId.split('~v')[0] || null : null;
+  const overviewVersion = (() => {
+    const m = overviewTabId ? /~v(\d+)$/.exec(overviewTabId) : null;
+    return m ? Number(m[1]) : null;
+  })();
+  // Overview or Versions, per pipeline tab. Version history in a row's menu
+  // opens Versions.
+  const [pipelineView, setPipelineView] = useState<Record<string, 'overview' | 'versions'>>({});
+  // The version a pipeline's Versions view compares first, when one asked
+  // (Compare with current, in a version's own tab).
+  const [versionsFrom, setVersionsFrom] = useState<Record<string, number>>({});
+  // Read the version history again after something on this page saved.
+  const [versionsRefresh, setVersionsRefresh] = useState(0);
+  // Bumped when what is live changes, so a page showing it reads it again.
+  const [overviewLiveChanged, setOverviewLiveChanged] = useState(0);
+  const overviewDirty = useWorkflowStore((s) => {
+    if (!overviewId) return false;
+    const tab = findPipelineTab(s, overviewId);
+    return tab ? describeTab(tab, s).isDirty : false;
+  });
+  const [explorerOpen, setExplorerOpen] = useState(false);
+  const [projectForm, setProjectForm] = useState<{ project: ProjectRecord | null } | null>(null);
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
+  const canManageProjects = canManageProjectsFor((() => {
+    try { return JSON.parse(localStorage.getItem('revoluzen_flow_user') || 'null'); } catch { return null; }
+  })());
+  const scopeCtx = useMemo<ScopeContext>(() => ({
+    visibleProjects: projectsLoaded ? new Set(projects.map((p) => p.id)) : null,
+    foldersByProject: new Map(Object.entries(foldersByProject).map(([pid, list]) => [pid, new Set(list.map((f) => f.id))])),
+  }), [projects, projectsLoaded, foldersByProject]);
+  const pipelines = useMemo(
+    () => allPipelines.filter((p) => inScope(p as any, scope, scopeCtx)),
+    [allPipelines, scope, scopeCtx],
+  );
+  const scopeCounts = useMemo(() => countPipelines(allPipelines as any[], scopeCtx), [allPipelines, scopeCtx]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // 2026-05-28 — Action column was 7-8 buttons wide, pushing the
   // table past viewport on standard 1920px screens and forcing
@@ -1539,28 +1732,37 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [moreMenuFor]);
-  // Folders inside the current project. Loaded when projectId is set,
-  // reloaded after create/delete via setFolderRefreshTick.
-  const [folders, setFolders] = useState<Array<{ id: string; name: string; parent_folder_id: string | null; color?: string }>>([]);
-  const [folderRefreshTick, setFolderRefreshTick] = useState(0);
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
-  useEffect(() => {
-    if (!projectId) {
-      setFolders([]);
-      setActiveFolderId(null);
-      return;
+  // Projects (active and archived) and every active project's folders.
+  // Folders are one level deep, so one request per project covers them.
+  const loadFoldersFor = useCallback(async (pid: string): Promise<ExplorerFolder[]> => {
+    try {
+      const rows = await api.listFolders(pid);
+      return Array.isArray(rows) ? rows.map((f: any) => ({ id: f.id, name: f.name, project_id: pid })) : [];
+    } catch {
+      return [];
     }
-    let cancelled = false;
-    api.listFolders(projectId)
-      .then((rows: any) => {
-        if (cancelled) return;
-        setFolders(Array.isArray(rows) ? rows : []);
-      })
-      .catch(() => {
-        if (!cancelled) setFolders([]);
-      });
-    return () => { cancelled = true; };
-  }, [projectId, folderRefreshTick]);
+  }, []);
+  const loadProjects = useCallback(async () => {
+    try {
+      const list = await api.listProjects({ include_archived: true });
+      const rows: ProjectRecord[] = Array.isArray(list) ? list : [];
+      const active = rows.filter((p) => p.status !== 'archived');
+      setProjects(active);
+      setArchivedProjects(rows.filter((p) => p.status === 'archived'));
+      const entries = await Promise.all(active.map(async (p) => [p.id, await loadFoldersFor(p.id)] as const));
+      setFoldersByProject(Object.fromEntries(entries));
+    } catch {
+      setProjects([]);
+      setArchivedProjects([]);
+    } finally {
+      setProjectsLoaded(true);
+    }
+  }, [loadFoldersFor]);
+  const reloadFolders = useCallback(async (pid: string) => {
+    const list = await loadFoldersFor(pid);
+    setFoldersByProject((prev) => ({ ...prev, [pid]: list }));
+  }, [loadFoldersFor]);
+  useEffect(() => { void loadProjects(); }, [loadProjects]);
   // The KPI panel and its persisted show/hide flag were removed on
   // 2026-10-26 — the filter tabs and the header subtitle already carry
   // every figure it showed. The old `revoluzen_flow_workflows_show_stats`
@@ -1574,11 +1776,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // Density (per design decision D-003 — defaults to Comfortable; persisted
   // per page in localStorage so the user's preference sticks).
   const { density, setDensity, rowPaddingClass } = useDensity('pipelines');
-  const [historyPipelineId, setHistoryPipelineId] = useState<string | null>(null);
-  const [historyPipelineName, setHistoryPipelineName] = useState('');
-  const [versions, setVersions] = useState<VersionInfo[]>([]);
-  const [versionsLoading, setVersionsLoading] = useState(false);
-  const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [lifecycleLoading, setLifecycleLoading] = useState<Record<string, string>>({});
   // Publish modal state — opened from any of the three Publish buttons
@@ -1619,7 +1816,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const handleCancelRename = () => { setRenamingId(null); };
   const [estimateCache, setEstimateCache] = useState<Record<string, string>>({});
   const [estimateHover, setEstimateHover] = useState<string | null>(null);
-  const [compareIdx, setCompareIdx] = useState<number | null>(null);
   const [tagFilter, setTagFilter] = useState('');
   const [pipelineTags, setPipelineTags] = useState<Record<string, string[]>>(() => {
     try { return JSON.parse(localStorage.getItem('revoluzen_flow_pipeline_tags') || '{}'); } catch { return {}; }
@@ -1661,10 +1857,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   //     `version_change` check row is expanded
   const [dagPreview, setDagPreview] = useState<{ id: string; name: string; workflow: any } | null>(null);
   const [dagPreviewLoading, setDagPreviewLoading] = useState(false);
-  // Version picker scoped to the pre-deploy dialog. Distinct from the
-  // module-level `versions` / `versionsLoading` (declared above at ~L483)
-  // which serve the Version History modal. Separate state = separate
-  // lifecycle, so closing one doesn't wipe the other.
+  // Version picker scoped to the pre-deploy dialog. The pipeline tab's
+  // Versions view (components/pipelines/PipelineVersions.tsx) keeps its own.
   const [deployVersions, setDeployVersions] = useState<any[]>([]);
   const [deployVersionsLoading, setDeployVersionsLoading] = useState(false);
   const [scheduleMap, setScheduleMap] = useState<Record<string, any>>({});
@@ -1743,7 +1937,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const tagMenuRef = useRef<HTMLDivElement>(null);
   const tagFilterRef = useRef<HTMLDivElement>(null);
-  const loadWorkflow = useWorkflowStore((s) => s.loadWorkflow);
 
   // Close tag menu / filter / export menu on outside click
   useEffect(() => {
@@ -1800,19 +1993,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     setNewTagInput('');
   };
 
-  const computeDiff = (newer: VersionInfo, older: VersionInfo): VersionDiff => {
-    const newerSteps = new Set((newer.steps || []).map(s => s.label || s.type));
-    const olderSteps = new Set((older.steps || []).map(s => s.label || s.type));
-    const addedSteps = [...newerSteps].filter(s => !olderSteps.has(s));
-    const removedSteps = [...olderSteps].filter(s => !newerSteps.has(s));
-    return {
-      addedSteps,
-      removedSteps,
-      addedConns: (newer.connections?.length || 0) - (older.connections?.length || 0),
-      removedConns: Math.max(0, (older.connections?.length || 0) - (newer.connections?.length || 0)),
-    };
-  };
-
   // N4 — per-pipeline recent run statuses, keyed by workflow id.
   // Fetched once per pipelines load via /api/monitor/recent-statuses;
   // empty arrays for pipelines we couldn't get statuses for so the
@@ -1823,11 +2003,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const fetchPipelines = async () => {
     setLoading(true);
     try {
-      const params: { project_id?: string } = {};
-      if (projectId) params.project_id = projectId;
-      const list = await api.listWorkflows(params);
+      // The whole list, always: the panel counts every project and folder,
+      // and moving between them filters this list instead of asking again.
+      const list = await api.listWorkflows();
       const safeList = Array.isArray(list) ? list : [];
-      setPipelines(safeList);
+      setAllPipelines(safeList);
       // Fire the recent-statuses lookup in the background — the row
       // renders without it, the sparkline fills in when the fetch
       // returns. Limit to 14 (~ two weeks of daily runs).
@@ -1841,22 +2021,62 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         setRecentStatuses({});
       }
     } catch {
-      setPipelines([]);
+      setAllPipelines([]);
     }
     setLoading(false);
   };
 
-  useEffect(() => { fetchPipelines(); }, [projectId]);
+  useEffect(() => { fetchPipelines(); }, []);
 
-  // Load the project list once for the workflow-table Project filter
-  // dropdown. Falls back to an empty list silently — the dropdown then
-  // only shows "All projects" + whatever project_ids appear on the
-  // pipelines themselves (computed below).
+  // The address holds the panel's choice: follow it when it changes (a
+  // click in the panel, Back, a link from elsewhere in the app).
   useEffect(() => {
-    api.listProjects()
-      .then((p) => setProjectsList(Array.isArray(p) ? p.map((x: any) => ({ id: x.id, name: x.name || x.id })) : []))
-      .catch(() => setProjectsList([]));
+    const onHash = () => {
+      if (readCurrentPage() !== 'pipelines') return;
+      const next = scopeFromQuery(readHashQuery());
+      setScope((cur) => (sameScope(cur, next) ? cur : next));
+      setHashTick((t) => t + 1);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Put a carried-over project in the address on arrival, so a reload keeps it.
+  useEffect(() => {
+    const query = readHashQuery();
+    if (!queryHasScope(query) && scope.kind !== 'all') replaceScopeInAddress(scope);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Tell the rest of the app which project is being looked at: Executions,
+  // Connections, Credentials and Storage filter by it and say so in their
+  // blue project bar.
+  useEffect(() => {
+    const pid = scopeProjectId(scope);
+    const name = pid ? (projects.find((p) => p.id === pid)?.name || '') : '';
+    if (pid && !name && !projectsLoaded) return;
+    onScopeChange?.(pid, name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, projects, projectsLoaded]);
+
+  // A link can name a project or folder that is gone (deleted, archived, or
+  // outside this user's access). Fall back to the nearest place that exists.
+  useEffect(() => {
+    if (!projectsLoaded) return;
+    const fixed = validScope(scope, scopeCtx);
+    if (!sameScope(fixed, scope)) {
+      replaceScopeInAddress(fixed);
+      setScope(fixed);
+    }
+  }, [scope, scopeCtx, projectsLoaded]);
+
+  const selectScope = (next: PipelineScope) => {
+    setExplorerOpen(false);
+    // From a pipeline's tab, any place in the panel goes back to the list.
+    if (sameScope(next, scope) && !overviewId) return;
+    setSelectedIds(new Set());
+    navigateWithQuery('pipelines', scopeToQuery(next));
+  };
 
   // Publish page context for the AI Copilot — lets the agent answer
   // page-specific questions ("which are failing?", "what's deployed?")
@@ -1865,7 +2085,19 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     page: 'pipelines.list',
     visible_ids: pipelines.map((p) => p.id),
     selected_ids: Array.from(selectedIds),
-    filters: { status: statusFilter, search: searchQuery, tag: tagFilter },
+    filters: {
+      status: statusFilter,
+      search: searchQuery,
+      tag: tagFilter,
+      // Which project or folder the panel is showing, so a question such as
+      // "what is failing here?" is answered for this place, not the workspace.
+      project: scopeProjectId(scope),
+      project_name: scopeProjectId(scope) ? projects.find((p) => p.id === scopeProjectId(scope))?.name || null : null,
+      folder: scopeFolderId(scope),
+      folder_name: scopeFolderId(scope)
+        ? (foldersByProject[scopeProjectId(scope) || ''] || []).find((f) => f.id === scopeFolderId(scope))?.name || null
+        : null,
+    },
     environment: environment as 'dev' | 'prod' | undefined,
     visible_items: pipelines.map((p) => ({
       id: p.id,
@@ -1940,26 +2172,95 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const handleOpen = async (id: string) => {
     try {
       const data = await api.getWorkflow(id);
-      loadWorkflow(data);
-      onOpenEditor();
+      // Its own tab. A pipeline open already comes forward as it is, unsaved
+      // edits and all.
+      if (!useWorkflowStore.getState().openInEditor(data)) return;
+      navigateToSubRoute('editor', id);
     } catch (err: any) {
       toast.error('Failed to open pipeline', err.message);
     }
   };
 
-  const handleShowDetail = async (pipeline: Pipeline) => {
-    setDetailPipeline(pipeline);
+  // A pipeline shown in full (`#pipelines/<id>`: a row, its tab, a link from
+  // a notification or the Copilot) has a tab on this page. Read what the page
+  // shows of it, and give it its tab if it has none yet.
+  useEffect(() => {
+    setDetailData(null);
+    if (!overviewId || !overviewTabId) return;
+    let cancelled = false;
     setDetailLoading(true);
-    try {
-      const data = await api.getWorkflow(pipeline.id);
-      // Unwrap: API returns { version, workflow: { steps, connections, ... } }
-      const wf = data?.workflow || data;
-      setDetailData(wf);
-    } catch {
-      setDetailData(null);
+    (async () => {
+      try {
+        const data = await api.getWorkflow(overviewId);
+        // A published pipeline with a draft beside it: this page shows what is
+        // live. The draft is in the Editor and in Versions.
+        const shown = !overviewVersion && data?.has_unpublished_changes && data?.published_version
+          ? await api.getWorkflowVersion(overviewId, data.published_version)
+          : data;
+        if (cancelled) return;
+        // Unwrap: API returns { version, workflow: { steps, connections, ... } }
+        const wf = data?.workflow || data;
+        setDetailData(shown?.workflow || shown);
+        // Looking at it does not put it in the Editor; Edit in Editor does.
+        const label = overviewVersion ? `${wf?.name || 'Pipeline'} · v${overviewVersion}` : wf?.name || 'Pipeline';
+        if (!usePipelineViewTabs.getState().open(overviewTabId, label)) {
+          // Ten are open, and the store has said so: back to the list.
+          history.replaceState(null, '', listAddress(null));
+          setHashTick((t) => t + 1);
+        }
+      } catch {
+        if (cancelled) return;
+        usePipelineViewTabs.getState().close(overviewTabId);
+        toast.warning('Pipeline not found', 'It may have been deleted, or it is outside your access.');
+        history.replaceState(null, '', listAddress(null));
+        setHashTick((t) => t + 1);
+      } finally {
+        if (!cancelled) setDetailLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overviewTabId, overviewLiveChanged]);
+
+  // The list's row for the pipeline shown in full: its status, owner and
+  // dates, kept current as the list reloads (after Publish, say).
+  useEffect(() => {
+    setDetailPipeline(overviewId ? (allPipelines.find((p) => p.id === overviewId) || null) : null);
+  }, [overviewId, allPipelines]);
+
+  // A renamed pipeline's tabs follow the new name, its saved versions' too.
+  useEffect(() => {
+    const { tabs, rename } = usePipelineViewTabs.getState();
+    for (const t of tabs) {
+      const [baseId, ver] = t.id.split('~v');
+      const row = allPipelines.find((p) => p.id === baseId);
+      const name = row?.name ? (ver ? `${row.name} · v${ver}` : row.name) : '';
+      if (name && name !== t.name) rename(t.id, name);
     }
-    setDetailLoading(false);
-  };
+  }, [allPipelines]);
+
+  /** The address of the list (no id) or of a pipeline's tab, keeping the
+   *  project or folder picked in the panel, so Home comes back to it. */
+  function listAddress(id: string | null): string {
+    return pipelinesAddress(id);
+  }
+
+  // `?new=project` (global search's New Project) opens the project form.
+  const linkHandled = useRef<string | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const query = readHashQuery();
+    const key = query.new || '';
+    if (linkHandled.current === key) return;
+    linkHandled.current = key;
+    if (query.new === 'project') {
+      if (canManageProjects) setProjectForm({ project: null });
+      else toast.info('Only admins can create projects', 'Ask a workspace admin to create one.');
+      history.replaceState(null, '', listAddress(overviewId));
+      linkHandled.current = '';
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hashTick]);
 
   const handleDelete = (id: string, name: string) => {
     setDeleteModal({ id, name });
@@ -1976,10 +2277,19 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     // restore it on failure.
     const targetId = deleteModal.id;
     const targetName = deleteModal.name;
-    const previousPipelines = pipelines;
-    setPipelines((prev) => prev.filter((p) => p.id !== targetId));
+    const previousPipelines = allPipelines;
+    setAllPipelines((prev) => prev.filter((p) => p.id !== targetId));
     setSelectedIds((prev) => { const next = new Set(prev); next.delete(targetId); return next; });
-    if (detailPipeline?.id === targetId) { setDetailPipeline(null); setDetailData(null); }
+    // Its tabs close too (the Editor's only if it holds no unsaved edits),
+    // and the page goes back to the list if it was showing it.
+    {
+      const st = useWorkflowStore.getState();
+      const tab = findPipelineTab(st, targetId);
+      if (tab && !describeTab(tab, st).isDirty) st.closeTab(tab.key);
+      const views = usePipelineViewTabs.getState();
+      for (const t of views.tabs) if (t.id === targetId || t.id.startsWith(`${targetId}~v`)) views.close(t.id);
+    }
+    if (overviewId === targetId) window.location.hash = listAddress(null);
     setDeleteModal(null);
     try {
       await api.deleteWorkflow(targetId);
@@ -1987,7 +2297,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       void loadBin();
     } catch (err: any) {
       // Roll back the optimistic delete if the server refused.
-      setPipelines(previousPipelines);
+      setAllPipelines(previousPipelines);
       toast.error('Delete failed', err.message);
     }
   };
@@ -2000,15 +2310,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     // splicing the row out.
     const targetId = deleteModal.id;
     const targetName = deleteModal.name;
-    const previousPipelines = pipelines;
-    setPipelines((prev) => prev.map((p) => p.id === targetId ? { ...p, status: 'archived' } : p));
-    if (detailPipeline?.id === targetId) { setDetailPipeline(null); setDetailData(null); }
+    const previousPipelines = allPipelines;
+    setAllPipelines((prev) => prev.map((p) => p.id === targetId ? { ...p, status: 'archived' } : p));
     setDeleteModal(null);
     try {
       await api.archiveWorkflow(targetId);
       toast.success('Pipeline archived', `"${targetName}" moved to Archived`);
     } catch (err: any) {
-      setPipelines(previousPipelines);
+      setAllPipelines(previousPipelines);
       toast.error('Archive failed', err.message);
     }
   };
@@ -2262,8 +2571,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         workflow_ids: [pipelineId],
         folder_id: targetFolderId,
       });
-      const projectName = projectsList.find(pr => pr.id === targetProjectId)?.name || targetProjectId;
-      const folderName = targetFolderId ? folders.find(f => f.id === targetFolderId)?.name : null;
+      const projectName = projects.find(pr => pr.id === targetProjectId)?.name || targetProjectId;
+      const folderName = targetFolderId ? (foldersByProject[targetProjectId] || []).find(f => f.id === targetFolderId)?.name : null;
       const dest = folderName ? `${projectName} / ${folderName}` : projectName;
       toast.success('Pipeline moved', `"${pipelineName}" → ${dest}`);
       fetchPipelines();
@@ -2288,8 +2597,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     // export shows human-readable values, not opaque IDs. Falls back
     // to the raw id if a project/folder reference can't be resolved
     // (e.g. orphan pipeline whose project was deleted).
-    const folderById = new Map(folders.map((f) => [f.id, f.name] as const));
-    const projectById = new Map(projectsList.map((p) => [p.id, p.name] as const));
+    const folderById = new Map(Object.values(foldersByProject).flat().map((f) => [f.id, f.name] as const));
+    const projectById = new Map([...projects, ...archivedProjects].map((p) => [p.id, p.name] as const));
     const data = pipelines.map((p) => {
       const projectId = (p as any).project_id || '';
       const folderId = (p as any).folder_id || '';
@@ -2373,8 +2682,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     try {
       const schedules = await api.listSchedules();
       const header = 'Pipeline,Schedule,Timezone,Enabled,Created';
+      const nameOfPipeline = (id: string) => pipelines.find((x) => x.id === id)?.name;
       const rows = (schedules || []).map((s: any) =>
-        `"${s.name || s.workflow_id}","${s.cron_expression || ''}","${s.timezone || 'UTC'}","${s.enabled}","${s.created_at || ''}"`
+        `"${s.name || s.workflow_id}","${(isEventTrigger(s) ? describeEventTrigger(s, nameOfPipeline) : s.cron_expression || '').replace(/"/g, '""')}","${s.timezone || 'UTC'}","${s.enabled}","${s.created_at || ''}"`
       );
       downloadFile([header, ...rows].join('\n'), 'schedules.csv');
       toast.success('Exported', 'Schedules (CSV)');
@@ -2683,52 +2993,32 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       setPublishTarget({ id, name: pipeline?.name || 'Pipeline' });
       return;
     }
-    // Revoke pulls a published pipeline back to draft. Confirm first
-    // — we also pause any enabled schedules for this pipeline so the
-    // operator sees them as paused in the table (matching the gate
-    // that only published pipelines can be scheduled). The executor's
-    // draft-gate already halts them at run time, but a paused-flag
-    // makes the state visible instead of silently inert.
+    // Unpublish pulls a published pipeline back to draft, and the server
+    // pauses its schedules. It is the deliberate step that has to come before
+    // a published pipeline can be deleted or archived.
     if (action === 'revoke') {
       const pipeline = pipelines.find((p) => p.id === id);
       const hasSchedule = !!scheduleMap[id];
       if (!await uiConfirm({
-        title: `Revoke "${pipeline?.name || 'Pipeline'}"?`,
-        message: hasSchedule
-          ? 'The pipeline will move back to draft and any active schedules will be paused. You can re-publish to resume scheduling. Endpoints on the Triggers page keep running it until you turn them off.'
-          : 'The pipeline will move back to draft. Endpoints on the Triggers page keep running it until you turn them off.',
-        confirmLabel: 'Revoke',
+        title: `Unpublish "${pipeline?.name || 'Pipeline'}"?`,
+        message: `${hasSchedule
+          ? 'It goes back to draft and its schedules are paused. Publish it again to resume them.'
+          : 'It goes back to draft.'} Once it is a draft it can be archived or deleted. Endpoints on the Triggers page keep running it until you turn them off.`,
+        confirmLabel: 'Unpublish',
         destructive: true,
       })) return;
     }
     setLifecycleLoading((prev) => ({ ...prev, [id]: action }));
     try {
       if (action === 'test') await api.testWorkflow(id);
-      else if (action === 'revoke') {
-        await api.revokeWorkflow(id);
-        // Pause any enabled schedules for this pipeline. We fetch
-        // fresh (rather than relying on scheduleMap) in case there
-        // are multiple schedules per workflow — listSchedules with
-        // workflow_id is the canonical source. Errors here don't
-        // block the revoke; the executor still halts execution at
-        // the draft-gate, but the schedule row will look "active"
-        // in the table until the next refresh.
-        try {
-          const schedules = await api.listSchedules({ workflow_id: id });
-          const enabled = (schedules || []).filter((s: any) => s.enabled);
-          if (enabled.length > 0) {
-            await Promise.all(enabled.map((s: any) => api.toggleSchedule(s.id)));
-          }
-        } catch (e) {
-          // Non-fatal — log only.
-          console.warn('Could not pause schedules after revoke:', e);
-        }
-      }
+      else if (action === 'revoke') await api.revokeWorkflow(id);
       else if (action === 'archive') await api.archiveWorkflow(id);
       else if (action === 'restore') await api.restoreWorkflow(id);
       if (action === 'restore') toast.success('Pipeline restored', 'It is back in Draft.');
+      else if (action === 'revoke') toast.success('Pipeline unpublished', 'It is a draft again.');
       else toast.success(`Pipeline ${action} successful`);
       fetchPipelines();
+      if (action === 'revoke') setOverviewLiveChanged((n) => n + 1);
       // Re-fetch schedules so the table cell shows the paused state
       // (or hides the chip entirely, since scheduleMap filters on
       // `enabled`). The existing useEffect re-runs on `quickSchedule`
@@ -2743,13 +3033,33 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         });
       }
     } catch (err: any) {
-      toast.error(`${action} failed`, err.message);
+      toast.error(`${action === 'revoke' ? 'Unpublish' : action} failed`, err.message);
     }
     setLifecycleLoading((prev) => {
       const next = { ...prev };
       delete next[id];
       return next;
     });
+  };
+
+  // Throw away saved changes that were never published. What is live stays as
+  // it is, and the draft stays in Versions.
+  const handleDiscardDraft = async (id: string, name: string, live?: number | null) => {
+    if (!await uiConfirm({
+      title: `Discard the draft of "${name}"?`,
+      message: `The pipeline goes back to ${live ? `version ${live}` : 'the published version'}. The draft stays in Versions if you want it later.`,
+      confirmLabel: 'Discard draft',
+      destructive: true,
+    })) return;
+    try {
+      await api.discardDraft(id);
+      toast.success('Draft discarded', `Back to ${live ? `version ${live}` : 'the published version'}.`);
+      fetchPipelines();
+      setOverviewLiveChanged((n) => n + 1);
+      setVersionsRefresh((n) => n + 1);
+    } catch (err: any) {
+      toast.error('Could not discard the draft', err.message);
+    }
   };
 
   // Activate / Deactivate — three behaviors per Free vs Plus + DEV vs PROD matrix.
@@ -2870,65 +3180,84 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   };
 
   const handleNewPipeline = () => {
-    // #1 — Templates-first landing. Reset the workflow store so the
-    // canvas state from any previously-loaded pipeline is gone, then
-    // land on the Templates gallery instead of the blank Editor. The
-    // gallery's "Blank canvas" button still routes to the Editor for
-    // users who really want a blank pipeline; everyone else picks a
-    // template card. The store reset has to happen here (not in the
-    // Templates page) because once we're on Templates the workflow
-    // store is no longer authoritative for the canvas.
-    useWorkflowStore.setState({
-      nodes: [],
-      edges: [],
-      workflowId: null,
-      workflowName: 'Untitled Pipeline',
-      version: 0,
-      // A new pipeline is an unsaved draft, whatever was open before it. Keeping
-      // the old status showed the "Published pipeline" banner on a blank canvas.
-      status: 'draft',
-      parameters: [],
-      pastRunId: null,
-      isDirty: false,
-      selectedNodeId: null,
-      stepResults: {},
-      // Reset to empty so ChatPanel's structured empty-state (3 clickable
-      // prompts) renders for "New Pipeline" the same way it does on first
-      // load. A seeded welcome message would override that.
-      chatMessages: [],
-    });
+    // #1 — Templates-first landing. The new pipeline gets an empty canvas of
+    // its own (the empty tab, or a new one), so the pipelines already open
+    // stay open; the Templates gallery then fills it from a card, or its
+    // "Blank canvas" button hands it on blank. Save puts the new pipeline
+    // where the user is looking: this project, and this folder when one is
+    // picked.
+    if (!useWorkflowStore.getState().newTab({ projectId: scopeProjectId(scope), folderId: scopeFolderId(scope) })) return;
+    // Reset to empty so ChatPanel's structured empty-state (3 clickable
+    // prompts) renders for "New Pipeline" the same way it does on first
+    // load. A seeded welcome message would override that.
+    useWorkflowStore.setState({ chatMessages: [] });
     navigateTo('templates');
   };
 
-  // Create a folder at the project root. Pipelines inside the current
-  // project can then be assigned to this folder via the Move action.
-  // We deliberately keep this to "root of project" — sub-folders are
-  // managed from the Projects → Tree view, where the visual hierarchy
-  // makes the parent context obvious.
-  const handleNewFolder = async () => {
-    if (!projectId) {
-      toast.warning('Open a project first', 'Folders live inside a project — pick one from the Projects page.');
-      return;
+  // ── Projects and folders, from the panel ──
+  // The address holds the panel's choice; replace it without adding a Back
+  // step (used when a link is corrected or a carried-over project is written).
+  function replaceScopeInAddress(next: PipelineScope) {
+    const rest: Record<string, string> = {};
+    for (const [k, v] of Object.entries(readHashQuery())) {
+      if (k !== 'project' && k !== 'folder' && k !== 'view' && v) rest[k] = v;
     }
+    for (const [k, v] of Object.entries(scopeToQuery(next))) if (v) rest[k] = v;
+    const sub = readSubRoute();
+    const qs = new URLSearchParams(rest).toString();
+    history.replaceState(null, '', `#pipelines${sub ? `/${sub}` : ''}${qs ? `?${qs}` : ''}`);
+  }
+
+  // Folders are one level deep: a project holds folders, a folder holds
+  // pipelines. A new folder goes at the top of its project.
+  const handleNewFolder = async (targetProjectId: string) => {
+    const project = projects.find((p) => p.id === targetProjectId);
     const name = await uiPrompt({
       title: 'New folder',
-      message: `Create a folder inside "${projectName || 'this project'}".`,
+      message: `Create a folder inside "${project?.name || 'this project'}". Folders group pipelines by purpose, such as Ingestion or Reports.`,
       placeholder: 'e.g. Ingestion, Reports, Archive',
       confirmLabel: 'Create folder',
     });
     if (!name || !name.trim()) return;
     try {
-      await api.createFolder({
-        name: name.trim(),
-        project_id: projectId,
-        parent_folder_id: null,
-      });
+      await api.createFolder({ name: name.trim(), project_id: targetProjectId, parent_folder_id: null });
       toast.success('Folder created', name.trim());
-      // Refresh so the new folder shows up in the folder strip + drawers.
-      // Re-uses the same effect that loads on mount via a tick of state.
-      setFolderRefreshTick((t) => t + 1);
+      await reloadFolders(targetProjectId);
     } catch (err: any) {
       toast.error('Could not create folder', err?.message || 'Try again');
+    }
+  };
+
+  // Asks the server what is inside first: pipelines in the folder go to the
+  // Bin, and a published one blocks the delete (see utils/folderDelete).
+  const handleDeleteFolder = async (folder: ExplorerFolder) => {
+    const deleted = await runFolderDelete(folder, {
+      previewDelete: api.previewFolderDelete,
+      deleteFolder: api.deleteFolder,
+      confirm: uiConfirm,
+      notify: uiAlert,
+      toast,
+    });
+    if (!deleted) return;
+    if (scope.kind === 'folder' && scope.folderId === folder.id) {
+      selectScope({ kind: 'project', projectId: folder.project_id });
+    }
+    await Promise.all([reloadFolders(folder.project_id), fetchPipelines()]);
+    void loadBin();
+  };
+
+  const handleArchiveProject = async (pid: string) => {
+    const project = projects.find((p) => p.id === pid);
+    if (!project) return;
+    const ok = await uiConfirm({
+      title: `Archive "${project.name}"?`,
+      message: 'The project leaves this list until someone restores it from Archived projects. Its pipelines, connections and credentials stay as they are, and its schedules keep running.',
+      confirmLabel: 'Archive',
+    });
+    if (!ok) return;
+    if (await archiveProject(project)) {
+      if (scopeProjectId(scope) === pid) selectScope(ALL_SCOPE);
+      await loadProjects();
     }
   };
 
@@ -2963,101 +3292,37 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const confirmBulkDelete = async () => {
     let deleted = 0;
     let failed = 0;
+    let firstReason = '';
     for (const id of selectedIds) {
       try {
         await api.deleteWorkflow(id);
         deleted += 1;
-      } catch {
+      } catch (err: any) {
         failed += 1;
+        firstReason = firstReason || err?.message || '';
       }
     }
     setSelectedIds(new Set());
+    // Published pipelines are refused, so say why rather than just how many.
+    const why = firstReason ? ` ${firstReason}` : '';
     if (failed === 0) {
       toast.success(
         'Moved to the Bin',
         `${deleted} pipeline${deleted === 1 ? '' : 's'} — restore ${deleted === 1 ? 'it' : 'them'} from the Bin tab`,
       );
     } else if (deleted === 0) {
-      toast.error('Delete failed', `${failed} pipeline${failed === 1 ? '' : 's'} could not be deleted`);
+      toast.error('Delete failed', `${failed} pipeline${failed === 1 ? '' : 's'} could not be deleted.${why}`);
     } else {
-      toast.error('Partly deleted', `${deleted} moved to the Bin, ${failed} could not be deleted`);
+      toast.error('Partly deleted', `${deleted} moved to the Bin, ${failed} could not be deleted.${why}`);
     }
     fetchPipelines();
     void loadBin();
     setDeleteModal(null);
   };
 
-  // Opened from a row's "more" menu (Version history) or the details drawer.
-  const openHistory = async (id: string, name: string) => {
-    setHistoryPipelineId(id);
-    setHistoryPipelineName(name);
-    setCompareIdx(null);
-    setVersionsLoading(true);
-    try {
-      const v = await api.getWorkflowVersions(id);
-      setVersions(Array.isArray(v) ? v.reverse() : []);
-    } catch (err: any) {
-      setVersions([]);
-      toast.error('Could not load the version history', err?.message || String(err));
-    }
-    setVersionsLoading(false);
-  };
-
-  // Restore saves an earlier version again as the newest one. The versions
-  // after it are kept, so a restore can be undone from the same panel.
-  // Schedules, endpoints and other pipelines run the newest saved version, so
-  // the restore is live from their next run: on a published pipeline that is
-  // production, hence the confirm.
-  const restoreVersion = async (version: number) => {
-    const id = historyPipelineId;
-    if (!id) return;
-    const live = normalizeStatus(pipelines.find(pp => pp.id === id)?.status) === 'published';
-    const ok = await uiConfirm({
-      title: `Restore version ${version}?`,
-      message:
-        `Version ${version} of "${historyPipelineName}" will be saved as the newest version. ` +
-        'The versions after it are kept, so you can switch back. ' +
-        (live
-          ? 'This pipeline is published, so its schedules and endpoints run the restored version from their next run.'
-          : 'Anything that runs this pipeline, such as an endpoint or another pipeline, uses the restored version from its next run.'),
-      confirmLabel: 'Restore',
-    });
-    if (!ok) return;
-    setRestoringVersion(version);
-    try {
-      const data = await api.getWorkflowVersion(id, version);
-      if (!data?.workflow) throw new Error(`Version ${version} could not be read.`);
-      const saved = await api.updateWorkflow(id, data.workflow, `Restored to version ${version}`);
-      if (saved?.unchanged) {
-        toast.info('Nothing to restore', `Version ${version} is the same as the current version.`);
-      } else {
-        toast.success(
-          `Version ${version} restored`,
-          `Saved as version ${saved?.version}.${live ? ' Schedules and endpoints use it from their next run.' : ''}`,
-        );
-        // The editor keeps the last pipeline it opened. Bring it up to date,
-        // unless it holds edits nobody has saved: a reload would lose them.
-        const editor = useWorkflowStore.getState();
-        if (editor.workflowId === id) {
-          if (editor.isDirty) {
-            toast.warning(
-              'The editor has unsaved changes to this pipeline',
-              'Saving them there will replace the version you just restored.',
-            );
-          } else if (!editor.pastRunId) {
-            loadWorkflow(await api.getWorkflow(id));
-          }
-        }
-      }
-      fetchPipelines();
-      const v = await api.getWorkflowVersions(id);
-      setVersions(Array.isArray(v) ? v.reverse() : []);
-      setCompareIdx(null);
-    } catch (err: any) {
-      toast.error('Restore failed', err?.message || String(err));
-    }
-    setRestoringVersion(null);
-  };
+  // Version history lives in each pipeline's tab (Versions), not here: see
+  // components/pipelines/PipelineVersions.tsx. Restore puts an older version
+  // in the Editor as unsaved changes; nothing changes until Save.
 
   const handleSort = (col: 'name' | 'updated_at' | 'status') => {
     if (sortBy === col) {
@@ -3081,7 +3346,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   // either the id or the human name a user is more likely to type.
   const projectNameById = (() => {
     const m = new Map<string, string>();
-    for (const p of projectsList) m.set(p.id, p.name);
+    for (const p of [...projects, ...archivedProjects]) m.set(p.id, p.name);
     return m;
   })();
 
@@ -3107,7 +3372,6 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
   const filtered = pipelines
     .filter(matchesSearch)
     .filter((p) => statusFilter === 'all' || normalizeStatus(p.status) === statusFilter)
-    .filter((p) => projectFilter === 'all' || ((p as any).project_id || 'default') === projectFilter)
     .filter((p) => !tagFilter || getTagsForPipeline(p.id).includes(tagFilter))
     .sort((a, b) => {
       let cmp = 0;
@@ -3190,7 +3454,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           name: 'schedule',
           label: 'Schedule configured',
           status: 'pass',
-          detail: `${activeSchedules.length} active schedule(s): ${activeSchedules.map((s: any) => s.cron_expression).join(', ')}`,
+          detail: `${activeSchedules.length} active schedule(s): ${activeSchedules.map((s: any) => (
+            isEventTrigger(s) ? describeEventTrigger(s, (id: string) => pipelines.find((x) => x.id === id)?.name) : s.cron_expression
+          )).join(', ')}`,
         });
       } else {
         enrichedChecks.push({
@@ -3905,7 +4171,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                             return {
                               label: 'Run Pipeline',
                               icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
-                              onClick: () => { setPreDeployDialog(null); setPreDeployChecks(null); onOpenEditor?.(); },
+                              onClick: () => { const id = preDeployDialog!.id; setPreDeployDialog(null); setPreDeployChecks(null); void handleOpen(id); },
                             };
                           case 'schedule':
                             return {
@@ -3924,7 +4190,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               label: check.status === 'fail' ? 'Open Editor' : 'Map Connections',
                               icon: <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>,
                               onClick: () => {
-                                if (check.status === 'fail') { setPreDeployDialog(null); setPreDeployChecks(null); onOpenEditor?.(); }
+                                if (check.status === 'fail') { const id = preDeployDialog!.id; setPreDeployDialog(null); setPreDeployChecks(null); void handleOpen(id); }
                                 else { navigateTo('connections'); }
                               },
                             };
@@ -4257,6 +4523,432 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
     );
   }
 
+  // ── The project panel, and the line above the list that says where it is ──
+  const explorerProps = {
+    projects,
+    foldersByProject,
+    counts: scopeCounts,
+    scope,
+    onSelect: selectScope,
+    archivedCount: archivedProjects.length,
+    onShowArchived: () => setShowArchivedProjects(true),
+    canManageProjects,
+    canEditFolders: canEdit,
+    onNewProject: () => setProjectForm({ project: null }),
+    onEditProject: (pid: string) => {
+      const p = projects.find((x) => x.id === pid);
+      if (p) setProjectForm({ project: p });
+    },
+    onExportProject: (pid: string) => {
+      const p = projects.find((x) => x.id === pid);
+      if (p) void exportProjectBundle(p);
+    },
+    onArchiveProject: (pid: string) => { void handleArchiveProject(pid); },
+    onNewFolder: (pid: string) => { void handleNewFolder(pid); },
+    onDeleteFolder: (f: ExplorerFolder) => { void handleDeleteFolder(f); },
+    loading: !projectsLoaded,
+  };
+  // The Project column is only worth its width when the list spans projects.
+  const showProjectColumn = scope.kind === 'all' || scope.kind === 'unassigned';
+  const scopeProject = (() => {
+    const pid = scopeProjectId(scope);
+    return pid ? projects.find((p) => p.id === pid) || null : null;
+  })();
+  const scopeFolder = (() => {
+    const fid = scopeFolderId(scope);
+    return fid && scopeProject ? (foldersByProject[scopeProject.id] || []).find((f) => f.id === fid) || null : null;
+  })();
+  const scopeTitle = scope.kind === 'all'
+    ? 'All projects'
+    : scope.kind === 'unassigned'
+      ? 'Unassigned'
+      : `${scopeProject?.name || 'Project'}${scope.kind === 'folder' ? ` / ${scopeFolder?.name || 'Folder'}` : scope.kind === 'unfiled' ? ' / Not in a folder' : ''}`;
+  const scopeMeta = (() => {
+    const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    if (scope.kind === 'all') return `${plural(projects.length, 'project')} · ${plural(allPipelines.length, 'pipeline')}`;
+    if (scope.kind === 'unassigned') return 'Pipelines whose project is archived, deleted or outside your access. Use Move on a row to put one in a project.';
+    const bits = [plural(pipelines.length, 'pipeline')];
+    if (scope.kind === 'project' && scopeProject) {
+      bits.push(plural((foldersByProject[scopeProject.id] || []).length, 'folder'));
+      const owner = scopeProject.owner || scopeProject.created_by;
+      if (owner) bits.unshift(`Owner: ${owner}`);
+    }
+    return bits.join(' · ');
+  })();
+  const scopeBar = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mb-3">
+      <button
+        type="button"
+        onClick={() => setExplorerOpen(true)}
+        className="lg:hidden inline-flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+        aria-label="Show projects and folders"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+        </svg>
+        Projects
+      </button>
+      <h2 className="text-base font-bold text-slate-800 truncate max-w-full" title={scopeProject?.description || scopeTitle}>{scopeTitle}</h2>
+      <span className="text-xs text-slate-500">{scopeMeta}</span>
+      {scopeProject && (
+        <div className="ml-auto flex items-center gap-1.5">
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => void handleNewFolder(scopeProject.id)}
+              className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              + Folder
+            </button>
+          )}
+          {canManageProjects && (
+            <button
+              type="button"
+              onClick={() => setProjectForm({ project: scopeProject })}
+              className="px-2.5 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+            >
+              Edit project
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  // ── A pipeline shown in full, in its tab (`#pipelines/<id>`) ──
+  // What the side drawer used to show, with the whole page to show it in.
+  // Edit in Editor opens its canvas, in one of the Editor's own tabs.
+  const ov: any = detailPipeline || (overviewId && detailData
+    ? { id: overviewId, name: detailData.name || 'Pipeline', status: detailData.status || 'draft', project_id: detailData.project_id, folder_id: detailData.folder_id }
+    : null);
+  const ovProjectId: string | null = ov ? (ov.project_id || 'default') : null;
+  const ovProjectName = ovProjectId
+    ? (projects.find((p) => p.id === ovProjectId)?.name || (ovProjectId === 'default' ? 'Default' : ovProjectId))
+    : '';
+  const ovFolderName = ov?.folder_id && ovProjectId
+    ? ((foldersByProject[ovProjectId] || []).find((f) => f.id === ov.folder_id)?.name || '')
+    : '';
+  const ovButton = 'px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1';
+  const ovSubView: 'overview' | 'versions' = (ov && pipelineView[ov.id]) || 'overview';
+  const ovCanEdit = canEdit && normalizeStatus(ov?.status) !== 'archived';
+  // A saved version, read-only, in a tab of its own (`#pipelines/<id>~v<N>`).
+  const versionTabView = !ov || overviewVersion === null ? null : (
+    <div className="h-full min-h-[560px] flex flex-col" data-testid="pipeline-tab-view">
+      <VersionReadOnly
+        pipelineId={ov.id}
+        pipelineName={ov.name}
+        version={overviewVersion}
+        projectId={ov.project_id && ov.project_id !== 'default' ? ov.project_id : null}
+        folderId={ov.folder_id || null}
+        canEdit={ovCanEdit}
+        onCompare={(v) => {
+          setVersionsFrom((m) => ({ ...m, [ov.id]: v }));
+          setPipelineView((m) => ({ ...m, [ov.id]: 'versions' }));
+          window.location.hash = listAddress(ov.id);
+        }}
+        onChanged={() => { fetchPipelines(); setVersionsRefresh((n) => n + 1); }}
+      />
+    </div>
+  );
+  const overviewView = !overviewId ? null : !ov ? (
+    <div className="h-full flex items-center justify-center" data-testid="pipeline-tab-view">
+      <div className="w-6 h-6 border-2 border-pipe-300 border-t-transparent rounded-full animate-spin" />
+    </div>
+  ) : versionTabView ? versionTabView : (
+    <div className="h-full min-h-[560px] flex flex-col" data-testid="pipeline-tab-view">
+      {/* What it is, where it lives, and what can be done with it. */}
+      <div className="px-6 pt-5 pb-4 flex flex-wrap items-start gap-x-6 gap-y-3 bg-white border-b border-slate-200">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm shrink-0" style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" aria-hidden="true">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold text-slate-800 truncate" title={ov.name}>{ov.name}</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+              <span className="font-mono">{String(ov.id).slice(0, 8)}</span>
+              <span aria-hidden="true">·</span>
+              <span>{detailData?.steps?.length ?? ov.steps?.length ?? ov.steps_count ?? 0} steps</span>
+              <span aria-hidden="true">·</span>
+              {statusBadge(ov.status)}
+              <span aria-hidden="true">·</span>
+              <span title="Project and folder">{ovProjectName}{ovFolderName ? ` / ${ovFolderName}` : ''}</span>
+              <span aria-hidden="true">·</span>
+              <span>Created {ov.created_at ? new Date(ov.created_at).toLocaleDateString() : '—'}{ov.owner_name ? ` by ${ov.owner_name}` : ov.owner_id ? ` by ${ov.owner_id}` : ''}</span>
+              {ov.updated_at && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>Modified <TimeAgo value={ov.updated_at} className="!text-slate-500" /></span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {normalizeStatus(ov.status) === 'draft' && (
+            <button
+              onClick={() => handleLifecycleAction(ov.id, 'publish')}
+              className={`${ovButton} text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+              Publish
+            </button>
+          )}
+          {tier === 'plus' && normalizeStatus(ov.status) === 'published' && (
+            <button
+              onClick={() => handleSubmitForReview(ov.id, ov.name)}
+              className={`${ovButton} text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100`}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>
+              Submit for Deploy
+            </button>
+          )}
+          {ovCanEdit && normalizeStatus(ov.status) === 'published' && ov.has_unpublished_changes && (
+            <>
+              <button
+                onClick={() => handleLifecycleAction(ov.id, 'publish')}
+                className={`${ovButton} text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100`}
+                title="Test the saved changes and put them live"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+                Publish changes
+              </button>
+              <button
+                onClick={() => void handleDiscardDraft(ov.id, ov.name, ov.published_version)}
+                className={`${ovButton} text-slate-700 bg-white border border-slate-300 hover:bg-slate-50`}
+                title="Throw away the saved changes and go back to what is live"
+              >
+                Discard draft
+              </button>
+            </>
+          )}
+          {ovCanEdit && normalizeStatus(ov.status) === 'published' && (
+            <button
+              onClick={() => handleLifecycleAction(ov.id, 'revoke')}
+              className={`${ovButton} text-slate-700 bg-white border border-slate-300 hover:bg-slate-50`}
+              title="Unpublish — back to draft (pauses its schedules)"
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
+              Unpublish
+            </button>
+          )}
+          <button
+            onClick={() => handleRunPipeline(ov.id, ov.name)}
+            className={`${ovButton} text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100`}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3" /></svg>
+            Run
+          </button>
+          <button
+            onClick={() => handleDuplicate(ov)}
+            className={`${ovButton} text-slate-700 bg-slate-50 border border-slate-200 hover:bg-slate-100`}
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={() => void handleOpen(ov.id)}
+            className="px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1"
+            style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+            Edit in Editor
+          </button>
+        </div>
+        {/* What the tab shows: the pipeline as it is, or its saved versions. */}
+        <div className="basis-full -mb-4 flex gap-1" role="tablist" aria-label="Pipeline">
+          {(['overview', 'versions'] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={ovSubView === v}
+              onClick={() => setPipelineView((m) => ({ ...m, [ov.id]: v }))}
+              className={`px-3 py-2 text-[13px] font-semibold border-b-2 transition-colors ${
+                ovSubView === v ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {v === 'overview' ? 'Overview' : 'Versions'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* What is live, whether a draft waits beside it, and the copy in Git. */}
+      {normalizeStatus(ov.status) === 'published' && (
+        <div className="px-6 py-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 bg-slate-50 border-b border-slate-200" data-testid="published-strip">
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-500" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+            {ov.published_version
+              ? <>Version {ov.published_version} is live and locked. Changes are saved as a draft, and it cannot be deleted until it is unpublished.</>
+              : <>Published and locked. Changes are saved as a draft, and it cannot be deleted until it is unpublished.</>}
+          </span>
+          {ov.has_unpublished_changes && (
+            <span className="inline-flex items-center gap-1.5 font-medium text-amber-800">
+              Saved changes are waiting to be published.
+              <button
+                type="button"
+                onClick={() => setPipelineView((m) => ({ ...m, [ov.id]: 'versions' }))}
+                className="font-semibold underline hover:text-amber-900"
+              >
+                See them in Versions
+              </button>
+            </span>
+          )}
+          <GitCopyStatus pipelineId={ov.id} refreshKey={overviewLiveChanged + (ov.published_version || 0)} canRetry={ovCanEdit} />
+        </div>
+      )}
+      {overviewDirty && (
+        <div className="px-6 py-2 flex items-center gap-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-200">
+          <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+          <span>
+            This pipeline has unsaved changes in the editor.{' '}
+            {ovSubView === 'versions' ? 'The versions here are the saved ones.' : 'The preview shows the saved version.'}
+          </span>
+          <button onClick={() => void handleOpen(ov.id)} className="ml-auto font-semibold underline hover:text-amber-900">
+            Open in Editor
+          </button>
+        </div>
+      )}
+      {ovSubView === 'versions' ? (
+        <PipelineVersions
+          key={ov.id}
+          pipelineId={ov.id}
+          pipelineName={ov.name}
+          projectId={ov.project_id && ov.project_id !== 'default' ? ov.project_id : null}
+          folderId={ov.folder_id || null}
+          canEdit={ovCanEdit}
+          initialFrom={versionsFrom[ov.id]}
+          refreshKey={versionsRefresh}
+          onOpenVersion={(v) => { window.location.hash = listAddress(`${ov.id}~v${v}`); }}
+          onChanged={() => fetchPipelines()}
+        />
+      ) : (
+      <>
+      {/* The saved pipeline, read-only; it shows a run's progress while one is going. */}
+      <div className="flex-1 min-h-[360px] bg-white">
+        {detailLoading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-6 h-6 border-2 border-pipe-300 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : detailData?.steps && detailData.steps.length > 0 ? (
+          (() => {
+            const dpId = ov.id;
+            const isRunning = !!runningPipelines[dpId];
+            const stepRes = pipelineStepResults[dpId];
+            const { nodes: previewNodes, edges: previewEdges } = previewWorkflowToFlow(detailData, isRunning, stepRes);
+            const totalSteps = detailData.steps.length;
+            let completedSteps = 0;
+            let failedSteps = 0;
+            if (stepRes && !stepRes.__all_running) {
+              for (const s of detailData.steps) {
+                const r = stepRes[s.id];
+                if (r?.status === 'success') completedSteps++;
+                else if (r?.status === 'error') failedSteps++;
+              }
+            }
+            const progressPct = totalSteps > 0 ? Math.round(((completedSteps + failedSteps) / totalSteps) * 100) : 0;
+            return (
+              <div className="h-full w-full flex flex-col">
+                {(isRunning || (stepRes && !stepRes.__all_running && Object.keys(stepRes).length > 0)) && (
+                  <div className="px-6 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        {isRunning ? (
+                          <>
+                            <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs font-semibold text-blue-600">Running pipeline...</span>
+                          </>
+                        ) : failedSteps > 0 ? (
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
+                            <span className="text-xs font-semibold text-red-600">Completed with {failedSteps} error(s)</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+                            <span className="text-xs font-semibold text-emerald-600">All steps completed</span>
+                          </>
+                        )}
+                      </div>
+                      <span className="text-xs font-bold text-slate-500">
+                        {isRunning && stepRes?.__all_running ? '0' : progressPct}%
+                        <span className="font-normal text-slate-500 ml-1">({completedSteps}/{totalSteps} steps)</span>
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${
+                          isRunning ? 'bg-blue-500 animate-pulse' :
+                          failedSteps > 0 ? 'bg-red-500' : 'bg-emerald-500'
+                        }`}
+                        style={{ width: `${isRunning && stepRes?.__all_running ? 15 : progressPct}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="flex-1">
+                  {/* At most life size: on a whole page, fitting a small
+                      pipeline to the view blew two nodes up to twice size. */}
+                  <ReactFlow
+                    nodes={previewNodes}
+                    edges={previewEdges}
+                    nodeTypes={nodeTypes}
+                    edgeTypes={edgeTypes}
+                    fitView
+                    fitViewOptions={{ padding: 0.4, maxZoom: 1 }}
+                    proOptions={{ hideAttribution: true }}
+                    nodesDraggable={false}
+                    nodesConnectable={false}
+                    elementsSelectable={false}
+                    panOnDrag={true}
+                    zoomOnScroll={true}
+                    preventScrolling={true}
+                    defaultEdgeOptions={{
+                      type: 'custom' as const,
+                      animated: isRunning,
+                      style: { stroke: '#6366f1', strokeWidth: 2 },
+                      markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#6366f1' },
+                    }}
+                  >
+                    <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e2e8f0" />
+                  </ReactFlow>
+                </div>
+              </div>
+            );
+          })()
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="mb-2 flex justify-center text-slate-500">
+                <Icon name="list" size={32} strokeWidth={1.5} />
+              </div>
+              <p className="text-sm font-medium text-slate-500">No steps in this pipeline</p>
+              <p className="text-xs text-slate-500 mt-1">Open it in the Editor to start building</p>
+              <button
+                onClick={() => void handleOpen(ov.id)}
+                className="mt-4 px-5 py-2 text-xs font-bold text-white rounded-lg shadow-sm"
+                style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
+              >
+                Open in Editor
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      {/* Last run, an estimate, and how to run it safely. */}
+      <div className="px-6 py-4 bg-white border-t border-slate-200">
+        <PreRunBanner
+          workflowId={ov.id}
+          value={preRunMode}
+          onChange={setPreRunMode}
+          pipelineStatus={ov.status}
+        />
+      </div>
+      </>
+      )}
+    </div>
+  );
+
   // ── DEV: Normal Workflows View ──
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-canvas-bg">
@@ -4266,8 +4958,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         drawer. `--fp-drawer-w` is published by the open DetailDrawer
         (only when pushContent=true). Padding-right reflows the list +
         sticky header so the table's rightmost columns aren't clipped. */}
+    {/* 2026-11-10: the header stays put; the project panel and the list
+        beside it scroll on their own. */}
     <div
-      className="flex-1 overflow-auto"
+      className="flex-1 min-w-0 flex flex-col overflow-hidden"
       style={{ paddingRight: 'var(--fp-drawer-w, 0px)', transition: 'padding-right 250ms ease-out' }}
     >
       {/* Header — canonical shared PageHeader shell:
@@ -4365,58 +5059,24 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
         }
       />
 
-      <ProjectContextBar
-        projectId={projectId}
-        projectName={projectName}
-        onGoToProjects={onGoToProjects || (() => {})}
-        onClear={onClearProject || (() => {})}
+      <div className="flex-1 min-h-0 flex">
+      {/* The project panel, on large screens. Narrower screens open the same
+          panel as a drawer from the Projects button above the list. */}
+      <ProjectExplorer
+        className="hidden lg:flex w-64 xl:w-72 shrink-0 border-r border-slate-200"
+        {...explorerProps}
       />
-
-      {/* Folder strip — only renders when this page is project-scoped.
-          Click a folder chip to filter the pipelines table; "All" clears
-          the filter. Empty state nudges the user to create their first
-          folder via the header button. */}
-      {projectId && (
-        <div className="w-full max-w-[1500px] mx-auto px-6 pt-4">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Folders</span>
-            <button
-              onClick={() => setActiveFolderId(null)}
-              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
-                activeFolderId === null
-                  ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              All
-            </button>
-            {folders.length === 0 ? (
-              <span className="text-xs text-slate-500 italic">
-                No folders yet — open the Projects page → Tree view to add one.
-              </span>
-            ) : (
-              folders.map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => setActiveFolderId(f.id)}
-                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors flex items-center gap-1 ${
-                    activeFolderId === f.id
-                      ? 'bg-amber-700 text-white border-amber-500'
-                      : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                  }`}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  </svg>
-                  {f.name}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
+      <div className="flex-1 min-w-0 flex flex-col">
+      {/* Home (the list) and the pipelines opened from it, one tab each:
+          above the content, beside the project panel. Not the Editor's tabs.
+          (PROD returns its own view above, so this is DEV only.) */}
+      <PipelineViewTabs
+        shownId={overviewTabId}
+      />
+      <div className="flex-1 min-h-0 overflow-auto">
+      {overviewId ? overviewView : (
       <div className="w-full max-w-[1500px] mx-auto px-6 py-5">
+        {scopeBar}
         {/* 2026-10-26 — the KPI panel above this table is GONE, not just
             shrunk. It was six HeroCards (260px — a third of the viewport
             below 768px, where the grid stacks 2 × 3), and every figure it
@@ -4577,10 +5237,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
           <div className="bg-white rounded-2xl border border-slate-200 text-center py-16 px-8">
             <div className="text-5xl mb-4">⚡</div>
             <h2 className="text-lg font-bold text-slate-700 mb-2">
-              {searchQuery ? 'No matching workflows' : 'No workflows yet'}
+              {searchQuery ? 'No matching workflows' : scope.kind === 'all' ? 'No workflows yet' : 'No pipelines here yet'}
             </h2>
             <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
-              {searchQuery ? 'Try a different search term.' : 'Create your first data pipeline. Use a template or start from scratch.'}
+              {searchQuery
+                ? 'Try a different search term.'
+                : scope.kind === 'all'
+                  ? 'Create your first data pipeline. Use a template or start from scratch.'
+                  : 'Create a pipeline here, or move one in with the Move button on its row.'}
             </p>
             {!searchQuery && (
               <button
@@ -4602,7 +5266,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
               the per-cell max-width on the Name column below, this
               should keep the Actions visible in 99% of cases and let
               users scroll to see them in the remaining 1%. */
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto shadow-sm">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
             {/* Canonical navy summary strip (Apr 18) — matches every other data
                 page. Holds record count, search, and the Export dropdown so the
                 page header stays clean. */}
@@ -4620,34 +5284,8 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                     placeholder="Search name, id, project, status..."
                     className="pl-7 pr-2.5 py-1.5 text-xs border border-white/20 rounded-lg bg-white/10 text-white placeholder:text-white/50 focus:ring-2 focus:ring-amber-300/40 focus:border-amber-300 outline-none w-72" />
                 </div>
-                {/* Project filter — narrows the table to a single project.
-                    Built from the union of /api/projects and project_ids
-                    actually present on pipelines, so a project that has
-                    no pipelines yet still appears, AND a pipeline whose
-                    project was deleted still has a way to be filtered. */}
-                <select
-                  value={projectFilter}
-                  onChange={(e) => setProjectFilter(e.target.value)}
-                  className="px-2 py-1.5 text-xs border border-white/20 rounded-lg bg-white/10 text-white focus:ring-2 focus:ring-amber-300/40 focus:border-amber-300 outline-none cursor-pointer"
-                  title="Filter by project"
-                >
-                  <option value="all" className="text-slate-800">All projects</option>
-                  {(() => {
-                    const known = new Set(projectsList.map(p => p.id));
-                    const fromPipelines = Array.from(new Set(pipelines.map(p => (p as any).project_id || 'default').filter(Boolean)));
-                    const extras = fromPipelines.filter(id => !known.has(id));
-                    return (
-                      <>
-                        {projectsList.map(p => (
-                          <option key={p.id} value={p.id} className="text-slate-800">{p.name}</option>
-                        ))}
-                        {extras.map(id => (
-                          <option key={id} value={id} className="text-slate-800">{id}</option>
-                        ))}
-                      </>
-                    );
-                  })()}
-                </select>
+                {/* The project dropdown that sat here is gone: the panel on
+                    the left picks the project, so there is one filter. */}
                 {/* Columns — opens a grouped checkbox popover that toggles
                     which metadata columns the user sees in the table.
                     Visibility persists to localStorage (key:
@@ -4782,6 +5420,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 </div>
               </div>
             </div>
+            {/* Only the table scrolls sideways. The bar above it and the
+                footer stay put: inside the scrolling box they slid away with
+                the columns and left a blank corner. */}
+            <div className="overflow-x-auto">
             <table className={`w-full border-collapse ${
               density === 'compact'
                 ? '[&_tbody_td]:!py-1.5'
@@ -4802,7 +5444,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                   <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider cursor-pointer select-none hover:text-amber-200" onClick={() => handleSort('name')}>
                     Name <SortIcon col="name" />
                   </th>
-                  {!projectId && pipeColState.isVisible('project') && (
+                  {showProjectColumn && pipeColState.isVisible('project') && (
                     <th className="text-left px-3 py-3 text-xs font-bold text-amber-300 uppercase tracking-wider">
                       Project
                     </th>
@@ -4852,18 +5494,24 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                       Storage
                     </th>
                   )}
-                  <th className="w-56 px-3 py-3 text-right text-xs font-bold text-amber-300 uppercase tracking-wider">
+                  {/* Actions stay pinned to the right edge while the other
+                      columns scroll. With the project panel beside it the
+                      table is narrower, and at 1366-1600px it scrolled Run
+                      and Edit out of sight. slate-700 is the header colour in
+                      DEV (globals.css repaints the gradient); this list is DEV
+                      only, PROD has its own view. */}
+                  <th className="w-56 px-3 py-3 text-right text-xs font-bold text-amber-300 uppercase tracking-wider sticky right-0 bg-slate-700 shadow-[-8px_0_8px_-8px_rgba(0,0,0,0.45)]">
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p) => {
+                {filtered.map((p, rowIndex) => {
                   const isSelected = selectedIds.has(p.id);
                   return (
                     <tr
                       key={p.id}
-                      onClick={() => handleShowDetail(p)}
+                      onClick={() => { window.location.hash = listAddress(p.id); }}
                       className={`border-b border-slate-100 hover:bg-pipe-50/30 transition-colors group cursor-pointer ${isSelected ? 'bg-pipe-50/40' : ''}`}
                     >
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
@@ -5035,18 +5683,18 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           )}
                         </div>
                       </td>
-                      {!projectId && pipeColState.isVisible('project') && (
+                      {showProjectColumn && pipeColState.isVisible('project') && (
                         <td className="px-3 py-3">
                           {(() => {
                             // Resolve project_id → name and folder_id →
                             // name so the cell shows the same labels the
-                            // user sees on the Projects page tree, not
+                            // user sees in the project panel, not
                             // raw IDs. Falls back to the id (or
                             // "Default") if a lookup misses.
                             const pid = (p as any).project_id || '';
                             const fid = (p as any).folder_id || '';
                             const projName = pid ? (projectNameById.get(pid) || pid) : 'Default';
-                            const folderName = fid ? (folders.find((f) => f.id === fid)?.name || '') : '';
+                            const folderName = fid ? ((foldersByProject[pid] || []).find((f) => f.id === fid)?.name || '') : '';
                             return (
                               <div className="flex flex-col gap-0.5 leading-tight">
                                 <span className="text-xs text-slate-700 font-medium truncate" title={folderName ? `${projName} / ${folderName}` : projName}>
@@ -5092,6 +5740,14 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                               </span>
                             ) : (
                               statusBadge(p.status)
+                            )}
+                            {p.has_unpublished_changes && normalizeStatus(p.status) === 'published' && (
+                              <span
+                                className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full whitespace-nowrap"
+                                title={`Saved changes are waiting to be published. ${p.published_version ? `Version ${p.published_version}` : 'The published version'} keeps running until then.`}
+                              >
+                                Draft changes
+                              </span>
                             )}
                             {/* Paused badge when the env-matching is_active flag is false.
                                 Lives in the DEV branch of the function (the PROD branch
@@ -5174,14 +5830,18 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                             const canSchedule = ns === 'published';
                             const existing = scheduleMap[p.id];
                             if (existing) {
+                              const nameOfPipeline = (id: string) => pipelines.find((x) => x.id === id)?.name;
+                              const said = isEventTrigger(existing)
+                                ? describeEventTrigger(existing, nameOfPipeline)
+                                : describeCron(existing.cron_expression || '');
                               return (
                                 <button
                                   onClick={() => setQuickSchedule({ id: p.id, name: p.name })}
-                                  title={`Click to manage schedule (${describeCron(existing.cron_expression || '')})`}
+                                  title={`Click to manage schedule (${said})`}
                                   className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-full transition-colors"
                                 >
                                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-                                  {describeCron(existing.cron_expression || '')}
+                                  {isEventTrigger(existing) ? shortTriggerLabel(existing) : said}
                                 </button>
                               );
                             }
@@ -5251,10 +5911,10 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           ) : (
                             <button
                               onClick={() => setContractFor({ id: p.id, name: p.name })}
-                              title="Declare what must be true about this pipeline's output — a broken promise can refuse the write instead of reporting it afterwards"
+                              title="Write down what this pipeline is for and how to tell it worked; the criteria become a contract that can refuse a bad write instead of reporting it afterwards"
                               className="text-xs text-slate-500 hover:text-violet-600 hover:bg-violet-50 px-2 py-1 rounded-lg transition-colors whitespace-nowrap"
                             >
-                              + Contract
+                              + Spec
                             </button>
                           )}
                         </td>
@@ -5281,7 +5941,20 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                           })()}
                         </td>
                       )}
-                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                      {/* Pinned right (see the Actions header). Opaque, with the
+                          row's hover and selected tints laid over white so it
+                          matches the row. Each pinned cell is a layer of its
+                          own, so the first rows sit highest: the Move menu
+                          opens downward over the rows below it. */}
+                      <td
+                        className={`px-3 py-3 sticky right-0 bg-white shadow-[-8px_0_8px_-8px_rgba(15,23,42,0.18)] ${
+                          isSelected
+                            ? 'bg-[linear-gradient(rgba(235,244,255,0.4),rgba(235,244,255,0.4))]'
+                            : 'group-hover:bg-[linear-gradient(rgba(235,244,255,0.3),rgba(235,244,255,0.3))]'
+                        }`}
+                        style={{ zIndex: filtered.length - rowIndex }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         {(() => {
                           const ns = normalizeStatus(p.status);
                           const isRunning = !!runningPipelines[p.id];
@@ -5413,17 +6086,28 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                   {lifecycleLoading[p.id] === 'publish' ? 'Publishing...' : 'Publish'}
                                 </button>
                               )}
-                              {/* Revoke — pull a published pipeline back to draft.
-                                  Inverse of Publish. Its schedules are paused
-                                  once status flips. */}
+                              {/* A draft waiting beside what is live. */}
+                              {canEdit && ns === 'published' && p.has_unpublished_changes && !approval && (
+                                <button
+                                  onClick={() => handleLifecycleAction(p.id, 'publish')}
+                                  disabled={!!lifecycleLoading[p.id]}
+                                  className="px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors disabled:opacity-50"
+                                  title="Test the saved changes and put them live"
+                                >
+                                  Publish changes
+                                </button>
+                              )}
+                              {/* Unpublish — pull a published pipeline back to
+                                  draft, the step before it can be deleted. The
+                                  server pauses its schedules. */}
                               {canEdit && ns === 'published' && !approval && (
                                 <button
                                   onClick={() => handleLifecycleAction(p.id, 'revoke')}
                                   disabled={!!lifecycleLoading[p.id]}
                                   className="px-2 py-1 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
-                                  title="Revoke — move back to draft (pauses its schedules)"
+                                  title="Unpublish — back to draft (pauses its schedules)"
                                 >
-                                  {lifecycleLoading[p.id] === 'revoke' ? 'Revoking...' : 'Revoke'}
+                                  {lifecycleLoading[p.id] === 'revoke' ? 'Unpublishing...' : 'Unpublish'}
                                 </button>
                               )}
                               {/* Submit for Deploy — Plus only. PROD promotion via
@@ -5479,7 +6163,11 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                                     </div>
                                     <div className="my-1 border-t border-slate-100" />
                                         <button
-                                          onClick={() => { setMoreMenuFor(null); openHistory(p.id, p.name); }}
+                                          onClick={() => {
+                                            setMoreMenuFor(null);
+                                            setPipelineView((m) => ({ ...m, [p.id]: 'versions' }));
+                                            window.location.hash = listAddress(p.id);
+                                          }}
                                           className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                                           title="See the saved versions of this pipeline, compare them and restore one"
                                         >
@@ -5567,8 +6255,9 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
                 })}
               </tbody>
             </table>
+            </div>
             {/* Footer */}
-            <div className="px-4 py-2.5 bg-slate-50/60 border-t border-slate-200 flex items-center justify-between">
+            <div className="px-4 py-2.5 bg-slate-50/60 border-t border-slate-200 rounded-b-2xl flex items-center justify-between">
               <span className="text-xs text-slate-500">
                 Showing {filtered.length} of {pipelines.length} workflows
               </span>
@@ -5594,375 +6283,47 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
            the hour. ───── */
         )}
       </div>
+      )}
+      </div>
+      </div>
+      </div>
     </div>
 
-    {/* Version History Panel */}
-    {historyPipelineId && (
-      <div className="w-80 bg-white border-l border-slate-300 flex flex-col overflow-hidden shrink-0">
-        <div className="px-4 py-3 border-b border-slate-300 flex items-center justify-between shrink-0">
-          <div className="min-w-0">
-            <h2 className="text-sm font-bold text-slate-800 truncate">Version History</h2>
-            <p className="text-xs text-slate-500 truncate">{historyPipelineName}</p>
-          </div>
-          <button onClick={() => setHistoryPipelineId(null)} className="text-slate-500 hover:text-slate-600 shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-
-        <div className="flex-1 overflow-auto">
-          {versionsLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="w-5 h-5 border-2 border-pipe-300 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : versions.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <p className="text-xs text-slate-500">No version history available.</p>
-            </div>
-          ) : (
-            <div className="p-3 space-y-0">
-              <p className="text-[11px] leading-snug text-slate-500 mb-3">
-                Restore saves an earlier version again as the newest one. The versions after it are kept.
-              </p>
-              {versions.map((v, idx) => (
-                <div key={v.version} className="flex gap-3 group">
-                  {/* Timeline */}
-                  <div className="flex flex-col items-center shrink-0">
-                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center text-[10px] font-bold ${
-                      idx === 0
-                        ? 'bg-pipe-50 border-pipe-300 text-pipe-600'
-                        : 'bg-slate-50 border-slate-200 text-slate-500'
-                    }`}>
-                      v{v.version}
-                    </div>
-                    {idx < versions.length - 1 && (
-                      <div className="w-px flex-1 bg-slate-200 my-1" />
-                    )}
-                  </div>
-                  {/* Version info */}
-                  <div className="pb-4 flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-700">
-                        {idx === 0 ? 'Current' : `Version ${v.version}`}
-                      </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {v.content_hash && (
-                          <span
-                            className="font-mono text-[10px] text-slate-500 bg-slate-100 border border-slate-200 rounded px-1.5 py-0.5 tracking-wide"
-                            title={`Content hash: ${v.content_hash}\nSHA-256 of the pipeline definition. Stable across status/deploy changes; rollback verifies this matches before applying.`}
-                          >
-                            {v.content_hash.slice(0, 8)}
-                          </span>
-                        )}
-                        <span className="text-xs text-slate-500">{v.step_count} steps</span>
-                      </div>
-                    </div>
-                    {v.change_summary && (
-                      <p className="text-xs text-slate-500 mt-0.5 truncate">{v.change_summary}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-slate-500">
-                        {new Date(v.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <span className="text-[10px] text-slate-300">by {v.created_by}</span>
-                    </div>
-                    {idx > 0 && (
-                      <div className="flex items-center gap-1.5 mt-1.5">
-                        {/* Restore writes a new version, so it needs edit
-                            rights. Archived pipelines are read-only here. */}
-                        {canEdit && normalizeStatus(pipelines.find(pp => pp.id === historyPipelineId)?.status) !== 'archived' && (
-                          <button
-                            onClick={() => restoreVersion(v.version)}
-                            disabled={restoringVersion !== null}
-                            className="px-2.5 py-1 text-xs font-medium text-pipe-600 bg-pipe-50 rounded-md hover:bg-pipe-100 transition-colors disabled:opacity-50"
-                          >
-                            {restoringVersion === v.version ? 'Restoring...' : 'Restore'}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => setCompareIdx(compareIdx === idx ? null : idx)}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
-                            compareIdx === idx ? 'text-blue-700 bg-blue-100' : 'text-slate-500 bg-slate-50 hover:bg-slate-100'
-                          }`}
-                        >
-                          {compareIdx === idx ? 'Hide diff' : 'Compare'}
-                        </button>
-                      </div>
-                    )}
-                    {/* Inline diff view */}
-                    {compareIdx === idx && idx > 0 && (() => {
-                      const diff = computeDiff(versions[idx - 1], v);
-                      const hasChanges = diff.addedSteps.length > 0 || diff.removedSteps.length > 0 || diff.addedConns !== 0;
-                      return (
-                        <div className="mt-2 bg-slate-50 rounded-lg border border-slate-200 p-2.5 text-xs">
-                          <div className="font-bold text-slate-600 mb-1.5">v{v.version} → v{versions[idx - 1].version}</div>
-                          {!hasChanges ? (
-                            <div className="text-slate-500">No structural changes detected.</div>
-                          ) : (
-                            <div className="space-y-1">
-                              {diff.addedSteps.map((s) => (
-                                <div key={s} className="flex items-center gap-1.5 text-green-600">
-                                  <span className="font-bold">+</span>
-                                  <span>{s}</span>
-                                </div>
-                              ))}
-                              {diff.removedSteps.map((s) => (
-                                <div key={s} className="flex items-center gap-1.5 text-red-500">
-                                  <span className="font-bold">−</span>
-                                  <span className="line-through">{s}</span>
-                                </div>
-                              ))}
-                              {diff.addedConns > 0 && (
-                                <div className="text-green-600">+ {diff.addedConns} connection{diff.addedConns > 1 ? 's' : ''}</div>
-                              )}
-                              {diff.removedConns > 0 && (
-                                <div className="text-red-500">− {diff.removedConns} connection{diff.removedConns > 1 ? 's' : ''}</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+    {/* Project panel as a drawer on narrow screens */}
+    {explorerOpen && (
+      <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Projects and folders">
+        <div className="absolute inset-0 bg-slate-900/40" onClick={() => setExplorerOpen(false)} />
+        <ProjectExplorer
+          className="absolute inset-y-0 left-0 w-[min(20rem,88vw)] shadow-2xl"
+          {...explorerProps}
+          onClose={() => setExplorerOpen(false)}
+        />
       </div>
     )}
 
-    {/* Pipeline Detail Drawer (right-side slide-in, was centered modal).
-        Migrated to <DetailDrawer> May 5 to keep the list visible behind
-        the panel — master-detail UX. Inner DAG preview / progress / PreRunBanner
-        content unchanged. */}
-    {detailPipeline && (() => {
-      const closeDrawer = () => { setDetailPipeline(null); setDetailData(null); };
-      return (
-        <DetailDrawer
-          open={!!detailPipeline}
-          onClose={closeDrawer}
-          widthPx={720}
-          pushContent
-          ariaLabel="Pipeline details"
-          title={
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-md flex items-center justify-center shadow-sm shrink-0"
-                style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-                </svg>
-              </div>
-              <span className="truncate">{detailPipeline.name}</span>
-            </div>
-          }
-          subtitle={
-            <span className="flex items-center gap-2 flex-wrap">
-              <span className="font-mono">{detailPipeline.id.slice(0, 8)}</span>
-              <span>·</span>
-              <span>{detailData?.steps?.length || detailPipeline.steps?.length || detailPipeline.steps_count || 0} steps</span>
-              <span>·</span>
-              {statusBadge(detailPipeline.status)}
-            </span>
-          }
-          footer={
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 min-w-0 flex-1">
-                <span className="truncate">Created {detailPipeline.created_at ? new Date(detailPipeline.created_at).toLocaleDateString() : '—'}{detailPipeline.owner_name ? ` by ${detailPipeline.owner_name}` : detailPipeline.owner_id ? ` by ${detailPipeline.owner_id}` : ''}</span>
-                {detailPipeline.updated_at && <span>Modified <TimeAgo value={detailPipeline.updated_at} className="!text-slate-500" /></span>}
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {normalizeStatus(detailPipeline.status) === 'draft' && (
-                  <button
-                    onClick={() => { handleLifecycleAction(detailPipeline.id, 'publish'); closeDrawer(); }}
-                    className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition-colors flex items-center gap-1"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                    Publish
-                  </button>
-                )}
-                {tier === 'plus' && normalizeStatus(detailPipeline.status) === 'published' && (
-                  <button
-                    onClick={() => { handleSubmitForReview(detailPipeline.id, detailPipeline.name); closeDrawer(); }}
-                    className="px-3 py-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100 transition-colors flex items-center gap-1"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13" /><path d="M22 2l-7 20-4-9-9-4 20-7z" /></svg>
-                    Submit for Deploy
-                  </button>
-                )}
-                {/* Revoke — only on published pipelines, mirrors the
-                    row-level Revoke button. */}
-                {normalizeStatus(detailPipeline.status) === 'published' && (
-                  <button
-                    onClick={() => { handleLifecycleAction(detailPipeline.id, 'revoke'); closeDrawer(); }}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1"
-                    title="Revoke — move back to draft (pauses its schedules)"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></svg>
-                    Revoke
-                  </button>
-                )}
-                <button
-                  onClick={() => handleRunPipeline(detailPipeline.id, detailPipeline.name)}
-                  className="px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors flex items-center gap-1"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3" /></svg>
-                  Run
-                </button>
-                <button
-                  onClick={() => { closeDrawer(); openHistory(detailPipeline.id, detailPipeline.name); }}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors flex items-center gap-1"
-                  title="See the saved versions of this pipeline, compare them and restore one"
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
-                  Version history
-                </button>
-                <button
-                  onClick={() => handleDuplicate(detailPipeline)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
-                >
-                  Duplicate
-                </button>
-                <button
-                  onClick={() => { handleOpen(detailPipeline.id); closeDrawer(); }}
-                  className="px-3 py-1.5 text-xs font-bold text-white rounded-lg shadow-sm hover:shadow-md transition-all flex items-center gap-1"
-                  style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
-                >
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                  Edit in Editor
-                </button>
-              </div>
-            </div>
-          }
-        >
-          {/* Body — React Flow canvas preview (kept as-is). */}
-          <div className="-mx-5 -mt-5 mb-3 overflow-hidden" style={{ minHeight: '400px', height: 'calc(100vh - 320px)' }}>
-            {detailLoading ? (
-              <div className="flex items-center justify-center h-full">
-                <div className="w-6 h-6 border-2 border-pipe-300 border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : detailData?.steps && detailData.steps.length > 0 ? (
-              (() => {
-                const dpId = detailPipeline.id;
-                const isRunning = !!runningPipelines[dpId];
-                const stepRes = pipelineStepResults[dpId];
-                const { nodes: previewNodes, edges: previewEdges } = previewWorkflowToFlow(detailData, isRunning, stepRes);
+    {projectForm && (
+      <ProjectFormDialog
+        project={projectForm.project}
+        onClose={() => setProjectForm(null)}
+        onSaved={(saved) => {
+          const wasNew = !projectForm.project;
+          setProjectForm(null);
+          void loadProjects();
+          if (wasNew && saved?.id) selectScope({ kind: 'project', projectId: saved.id });
+        }}
+      />
+    )}
 
-                // Progress calculation
-                const totalSteps = detailData.steps.length;
-                let completedSteps = 0;
-                let failedSteps = 0;
-                if (stepRes && !stepRes.__all_running) {
-                  for (const s of detailData.steps) {
-                    const r = stepRes[s.id];
-                    if (r?.status === 'success') completedSteps++;
-                    else if (r?.status === 'error') failedSteps++;
-                  }
-                }
-                const progressPct = totalSteps > 0 ? Math.round(((completedSteps + failedSteps) / totalSteps) * 100) : 0;
+    {showArchivedProjects && (
+      <ArchivedProjectsDialog
+        projects={archivedProjects}
+        canManage={canManageProjects}
+        onClose={() => setShowArchivedProjects(false)}
+        onChanged={() => { void loadProjects(); void fetchPipelines(); }}
+      />
+    )}
 
-                return (
-                  <div className="h-full w-full flex flex-col">
-                    {/* Progress bar — visible when running or has results */}
-                    {(isRunning || (stepRes && !stepRes.__all_running && Object.keys(stepRes).length > 0)) && (
-                      <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 shrink-0">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            {isRunning ? (
-                              <>
-                                <div className="w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs font-semibold text-blue-600">Running pipeline...</span>
-                              </>
-                            ) : failedSteps > 0 ? (
-                              <>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2.5"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
-                                <span className="text-xs font-semibold text-red-600">Completed with {failedSteps} error(s)</span>
-                              </>
-                            ) : (
-                              <>
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-                                <span className="text-xs font-semibold text-emerald-600">All steps completed</span>
-                              </>
-                            )}
-                          </div>
-                          <span className="text-xs font-bold text-slate-500">
-                            {isRunning && stepRes?.__all_running ? '0' : progressPct}%
-                            <span className="font-normal text-slate-500 ml-1">({completedSteps}/{totalSteps} steps)</span>
-                          </span>
-                        </div>
-                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              isRunning ? 'bg-blue-500 animate-pulse' :
-                              failedSteps > 0 ? 'bg-red-500' : 'bg-emerald-500'
-                            }`}
-                            style={{ width: `${isRunning && stepRes?.__all_running ? 15 : progressPct}%` }}
-                          />
-                        </div>
-                      </div>
-                    )}
 
-                    {/* React Flow canvas */}
-                    <div className="flex-1">
-                      <ReactFlow
-                        nodes={previewNodes}
-                        edges={previewEdges}
-                        nodeTypes={nodeTypes}
-                        edgeTypes={edgeTypes}
-                        fitView
-                        fitViewOptions={{ padding: 0.4 }}
-                        proOptions={{ hideAttribution: true }}
-                        nodesDraggable={false}
-                        nodesConnectable={false}
-                        elementsSelectable={false}
-                        panOnDrag={true}
-                        zoomOnScroll={true}
-                        preventScrolling={true}
-                        defaultEdgeOptions={{
-                          type: 'custom' as const,
-                          animated: isRunning,
-                          style: { stroke: '#6366f1', strokeWidth: 2 },
-                          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#6366f1' },
-                        }}
-                      >
-                        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e2e8f0" />
-                      </ReactFlow>
-                    </div>
-                  </div>
-                );
-              })()
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <div className="mb-2 flex justify-center text-slate-500">
-                    <Icon name="list" size={32} strokeWidth={1.5} />
-                  </div>
-                  <p className="text-sm font-medium text-slate-500">No steps in this pipeline</p>
-                  <p className="text-xs text-slate-500 mt-1">Open in the Editor to start building</p>
-                  <button
-                    onClick={() => { handleOpen(detailPipeline.id); setDetailPipeline(null); setDetailData(null); }}
-                    className="mt-4 px-5 py-2 text-xs font-bold text-white rounded-lg shadow-sm"
-                    style={{ background: 'linear-gradient(135deg, #3B7DD8, #1E5AAF)' }}
-                  >
-                    Open in Editor
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Pre-run banner — last run + estimate + Run safely toggle. */}
-          <div className="mt-3">
-            <PreRunBanner
-              workflowId={detailPipeline.id}
-              value={preRunMode}
-              onChange={setPreRunMode}
-              pipelineStatus={detailPipeline.status}
-            />
-          </div>
-        </DetailDrawer>
-      );
-    })()}
 
     {/* Quick Schedule Dialog */}
     {quickSchedule && (
@@ -6313,7 +6674,7 @@ export default function PipelinesPage({ onOpenEditor, projectId, projectName = '
       workflowId={publishTarget?.id ?? null}
       workflowName={publishTarget?.name ?? ''}
       onClose={() => setPublishTarget(null)}
-      onPublished={() => fetchPipelines()}
+      onPublished={() => { fetchPipelines(); setOverviewLiveChanged((n) => n + 1); setVersionsRefresh((n) => n + 1); }}
     />
 
     {/* Save-as-template modal — opens from each row's "Save as template"

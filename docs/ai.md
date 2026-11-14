@@ -18,7 +18,7 @@ Specific UI moments where the agent augments a single action:
 
 ### Copilot dock
 
-The floating chat panel in the bottom-right corner. Opens to a full conversation with 32 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
+The floating chat panel in the bottom-right corner. Opens to a full conversation with 37 tools the agent can call (per `backend/revoluzen_flow/ai/tools/`):
 
 | Read tools (24) | Draft / Write tools (8) |
 |---|---|
@@ -57,7 +57,7 @@ You can also pull from inside Revoluzen Flow: open **Insights → AI Provider** 
 
 ### 3. Verify
 
-The Copilot's status banner should show `ollama / qwen2.5:7b · 32 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
+The Copilot's status banner should show `ollama / qwen2.5:7b · 37 tools · 0% of daily cap`. Type "give me a quick overview of my workspace" — expect a response in 30–60 seconds on CPU at the floor.
 
 If it times out, you're likely on a model heavier than 7B on a CPU-only host. Switch back to `qwen2.5:7b` or pick a cloud provider for faster responses.
 
@@ -75,6 +75,20 @@ Your API key is **stored encrypted on this machine** (Fernet — AES-128-CBC + H
 
 The provider price comparison table on the AI Provider page shows live per-token rates from OpenRouter.
 
+## Business glossary
+
+**Insights → Glossary** (`#glossary`, `/api/glossary`) holds the workspace's own words: a **term** such as *active customer* or a **metric** such as *net revenue*, each with a definition in plain words, the other names people use for it, and optionally the SQL a person wrote for it (a metric's expression, a term's condition), where it lives and who owns it. Adding and changing entries needs developer rank.
+
+When a request to the Copilot, or any pipeline draft (the Editor's or the Copilot's), uses one of these words or another name for it (spaces, `_` or `-` between the words, and plurals, all count), the matching entries go with the request, and the model is told to use them rather than a meaning of its own, and to say so when one does not fit the data. Only the entries a request mentions are sent, at most ten. The Copilot can also look entries up with `lookup_business_terms`. Entries are written by people; no row value is sent.
+
+## Measuring request-to-pipeline accuracy
+
+`python -m revoluzen_flow.eval.intent` scores how often a request in plain words becomes a pipeline that returns the right rows (`backend/revoluzen_flow/eval/intent/`). Each case is a request ("load orders.csv, keep only paid orders, total the amount by customer"), a few small input files, and the rows a correct pipeline returns, worked out by hand. The draft is run on those files in preview mode, nothing is written, and its rows are compared with the expected ones in any order, numbers within a small tolerance, and a computed column found by its values when the request does not name it. Each case reports drafted, valid, ran and correct; **accuracy** is the share that are correct.
+
+- `--drafter rule` scores the rule planner, which needs no model. Every release runs it and stops below a floor (`release.yml`, job `intent-eval`); today it gets 8 of the 10 cases right (it cannot yet sort and keep the top rows, or average by a named column). `test_intent_eval.py` pins which cases it gets right, so a change that alters them fails on every pull request.
+- `--drafter live` drafts through the configured provider, the same planner call the Editor and the Copilot use. It costs money, so it runs on demand (`intent-eval-live.yml`), and `--record` keeps each draft.
+- `--drafter replay --replay FILE` scores recorded drafts again with no model. Recordings committed under `eval/intent/recorded/` are re-scored on every release, which catches a later change that breaks what a model drafted.
+
 ## Governance & safety
 
 OSS Free is single-user, so role-based gating doesn't apply — everything below runs against the bootstrap user. The protections are still active:
@@ -87,6 +101,7 @@ OSS Free is single-user, so role-based gating doesn't apply — everything below
 - **Trace store** — every agent run is persisted with replay-safe step records (open the **History** toggle in the Copilot to browse).
 - **Wallet caps** — daily token cap (default 100K user / 1M workspace) prevents denial-of-wallet attacks.
 - **Prompt signing** — system prompt is HMAC-signed; the agent refuses to run if it's been tampered with.
+- **Copilot roles** (2026-11-11) — the Copilot's tools fall into four roles, each switched on or off per workspace by an admin in **Settings → Copilot roles** (`GET/PUT /api/v1/ai/roles`): **Discover** (read connections, the catalog, pipelines, storage, a step's columns, specs and rule sets; suggest join keys), **Build** (draft and change pipelines, connectors, alert rules and reports), **Test** (validate a draft, test-run it on sample rows, test a connection) and **Operate** (runs, schedules, incidents, health and findings; start or stop a run). All are on by default. A role that is off takes its tools out of the Copilot's hands in that workspace, including the quick actions that run, stop or test something, and the Copilot is told which roles are off so it says so when asked. Help, the workspace overview, history recall and the user's own role stay available. Roles only narrow what the Copilot may do: what it does for a person is still limited by that person's own rank.
 
 Revoluzen Flow Enterprise adds: **4-role agent RBAC** (`viewer` / `developer` / `admin` / `super_admin`) so different team members see different tool tiers, **Llama-Guard safety classifier** on every turn, **cross-session conversational memory**, **proactive trend detection**, and **federated retrieval across workspaces**.
 

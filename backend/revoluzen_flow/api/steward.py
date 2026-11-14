@@ -420,6 +420,19 @@ def _run_scan(workspace_id: str, *, record: bool = True) -> tuple[list[StewardFi
         thresholds=detector_thresholds,
     )
 
+    # 2026-11-11 — the same step logic pasted into several pipelines
+    # (steward/repeated_logic.py): the step-sized sibling of the
+    # duplicate-pipeline finding above. Same workflow snapshot, same
+    # suppression.
+    try:
+        from revoluzen_flow.steward.repeated_logic import detect_repeated_logic
+        findings.extend(detect_repeated_logic(
+            workflows, workspace_id=workspace_id, suppressed_signatures=suppressed,
+        ))
+    except Exception:  # noqa: BLE001 — additive, like the detectors below
+        import logging as _logging
+        _logging.getLogger(__name__).warning("repeated-logic detector skipped", exc_info=True)
+
     # 2026-06-07 — user-defined YAML rules run on the same workflow
     # snapshot, producing FindingKind.USER_DEFINED records. They flow
     # through the same downstream surface (apply_learning for escalation

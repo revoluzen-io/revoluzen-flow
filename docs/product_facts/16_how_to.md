@@ -55,6 +55,18 @@ A managed table is a Parquet-backed table that pipelines can read by `schema.nam
 
 To use the table in a pipeline: drag a **Source** node, set `connector_type='local_table'`, set `schema_name + table_name`. Or use the dedicated **Managed Table Source** node from the palette. Same shape for writes via **Managed Table Sink** (modes: replace / append / merge).
 
+Promote also saves the table's **preparation**, a pipeline that reproduces it (`Source → Data Wrangler → Managed Table Sink`), so even a table promoted as is can be changed later: see the next question. Older promoted tables show **Make it editable** in their row.
+
+## How do I change how a managed table is prepared?
+
+**Storage** → **Managed Tables**: under the table's name, **Prepared by** names the pipeline that writes it and the version whose result the table holds. Click the name (or the wand in the row) to open it in Data Prep, change it, and click **Load to Managed Table**: the steps are saved as a new version, the table reloads, and its **History** tab lists the load with that version. If it was saved without being loaded, the row says *edited to vN, not run yet*.
+
+**Load to Managed Table** always saves the preparation first, as a pipeline named after the table; loading the same table again adds a version to it. A table loaded before this was the case shows **Make it editable**: click it, or the wand, to save the steps the table kept as a pipeline.
+
+## How do I save a pipeline's result as a file in Storage?
+
+Add a **Pipeline Output** node (Editor → Nodes → Publish) after the step whose rows you want, give it a name and pick CSV, Parquet or JSON. Each run replaces the file in **Storage** → **Pipeline Outputs**, under this pipeline.
+
 ## How do I clean a file (or source dataset) that has many issues?
 
 Use **Clean & promote** instead of plain Promote.
@@ -64,7 +76,7 @@ Use **Clean & promote** instead of plain Promote.
 1. **Storage** → **Files** tab → click the **wand icon** (amber hover) on the file's row.
 2. Revoluzen Flow scaffolds a 3-node pipeline in the Editor: `Source → Data Wrangler → Managed Table Sink`. The Wrangler starts empty.
 3. Add cleanup sub-steps to the Wrangler — `filter`, `select`, `rename`, `cast`, `derive` (`TRIM`, `COALESCE`, `LOWER`, `REGEXP_REPLACE`), `dedupe`, `group_by`, `sort`, `sample`, `flatten`. All compile to a single DuckDB query.
-4. Click **Run**. The cleaned rows land in the managed table named by the sink (default: `default.<filename>`). Original file is untouched.
+4. Click **Load to Managed Table**. Your steps are saved as the table's preparation (a pipeline named after the table), and the cleaned rows land in the managed table named by the sink (default: `default.<filename>`). Original file is untouched.
 
 **From a database / SaaS source (Connections):**
 
@@ -124,7 +136,9 @@ To run from outside the editor: Pipelines page → row → **⋯** menu → **Ru
 4. Set **Environment** — DEV or PROD (PROD is **Revoluzen Flow Enterprise only**; in OSS Free schedules fire in DEV).
 5. **Save**. The schedule appears on the pipeline's row on the Pipelines page. There is no separate Schedules page.
 
-The scheduler polls every 30 s; expect first fire within 30 s of the configured time.
+The scheduler polls every 30 s; expect first fire within 30 s of the configured time. A cron schedule fires once in a matching minute.
+
+In a cron expression the last field is the day of the week, as in standard cron: 0 or 7 is Sunday, 1 is Monday, 6 is Saturday. `0 9 * * 1-5` is 9 AM on weekdays.
 
 ## How do I pause a pipeline?
 
@@ -230,6 +244,26 @@ The watchdog polls at the schedule cadence; expect first alert fire within ~30 s
 
 Then any alert rule pointing at that channel will use the configured destination.
 
+## How do I design a report?
+
+1. **Insights → Reports** → **+ New report**, or pick a template under **Start from**.
+2. **What goes in**: add sections (Run summary, Runs over time, Failures, Successful pipelines, Slowest pipelines, How runs were started, Steps that fail most, Usage, Busiest pipelines, Storage, AI use, Environment, What's in the workspace, New builds, Schedules, Alerts sent, A table you design, A note) and put them in order.
+3. **Narrow it**: period, projects, pipelines, and whether to count all runs or only automatic ones. Community has one environment, Development.
+4. Name it and **Save report**. The preview shows real numbers while you work.
+
+"New builds" means new pipelines, new saved versions (not auto-saves), and anything published or deployed.
+
+## How do I send a report on a schedule or to my team?
+
+1. Open the report → **Edit** → **Schedule and share**.
+2. Add email addresses. Optionally post the headlines to Slack or Teams (a webhook address, or empty to use the one in Settings → Notifications), or send the full report to a webhook.
+3. Tick **Send this report automatically**: daily, chosen days of the week, or a day of the month from 1 to 28, at a time in the report's time zone. **Only when runs failed** skips quiet periods.
+4. **Save report**.
+
+It goes through the same scheduler as pipeline schedules and the same mail server as alerts. If the server is off at the send time the report goes out when the server is next running (up to 12 hours late for daily, 3 days for weekly, 7 days for monthly). On the report, **Sent history** shows every send and why any failed. A failed scheduled send also puts a notification in the bell of whoever made the report.
+
+Making, changing and sending a report needs at least the Developer role.
+
 ## How do I see what failed today / recent failures?
 
 **Two paths**:
@@ -292,7 +326,21 @@ Backend binds to `127.0.0.1` (loopback) by default — the API is **invisible to
 5. **Gate 2**: approver reviews the Sandbox output and approves.
 6. PROD activation happens automatically after Gate 2.
 
+## How do I change a published pipeline?
+
+A published pipeline is locked. Schedules, endpoints and every other run nobody is watching use its published version, whatever is saved afterwards. Open it in the Editor, change it, and **Save**: that makes a draft beside the published version, and the Pipelines list marks it **Draft changes**. Click **Publish changes** to test the draft on a sample and put it live, or **Discard draft** to go back. Run in the Editor uses the draft; Run on the Pipelines page uses what is live. **Versions** marks which version is **Live**.
+
+## How do I keep a copy of published pipelines in Git?
+
+An admin opens **Settings → Security & Diagnostics → Keep a copy of published pipelines in Git**, enters the repository's https address, a branch and an access token that can write to it, and turns it on. Each publish then makes a commit there, with who published it as the author and the note from the Publish dialog as the reason. Each pipeline has a folder holding `pipeline.json`, `depends-on.json` and `README.md`. Passwords, keys and tokens are never written. If Git cannot be reached the publish still happens and Flow tries again; the pipeline's page shows how its copy went. To put a pipeline back, import its `pipeline.json` on the Pipelines page. The `git` program has to be installed on the server.
+
+## Why can't I delete this connection, credential, table or file?
+
+Something published is using it. Flow refuses to delete a connection, credential, managed table, uploaded file, saved connector or pipeline while the live version of a published pipeline uses it, and the message names the pipelines. Publish a version that no longer uses it, or unpublish those pipelines, then delete it.
+
 ## How do I delete a pipeline?
+
+A published pipeline has to be unpublished first: row → **⋯** menu → **Unpublish**. That puts it back to draft and pauses its schedules.
 
 Pipelines page → row → **⋯** menu → **Delete**. The pipeline moves to the **Bin** (a tab on the same page) with all of its saved versions; its schedules are removed and its cached step output is cleared; its past runs stay in Executions. It stays in the Bin for **30 days** (`REVOLUZEN_FLOW_BIN_RETENTION_DAYS`; `0` = never removed automatically), then a daily job removes it for good.
 
@@ -300,9 +348,17 @@ In the Bin, **Restore** brings it back as a **draft** (never published), with it
 
 To take a pipeline out of use without deleting it, choose **Archive** in the same dialog instead: it moves to the **Archived** tab, where **Restore** brings it back as a draft, and it is never removed automatically.
 
+## How do I create a project or a folder?
+
+Pipelines page → the project panel on the left (on a narrow screen, the **Projects** button above the list opens it). **New** at the top of the panel creates a project; creating one takes an admin. A project's **⋯** menu → **New folder** adds a folder inside it; folders are one level deep. The same menu edits, exports, pins or archives the project, and archived projects are listed under **Archived projects** at the bottom of the panel, with **Restore**. To put a pipeline in a project or folder, use **Move** on its row. A pipeline started with **New Pipeline** while a project or folder is picked in the panel is saved there.
+
+## How do I work on several pipelines at once?
+
+To look at several, click them in the Pipelines list one after another: each opens in a tab of its own on that page, in full (preview, last run and actions), next to the **Home** tab that holds the list. To build several, open each in the Editor (**Edit** on its row, or **Edit in Editor**): the Editor has its own tabs, above the canvas and beside the Nodes panel, holding only the pipelines being built there. Each editor tab keeps its canvas, test results and unsaved edits; a run keeps going when you switch tabs, and its results land in its own tab; a dot marks unsaved changes, and closing such a tab asks whether to save or discard them. Up to ten tabs in each place. **Open**, at the right end of either set of tabs, picks another saved pipeline; at the right end of the editor tabs, **New Pipeline** opens an empty canvas in a tab of its own, without leaving the Editor. After a reload, the saved pipelines you had open come back as tabs (for the same user, in the same workspace); unsaved edits do not, and the browser asks before you leave with any.
+
 ## How do I delete a folder?
 
-Projects page → open the project → the folder's row → **Delete**. The dialog says how many pipelines are inside. An empty folder is deleted at once. If it holds pipelines, they are moved to the **Bin** (see the answer above) and the folder is removed; restore them from the Bin and they come back in the project's top level, outside any folder. The folder itself cannot be restored. If a pipeline in the folder is **published**, the app names it and nothing is deleted: a published pipeline cannot be deleted, so revoke it first (Pipelines page → its row → **⋯** → **Revoke**) or move it out of the folder, then delete the folder. Deleting a folder takes the Developer role or above, like deleting a pipeline. Folders are one level deep in this edition: a folder cannot sit inside another.
+Pipelines page → the project panel on the left → the folder's **⋯** menu → **Delete folder**. The dialog says how many pipelines are inside. An empty folder is deleted at once. If it holds pipelines, they are moved to the **Bin** (see the answer above) and the folder is removed; restore them from the Bin and they come back in the project's top level, outside any folder. The folder itself cannot be restored. If a pipeline in the folder is **published**, the app names it and nothing is deleted: a published pipeline cannot be deleted, so revoke it first (Pipelines page → its row → **⋯** → **Revoke**) or move it out of the folder, then delete the folder. Deleting a folder takes the Developer role or above, like deleting a pipeline. Folders are one level deep in this edition: a folder cannot sit inside another.
 
 ## How do I share a pipeline with a teammate?
 
@@ -348,7 +404,7 @@ To rotate the master key, see `docs/product_facts/13_backup_recovery.md` — it 
 python -m revoluzen_flow.security.migrate_existing
 ```
 
-This walks every row in `credentials`, `user_ai_config`, `workspace_ai_config` and re-encrypts. Idempotent. Takes a JSONL backup snapshot first under `data/migration_backups/`.
+This walks every row in `credentials`, `connections`, `user_ai_config`, `workspace_ai_config` and re-encrypts. Idempotent. Takes a JSONL backup snapshot first under `data/migration_backups/`. Passwords and keys typed straight into a connection's settings, a pipeline step or a secret parameter's default are also encrypted automatically at server start, so the script is not needed for those.
 
 `--dry-run` to report without writing. Read `backend/revoluzen_flow/security/migrate_existing.py` for the full safety contract.
 

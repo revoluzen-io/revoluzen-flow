@@ -240,6 +240,28 @@ def test_no_parameters_declared_and_none_sent_still_runs(client, authed_client, 
     assert _body(r)["parameter_values"] == {}
 
 
+def test_a_secret_default_never_comes_back_to_the_caller(client, authed_client, api_key):
+    """Every default is resolved up front so a bad call can be refused, and the
+    response echoes what was resolved. A secret default must not be in it."""
+    from revoluzen_flow.connections.inline_secrets import SECRET_PLACEHOLDER
+
+    secret = "synthetic-default-token-5K"
+    pipeline = _pipeline(_unique("secret-default"))
+    pipeline["parameters"].append({"name": "api_token", "type": "string", "default": secret})
+    wf = _body(authed_client.post("/api/workflows", json=pipeline))
+    endpoint = _publish(authed_client, wf.get("id") or wf["workflow"]["id"])
+
+    r = _call(client, endpoint, key=api_key, body={"region": "EU"})
+    assert r.status_code == 200, _body(r)
+    assert secret not in r.text
+    assert _body(r)["parameter_values"]["api_token"] == SECRET_PLACEHOLDER
+    assert _body(r)["parameter_values"]["region"] == "EU"
+
+    run = authed_client.get(f"/api/monitor/executions/{_body(r)['execution_id']}")
+    assert secret not in run.text
+    assert _body(run)["metadata"]["parameter_values"]["api_token"] == SECRET_PLACEHOLDER
+
+
 # ── The run it leaves behind ─────────────────────────────────────────
 
 def test_run_is_recorded_with_the_trigger_and_values(client, authed_client, api_key, endpoint):

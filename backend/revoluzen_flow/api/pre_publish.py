@@ -109,7 +109,8 @@ def _build_change_diff(workflow_store, workflow) -> dict[str, Any]:
     try:
         latest = workflow_store.get(workflow.id)
         latest_ir = latest.workflow if latest else None
-        deployed_v = getattr(workflow, "deployed_version", None)
+        # What is live now is what this publish would replace.
+        deployed_v = getattr(workflow, "deployed_version", None) or getattr(workflow, "published_version", None)
         if not deployed_v:
             return {
                 "has_baseline": False,

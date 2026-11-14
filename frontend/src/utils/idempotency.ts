@@ -206,6 +206,8 @@ export function classifyIdempotency(
     case 'gdrive_sink':
     case 'dropbox_sink':
     case 'box_sink':
+    // Always replaces its one file in Storage → Pipeline Outputs.
+    case 'pipeline_output':
       // Append-to-file mode (rare for these) flips the class.
       if (mode === 'append') return APPEND;
       return REPLACE;
