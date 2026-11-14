@@ -80,16 +80,21 @@ def _registry_read_only() -> ToolRegistry:
     return reg
 
 
+@pytest.fixture(autouse=True)
+def _no_live_workflow_store(monkeypatch):
+    """summarize_pipeline must not reach a store another test left in
+    app_state: under xdist it can be a closed database, and the tool then
+    fails instead of returning its stub."""
+    from revoluzen_flow.main import app_state
+    monkeypatch.setitem(app_state, "workflow_store", None)
+
+
 # ---------------------------------------------------------------------------
 # Single tool call → final answer
 # ---------------------------------------------------------------------------
 
 
-def test_agent_invokes_one_tool_then_returns_text(monkeypatch):
-    # summarize_pipeline must not reach a store another test left in
-    # app_state (under xdist it can be a closed database).
-    from revoluzen_flow.main import app_state
-    monkeypatch.setitem(app_state, "workflow_store", None)
+def test_agent_invokes_one_tool_then_returns_text():
     fake = FakeLLMClient(script=[
         # First call: model wants to call summarize_pipeline
         LLMResponse(
