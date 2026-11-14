@@ -80,6 +80,7 @@ class _SeipdReader(io.RawIOBase):
         self._sha1 = hashlib.sha1()
         self._buffer = bytearray()
         self._finished = False
+        self._failed: PgpError | None = None  # the integrity failure, repeated on every later read
         size = alg.block_size(algorithm)
         prefix = self._fill(size + 2)
         if len(prefix) < size + 2:
@@ -102,12 +103,18 @@ class _SeipdReader(io.RawIOBase):
         return taken
 
     def readinto(self, target) -> int:
+        if self._failed is not None:
+            raise self._failed
         view = memoryview(target)
         while not self._finished and len(self._buffer) <= self._TAIL:
             chunk = self._body.read(1 << 16)
             if not chunk:
                 self._buffer += self._decryptor.finalize()
-                self._finish()
+                try:
+                    self._finish()
+                except PgpError as failed:
+                    self._failed = failed
+                    raise
                 break
             self._buffer += self._decryptor.update(chunk)
         available = len(self._buffer) if self._finished else len(self._buffer) - self._TAIL
@@ -725,7 +732,20 @@ def decrypt_stream(source: BinaryIO, out: BinaryIO, keys: list[Key], passphrase:
         result.cipher = alg.SYMMETRIC_NAMES.get(cipher, str(cipher))
         result.integrity = f"AEAD {aead.AEAD_NAMES.get(header[1], header[1])}"
         plain = _buffered(aead.AeadReader(body, 2 if container == "seipd2" else 1, key, header))
-    if not _unpack(plain, out, result, signatures):
+    try:
+        unpacked = _unpack(plain, out, result, signatures)
+    except PgpError as damaged:
+        # A changed byte usually breaks the compressed data or a packet long
+        # before the integrity check at the end is reached. Read on to the
+        # end so that check, which says plainly what happened, has the last
+        # word; if the data passes it, the original error stands.
+        try:
+            while plain.read(1 << 16):
+                pass
+        except PgpError as integrity:
+            raise integrity from None
+        raise damaged
+    if not unpacked:
         raise PgpError("The decrypted data holds no file.")
     plain.read()  # to the end, so the integrity check runs
     if verify_keys is not None:

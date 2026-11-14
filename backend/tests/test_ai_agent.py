@@ -82,11 +82,16 @@ def _registry_read_only() -> ToolRegistry:
 
 @pytest.fixture(autouse=True)
 def _no_live_workflow_store(monkeypatch):
-    """summarize_pipeline must not reach a store another test left in
-    app_state: under xdist it can be a closed database, and the tool then
-    fails instead of returning its stub."""
+    """Start every test without what other tests leave in app_state.
+
+    Under xdist another test on the same worker can leave a closed database
+    as the workflow store, so summarize_pipeline fails instead of returning
+    its stub, and a dry-run promoter, which forces a new write tool into a
+    dry run and so keeps its result out of the idempotency cache. A test
+    that needs either sets it itself."""
     from revoluzen_flow.main import app_state
     monkeypatch.setitem(app_state, "workflow_store", None)
+    monkeypatch.setitem(app_state, "dry_run_promoter", None)
 
 
 # ---------------------------------------------------------------------------
