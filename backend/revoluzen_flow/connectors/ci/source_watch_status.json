@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-14T11:54:28.223346+00:00",
+  "generated_at": "2026-11-15T12:27:16.293037+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -24,9 +24,9 @@
       "fingerprint": "f7a3de68869181d34b232d88840d31f8157ade45cad1746eaab90cd3c801b31c",
       "kind": "spec",
       "observed": "f7a3de688691",
-      "pinned": "9416f1144aee",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "intercom",
@@ -42,9 +42,9 @@
       "fingerprint": "20f1e27435a72a1e3636ae5afc2d016a827105e7edee9995e8a1d3b435c4e891",
       "kind": "spec",
       "observed": "20f1e27435a7",
-      "pinned": "16aa86dccbee",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
