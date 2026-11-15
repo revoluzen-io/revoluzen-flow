@@ -52,32 +52,34 @@ mkdir -p "$OUTPUT_DIR" \
          "$BUILDROOT/usr/share/icons/hicolor/256x256/apps"
 
 # ── 1. Frontend ──
-# Build it, then STAGE it into the Python package. PyInstaller's
-# `--collect-all revoluzen-flow` below picks up backend/revoluzen_flow/frontend_dist/, so the
-# frozen bundle carries the UI where main.py actually looks for it
-# (revoluzen_flow/frontend_dist). Without staging, the app resolves no UI and serves
-# a 404 at / — it will say so loudly at startup.
-echo "  [1/4] Building + staging frontend..."
+echo "  [1/4] Building frontend..."
 ( cd "$REPO_ROOT/frontend" && npm install --silent && npm run build )
-"$REPO_ROOT/.venv/bin/python" "$REPO_ROOT/scripts/stage_frontend.py"
 
 # ── 2. Freeze backend ──
+# The shared spec (installer/windows/revoluzen-flow.spec), the one the Windows
+# and macOS builds use. This used to be an inline `--collect-all revoluzen-flow`:
+# a hyphen is not an importable name, so PyInstaller collected nothing of the
+# app itself, and the bundle had no UI, connector manifests or seed data. The
+# v1.0.1 tag's release run stopped here. The spec collects the whole app plus
+# the dynamically imported modules the old four-package command never reached.
 echo "  [2/4] Freezing backend with PyInstaller..."
 PYTHON="$REPO_ROOT/.venv/bin/python"
 [[ -x "$PYTHON" ]] || { echo "Python venv not found at $PYTHON"; exit 1; }
 
 ( cd "$REPO_ROOT" && \
-  "$PYTHON" -m PyInstaller \
-    --onedir --noconfirm --clean \
-    --name revoluzen-flow \
-    --paths backend \
-    --hidden-import revoluzen_flow.main \
-    --collect-all revoluzen-flow \
-    --collect-all duckdb \
-    --collect-all fastapi \
-    --collect-all uvicorn \
+  "$PYTHON" scripts/stage_frontend.py && \
+  "$PYTHON" scripts/stage_docs.py && \
+  "$PYTHON" tools/package_preflight.py --strict && \
+  "$PYTHON" -m PyInstaller installer/windows/revoluzen-flow.spec \
+    --noconfirm --clean \
     --distpath "$BUILDROOT/usr/lib/$PKG_NAME/runtime" \
-    backend/revoluzen_flow/__main__.py )
+    --workpath "$SCRIPT_DIR/build/pyi-rpm" )
+
+# The spec names the executable `revoluzen` inside a `revoluzen-flow` folder,
+# matching the console script in pyproject.toml. Prove it runs before packaging.
+FROZEN="$BUILDROOT/usr/lib/$PKG_NAME/runtime/revoluzen-flow/revoluzen"
+[[ -x "$FROZEN" ]] || { echo "freeze did not produce $FROZEN"; exit 1; }
+"$FROZEN" selftest || { echo "frozen binary failed selftest"; exit 1; }
 
 # NOTE: no separate frontend copy here. Older revisions copied frontend/dist
 # to .../frontend-dist, which main.py never looks for — the package installed
@@ -91,7 +93,7 @@ if ! find "$BUILDROOT/usr/lib/$PKG_NAME/runtime" -path '*/revoluzen_flow/fronten
   echo "       The package would install and serve a blank page. Refusing to build."
   exit 1
 fi
-ln -sf "/usr/lib/$PKG_NAME/runtime/revoluzen-flow/revoluzen_flow" "$BUILDROOT/usr/bin/revoluzen"
+ln -sf "/usr/lib/$PKG_NAME/runtime/revoluzen-flow/revoluzen" "$BUILDROOT/usr/bin/revoluzen"
 
 cat > "$BUILDROOT/usr/share/applications/revoluzen-flow.desktop" <<'EOF'
 [Desktop Entry]
