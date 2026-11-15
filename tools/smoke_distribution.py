@@ -77,4 +77,7 @@ if __name__ == "__main__":
     group.add_argument("--python", type=Path)
     group.add_argument("--exe", type=Path)
     args = parser.parse_args()
-    smoke([str(args.exe.resolve())] if args.exe else [str(args.python.resolve()), "-m", "revoluzen_flow"])
+    # `absolute()`, not `resolve()`: a venv's bin/python is a symlink to the base
+    # interpreter on Linux/macOS, and resolving it escapes the venv. The 2026-11-15
+    # release run booted the system Python that way and found no revoluzen_flow.
+    smoke([str(args.exe.absolute())] if args.exe else [str(args.python.absolute()), "-m", "revoluzen_flow"])

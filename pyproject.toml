@@ -314,7 +314,7 @@ Homepage = "https://revoluzen.io"
 Documentation = "https://docs.revoluzen.io/flow"
 Repository = "https://github.com/revoluzen-io/revoluzen-flow"
 Issues = "https://github.com/revoluzen-io/revoluzen-flow/issues"
-"Revoluzen Flow Enterprise commercial" = "https://revoluzen.io/flow"
+"Enterprise edition" = "https://revoluzen.io/flow"
 
 [tool.setuptools.packages.find]
 where = ["backend"]
