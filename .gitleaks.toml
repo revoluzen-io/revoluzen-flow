@@ -72,4 +72,16 @@ regexes = [
     # key label followed by a comma separator and takes "S3-compatible" as
     # the value. It is a product name in display copy, not a credential.
     '''S3-compatible''',
+    # 2026-11-16 — backend/revoluzen_flow/openpgp/credentials.py names the
+    # ASCII-armor headers inside user-facing error messages, e.g. "...add the
+    # field 'private_key' with your armored private key (-----BEGIN PGP
+    # PRIVATE KEY BLOCK-----)." The default private-key rule anchors on the
+    # BEGIN header (line 57) and runs to the next "KEY BLOCK----" (line 75),
+    # so the reported secret is entirely prose. That file holds NO key
+    # material: zero base64 lines, zero END blocks, 105 lines of lookup logic
+    # — real keys live in the encrypted credential store and never in source.
+    # Anchored on the closing "-----)." which only occurs when the header is
+    # quoted mid-sentence; genuine armor has a newline after the header, so a
+    # real pasted key in this or any other file still flags.
+    '''KEY BLOCK-----\)\.''',
 ]
