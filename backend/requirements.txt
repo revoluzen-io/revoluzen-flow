@@ -103,7 +103,7 @@ pyodbc>=5.0
 # Security & Diagnostics master-key row degrades to "not checked" rather
 # than guessing, so this is a soft requirement: the app runs fine, the
 # check just cannot see anything.
-pywin32>=306; sys_platform == "win32"
+pywin32>=312; sys_platform == "win32"
 # 2026-08-02: Postgres + MySQL drivers. A data-pipeline tool has to
 # connect to the two most common databases out of the box — shipping
 # without them meant a user testing a Postgres/MySQL connection hit
