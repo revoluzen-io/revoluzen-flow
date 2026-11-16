@@ -20,7 +20,7 @@
 # router-level dependency routes still mount, and checking the sweep
 # still discovers them — the same "verify before widening" the duckdb
 # note below records.
-fastapi>=0.115.0,<0.130
+fastapi>=0.115.0,<0.163
 uvicorn[standard]>=0.34.0
 # 2026-10-23: the `<2` bound added earlier the same day is LIFTED. 2.0 is
 # supported — the 31 `Relation.fetchone()` call sites it removed were already
