@@ -68,6 +68,32 @@ def build_window_params(
     return out
 
 
+def _executor_of_its_own(executor):
+    """A fresh executor like ``executor``, for a window that runs alongside
+    another.
+
+    A WorkflowExecutor keeps the running workflow's state on itself: its run
+    id, cancellation token, time limit and step cache. Two windows sharing one
+    overwrote each other's, and the first to finish cleared the other's token,
+    so that window failed with "'NoneType' object has no attribute
+    'unregister_cancel_callback'" (15 Nov 2026: 3 windows of a 7-day backfill
+    at concurrency 2), and step outputs were filed under the other window's
+    run. Anything that is not a WorkflowExecutor (a test double) is used as
+    it is.
+    """
+    from revoluzen_flow.engine.executor import WorkflowExecutor
+
+    if type(executor) is not WorkflowExecutor:
+        return executor
+    own = WorkflowExecutor(
+        data_dir=executor.data_dir,
+        app_state=executor.app_state,
+        on_event=executor.on_event,
+    )
+    own.workflow_retry_budget = executor.workflow_retry_budget
+    return own
+
+
 def _run_one_window(
     parent: Backfill,
     child: BackfillRun,
@@ -268,7 +294,10 @@ def run_backfill_sync(
     def _process(child: BackfillRun) -> BackfillRun:
         return _run_one_window(
             parent, child,
-            executor=executor, workflow=workflow,
+            # One window at a time can share the executor; windows that run
+            # at once each need their own (see _executor_of_its_own).
+            executor=executor if concurrency <= 1 else _executor_of_its_own(executor),
+            workflow=workflow,
             exe_store=exe_store, store=store, extra_params=extra,
         )
 

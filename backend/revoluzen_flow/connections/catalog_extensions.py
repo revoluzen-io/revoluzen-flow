@@ -97,9 +97,13 @@ def _aws_kwargs(config: dict, region_default: str = "us-east-1") -> dict:
                               read_timeout=DEFAULT_TIMEOUT,
                               retries={"max_attempts": 1}),
     }
-    if config.get("access_key_id") or config.get("aws_access_key_id"):
-        kw["aws_access_key_id"] = config.get("access_key_id") or config.get("aws_access_key_id")
-        kw["aws_secret_access_key"] = config.get("secret_access_key") or config.get("aws_secret_access_key")
+    # 2026-11-13: the Kinesis and SQS forms save `access_key` / `secret_key`,
+    # which browsing used to ignore (it then signed in as the server's role).
+    key_id = config.get("access_key_id") or config.get("aws_access_key_id") or config.get("access_key")
+    if key_id:
+        kw["aws_access_key_id"] = key_id
+        kw["aws_secret_access_key"] = (config.get("secret_access_key") or config.get("aws_secret_access_key")
+                                       or config.get("secret_key"))
         if config.get("session_token") or config.get("aws_session_token"):
             kw["aws_session_token"] = config.get("session_token") or config.get("aws_session_token")
     if config.get("endpoint_url"):
@@ -338,6 +342,13 @@ def _nats_catalog(config: dict) -> Catalog:
     except Exception as exc:  # noqa: BLE001
         return _unsupported(f"NATS JetStream listing failed: {exc}")
     return _build([CatalogItem(name=n, kind="stream", parent="") for n in names])
+
+
+@register("mqtt", ProviderMeta(category="streaming", auth="basic", tier="tier2"))
+def _mqtt_catalog(config: dict) -> Catalog:
+    """2026-11-13: an MQTT broker does not list its topics; the step names a topic filter."""
+    return _unsupported("MQTT brokers do not list their topics. Type the topic filter (for example "
+                        "plant/+/temperature) in the MQTT step.")
 
 
 @register("eventhub", ProviderMeta(category="streaming", auth="oauth2", tier="tier2"))

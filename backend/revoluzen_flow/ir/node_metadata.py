@@ -150,6 +150,11 @@ SIDE_EFFECT_CLASS: dict[str, SideEffectClass] = {
     "gdrive_sink": "passthrough", "dropbox_sink": "passthrough", "box_sink": "passthrough",
     "adls_gen2_sink": "passthrough", "azure_blob_sink": "passthrough", "gcs_sink": "passthrough",
     "webhook_sink": "passthrough",
+    # 2026-11-13: streams and queues (nodes/streams.py). A Sample run must
+    # not send real messages.
+    "kinesis_sink": "passthrough", "sqs_sink": "passthrough", "pubsub_sink": "passthrough",
+    "eventhub_sink": "passthrough", "mqtt_sink": "passthrough", "rabbitmq_sink": "passthrough",
+    "nats_sink": "passthrough", "pulsar_sink": "passthrough",
     "output": "passthrough", "destination": "passthrough",
     # 2026-05-23 (Y3): managed local Parquet sink — passthrough of the
     # input relation while the bytes write to disk in parallel.

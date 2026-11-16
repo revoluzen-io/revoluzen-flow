@@ -80,6 +80,20 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
   const [expanded, setExpanded] = useState<string | null>(null);
   const [windowsByParent, setWindowsByParent] = useState<Record<string, BackfillRow[]>>({});
   const [loadingWindows, setLoadingWindows] = useState<string | null>(null);
+  // 2026-11-14: each row named its pipeline by id only ("Pipeline 56ab75c5a859"). The names are looked up once;
+  // a pipeline that is gone keeps its id.
+  const [pipelineNames, setPipelineNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let cancelled = false;
+    api.listWorkflows()
+      .then((list: any) => {
+        if (cancelled) return;
+        const items = Array.isArray(list) ? list : (list?.workflows || list?.items || []);
+        setPipelineNames(Object.fromEntries(items.map((w: any) => [(w.workflow || w).id, (w.workflow || w).name])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -252,7 +266,9 @@ export default function BackfillsPanel({ pipelineId, onOpenExecution, dark = fal
                       {_fmtDate(bf.window_start)} → {_fmtDate(bf.window_end)}
                     </div>
                     <div className={`text-xs ${dark ? 'text-slate-400' : 'text-slate-500'}`}>
-                      Pipeline <span className="font-mono">{bf.pipeline_id}</span> · {bf.window_size}
+                      {pipelineNames[bf.pipeline_id]
+                        ? <span className="font-medium">{pipelineNames[bf.pipeline_id]}</span>
+                        : <>Pipeline <span className="font-mono">{bf.pipeline_id}</span></>} · {bf.window_size}
                       {' · '}
                       <span className="font-mono">{bf.id}</span>
                     </div>

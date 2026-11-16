@@ -34,7 +34,7 @@ The backend boots on loopback, your browser opens, and you're in. Needs Python
 
 <div align="center">
   <img src="docs/assets/screenshot-editor.png" alt="The Revoluzen Flow canvas: a nine-node pipeline, Revenue by Region, open as a draft of a published pipeline, taking orders through a data-quality check and a filter, and customers through a dedupe, into a join, then a derived revenue column and an aggregation by region into a managed table" width="100%">
-  <em>Build pipelines on a canvas · 45 node types · 68 connectors · run, schedule and alert from the same place</em>
+  <em>Build pipelines on a canvas · 45 node types · 76 connectors · run, schedule and alert from the same place</em>
 </div>
 
 > [!NOTE]

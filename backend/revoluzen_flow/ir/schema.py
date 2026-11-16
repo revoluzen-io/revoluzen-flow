@@ -40,6 +40,16 @@ class StepType(str, Enum):
     XML_SOURCE = "xml_source"        # Read XML files, parse to rows
     S3_SOURCE = "s3_source"          # Read from S3-compatible object storage
     KAFKA_SOURCE = "kafka_source"    # Read from a Kafka topic
+    # Streams and queues (2026-11-13, nodes/streams.py). Reached through the
+    # Source step with a saved connection of that type.
+    KINESIS_SOURCE = "kinesis_source"    # Amazon Kinesis Data Streams
+    SQS_SOURCE = "sqs_source"            # Amazon SQS
+    PUBSUB_SOURCE = "pubsub_source"      # Google Cloud Pub/Sub subscription
+    EVENTHUB_SOURCE = "eventhub_source"  # Azure Event Hubs
+    MQTT_SOURCE = "mqtt_source"          # MQTT topic (persistent session)
+    RABBITMQ_SOURCE = "rabbitmq_source"  # RabbitMQ queue
+    NATS_SOURCE = "nats_source"          # NATS JetStream subject
+    PULSAR_SOURCE = "pulsar_source"      # Apache Pulsar topic
     FTP_SOURCE = "ftp_source"        # Read from an FTP server
     GSHEET_SOURCE = "gsheet_source"  # Google Sheets via public CSV export
     DELTA_SOURCE = "delta_source"    # Read a Delta Lake table (latest, a version or a time)
@@ -142,6 +152,15 @@ class StepType(str, Enum):
     EXCEL_SINK = "excel_sink"         # Write Excel (.xlsx) files
     S3_SINK = "s3_sink"              # Upload to S3/MinIO
     KAFKA_SINK = "kafka_sink"        # Send to Kafka topic
+    # Streams and queues (2026-11-13, nodes/streams.py).
+    KINESIS_SINK = "kinesis_sink"
+    SQS_SINK = "sqs_sink"
+    PUBSUB_SINK = "pubsub_sink"
+    EVENTHUB_SINK = "eventhub_sink"
+    MQTT_SINK = "mqtt_sink"
+    RABBITMQ_SINK = "rabbitmq_sink"
+    NATS_SINK = "nats_sink"
+    PULSAR_SINK = "pulsar_sink"
     API_SINK = "api_sink"            # POST data to REST API
     WEBHOOK_SINK = "webhook_sink"    # POST to webhook URL
     EMAIL_SINK = "email_sink"        # Send data via email (SMTP)

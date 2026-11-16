@@ -17,7 +17,7 @@ Revoluzen Flow Free is a single-binary, single-user data pipeline platform that 
 Everything below ships in this build, unrestricted.
 
 - **Visual canvas builder** with all 45 node types
-- **68 connectors visible by default** — Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21 · Operations & AI 11. That is the New Connection picker count: 82 declared types minus 14 marked roadmap (UI-only today, hidden so they don't set false expectations). Say "68 connectors", not "68 open-source connectors" — nine carry a Plus tier label in the catalog, which is a pricing posture, not a runtime gate. Note that `/api/connectors/cert-matrix` grades a *different* population — the SaaS REST manifests only, not these 68 connection types. Full list in [`docs/connectors.md`](connectors.md).
+- **76 connectors visible by default** — Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21 · Operations & AI 19. That is the New Connection picker count: 86 declared types minus 10 marked roadmap (UI-only today, hidden so they don't set false expectations). Say "76 connectors", not "76 open-source connectors" — nine carry a Plus tier label in the catalog, which is a pricing posture, not a runtime gate. Note that `/api/connectors/cert-matrix` grades a *different* population — the SaaS REST manifests only, not these 68 connection types. Full list in [`docs/connectors.md`](connectors.md).
 - **DuckDB execution engine** with full vertical scaling on a tuned host
 - **Local AI assistant** via Ollama — unrestricted, no per-call limits
 - **Cloud AI assistant** via bring-your-own-key — unrestricted, no proxying through us

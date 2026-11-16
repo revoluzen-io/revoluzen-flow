@@ -24,7 +24,7 @@ If a feature is not on this page, it is in Revoluzen Flow (free / Apache 2.0). P
 |---|:-:|:-:|
 | Pipeline canvas (drag-drop) | ✅ | ✅ |
 | 47 node types across 6 categories (Data Movement · Transform · Combine · Control Flow · Action · AI / Semantic) — the palette count: 42 curated in `modulesPanelData.ts` plus 5 reconciled in from the backend registry. The registry itself holds 107 node types; the rest are legacy keys kept registered so old pipelines keep running, and hidden from the palette via `HIDDEN_TYPES`. | ✅ | ✅ |
-| 68 connectors visible by default (Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21 · Operations & AI 11) — the New Connection picker count: 82 declared types minus 14 marked roadmap (Windows File Share made it 67 and the ODBC database connection 68, both on 2026-11-11). Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "68 connectors", not "68 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 68 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
+| 76 connectors visible by default (Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21 · Operations & AI 19) — the New Connection picker count: 86 declared types minus 10 marked roadmap (Windows File Share made it 67 and the ODBC database connection 68, both on 2026-11-11; on 2026-11-13 RabbitMQ, Pulsar, Event Hubs and Kinesis gained source and destination steps and left Coming soon, and SQS, Google Pub/Sub, NATS and MQTT were added: 76). Nine carry a Plus tier label in the catalog (a pricing posture, not a runtime gate), so say "76 connectors", not "76 open-source connectors". The cert matrix at `/api/connectors/cert-matrix` grades a different population — the SaaS REST manifests only, not the 68 connection types. v1→v2 + fixture coverage uplift is the post-1.0 connector roadmap. | ✅ | ✅ |
 | Expression engine (`$json`, `$now`, `$('Node')`) | ✅ | ✅ |
 | SQL Transform (DuckDB-backed) | ✅ | ✅ |
 | Templates (27 OSS) | ✅ | ✅ + private marketplace |
@@ -313,7 +313,7 @@ another document rather than re-derived. Re-derive them:
 |---|---|
 | Node types (45 / 6 categories) | `MODULES` in `frontend/src/components/modulesPanelData.ts`, plus backend types not in `HIDDEN_TYPES` (`frontend/src/components/hiddenNodeTypes.ts`) |
 | Node type registry (107) | `GET /api/node-types` |
-| Connectors (68) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
+| Connectors (76) | `CONNECTION_TYPES` minus `CONNECTOR_STATUS` roadmap entries, both in `frontend/src/components/pages/ConnectionsPage.tsx` |
 | Agent tools (33) | `INITIAL_TOOLS` in `backend/revoluzen_flow/ai/tools/__init__.py`, or `GET /api/ai/agent/status` → `tool_count` |
 | Templates (27) | `frontend/src/templates/catalog.ts` |
 

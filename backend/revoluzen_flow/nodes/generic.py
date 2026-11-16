@@ -64,6 +64,17 @@ SOURCE_MAP: dict[str, StepType] = {
     # COBOL copybook records, EBCDIC and PGP-encrypted files, from a local
     # file, S3 / MinIO or an FTP / SFTP connection.
     "file": StepType.FILE_SOURCE,
+    # 2026-11-13 — change data capture from a PostgreSQL, MySQL or MariaDB
+    # connection ("Read: changes"), and streams and queues.
+    "cdc": StepType.CDC_SOURCE,
+    "kinesis": StepType.KINESIS_SOURCE,
+    "sqs": StepType.SQS_SOURCE,
+    "pubsub": StepType.PUBSUB_SOURCE,
+    "eventhub": StepType.EVENTHUB_SOURCE,
+    "mqtt": StepType.MQTT_SOURCE,
+    "rabbitmq": StepType.RABBITMQ_SOURCE,
+    "nats": StepType.NATS_SOURCE,
+    "pulsar": StepType.PULSAR_SOURCE,
 }
 
 DEST_MAP: dict[str, StepType] = {
@@ -91,6 +102,15 @@ DEST_MAP: dict[str, StepType] = {
     "local_table": StepType.LOCAL_TABLE_SINK,
     # 2026-11-11 — the File step: any format, optionally PGP-encrypted.
     "file": StepType.FILE_SINK,
+    # 2026-11-13 — streams and queues.
+    "kinesis": StepType.KINESIS_SINK,
+    "sqs": StepType.SQS_SINK,
+    "pubsub": StepType.PUBSUB_SINK,
+    "eventhub": StepType.EVENTHUB_SINK,
+    "mqtt": StepType.MQTT_SINK,
+    "rabbitmq": StepType.RABBITMQ_SINK,
+    "nats": StepType.NATS_SINK,
+    "pulsar": StepType.PULSAR_SINK,
 }
 
 

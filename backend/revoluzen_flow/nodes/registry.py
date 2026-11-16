@@ -89,6 +89,7 @@ def get_registry() -> NodeRegistry:
         local_table,  # 2026-05-23 (Y3): managed-table source + sink
         pipeline_output,  # 2026-11-10: Storage -> Pipeline Outputs, replaced each run
         reconcile,  # 2026-11-11: compare with the system of record before the write
+        streams,  # 2026-11-13: Kinesis, SQS, Pub/Sub, Event Hubs, MQTT, RabbitMQ, NATS, Pulsar
     )
     # Connector framework: REST manifests + JDBC + CDC + OpenAPI + Vector DBs
     try:

@@ -23,7 +23,6 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
-    from revoluzen_flow.connections.kafka_settings import KafkaSettings
 
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.nodes.base import BaseNode, ExecutionContext
@@ -627,27 +626,6 @@ class S3SourceNode(BaseNode):
 
 # â”€â”€ Kafka Source â”€â”€
 
-def _kafka_row(value: bytes | str, offset: int, partition: int, topic: str) -> dict:
-    """One message as a row: a JSON object's fields, otherwise its text in ``value``."""
-    decoded = value.decode("utf-8", errors="replace") if isinstance(value, (bytes, bytearray)) else str(value)
-    try:
-        parsed = json.loads(decoded)
-    except json.JSONDecodeError:
-        parsed = None
-    row = parsed if isinstance(parsed, dict) else {"value": decoded}
-    row["_kafka_offset"] = offset
-    row["_kafka_partition"] = partition
-    row["_kafka_topic"] = topic
-    return row
-
-
-def _kafka_error_text(error: Any) -> str:
-    """The readable part of a Kafka client error."""
-    inner = error.args[0] if isinstance(error, Exception) and error.args else error
-    text = getattr(inner, "str", None)
-    return str(text() if callable(text) else inner)
-
-
 def _whole_number(value: Any, default: int) -> int:
     """A positive whole number from a step setting, or the default."""
     try:
@@ -682,9 +660,68 @@ def _kafka_start_from(params: dict[str, Any]) -> str:
     return "newest" if reset == "latest" else "oldest"
 
 
+def read_kafka_rows(ctx: ExecutionContext, params: dict[str, Any], who: str = "Kafka Source",
+                    fmt: str | None = None) -> duckdb.DuckDBPyRelation:
+    """One Kafka step's run: read, turn messages into rows, keep the position.
+
+    Shared by the Kafka Source and the Change Data Capture step's Debezium mode
+    (``fmt="debezium"``). The reading itself is ``streams/kafka.py``; how a
+    message becomes a row is ``streams/kafka_formats.py``.
+    """
+    from revoluzen_flow.connections.kafka_settings import kafka_settings
+    from revoluzen_flow.nodes._kafka_positions import keep, load
+    from revoluzen_flow.streams import kafka as kafka_client
+    from revoluzen_flow.streams.kafka_formats import READ_FORMATS, MessageReader, check_format
+    from revoluzen_flow.streams.rows import rows_to_relation
+
+    topic = str(params.get("topic") or "").strip()
+    max_messages = _whole_number(params.get("max_messages") or params.get("max_changes"), 100)
+    timeout_seconds = _whole_number(params.get("timeout_seconds"), 10)
+    connection_id = params.get("connection_id", "")
+    if not topic:
+        raise ValueError(f"{who}: topic is required")
+    start_from = _kafka_start_from(params)
+    fmt = fmt or check_format(params.get("message_format"), who, READ_FORMATS)
+
+    connection = None
+    if connection_id:
+        from revoluzen_flow.streams.connection import saved_connection
+
+        connection, _type = saved_connection(ctx, connection_id, who)
+    # The brokers and the sign-in: the connection's when the step has one
+    # (its `brokers`, as the Connections page saves them), otherwise the
+    # step's own fields.
+    settings = kafka_settings(connection, params, who=who)
+    # The step's own group name, else the connection's default. It does not
+    # decide which messages a run reads.
+    group_id = (
+        str(params.get("group_id") or "").strip()
+        or str((connection or {}).get("group_id") or "").strip()
+        or "revoluzen_flow-consumer"
+    )
+    registry = None
+    if settings.registry_url and fmt in ("avro", "debezium"):
+        from revoluzen_flow.streams.schema_registry import SchemaRegistry
+
+        registry = SchemaRegistry.from_settings(settings, who)
+    reader = MessageReader(fmt, registry, include_metadata=bool(params.get("include_metadata")), who=who)
+
+    step_id = params.get("_step_id", "")
+    start, saved = load(ctx, step_id, topic, label=who)
+    messages, end = kafka_client.read(settings, topic, group_id, max_messages, timeout_seconds,
+                                      start, start_from, who=who)
+    rows = [row for row in (reader.row(m) for m in messages) if row is not None]
+    empty = {"value": "VARCHAR", **reader.fixed_types()} if fmt != "debezium" else reader.fixed_types()
+    relation = rows_to_relation(ctx.conn, rows, "__kafka_source", fixed=reader.fixed_types(), when_empty=empty)
+    # Saved by the executor only if the whole run succeeds.
+    keep(ctx, step_id, saved, start, end, len(messages), label=who)
+    return relation
+
+
 @register(StepType.KAFKA_SOURCE)
 class KafkaSourceNode(BaseNode):
-    """Read messages from a Kafka topic.
+    """Read messages from a Kafka topic (Kafka, Redpanda, Confluent Cloud,
+    Amazon MSK, Azure Event Hubs' Kafka endpoint).
 
     Each run carries on after the last message the previous successful run
     read. Flow keeps that position for each pipeline step and saves it only
@@ -697,268 +734,34 @@ class KafkaSourceNode(BaseNode):
     description = "Read messages from a Kafka topic"
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
-        from revoluzen_flow.connections.kafka_settings import kafka_settings
-        from revoluzen_flow.nodes._kafka_positions import keep_positions, saved_positions
-
-        topic = str(self.params.get("topic") or "").strip()
-        max_messages = _whole_number(self.params.get("max_messages"), 100)
-        timeout_seconds = _whole_number(self.params.get("timeout_seconds"), 10)
-        connection_id = self.params.get("connection_id", "")
-
-        if not topic:
-            raise ValueError("Kafka Source: topic is required")
-        start_from = _kafka_start_from(self.params)
-
-        connection = None
-        if connection_id:
-            from revoluzen_flow.nodes.db_source import _get_connection_config
-            result = _get_connection_config(connection_id)
-            if result:
-                connection, _ = result
-        # The brokers and the sign-in: the connection's when the step has one
-        # (its `brokers`, as the Connections page saves them), otherwise the
-        # step's own fields.
-        settings = kafka_settings(connection, self.params, who="Kafka Source")
-        # The step's own group name, else the connection's default. It does
-        # not decide which messages a run reads.
-        group_id = (
-            str(self.params.get("group_id") or "").strip()
-            or str((connection or {}).get("group_id") or "").strip()
-            or "revoluzen_flow-consumer"
-        )
-
-        step_id = self.params.get("_step_id", "")
-        start = saved_positions(ctx, step_id, topic)
-        rows, end = self._read(topic, settings, group_id, max_messages, timeout_seconds, start, start_from)
-
-        if rows:
-            relation = _rows_to_relation(ctx.conn, rows, "__kafka_source")
-        else:
-            relation = ctx.conn.sql(
-                "SELECT NULL::VARCHAR AS value, NULL::BIGINT AS _kafka_offset, "
-                "NULL::INT AS _kafka_partition, NULL::VARCHAR AS _kafka_topic WHERE false"
-            )
-        # Saved by the executor only if the whole run succeeds.
-        keep_positions(ctx, step_id, topic, start, end, len(rows))
-        return relation
-
-    def _read(self, topic: str, settings: KafkaSettings, group_id: str,
-              max_messages: int, timeout_seconds: int,
-              start: dict[int, int], start_from: str = "oldest") -> tuple[list[dict], dict[int, int]]:
-        """Try confluent_kafka first, then kafka-python."""
-        try:
-            return self._read_confluent(
-                topic, settings, group_id, max_messages, timeout_seconds, start, start_from
-            )
-        except ImportError:
-            pass
-
-        try:
-            return self._read_kafka_python(
-                topic, settings, group_id, max_messages, timeout_seconds, start, start_from
-            )
-        except ImportError:
-            from revoluzen_flow.connections.addons import addon_message
-            raise ValueError(f"Kafka Source: {addon_message('kafka')}") from None
-
-    @staticmethod
-    def _read_confluent(topic: str, settings: KafkaSettings, group_id: str,
-                        max_messages: int, timeout_seconds: int,
-                        start: dict[int, int], start_from: str = "oldest",
-                        ) -> tuple[list[dict], dict[int, int]]:
-        """Read using confluent_kafka.
-
-        Takes every partition of the topic and starts each at its saved offset.
-        With no saved position at all, every partition starts at its oldest
-        message, or with ``start_from="newest"`` where it ends now. A partition
-        the saved position does not know (added to the topic since) starts at
-        its oldest message. Returns the rows and, for each partition, the
-        offset after the last message read.
-        """
-        import time
-
-        from confluent_kafka import (  # type: ignore
-            OFFSET_BEGINNING, Consumer, KafkaError, KafkaException, TopicPartition,
-        )
-
-        from revoluzen_flow.connections.kafka_settings import ClientErrors
-
-        bootstrap_servers = settings.brokers
-        # A refused sign-in reaches this callback; the call waiting for the
-        # broker only times out.
-        client_errors = ClientErrors(settings)
-        conf = {
-            # The brokers and, with SASL_PLAINTEXT or SASL_SSL, the sign-in.
-            **settings.confluent(),
-            "error_cb": client_errors,
-            "group.id": group_id,
-            # Used only when a saved offset is no longer in the topic because
-            # the broker has deleted it: carry on at the oldest message kept.
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-            # Report the end of each partition, so a run that has caught up
-            # stops instead of waiting out the timeout.
-            "enable.partition.eof": True,
-        }
-        try:
-            consumer = Consumer(conf)
-        except KafkaException as exc:
-            raise ValueError(
-                f"Kafka Source: the Kafka client could not start: {settings.hide(_kafka_error_text(exc))}"
-            ) from None
-
-        rows: list[dict] = []
-        end = dict(start)
-        try:
-            try:
-                metadata = consumer.list_topics(topic, timeout=timeout_seconds)
-            except KafkaException as exc:
-                raise ValueError(
-                    f"Kafka Source: could not reach Kafka at {bootstrap_servers}: "
-                    f"{client_errors.explain(_kafka_error_text(exc))}"
-                ) from None
-            found = metadata.topics.get(topic)
-            error = getattr(found, "error", None)
-            if found is None or not found.partitions or (
-                error is not None and error.code() == KafkaError.UNKNOWN_TOPIC_OR_PART
-            ):
-                raise ValueError(f"Kafka Source: topic '{topic}' was not found at {bootstrap_servers}.")
-            if error is not None:
-                raise ValueError(
-                    f"Kafka Source: topic '{topic}' could not be read: "
-                    f"{client_errors.explain(_kafka_error_text(error))}"
-                )
-            partitions = sorted(found.partitions)
-            if not start and start_from == "newest":
-                # Only new messages: each partition starts where it ends now,
-                # and that place is kept even when nothing arrives, so the
-                # next run carries on from there.
-                for p in partitions:
-                    try:
-                        _oldest, after_newest = consumer.get_watermark_offsets(
-                            TopicPartition(topic, p), timeout=timeout_seconds,
-                        )
-                    except KafkaException as exc:
-                        raise ValueError(
-                            f"Kafka Source: could not find where topic '{topic}' ends: "
-                            f"{client_errors.explain(_kafka_error_text(exc))}"
-                        ) from None
-                    end[p] = after_newest
-            consumer.assign([
-                TopicPartition(topic, p, end.get(p, OFFSET_BEGINNING)) for p in partitions
-            ])
-
-            caught_up: set[int] = set()
-            deadline = time.monotonic() + timeout_seconds
-            while len(rows) < max_messages and time.monotonic() < deadline:
-                msg = consumer.poll(timeout=1.0)
-                if msg is None:
-                    continue
-                msg_error = msg.error()
-                if msg_error is not None:
-                    if msg_error.code() == KafkaError._PARTITION_EOF:
-                        caught_up.add(msg.partition())
-                        if len(caught_up) == len(partitions):
-                            break
-                    continue
-                partition = msg.partition()
-                caught_up.discard(partition)
-                end[partition] = msg.offset() + 1
-                value = msg.value()
-                if value is None:
-                    continue
-                rows.append(_kafka_row(value, msg.offset(), partition, msg.topic()))
-        finally:
-            consumer.close()
-        return rows, end
-
-    @staticmethod
-    def _read_kafka_python(topic: str, settings: KafkaSettings, group_id: str,
-                           max_messages: int, timeout_seconds: int,
-                           start: dict[int, int], start_from: str = "oldest",
-                           ) -> tuple[list[dict], dict[int, int]]:
-        """Read using kafka-python, the same way as with confluent_kafka."""
-        from kafka import KafkaConsumer, TopicPartition  # type: ignore
-
-        bootstrap_servers = settings.brokers
-        try:
-            consumer = KafkaConsumer(
-                # The brokers and, with SASL_PLAINTEXT or SASL_SSL, the sign-in.
-                **settings.kafka_python(),
-                group_id=group_id,
-                auto_offset_reset="earliest",
-                enable_auto_commit=False,
-                consumer_timeout_ms=timeout_seconds * 1000,
-            )
-        except Exception as exc:  # noqa: BLE001 — kafka-python raises its own error types
-            # It connects here, so a refused sign-in or an unreachable broker
-            # stops the run now.
-            raise ValueError(
-                f"Kafka Source: could not reach Kafka at {bootstrap_servers}: {settings.hide(_kafka_error_text(exc))}"
-            ) from None
-
-        rows: list[dict] = []
-        end = dict(start)
-        try:
-            try:
-                partitions = sorted(consumer.partitions_for_topic(topic) or ())
-            except Exception as exc:  # noqa: BLE001
-                raise ValueError(
-                    f"Kafka Source: could not reach Kafka at {bootstrap_servers}: "
-                    f"{settings.hide(_kafka_error_text(exc))}"
-                ) from None
-            if not partitions:
-                raise ValueError(f"Kafka Source: topic '{topic}' was not found at {bootstrap_servers}.")
-            assigned = [TopicPartition(topic, p) for p in partitions]
-            consumer.assign(assigned)
-            if not start and start_from == "newest":
-                # Only new messages: start where each partition ends now, and
-                # keep that place even when nothing arrives.
-                try:
-                    ends = consumer.end_offsets(assigned)
-                except Exception as exc:  # noqa: BLE001
-                    raise ValueError(
-                        f"Kafka Source: could not find where topic '{topic}' ends: "
-                        f"{settings.hide(_kafka_error_text(exc))}"
-                    ) from None
-                for tp in assigned:
-                    end[tp.partition] = ends[tp]
-            for tp in assigned:
-                if tp.partition in end:
-                    consumer.seek(tp, end[tp.partition])
-                else:
-                    consumer.seek_to_beginning(tp)
-            for msg in consumer:
-                end[msg.partition] = msg.offset + 1
-                # A message with no value (a delete marker) gives no row. It
-                # used to stop the whole read with an error.
-                if msg.value is None:
-                    continue
-                rows.append(_kafka_row(msg.value, msg.offset, msg.partition, msg.topic))
-                if len(rows) >= max_messages:
-                    break
-        finally:
-            consumer.close()
-        return rows, end
+        return read_kafka_rows(ctx, self.params)
 
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "connection_id": "", "topic": "", "start_from": "oldest",
-            "group_id": "", "max_messages": 100, "timeout_seconds": 10,
+            "connection_id": "", "topic": "", "start_from": "oldest", "message_format": "json",
+            "include_metadata": True, "group_id": "", "max_messages": 100, "timeout_seconds": 10,
         }
 
     @staticmethod
     def param_schema() -> list[dict]:
-        # 2026-11-11: only settings a run uses. The broker list and the sign-in
-        # come from the saved connection; Operation, Auto Offset Reset,
-        # Partition, Starting Offset and Value Deserializer were never read.
+        # Only settings a run uses. The broker list, the sign-in and the Schema
+        # Registry come from the saved connection.
         return [
             {"name": "connection_id", "type": "connection_picker", "label": "Connection",
              "required": True,
-             "description": "A saved Kafka connection. Its brokers and sign-in are used."},
+             "description": "A saved Kafka connection (Kafka, Redpanda, Confluent Cloud, Amazon "
+                            "MSK or Azure Event Hubs). Its brokers and sign-in are used."},
             {"name": "topic", "type": "text", "label": "Topic", "required": True,
              "placeholder": "events.raw"},
+            {"name": "message_format", "type": "select", "label": "Message Format",
+             "options": ["json", "text", "avro", "debezium"], "default": "json",
+             "description": "json: a JSON object's fields become columns. text: the whole message "
+                            "in one column. avro: Avro with the connection's Schema Registry. "
+                            "debezium: Debezium change events (JSON or Avro) as change rows."},
+            {"name": "include_metadata", "type": "boolean", "label": "Include key, headers and time",
+             "default": True,
+             "description": "Adds _kafka_key, _kafka_headers and _kafka_timestamp columns."},
             {"name": "start_from", "type": "select", "label": "First run starts at",
              "options": ["oldest", "newest"], "default": "oldest",
              "description": "oldest: the oldest message Kafka still keeps. newest: only "

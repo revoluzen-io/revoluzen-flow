@@ -49,6 +49,11 @@ export const HIDDEN_TYPES: ReadonlySet<string> = new Set([
   'saas_source', 'saas_sink',
   'warehouse_source', 'jdbc_source', 'jdbc_sink',
   'cdc_source', 'openapi_source', 'vector_source',
+  // 2026-11-13: streams and queues, reached through Source and Destination.
+  'kinesis_source', 'kinesis_sink', 'sqs_source', 'sqs_sink',
+  'pubsub_source', 'pubsub_sink', 'eventhub_source', 'eventhub_sink',
+  'mqtt_source', 'mqtt_sink', 'rabbitmq_source', 'rabbitmq_sink',
+  'nats_source', 'nats_sink', 'pulsar_source', 'pulsar_sink',
   'warehouse_source_jdbc', 'warehouse_sink_jdbc',
   'load_csv', 'load_json', 'load_parquet', 'load_excel',
   'write_csv', 'write_json', 'write_parquet', 'write_excel',

@@ -7,6 +7,8 @@ unless the caller already knows the types. ``RowsWriter`` writes the rows to a
 temporary JSON-lines file as they come, then has DuckDB read that file with
 those exact types into a temporary table. Reading JSON is DuckDB's fast path,
 nothing holds every row in memory, and the file is deleted afterwards.
+
+Times that carry a time zone are given in UTC, as plain TIMESTAMP columns.
 """
 
 from __future__ import annotations
@@ -35,7 +37,10 @@ def _value_type(value: Any) -> str:
     if isinstance(value, decimal.Decimal):
         return "DECIMAL"
     if isinstance(value, _dt.datetime):
-        return "TIMESTAMPTZ" if value.tzinfo is not None else "TIMESTAMP"
+        # Times with a time zone are kept in UTC as plain TIMESTAMP: DuckDB
+        # hands TIMESTAMP WITH TIME ZONE to Python only with pytz installed,
+        # which pandas 3 no longer brings along (Flow Enterprise's images).
+        return "TIMESTAMP"
     if isinstance(value, _dt.date):
         return "DATE"
     if isinstance(value, _dt.time):
@@ -92,7 +97,7 @@ def column_types(rows: list[dict], fixed: dict[str, str] | None = None) -> dict[
         elif kinds <= {"BIGINT", "DECIMAL"}:
             out[key] = _decimal_type(decimals[key] + [decimal.Decimal(0)])
         elif kinds <= {"TIMESTAMP", "TIMESTAMPTZ"}:
-            out[key] = "TIMESTAMPTZ"
+            out[key] = "TIMESTAMP"
         else:
             out[key] = "VARCHAR"
     for key, kind in fixed.items():
@@ -123,6 +128,8 @@ def _json_value(value: Any, kind: str) -> Any:
         if isinstance(value, str):
             return value.strip().lower() in ("t", "true", "1", "yes", "y")
         return bool(value)
+    if base in ("TIMESTAMP", "TIMESTAMPTZ"):
+        return _utc_text(value)
     if base in _INTEGERS:
         return int(value)
     if base in _FLOATS:
@@ -135,6 +142,23 @@ def _json_value(value: Any, kind: str) -> Any:
     return str(value)
 
 
+def _utc_text(value: Any) -> Any:
+    """A time as ISO text in UTC without an offset (TIMESTAMP columns hold UTC)."""
+    stamp = value
+    if isinstance(value, str):
+        try:
+            stamp = _dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return value  # 'infinity' and the like: DuckDB reads them itself
+    if isinstance(stamp, _dt.datetime):
+        if stamp.tzinfo is not None:
+            stamp = stamp.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+        return stamp.isoformat()
+    if isinstance(stamp, _dt.date):
+        return stamp.isoformat()
+    return str(stamp)
+
+
 def _quote(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
@@ -145,6 +169,8 @@ def _key(name: str) -> str:
 
 
 def _read_type(kind: str) -> str:
+    if kind in ("TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE"):
+        return "TIMESTAMP"  # in UTC, see _value_type
     return "VARCHAR" if kind in ("JSON", "BLOB") else kind
 
 

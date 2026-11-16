@@ -114,6 +114,38 @@ def _columns_from_storage_rows(rows) -> list[dict[str, Any]]:
     ]
 
 
+# Column types Parquet has no room for, and what DuckDB writes them as instead.
+_PARQUET_STORES_AS = {"HUGEINT": "DOUBLE", "UHUGEINT": "DOUBLE"}
+
+
+def _as_parquet_stores_it(rel):
+    """``rel`` with the column types Parquet cannot hold cast to what DuckDB
+    writes them as.
+
+    DuckDB's SUM of an integer column is HUGEINT (128-bit), which Parquet
+    stores as DOUBLE. The table then read back as DOUBLE, the next run's
+    HUGEINT was refused by the schema policy as narrowing (DOUBLE→HUGEINT),
+    and every second run of such a pipeline failed (15 Nov 2026: a daily
+    visitors-by-region table). Cast first, the policy compares what will
+    really be stored; the bytes written are the same as before.
+    """
+    try:
+        columns = list(rel.columns)
+        types = [str(t).upper() for t in rel.types]
+    except Exception:  # noqa: BLE001 — not a relation we can look into
+        return rel
+    if not any(t in _PARQUET_STORES_AS for t in types):
+        return rel
+
+    def _q(name: str) -> str:
+        return '"' + str(name).replace('"', '""') + '"'
+
+    return rel.project(", ".join(
+        f"CAST({_q(c)} AS {_PARQUET_STORES_AS[t]}) AS {_q(c)}" if t in _PARQUET_STORES_AS else _q(c)
+        for c, t in zip(columns, types)
+    ))
+
+
 def _columns_from_relation(rel) -> list[dict[str, Any]]:
     """Pull (name, type) tuples off a DuckDBPyRelation into our dict shape.
 
@@ -455,7 +487,10 @@ class LocalTableSinkNode(BaseNode):
             existing_cols = _columns_from_storage_rows(
                 store.list_columns(table_id=existing_table.id)
             )
-        incoming_cols = _columns_from_relation(upstream)
+        # What Parquet will hold: the policy compares that, and that is what
+        # is written. The step still passes `upstream` itself downstream.
+        incoming = _as_parquet_stores_it(upstream)
+        incoming_cols = _columns_from_relation(incoming)
         decision = evaluate_policy(existing_cols, incoming_cols, policy_value)
         if not decision.ok:
             # Publish a rejected-drift event before raising so the audit
@@ -475,8 +510,8 @@ class LocalTableSinkNode(BaseNode):
 
         os.makedirs(table_dir, exist_ok=True)
 
-        # Register upstream so DuckDB can address it in subsequent SQL.
-        ctx.conn.register("_lt_sink_input", upstream)
+        # Register the incoming rows so DuckDB can address them in subsequent SQL.
+        ctx.conn.register("_lt_sink_input", incoming)
         try:
             if mode == SINK_MODE_REPLACE:
                 self._mode_replace(ctx, table_dir)

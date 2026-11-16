@@ -368,6 +368,54 @@ class TestOrchestrator:
             backfill_runs = [r for r in rows if r.get("triggered_by") == "backfill"]
             assert len(backfill_runs) == 7
 
+    def test_two_windows_at_once_each_run_on_their_own(
+        self, _revoluzen_flow_test_db, sample_csv_file, temp_data_dir,
+    ):
+        """Concurrency 2 used to run two windows on ONE WorkflowExecutor, which
+        keeps the running workflow's state on itself (run id, cancellation
+        token, time limit). The first window to finish cleared the other's
+        token, and that window failed with "'NoneType' object has no attribute
+        'unregister_cancel_callback'" (15 Nov 2026: 3 windows of a 7-day
+        backfill). Each window that runs alongside another gets its own."""
+        store = BackfillStore(db=_revoluzen_flow_test_db)
+        executor = WorkflowExecutor(data_dir=temp_data_dir)
+        from revoluzen_flow.monitoring.store import ExecutionStore
+        exe_store = ExecutionStore(db=_revoluzen_flow_test_db)
+        workflow = _make_param_backed_workflow()
+
+        windows = generate_windows("2026-01-01", "2026-01-14", WindowSize.DAILY)
+        parent = BackfillRun(
+            pipeline_id=workflow.id,
+            window_start=windows[0].start.isoformat(),
+            window_end=windows[-1].end.isoformat(),
+            workspace_id="default",
+            cursor_param_names=["window_start", "window_end"],
+            concurrency=2,
+            on_failure=OnFailure.CONTINUE,
+            total_windows=len(windows),
+        )
+        store.create_parent(parent)
+        store.create_children(parent.id, [
+            BackfillRun(
+                pipeline_id=workflow.id, parent_backfill_id=parent.id,
+                window_start=w.start.isoformat(), window_end=w.end.isoformat(),
+                workspace_id="default", cursor_param_names=["window_start", "window_end"],
+            )
+            for w in windows
+        ])
+
+        final = run_backfill_sync(
+            parent.id, store=store, executor=executor,
+            workflow=workflow, exe_store=exe_store,
+        )
+        children = store.list_children(parent.id)
+        errors = [c.error_message for c in children if c.error_message]
+        assert errors == []
+        assert final.succeeded_windows == 14
+        assert final.status == BackfillStatus.SUCCESS
+        # Each window's run is its own.
+        assert len({c.execution_id for c in children}) == 14
+
     def test_stop_on_failure_halts_remaining_windows(
         self, _revoluzen_flow_test_db, temp_data_dir,
     ):

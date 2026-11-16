@@ -622,3 +622,7 @@ Revoluzen Flow Enterprise adds production governance on top of the OSS lifecycle
 |---|---|
 | 2026-05-03 | Rewritten for Revoluzen Flow audience. DEV→PROD approval flow + admin-tier features consolidated into section 15 (Revoluzen Flow Enterprise section). |
 | 2026-04-22 | Initial publication. |
+
+## Reading streams, queues and database changes
+
+A Source step reads messages and database changes in batches, each run carrying on after the last successful one; see [Streams, queues and change data capture](streaming-and-change-data-capture.md).

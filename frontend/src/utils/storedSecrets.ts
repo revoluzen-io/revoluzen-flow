@@ -24,7 +24,7 @@ export function credentialFieldKey(name: string): string {
 // name_says_secret). tests/test_credential_secrets.py holds the two rules
 // to the same answers. Were they to drift, the server would still protect
 // everything it protects; the form would only leave the switch unlocked.
-const ALWAYS_SECRET = new Set(['webhook_url', 'service_account_json', 'custom_header_value', 'ssl_key_pem']);
+const ALWAYS_SECRET = new Set(['webhook_url', 'service_account_json', 'custom_header_value', 'ssl_key_pem', 'nkey_seed']);
 const SECRET_WORDS = /password|passwd|passphrase|secret|token|apikey|api_key|private_key|connection_string|credentials_json/;
 const NOT_SECRET_ENDING = /_(id|url|uri|name|type|endpoint|path|header|param)$/;
 

@@ -69,6 +69,7 @@ import { forgetViewTabs } from './stores/pipelineViewTabs';
 import EditorContextBar from './components/EditorContextBar';
 import OpenPipelineTabs from './components/editor/OpenPipelineTabs';
 import PublishedBanner from './components/editor/PublishedBanner';
+import { useEditorAddress } from './components/editor/useEditorAddress';
 import { api } from './api/client';
 // 2026-05-23 (P0 Day 2): canAccessAdmin / canAccessAdminInEnv /
 // hasPermission dropped from the import — they were only used by the
@@ -87,7 +88,7 @@ import { canAccessProd } from './auth/permissions';
 // the `as any` casts on Sidebar / Search go away.
 import type { Page } from './types';
 import { VALID_PAGES, DEFAULT_PAGE } from './types';
-import { navigateTo as routerNavigateTo, navigateToSubRoute, navigateWithQuery, readCurrentPage, readSubRoute } from './router';
+import { navigateTo as routerNavigateTo, navigateToSubRoute, navigateWithQuery, readCurrentPage } from './router';
 type Environment = 'dev' | 'prod';
 type Tier = 'free' | 'plus';
 
@@ -406,34 +407,15 @@ export default function App() {
 
   // The editor's address names the pipeline on screen (#editor/<id>), so a
   // link, a bookmark, a reload or Back opens that pipeline in its tab. With
-  // no id the editor shows the tab used last, or an empty canvas.
-  useEffect(() => {
-    if (page !== 'editor') return;
-    const syncAddress = () => {
-      if (readCurrentPage() !== 'editor') return;
-      const s = useWorkflowStore.getState();
-      if (!s.activeTabKey) return;
-      const want = s.workflowId && !s.pastRunId ? `#editor/${s.workflowId}` : '#editor';
-      if (window.location.hash !== want) history.replaceState(null, '', want);
-    };
-    const follow = async () => {
-      if (readCurrentPage() !== 'editor') return;
-      await useWorkflowStore.getState().ensureEditorTab(readSubRoute());
-      syncAddress();
-    };
-    void follow();
-    window.addEventListener('hashchange', follow);
-    // A tab picked, a first save or a tab closed: the address follows.
-    const unsubscribe = useWorkflowStore.subscribe((s, prev) => {
-      if (s.activeTabKey !== prev.activeTabKey || s.workflowId !== prev.workflowId || s.pastRunId !== prev.pastRunId) {
-        syncAddress();
-      }
-    });
-    return () => {
-      window.removeEventListener('hashchange', follow);
-      unsubscribe();
-    };
-  }, [page]);
+  // no id the editor shows the tab used last, or an empty canvas. Nothing is
+  // fetched while the sign-in page shows: a link opened signed out opens
+  // right after sign-in. The local-development bypass of the sign-in page
+  // (see the auth gate below) counts as signed in.
+  const signedIn =
+    !!user ||
+    import.meta.env.VITE_REVOLUZEN_FLOW_DEV_AUTOLOGIN === '1' ||
+    localStorage.getItem('revoluzen_flow_dev_autologin') === '1';
+  useEditorAddress(page === 'editor' && signedIn);
 
   // Leaving or reloading the app with unsaved edits in any open pipeline,
   // on screen or in another tab, asks first. A past run has nothing to lose.

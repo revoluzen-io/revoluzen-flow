@@ -174,6 +174,10 @@ class ConnectionTester:
         # OpenSearch answers Elasticsearch's /_cluster/health.
         "opensearch": "_test_elasticsearch",
         "odbc": "_test_odbc",
+        # 2026-11-13: streams and queues (streams/testing.py).
+        "kinesis": "_test_stream", "sqs": "_test_stream", "pubsub": "_test_stream",
+        "eventhub": "_test_stream", "mqtt": "_test_stream", "rabbitmq": "_test_stream",
+        "nats": "_test_stream", "pulsar": "_test_stream",
     }
 
     def test_connection(self, conn_type: str, config: dict) -> dict:
@@ -215,12 +219,20 @@ class ConnectionTester:
 
         method = getattr(self, method_name)
         try:
-            if method_name == "_test_vendor_db":
+            if method_name in ("_test_vendor_db", "_test_stream"):
                 return method(conn_type.lower(), config)
             return method(config)
         except Exception as exc:
             logger.exception("Unexpected error testing %s connection", conn_type)
             return _fail(f"Unexpected error testing {conn_type} connection", exc, conn_type)
+
+    # ── Streams and queues (2026-11-13) ──
+
+    @staticmethod
+    def _test_stream(conn_type: str, config: dict) -> dict:
+        from revoluzen_flow.streams.testing import test_stream
+
+        return test_stream(conn_type, config)
 
     # ── Db2, SAP HANA, Teradata (2026-11-11) ──
 

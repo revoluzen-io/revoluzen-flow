@@ -2579,6 +2579,7 @@ const FAMILY_BY_TYPE: Record<string, ConnFamily> = {
   s3: 'storage', azure_blob: 'storage', adls_gen2: 'storage', gcs: 'storage', minio: 'storage',
   sharepoint: 'storage', onedrive: 'storage', gdrive: 'storage', dropbox: 'storage', ftp: 'storage', gsheet: 'storage',
   kafka: 'streaming', rabbitmq: 'streaming', pulsar: 'streaming', eventhub: 'streaming', kinesis: 'streaming',
+  sqs: 'streaming', pubsub: 'streaming', nats: 'streaming', mqtt: 'streaming',
   rest_api: 'api', graphql: 'api', odata: 'api', oracle_api: 'api',
   salesforce: 'saas', dynamics365: 'saas', sap: 'saas', servicenow: 'saas',
   hubspot: 'saas', zendesk: 'saas', jira: 'saas', workday: 'saas', netsuite: 'saas',
@@ -8035,6 +8036,24 @@ function KafkaSourceConfig({ params, nodeId, onChange }: ConfigProps) {
       <Field label="Topic *">
         <TextInput value={params.topic || ''} onChange={(v) => onChange(nodeId, { topic: v })} placeholder="orders-topic" />
       </Field>
+      <Field label="Message Format">
+        <Select
+          value={params.message_format || 'json'}
+          onChange={(v) => onChange(nodeId, { message_format: v })}
+          options={['json', 'text', 'avro', 'debezium']}
+          labels={{
+            json: 'JSON: an object\'s fields become columns',
+            text: 'Text: the whole message in one column',
+            avro: 'Avro, with the connection\'s Schema Registry',
+            debezium: 'Debezium change events (JSON or Avro)',
+          }}
+        />
+      </Field>
+      <Toggle
+        value={!!params.include_metadata}
+        onChange={(v) => onChange(nodeId, { include_metadata: v })}
+        label="Include key, headers and time (_kafka_key, _kafka_headers, _kafka_timestamp)"
+      />
       <Field label="First run starts at">
         <Select
           value={startFrom}
@@ -8366,6 +8385,18 @@ function KafkaSinkConfig({ params, nodeId, onChange }: ConfigProps) {
       <Field label="Key Column (optional)">
         <TextInput value={params.key_column || ''} onChange={(v) => onChange(nodeId, { key_column: v })} placeholder="id" />
       </Field>
+      <Field label="Message Format">
+        <Select
+          value={params.message_format || 'json'}
+          onChange={(v) => onChange(nodeId, { message_format: v })}
+          options={['json', 'avro']}
+          labels={{ json: 'JSON', avro: 'Avro, registered in the connection\'s Schema Registry as <topic>-value' }}
+        />
+      </Field>
+      <Field label="Headers Column (optional)">
+        <TextInput value={params.headers_column || ''} onChange={(v) => onChange(nodeId, { headers_column: v })} placeholder="headers" />
+        <p className="text-[11px] text-slate-500 mt-1">A column holding a JSON object; each of its fields becomes a message header.</p>
+      </Field>
       <Field label="Compression">
         <Select value={params.compression || 'none'} onChange={(v) => onChange(nodeId, { compression: v })} options={['none', 'gzip', 'snappy', 'lz4', 'zstd']} />
       </Field>
@@ -8373,7 +8404,262 @@ function KafkaSinkConfig({ params, nodeId, onChange }: ConfigProps) {
         <TextInput value={String(params.batch_size ?? 500)} onChange={(v) => onChange(nodeId, { batch_size: parseInt(v) || 500 })} placeholder="500" />
         <p className="text-[11px] text-slate-500 mt-1">Messages sent before the step waits for Kafka to confirm them.</p>
       </Field>
-      <p className="text-[11px] text-slate-500">Each row is sent as one JSON message.</p>
+      <p className="text-[11px] text-slate-500">Each row is sent as one message.</p>
+    </>
+  );
+}
+
+/* ────────────────────────────────────────────────
+ * Streams and queues (2026-11-13): Amazon Kinesis and SQS, Google Pub/Sub,
+ * Azure Event Hubs, MQTT, RabbitMQ, NATS JetStream and Apache Pulsar, read and
+ * written through the generic Source and Destination (backend nodes/streams.py).
+ * Only the settings each one uses are shown.
+ * ──────────────────────────────────────────────── */
+const STREAM_SYSTEMS: Record<string, {
+  label: string; target: string; targetLabel: string; placeholder: string; model: 'log' | 'queue';
+  sinkTarget?: string; sinkTargetLabel?: string; sinkPlaceholder?: string;
+}> = {
+  kinesis: { label: 'Kinesis', target: 'stream_name', targetLabel: 'Stream', placeholder: 'clicks', model: 'log' },
+  sqs: { label: 'SQS', target: 'queue', targetLabel: 'Queue (name or URL)', placeholder: 'orders', model: 'queue' },
+  pubsub: { label: 'Pub/Sub', target: 'subscription', targetLabel: 'Subscription', placeholder: 'orders-sub', model: 'queue',
+    sinkTarget: 'topic', sinkTargetLabel: 'Topic', sinkPlaceholder: 'orders' },
+  eventhub: { label: 'Event Hubs', target: 'event_hub_name', targetLabel: 'Event Hub', placeholder: 'telemetry', model: 'log' },
+  mqtt: { label: 'MQTT', target: 'topic', targetLabel: 'Topic filter', placeholder: 'plant/+/temperature', model: 'queue',
+    sinkTargetLabel: 'Topic', sinkPlaceholder: 'plant/line-1/alerts' },
+  rabbitmq: { label: 'RabbitMQ', target: 'queue', targetLabel: 'Queue', placeholder: 'orders', model: 'queue',
+    sinkTarget: 'routing_key', sinkTargetLabel: 'Routing Key (with the default exchange: the queue)', sinkPlaceholder: 'orders' },
+  nats: { label: 'NATS', target: 'subject', targetLabel: 'Subject', placeholder: 'orders.new', model: 'log' },
+  pulsar: { label: 'Pulsar', target: 'topic', targetLabel: 'Topic', placeholder: 'persistent://public/default/orders', model: 'log' },
+};
+const STREAM_CONNECTORS = new Set(Object.keys(STREAM_SYSTEMS));
+
+/** The place Flow keeps for a log source or a change-capture step, with Reset. */
+function ReadPositionPanel({ nodeId, matches, describe, firstRun }: {
+  nodeId: string; matches: (cursorColumn: string) => boolean; describe: (value: any) => string; firstRun: string;
+}) {
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const [stored, setStored] = useState<{ cursor_column: string | null; last_cursor: string | null; last_run_at: string | null; rows_last_run: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState('');
+  const authHeaders = () => ({ 'Authorization': `Bearer ${localStorage.getItem('revoluzen_flow_token') || ''}` });
+  const stateUrl = workflowId && nodeId ? `/api/sync-state/${encodeURIComponent(workflowId)}/${encodeURIComponent(nodeId)}` : '';
+  useEffect(() => {
+    if (!stateUrl) { setStored(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(stateUrl, { headers: authHeaders() });
+        if (!res.ok) return;
+        const body = await res.json();
+        if (!cancelled) setStored(body.state || null);
+      } catch { /* best effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [stateUrl]);
+  const value = (() => {
+    if (!stored || !stored.cursor_column || !matches(stored.cursor_column) || !stored.last_cursor) return null;
+    try { return JSON.parse(stored.last_cursor); } catch { return null; }
+  })();
+  const onReset = async () => {
+    if (!stateUrl) return;
+    if (!window.confirm(`Reset this step's read position? The next run starts again as a first run does: ${firstRun}.`)) return;
+    setBusy(true);
+    setProblem('');
+    try {
+      const res = await fetch(stateUrl, { method: 'DELETE', headers: authHeaders() });
+      if (res.ok) setStored(null);
+      else setProblem(res.status === 403 ? 'Your role cannot reset a read position.' : `The reset failed (${res.status}).`);
+    } catch {
+      setProblem('The reset failed: Flow could not be reached.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="bg-slate-50 border border-slate-200 rounded-md px-3 py-2 text-[11px] text-slate-600 space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-semibold uppercase tracking-wider text-[10px] text-slate-500">Read position</span>
+        {workflowId && (
+          <button type="button" onClick={onReset} disabled={busy || !stored}
+            className="text-[10px] font-medium text-red-700 hover:text-red-900 disabled:opacity-40">
+            {busy ? 'Resetting…' : 'Reset'}
+          </button>
+        )}
+      </div>
+      {value ? (
+        <>
+          <div>The next run carries on from here:</div>
+          <div className="font-mono text-[10px] text-slate-700 break-all">{describe(value)}</div>
+          <div>
+            Saved {stored?.last_run_at ? new Date(stored.last_run_at).toLocaleString() : ''} after a
+            successful run that read {stored?.rows_last_run ?? 0}.
+          </div>
+        </>
+      ) : (
+        <div>
+          {!workflowId
+            ? `Save the pipeline to keep a read position. Its first run: ${firstRun}.`
+            : `No position saved yet. The next run: ${firstRun}.`}
+        </div>
+      )}
+      {problem && <div className="text-red-700">{problem}</div>}
+    </div>
+  );
+}
+
+function StreamStepConfig({ system, isSink, params, nodeId, onChange }: ConfigProps & { system: string; isSink: boolean }) {
+  const info = STREAM_SYSTEMS[system];
+  if (!info) return null;
+  const targetKey = isSink ? (info.sinkTarget || info.target) : info.target;
+  const targetLabel = isSink ? (info.sinkTargetLabel || info.targetLabel) : info.targetLabel;
+  const placeholder = isSink ? (info.sinkPlaceholder || info.placeholder) : info.placeholder;
+  const fmt = params.message_format || 'json';
+  const startFrom = params.start_from === 'newest' ? 'newest' : 'oldest';
+  const target = String(params[targetKey] || '').trim();
+  return (
+    <>
+      <Field label={`${targetLabel}${isSink && system === 'rabbitmq' ? '' : ' *'}`}>
+        <TextInput value={params[targetKey] || ''} onChange={(v) => onChange(nodeId, { [targetKey]: v })} placeholder={placeholder} />
+        {system === 'kinesis' || system === 'eventhub' || system === 'sqs' ? (
+          <p className="text-[11px] text-slate-500 mt-1">Empty: the one named in the connection.</p>
+        ) : null}
+      </Field>
+      <Field label="Message Format">
+        <Select value={fmt} onChange={(v) => onChange(nodeId, { message_format: v })} options={['json', 'text']}
+          labels={isSink
+            ? { json: 'JSON: each row as an object', text: 'Text: one column per message' }
+            : { json: 'JSON: an object\'s fields become columns', text: 'Text: the whole message in one column' }} />
+      </Field>
+      {isSink ? (
+        <>
+          {fmt === 'text' && (
+            <Field label="Text Column">
+              <TextInput value={params.text_column || ''} onChange={(v) => onChange(nodeId, { text_column: v })} placeholder="message" />
+            </Field>
+          )}
+          {system === 'rabbitmq' && (
+            <Field label="Exchange (optional)">
+              <TextInput value={params.exchange || ''} onChange={(v) => onChange(nodeId, { exchange: v })} placeholder="The default exchange" />
+            </Field>
+          )}
+          <Field label="Key Column (optional)">
+            <TextInput value={params.key_column || ''} onChange={(v) => onChange(nodeId, { key_column: v })} placeholder="id" />
+            <p className="text-[11px] text-slate-500 mt-1">
+              {system === 'kinesis' ? 'The partition key: records with one key stay in order.'
+                : system === 'sqs' ? 'On a FIFO queue, the message group: messages with one key stay in order.'
+                : system === 'rabbitmq' ? 'Each row\'s routing key, in place of the one above.'
+                : system === 'nats' ? 'Each row\'s subject, in place of the one above.'
+                : 'The message key.'}
+            </p>
+          </Field>
+          <Field label="Attributes Column (optional)">
+            <TextInput value={params.attributes_column || ''} onChange={(v) => onChange(nodeId, { attributes_column: v })} placeholder="attributes" />
+            <p className="text-[11px] text-slate-500 mt-1">A column holding a JSON object; its fields become message attributes.</p>
+          </Field>
+          {system === 'mqtt' && (
+            <>
+              <Field label="QoS">
+                <Select value={String(params.qos ?? '1')} onChange={(v) => onChange(nodeId, { qos: v })} options={['0', '1', '2']}
+                  labels={{ '0': '0: at most once', '1': '1: at least once (recommended)', '2': '2: exactly once' }} />
+              </Field>
+              <Toggle value={!!params.retain} onChange={(v) => onChange(nodeId, { retain: v })} label="Retain: the broker keeps the last message for new subscribers" />
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <Toggle value={!!params.include_details} onChange={(v) => onChange(nodeId, { include_details: v })}
+            label="Include message details (_source, _message_id, _message_key, _message_time, _message_attributes)" />
+          {info.model === 'log' ? (
+            <>
+              <Field label="First run starts at">
+                <Select value={startFrom} onChange={(v) => onChange(nodeId, { start_from: v })} options={['oldest', 'newest']}
+                  labels={{ oldest: 'The oldest message kept', newest: 'Only new messages' }} />
+                <p className="text-[11px] text-slate-500 mt-1">Later runs carry on after the last message the previous successful run read.</p>
+              </Field>
+              <ReadPositionPanel
+                nodeId={nodeId}
+                matches={(column) => column === `${system}:${target}`}
+                describe={(value) => JSON.stringify(value)}
+                firstRun={startFrom === 'newest' ? 'only messages that arrive after it' : 'the oldest message kept'}
+              />
+            </>
+          ) : (
+            <Field label="Hold Time (seconds)">
+              <TextInput value={String(params.hold_seconds ?? 300)} onChange={(v) => onChange(nodeId, { hold_seconds: parseInt(v) || 300 })} placeholder="300" />
+              <p className="text-[11px] text-slate-500 mt-1">
+                {system === 'mqtt'
+                  ? 'Messages are confirmed to the broker when the run succeeds; otherwise the broker sends them again next run.'
+                  : 'The queue keeps the run\'s messages from other readers this long. They are confirmed when the run succeeds and given back when it fails.'}
+                {system === 'pubsub' ? ' Pub/Sub allows at most 600.' : ''}
+              </p>
+            </Field>
+          )}
+          <Field label="Max Messages">
+            <TextInput value={String(params.max_messages ?? 100)} onChange={(v) => onChange(nodeId, { max_messages: parseInt(v) || 100 })} placeholder="100" />
+          </Field>
+          <Field label="Timeout (seconds)">
+            <TextInput value={String(params.timeout_seconds ?? 10)} onChange={(v) => onChange(nodeId, { timeout_seconds: parseInt(v) || 10 })} placeholder="10" />
+            <p className="text-[11px] text-slate-500 mt-1">The longest a run waits for messages.</p>
+          </Field>
+        </>
+      )}
+    </>
+  );
+}
+
+/** Change Data Capture from a PostgreSQL, MySQL or MariaDB connection (backend connectors/cdc.py). */
+function CdcSourceConfig({ params, nodeId, onChange }: ConfigProps) {
+  const connType = params._connection_type || '';
+  const postgres = connType === 'postgresql' || connType === 'postgres';
+  const startFrom = params.start_from === 'copy' ? 'copy' : 'new';
+  return (
+    <>
+      <Field label="Tables *">
+        <TextInput value={params.tables || ''} onChange={(v) => onChange(nodeId, { tables: v })}
+          placeholder={postgres ? 'public.orders, public.customers' : 'shop.orders, shop.customers'} />
+        <p className="text-[11px] text-slate-500 mt-1">
+          {postgres ? 'schema.table' : 'database.table'}, separated by commas. Each change becomes a row with the
+          table&apos;s columns and _op (insert, update, delete), _table and _committed_at.
+        </p>
+      </Field>
+      <Field label="First run starts at">
+        <Select value={startFrom} onChange={(v) => onChange(nodeId, { start_from: v })} options={['new', 'copy']}
+          labels={{ new: 'Only changes made from the first run on', copy: 'A copy of every row, then the changes' }} />
+      </Field>
+      <ReadPositionPanel
+        nodeId={nodeId}
+        matches={(column) => column.startsWith('pgcdc:') || column.startsWith('mysqlcdc:')}
+        describe={(value) => value.lsn ? `slot ${value.slot}, past ${value.lsn}` : value.file ? `${value.file} at ${value.pos}` : JSON.stringify(value)}
+        firstRun={startFrom === 'copy' ? 'a copy of every row, then the changes' : 'only changes made from then on'}
+      />
+      <Field label="Max Changes">
+        <TextInput value={String(params.max_changes ?? 10000)} onChange={(v) => onChange(nodeId, { max_changes: parseInt(v) || 10000 })} placeholder="10000" />
+        <p className="text-[11px] text-slate-500 mt-1">About how many changes one run reads; a transaction is never split.</p>
+      </Field>
+      <Field label="Timeout (seconds)">
+        <TextInput value={String(params.timeout_seconds ?? 120)} onChange={(v) => onChange(nodeId, { timeout_seconds: parseInt(v) || 120 })} placeholder="120" />
+      </Field>
+      {postgres && (
+        <>
+          <Field label="Publication (optional)">
+            <TextInput value={params.publication || ''} onChange={(v) => onChange(nodeId, { publication: v })} placeholder="Flow creates one for the tables" />
+          </Field>
+          <Field label="Replication Slot (optional)">
+            <TextInput value={params.slot_name || ''} onChange={(v) => onChange(nodeId, { slot_name: v })} placeholder="Flow names one for this step" />
+          </Field>
+          <p className="text-[11px] text-slate-500">
+            Needs wal_level = logical and a database user with the REPLICATION right. A table needs a primary key
+            (or REPLICA IDENTITY FULL). Write the changes with a Destination in Apply changes mode.
+          </p>
+        </>
+      )}
+      {!postgres && (
+        <p className="text-[11px] text-slate-500">
+          Needs the binary log in ROW format (binlog_row_image = FULL) and a user with REPLICATION SLAVE and
+          REPLICATION CLIENT. Write the changes with a Destination in Apply changes mode.
+        </p>
+      )}
     </>
   );
 }
@@ -8896,9 +9182,30 @@ function DbSinkConfig({ params, nodeId, onChange, columns = [], sourceTypes, map
         <Select
           value={params.mode || params.write_mode || 'create'}
           onChange={(v) => onChange(nodeId, { mode: v })}
-          options={['create', 'append', 'truncate']}
+          options={['create', 'append', 'truncate', 'merge', 'apply_changes']}
+          labels={{
+            create: 'Create (drop and recreate)',
+            append: 'Append',
+            truncate: 'Empty the table, then insert',
+            merge: 'Merge (replace rows with the same keys)',
+            apply_changes: 'Apply changes (from Change Data Capture)',
+          }}
         />
       </Field>
+      {['merge', 'apply_changes'].includes(params.mode || params.write_mode || 'create') && (
+        <Field label="Key Columns *">
+          <TextInput
+            value={Array.isArray(params.merge_on) ? params.merge_on.join(', ') : (params.merge_on || '')}
+            onChange={(v) => onChange(nodeId, { merge_on: v.split(',').map((s) => s.trim()).filter(Boolean) })}
+            placeholder="id"
+          />
+          <p className="text-[11px] text-slate-500 mt-1">
+            {(params.mode || params.write_mode) === 'apply_changes'
+              ? 'The columns that identify a row. Inserts and updates replace that row, deletes remove it, and the last change of each key wins. The change columns (_op, _table, ...) are not written.'
+              : 'The columns that identify a row. Rows with these keys are replaced; new rows are added.'}
+          </p>
+        </Field>
+      )}
       <Field label="Batch Size">
         <TextInput value={String(params.batch_size ?? 5000)} onChange={(v) => onChange(nodeId, { batch_size: parseInt(v) || 5000 })}
           placeholder="5000" />
@@ -11550,9 +11857,9 @@ const CONNECTION_TO_CONNECTOR: Record<string, string> = {
   // File Systems. A Windows file share is read and written by the File step
   // only, so picking one needs no further choice (2026-11-11).
   ftp: 'ftp', sftp: 'ftp', hdfs: 'ftp', local_file: 'csv', smb: 'file',
-  // Streaming
-  kafka: 'kafka', rabbitmq: 'kafka', pulsar: 'kafka',
-  kinesis: 'kafka', eventhub: 'kafka', sqs: 'kafka', pubsub: 'kafka', nats: 'kafka',
+  // Streaming: since 2026-11-13 each has its own source and destination step.
+  kafka: 'kafka', rabbitmq: 'rabbitmq', pulsar: 'pulsar', kinesis: 'kinesis',
+  eventhub: 'eventhub', sqs: 'sqs', pubsub: 'pubsub', nats: 'nats', mqtt: 'mqtt',
   // APIs
   rest_api: 'rest_api', graphql: 'rest_api', odata: 'rest_api',
   // SaaS
@@ -11573,6 +11880,9 @@ const CONNECTION_TO_CONNECTOR: Record<string, string> = {
   // Custom
   custom: 'rest_api',
 };
+
+// Connections whose changes the Change Data Capture step can read (2026-11-13).
+const CDC_CONNECTIONS = new Set(['postgresql', 'mysql', 'mariadb']);
 
 // Storage types show file format dropdown
 const STORAGE_CONN_TYPES = new Set([
@@ -11734,6 +12044,17 @@ function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigP
 
       <FileReadAsChoice params={params} nodeId={nodeId} onChange={onChange} />
 
+      {params.connection_id && CDC_CONNECTIONS.has(connType) && (connectorType === 'database' || connectorType === 'cdc') && (
+        <Field label="Read">
+          <Select
+            value={connectorType === 'cdc' ? 'cdc' : 'database'}
+            onChange={(v) => onChange(nodeId, { connector_type: v })}
+            options={['database', 'cdc']}
+            labels={{ database: 'Rows of a table or query', cdc: 'Changes: inserts, updates and deletes (change data capture, Flow Enterprise)' }}
+          />
+        </Field>
+      )}
+
       {/* File format for storage connections. FTP has its own, which writes the
           key its node reads. */}
       {params.connection_id && isStorage && connectorType !== 'ftp' && connectorType !== 'file' && (
@@ -11769,6 +12090,10 @@ function GenericSourceConfig({ params, nodeId, onChange, columns = [] }: ConfigP
       {connectorType === 'gsheet' && <GSheetSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
       {connectorType === 'delta' && <DeltaSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
       {connectorType === 'file' && <FileNodeConfig params={params} nodeId={nodeId} onChange={onChange} isSink={false} />}
+      {connectorType === 'cdc' && <CdcSourceConfig params={params} nodeId={nodeId} onChange={onChange} />}
+      {STREAM_CONNECTORS.has(connectorType) && (
+        <StreamStepConfig system={connectorType} isSink={false} params={params} nodeId={nodeId} onChange={onChange} />
+      )}
       </EmbeddedConnectionContext.Provider>
     </>
   );
@@ -11849,6 +12174,9 @@ function GenericDestinationConfig({ params, nodeId, onChange, columns = [], sour
       {connectorType === 'delta' && <DeltaSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} />}
       {connectorType === 'warehouse' && <WarehouseSinkConfig params={params} nodeId={nodeId} onChange={onChange} columns={columns} sourceTypes={sourceTypes} mappingOnly={mappingOnly} />}
       {connectorType === 'file' && <FileNodeConfig params={params} nodeId={nodeId} onChange={onChange} isSink />}
+      {STREAM_CONNECTORS.has(connectorType) && (
+        <StreamStepConfig system={connectorType} isSink params={params} nodeId={nodeId} onChange={onChange} />
+      )}
       </EmbeddedConnectionContext.Provider>
     </>
   );

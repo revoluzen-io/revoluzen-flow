@@ -141,7 +141,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       }, 5000);
       throw new Error('Session expired. Reloading to login...');
     }
-    throw new Error(_humanizeApiError(err.detail) || res.statusText);
+    // The HTTP status goes with the error, so a caller can tell "not found"
+    // from "not allowed" without reading the server's wording.
+    const error = new Error(_humanizeApiError(err.detail) || res.statusText) as Error & { status?: number };
+    error.status = res.status;
+    throw error;
   }
   return res.json();
 }

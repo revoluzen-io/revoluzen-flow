@@ -39,6 +39,9 @@ _FILE_SINKS = {
 # Sinks that always fire a real-world side effect on every run.
 _EXTERNAL_SINKS = {
     "email_sink", "api_sink", "kafka_sink", "webhook_sink",
+    # 2026-11-13: every run sends its messages again.
+    "kinesis_sink", "sqs_sink", "pubsub_sink", "eventhub_sink", "mqtt_sink",
+    "rabbitmq_sink", "nats_sink", "pulsar_sink",
 }
 
 # Generic placeholders the canvas uses before the user picks a concrete

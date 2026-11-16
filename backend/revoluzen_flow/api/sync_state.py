@@ -25,7 +25,7 @@ because it changes downstream behaviour for every subsequent run.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from revoluzen_flow.auth.deps import require_auth, require_min_rank
 from revoluzen_flow.engine.sync_state_store import sync_state_store
@@ -75,7 +75,7 @@ def get_step_sync_state(workflow_id: str, step_id: str):
 
 
 @router.delete("/{workflow_id}/{step_id}", dependencies=[_AUTHOR])
-def reset_step_sync_state(workflow_id: str, step_id: str):
+def reset_step_sync_state(workflow_id: str, step_id: str, request: Request):
     """Drop the cursor row.
 
     The next run for this step reads everything from the source again
@@ -87,5 +87,16 @@ def reset_step_sync_state(workflow_id: str, step_id: str):
     reset sync state.
     """
     # Tolerate a missing row — DELETE is idempotent.
+    before = sync_state_store.get(workflow_id, step_id)
     sync_state_store.reset(workflow_id, step_id)
-    return {"ok": True, "workflow_id": workflow_id, "step_id": step_id, "reset": True}
+    answer = {"ok": True, "workflow_id": workflow_id, "step_id": step_id, "reset": True}
+    # 2026-11-13: a PostgreSQL change-capture step keeps its place in a
+    # replication slot too; Reset removes it so the step really starts again.
+    if before is not None and str(before.cursor_column or "").startswith("pgcdc:"):
+        from revoluzen_flow.auth.deps import current_workspace_id
+        from revoluzen_flow.streams.pg_cdc import drop_on_reset
+
+        note = drop_on_reset(workflow_id, step_id, current_workspace_id(request))
+        if note:
+            answer["note"] = note
+    return answer

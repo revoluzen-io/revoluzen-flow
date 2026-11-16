@@ -25,6 +25,14 @@ ADDONS: dict[str, tuple[str, tuple[str, ...], str]] = {
     # standard install leaves out. Neither can be read in a pipeline yet.
     "trino": ("Trino", ("trino",), "trino"),
     "presto": ("Presto", ("prestodb",), "presto-python-client"),
+    # 2026-11-13: streaming and change capture. Kinesis and SQS use boto3 and
+    # Google Pub/Sub plain HTTPS, which ship; these need their own clients.
+    "mysql_cdc": ("MySQL and MariaDB change capture", ("pymysqlreplication",), "mysql-replication"),
+    "eventhub": ("Azure Event Hubs", ("azure.eventhub",), "azure-eventhub"),
+    "mqtt": ("MQTT", ("paho.mqtt",), "paho-mqtt"),
+    "rabbitmq": ("RabbitMQ", ("pika",), "pika"),
+    "nats": ("NATS JetStream", ("nats",), "nats-py"),
+    "pulsar": ("Apache Pulsar", ("pulsar",), "pulsar-client"),
 }
 
 

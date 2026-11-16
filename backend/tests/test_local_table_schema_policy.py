@@ -100,6 +100,39 @@ def _read_columns(datastore, schema: str, table: str) -> list[str]:
     return [c.name for c in datastore.list_columns(table_id=tbl.id)]
 
 
+# ── A sum of whole numbers, written twice ─────────────────────────────
+
+
+def test_sum_of_whole_numbers_can_be_written_again(ctx_factory, tmp_path):
+    """DuckDB's SUM of an integer column is HUGEINT, which Parquet stores as
+    DOUBLE. The table read back as DOUBLE, and the next run's HUGEINT was
+    refused by the default policy as narrowing (DOUBLE→HUGEINT), so every
+    second run of such a pipeline failed (15 Nov 2026: a daily visitors by
+    region table, merged by day)."""
+    from revoluzen_flow.datastore.paths import workspace_paths
+    from revoluzen_flow.nodes.local_table import LocalTableSinkNode
+
+    ctx = ctx_factory()
+    days = [
+        "SELECT '2026-11-01' AS day, SUM(v) AS visitors FROM (VALUES (CAST(3 AS INTEGER)), (CAST(4 AS INTEGER))) t(v)",
+        "SELECT '2026-11-02' AS day, SUM(v) AS visitors FROM (VALUES (CAST(5 AS INTEGER)), (CAST(6 AS INTEGER))) t(v)",
+        "SELECT '2026-11-01' AS day, SUM(v) AS visitors FROM (VALUES (CAST(8 AS INTEGER)), (CAST(1 AS INTEGER))) t(v)",
+    ]
+    assert str(ctx.conn.sql(days[0]).types[1]).upper() == "HUGEINT"
+    for sql in days:
+        ctx._results["_input"] = ctx.conn.sql(sql)
+        LocalTableSinkNode({
+            "schema_name": "crm", "table_name": "daily_visitors",
+            "mode": "merge", "merge_on": ["day"],
+            "_input_step_ids": ["_input"],
+        }).execute(ctx)
+
+    table_dir = workspace_paths(str(tmp_path), "default").table_dir("crm", "daily_visitors")
+    glob = os.path.join(table_dir, "part-*.parquet").replace("\\", "/")
+    rows = ctx.conn.sql(f"SELECT day, visitors FROM read_parquet('{glob}') ORDER BY day").fetchall()
+    assert rows == [("2026-11-01", 9.0), ("2026-11-02", 11.0)]
+
+
 # ── Pure-add scenarios ─────────────────────────────────────────────────
 
 

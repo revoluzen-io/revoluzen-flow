@@ -2230,7 +2230,7 @@ export default function SettingsPage({ environment = 'dev', tier = 'free' }: { e
                       verifiable numbers:
                         - 45 node types: MODULES in modulesPanelData.ts (40) + the backend
                           types HIDDEN_TYPES does not hide (5)
-                        - 68 connectors: picker count (82 CONNECTION_TYPES - 14 roadmap;
+                        - 76 connectors: picker count (86 CONNECTION_TYPES - 10 roadmap;
                           Windows File Share and ODBC database added 2026-11-11)
                         - 27 templates: frontend/src/templates/catalog.ts header
                         - Apache 2.0: pyproject.toml + LICENSE

@@ -110,7 +110,7 @@ PostgreSQL, MySQL, and SQLite are the most exercised in the test suite (the demo
 
 ### Drivers
 
-Most drivers ship with Revoluzen Flow. Db2 / Informix, SAP HANA, Teradata, Kafka, Trino and Presto need an add-on driver, which an admin installs on **Settings > Add-ons**. SQL Server, Azure SQL and Azure Synapse also need Microsoft's ODBC driver on the computer. What ships, the add-ons and Docker: **[`install/database-drivers.md`](install/database-drivers.md)**.
+Most drivers ship with Revoluzen Flow. Db2 / Informix, SAP HANA, Teradata, Kafka, Trino and Presto need an add-on driver, and so do Azure Event Hubs (azure-eventhub), MQTT (paho-mqtt), RabbitMQ (pika), NATS JetStream (nats-py), Apache Pulsar (pulsar-client) and MySQL / MariaDB change capture (mysql-replication); Amazon Kinesis, Amazon SQS and Google Pub/Sub need nothing extra, which an admin installs on **Settings > Add-ons**. SQL Server, Azure SQL and Azure Synapse also need Microsoft's ODBC driver on the computer. What ships, the add-ons and Docker: **[`install/database-drivers.md`](install/database-drivers.md)**.
 
 ## ODBC database
 

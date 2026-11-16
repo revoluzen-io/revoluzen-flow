@@ -2105,14 +2105,14 @@ class DbSinkNode(BaseNode):
 
         table = self.params.get("table", "output_table")
         table_parts = _table_parts(table, self.params.get("schema"))
-        mode = self.params.get("mode", "create")  # create | append | truncate | merge
+        mode = self.params.get("mode", "create")  # create | append | truncate | merge | apply_changes
         connection_id = self.params.get("connection_id", "")
         merge_on = _as_column_list(self.params.get("merge_on"))
-        if mode == "merge" and not merge_on:
+        if mode in ("merge", "apply_changes") and not merge_on:
             raise ValueError(
-                "DB Sink: merge mode requires `merge_on` — the column(s) that "
-                "identify a row. Without keys there is nothing to match on and "
-                "the write would silently become an append."
+                f"DB Sink: {'merge' if mode == 'merge' else 'apply changes'} mode requires "
+                "`merge_on` — the column(s) that identify a row. Without keys there is "
+                "nothing to match on and the write would silently become an append."
             )
 
         # Apply Mapping-tab settings BEFORE we materialize columns/types
@@ -2147,6 +2147,21 @@ class DbSinkNode(BaseNode):
                     f'(SELECT 1 FROM {sink_data} src WHERE {pred})'
                 )
                 ctx.conn.sql(f'INSERT INTO {qtable} SELECT * FROM {sink_data}')
+            elif mode == "apply_changes":
+                # 2026-11-13: change rows (streams/apply_changes.py) into a
+                # DuckDB table, the same way as into a real database.
+                from revoluzen_flow.streams.apply_changes import apply_changes
+
+                cols = list(source.columns)
+                kinds = dict(zip(cols, (str(t) for t in source.types)))
+                rows = ctx.conn.sql(f"SELECT * FROM {sink_data}").fetchall()
+                quote = lambda ident: _quote_ident(ident, "duckdb")  # noqa: E731
+
+                def ensure(data: list[str]) -> None:
+                    defs = ", ".join(f"{quote(c)} {kinds[c]}" for c in data)
+                    ctx.conn.execute(f"CREATE TABLE IF NOT EXISTS {qtable} ({defs})")
+
+                apply_changes(ctx.conn, quote, qtable, cols, rows, merge_on, "?", ensure)
             else:
                 ctx.conn.sql(f'CREATE OR REPLACE TABLE {qtable} AS SELECT * FROM {sink_data}')
             return source
@@ -2360,13 +2375,28 @@ class DbSinkNode(BaseNode):
                 cur.executemany(f'DELETE FROM {qtable} WHERE {where}', key_rows)
                 cur.executemany(insert_sql, rows)
 
+        elif mode == "apply_changes":
+            # 2026-11-13: inserts, updates and deletes from change rows
+            # (streams/apply_changes.py), in the caller's transaction.
+            from revoluzen_flow.streams.apply_changes import apply_changes
+
+            kinds = dict(zip(columns, (str(t) for t in types))) if types and len(types) == len(columns) else {}
+
+            def ensure(data: list[str]) -> None:
+                defs = ", ".join(
+                    f'{q(c)} {self._map_type(kinds.get(c, "VARCHAR"), conn_type)}' for c in data
+                )
+                self._ensure_table(cur, qtable, defs, conn_type, raw_table)
+
+            apply_changes(cur, q, qtable, list(columns), rows, list(merge_on or []), placeholder, ensure)
+
         else:
             # Previously any unrecognised mode fell off the end of this chain
             # and wrote NOTHING, while the node returned its input and the run
             # went green. A typo in `mode` was a silent no-op.
             raise ValueError(
                 f"DB Sink: unknown write mode {mode!r}; expected one of "
-                "create | append | truncate | merge."
+                "create | append | truncate | merge | apply_changes."
             )
 
     @staticmethod
@@ -2413,7 +2443,7 @@ class DbSinkNode(BaseNode):
              "placeholder": "public",
              "description": "Database schema. Leave empty for default."},
             {"name": "mode", "type": "select", "label": "Write Mode",
-             "options": ["create", "append", "truncate", "merge"], "default": "create",
+             "options": ["create", "append", "truncate", "merge", "apply_changes"], "default": "create",
              "tab": "Target",
              "description": (
                  "create = drop & recreate (CREATE OR REPLACE TABLE). "
@@ -2421,7 +2451,10 @@ class DbSinkNode(BaseNode):
                  "truncate = empty target then INSERT; preserves table DDL. "
                  "merge = upsert on the Merge Keys: rows whose keys already "
                  "exist are replaced, new rows are inserted, untouched rows "
-                 "are left alone. Re-running is safe."
+                 "are left alone. Re-running is safe. "
+                 "apply_changes = for change rows from Change Data Capture: "
+                 "inserts and updates replace the key's row, deletes remove it, "
+                 "the last change of each key wins. Re-running is safe."
              )},
             # `column_list`, not `array`: DynamicConfig has no `array` case,
             # so that type falls through to the default plain-text input and
@@ -2430,8 +2463,8 @@ class DbSinkNode(BaseNode):
             # string too — but that is a safety net, not the intended UI.)
             {"name": "merge_on", "type": "column_list", "label": "Merge Keys",
              "tab": "Target",
-             "show_when": {"mode": ["merge"]},
-             "help": "Required when mode = merge. Column names to match on.",
+             "show_when": {"mode": ["merge", "apply_changes"]},
+             "help": "Required when mode = merge or apply_changes. Column names to match on.",
              "description": (
                  "The columns that identify a row. Same contract as the "
                  "managed-table sink's Merge Keys."

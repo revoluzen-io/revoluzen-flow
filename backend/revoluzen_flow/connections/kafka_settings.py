@@ -71,7 +71,14 @@ DEFAULT_BROKERS = "localhost:9092"
 PROTOCOLS = ("PLAINTEXT", "SSL", "SASL_PLAINTEXT", "SASL_SSL")
 SIGN_IN_PROTOCOLS = ("SASL_PLAINTEXT", "SASL_SSL")
 TLS_PROTOCOLS = ("SSL", "SASL_SSL")
-MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512")
+# AWS-MSK-IAM (2026-11-13): Amazon MSK's IAM sign-in, sent as OAUTHBEARER with
+# a token signed by the connection's AWS keys (streams/kafka_services.py).
+MECHANISMS = ("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512", "AWS-MSK-IAM")
+MSK_IAM = "AWS-MSK-IAM"
+# The service a Kafka connection points at (2026-11-13). They all speak the
+# Kafka protocol; the service only sets defaults and, for Event Hubs and MSK
+# IAM, how the sign-in is made.
+SERVICES = ("apache_kafka", "redpanda", "confluent_cloud", "amazon_msk", "azure_event_hubs", "aiven", "other")
 # What a password becomes in a message; the same eight dots Flow shows for any
 # stored secret.
 HIDDEN = "\N{BULLET}" * 8
@@ -115,11 +122,32 @@ class KafkaSettings:
     certificate_pem: str = field(default="", repr=False)
     key_pem: str = field(default="", repr=False)
     key_password: str = field(default="", repr=False)
+    # 2026-11-13: the service, Amazon MSK IAM's AWS sign-in, and a Schema
+    # Registry for Avro messages.
+    service: str = "apache_kafka"
+    aws_region: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = field(default="", repr=False)
+    aws_session_token: str = field(default="", repr=False)
+    registry_url: str = ""
+    registry_username: str = ""
+    registry_password: str = field(default="", repr=False)
 
     @property
     def signs_in(self) -> bool:
-        """Whether the client signs in with a username and password."""
+        """Whether the client signs in (SASL_PLAINTEXT or SASL_SSL)."""
         return self.security_protocol in SIGN_IN_PROTOCOLS
+
+    @property
+    def uses_msk_iam(self) -> bool:
+        return self.signs_in and self.sasl_mechanism == MSK_IAM
+
+    def msk_token(self) -> tuple[str, float]:
+        """An Amazon MSK IAM sign-in token and when it ends (seconds since 1970)."""
+        from revoluzen_flow.streams.kafka_services import msk_iam_token
+
+        return msk_iam_token(self.aws_region, self.aws_access_key_id, self.aws_secret_access_key,
+                             self.aws_session_token)
 
     @property
     def uses_tls(self) -> bool:
@@ -132,7 +160,13 @@ class KafkaSettings:
             "bootstrap.servers": self.brokers,
             "security.protocol": self.security_protocol,
         }
-        if self.signs_in:
+        if self.uses_msk_iam:
+            # librdkafka asks for a fresh token through oauth_cb.
+            conf.update({
+                "sasl.mechanism": "OAUTHBEARER",
+                "oauth_cb": lambda _config: self.msk_token(),
+            })
+        elif self.signs_in:
             conf.update({
                 "sasl.mechanism": self.sasl_mechanism,
                 "sasl.username": self.username,
@@ -154,7 +188,12 @@ class KafkaSettings:
             "bootstrap_servers": self.brokers.split(","),
             "security_protocol": self.security_protocol,
         }
-        if self.signs_in:
+        if self.uses_msk_iam:
+            conf.update({
+                "sasl_mechanism": "OAUTHBEARER",
+                "sasl_oauth_token_provider": _TokenProvider(self),
+            })
+        elif self.signs_in:
             conf.update({
                 "sasl_mechanism": self.sasl_mechanism,
                 "sasl_plain_username": self.username,
@@ -198,7 +237,8 @@ class KafkaSettings:
         return text
 
     def _secrets(self) -> list[str]:
-        found = {self.password, self.key_password, self.key_pem.strip()}
+        found = {self.password, self.key_password, self.key_pem.strip(),
+                 self.aws_secret_access_key, self.aws_session_token, self.registry_password}
         # A client that repeats part of the key repeats whole lines of it.
         found.update(
             line.strip() for line in self.key_pem.splitlines()
@@ -228,6 +268,34 @@ def _load_client_certificate(context: ssl.SSLContext, certificate_pem: str, key_
             os.remove(path)
         except OSError:
             pass
+
+
+class _TokenProvider:
+    """kafka-python's OAUTHBEARER token source, for Amazon MSK IAM."""
+
+    def __init__(self, settings: KafkaSettings) -> None:
+        self._settings = settings
+
+    def token(self) -> str:
+        return self._settings.msk_token()[0]
+
+    def extensions(self) -> dict:
+        return {}
+
+
+_EVENT_HUBS_ENDPOINT = re.compile(r"Endpoint=sb://([^/;]+)", re.IGNORECASE)
+
+
+def _event_hubs_brokers(connection_string: str) -> str:
+    """``<namespace>.servicebus.windows.net:9093`` from an Event Hubs connection string."""
+    found = _EVENT_HUBS_ENDPOINT.search(connection_string or "")
+    return f"{found.group(1)}:9093" if found else ""
+
+
+def _region_from_brokers(brokers: str) -> str:
+    """The AWS region in an MSK broker name (b-1.x.y.kafka.eu-west-1.amazonaws.com)."""
+    found = re.search(r"\.kafka(?:-serverless)?\.([a-z0-9-]+)\.amazonaws\.com", brokers or "")
+    return found.group(1) if found else ""
 
 
 def error_text(error: Any) -> str:
@@ -279,6 +347,7 @@ def kafka_settings(
     message ("Kafka Source", "Kafka Sink").
     """
     step = step or {}
+    extra: dict[str, str] = {}
     if connection is not None:
         where = "the Kafka connection"
         brokers = (
@@ -289,6 +358,33 @@ def kafka_settings(
         mechanism = connection.get("sasl_mechanism")
         username = connection.get("username") or connection.get("sasl_username")
         password = connection.get("password") or connection.get("sasl_password")
+        service = _text(connection.get("service")).lower() or "apache_kafka"
+        if service not in SERVICES:
+            service = "other"
+        if service == "azure_event_hubs":
+            # Event Hubs' Kafka endpoint signs in with PLAIN over SASL_SSL: the
+            # user is the literal "$ConnectionString", the password the
+            # namespace's connection string, the brokers its host on port 9093.
+            connection_string = _text(connection.get("connection_string")) or _text(password)
+            password = connection_string
+            username = "$ConnectionString"
+            protocol = "SASL_SSL"
+            mechanism = "PLAIN"
+            brokers = brokers or _event_hubs_brokers(connection_string)
+        extra = {
+            "service": service,
+            "registry_url": _text(connection.get("schema_registry_url")).rstrip("/"),
+            "registry_username": _text(connection.get("schema_registry_username")),
+            "registry_password": "" if connection.get("schema_registry_password") is None
+            else str(connection.get("schema_registry_password")),
+        }
+        if _text(mechanism).upper().replace("_", "-") == MSK_IAM:
+            extra.update({
+                "aws_region": _text(connection.get("aws_region")) or _region_from_brokers(broker_list(brokers)),
+                "aws_access_key_id": _text(connection.get("aws_access_key_id")),
+                "aws_secret_access_key": _text(connection.get("aws_secret_access_key")),
+                "aws_session_token": _text(connection.get("aws_session_token")),
+            })
     else:
         where = "the step"
         brokers = step.get("bootstrap_servers") or step.get("brokers")
@@ -315,7 +411,26 @@ def kafka_settings(
         if mechanism not in MECHANISMS:
             raise KafkaSettingsError(
                 f"{who}: the SASL mechanism '{mechanism}' is not supported. Flow signs in to "
-                "Kafka with PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512."
+                "Kafka with PLAIN, SCRAM-SHA-256, SCRAM-SHA-512 or Amazon MSK IAM."
+            )
+        if mechanism == MSK_IAM:
+            if protocol != "SASL_SSL":
+                raise KafkaSettingsError(
+                    f"{who}: Amazon MSK IAM sign-in works only over SASL_SSL. Choose SASL_SSL in {where}."
+                )
+            if not extra.get("aws_region"):
+                raise KafkaSettingsError(
+                    f"{who}: Amazon MSK IAM sign-in needs the cluster's AWS region. Add it to {where}."
+                )
+            if bool(extra.get("aws_access_key_id")) != bool(extra.get("aws_secret_access_key")):
+                raise KafkaSettingsError(
+                    f"{who}: Amazon MSK IAM sign-in needs both the access key ID and the secret "
+                    f"access key, or neither (then Flow uses the AWS role of the computer it runs on)."
+                )
+            return KafkaSettings(
+                brokers=broker_list(brokers) or DEFAULT_BROKERS, security_protocol=protocol,
+                sasl_mechanism=mechanism,
+                **_certificates(connection, who=who, where=where), **extra,
             )
         username, password = _text(username), "" if password is None else str(password)
         missing = [name for name, value in (("a username", username), ("a password", password)) if not value]
@@ -336,6 +451,7 @@ def kafka_settings(
         security_protocol=protocol,
         **sign_in,
         **certificates,
+        **extra,
     )
 
 

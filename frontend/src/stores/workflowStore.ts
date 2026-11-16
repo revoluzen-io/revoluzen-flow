@@ -504,7 +504,8 @@ interface WorkflowState {
    *  editor (a restored version). A tab with unsaved edits is left alone. */
   refreshOpenPipeline: (workflowId: string, data: any) => void;
   /** On entering the editor: the pipeline named in the address, else the tab
-   *  last used, else an empty canvas. */
+   *  last used, else an empty canvas. A pipeline that cannot be opened is
+   *  said so, and the editor shows what it shows when none is named. */
   ensureEditorTab: (workflowId?: string | null) => Promise<void>;
   getUpstreamNodeIds: (nodeId: string) => string[];
   setReactFlowInstance: (instance: any) => void;
@@ -765,6 +766,12 @@ function newTabKey(): string {
   _tabSeq += 1;
   return `t${Date.now().toString(36)}${_tabSeq}`;
 }
+
+// Entering the editor (`ensureEditorTab`): each call takes a number, and a
+// later call (the address moved on) decides what shows. A call for the same
+// pipeline as the one still loading waits for it instead.
+let _ensureSeq = 0;
+let _ensuring: { workflowId: string | null; done: Promise<void> } | null = null;
 
 // The saved tab list is written only once the saved one has been read back,
 // so the empty list at start-up never wipes it.
@@ -2672,7 +2679,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         data = await api.getWorkflow(target.workflowId);
       } catch (err: any) {
         set((st) => ({ openTabs: st.openTabs.filter((t) => t.key !== key) }));
-        toast.error('Could not open the pipeline', `"${target.name}": ${err?.message || 'it may have been deleted'}`);
+        toast.error(`Could not open "${target.name}"`, cannotOpenReason(err));
         return false;
       }
       const now = get();
@@ -2730,39 +2737,74 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
   },
 
-  ensureEditorTab: async (workflowId) => {
-    restoreSavedTabs();
-    adoptLooseDoc();
-    const s = get();
-    if (workflowId) {
-      if (s.activeTabKey && s.workflowId === workflowId && !s.pastRunId) return;
-      const tab = findPipelineTab(s, workflowId);
-      if (tab) {
-        await get().activateTab(tab.key);
-        return;
-      }
-      try {
-        get().openInEditor(await api.getWorkflow(workflowId));
-      } catch (err: any) {
-        toast.error('Could not open the pipeline', err?.message || 'It may have been deleted, or it is outside your access.');
-      }
-      return;
-    }
-    if (s.activeTabKey) return;
-    const key = _restoredActiveKey && s.openTabs.some((t) => t.key === _restoredActiveKey)
-      ? _restoredActiveKey
-      : s.openTabs[s.openTabs.length - 1]?.key;
-    _restoredActiveKey = null;
-    if (key) {
-      await get().activateTab(key);
-      return;
-    }
-    makeRoomForNewDoc(); // first visit: an empty canvas in a tab of its own
+  ensureEditorTab: (workflowId) => {
+    // One open at a time for the same pipeline (or for none): React mounts the
+    // editor twice in development, and the address can be followed again
+    // while the first open is still loading. The second call waits for the
+    // first, so the pipeline is fetched once and a failure is said once.
+    const id = workflowId || null;
+    if (_ensuring && _ensuring.workflowId === id) return _ensuring.done;
+    const done = openForAddress(id, ++_ensureSeq).finally(() => {
+      if (_ensuring?.done === done) _ensuring = null;
+    });
+    _ensuring = { workflowId: id, done };
+    return done;
   },
 }));
 
 // ── Tab helpers. Outside the store so the run and save paths can use them;
 // function declarations, so they exist before the store above calls them. ──
+
+/** One `ensureEditorTab` call; `call` is its number. */
+async function openForAddress(workflowId: string | null, call: number): Promise<void> {
+  // A later call means the address moved on: that call decides what shows.
+  const overtaken = () => call !== _ensureSeq;
+  restoreSavedTabs();
+  adoptLooseDoc();
+  const s = useWorkflowStore.getState();
+  if (workflowId) {
+    if (s.activeTabKey && s.workflowId === workflowId && !s.pastRunId) return;
+    const tab = findPipelineTab(s, workflowId);
+    if (tab) {
+      if (await showOrGiveWay(tab.key)) return;
+    } else {
+      try {
+        const data = await api.getWorkflow(workflowId);
+        if (overtaken()) return;
+        if (useWorkflowStore.getState().openInEditor(data)) return;
+      } catch (err: any) {
+        toast.error('Could not open the pipeline', cannotOpenReason(err));
+      }
+    }
+    if (overtaken()) return;
+    // It could not be opened, and that was said. The editor goes on with what
+    // it shows when no pipeline is named, never an empty canvas standing in
+    // for the one in the address.
+  }
+  const now = useWorkflowStore.getState();
+  if (now.activeTabKey) return;
+  const key = _restoredActiveKey && now.openTabs.some((t) => t.key === _restoredActiveKey)
+    ? _restoredActiveKey
+    : now.openTabs[now.openTabs.length - 1]?.key;
+  _restoredActiveKey = null;
+  if (key && (await showOrGiveWay(key))) return;
+  if (overtaken()) return;
+  // First visit, or the tab used last could not be opened either (that was
+  // said): an empty canvas in a tab of its own.
+  makeRoomForNewDoc();
+}
+
+/** Put a tab on screen. True when it came on screen, and also when something
+ *  else took the screen meanwhile or is taking it (another tab picked, a
+ *  pipeline opened): that stands. False when nothing did, because the tab's
+ *  pipeline could not be opened (activateTab said why and dropped the tab)
+ *  or the tab was closed while it loaded. */
+async function showOrGiveWay(key: string): Promise<boolean> {
+  const pick = _activateSeq + 1; // the number activateTab takes as it starts
+  if (await useWorkflowStore.getState().activateTab(key)) return true;
+  const s = useWorkflowStore.getState();
+  return !!s.activeTabKey || _activateSeq !== pick || s.openTabs.some((t) => t.key === key);
+}
 
 /** The pipeline id a tab holds, whether it is on screen or not. */
 export function tabWorkflowId(t: EditorTab, s: Pick<WorkflowState, 'activeTabKey' | 'workflowId'>): string | null {
@@ -2897,6 +2939,15 @@ function readDoc(key: string | null): EditorDoc | null {
 function offScreen(key: string | null): boolean {
   if (key === null) return false;
   return useWorkflowStore.getState().activeTabKey !== key;
+}
+
+/** Why a pipeline could not be fetched, in words for the person reading. The
+ *  server answers "not found" alike for a deleted pipeline and for one in a
+ *  workspace the person is not in, so nothing is told about other workspaces. */
+function cannotOpenReason(err: any): string {
+  if (err?.status === 404) return 'It is not in the workspace you are in. It may have been deleted, or it belongs to another workspace.';
+  if (err?.status === 403) return 'You do not have access to it.';
+  return err?.message || 'It may have been deleted, or it is outside your access.';
 }
 
 /** Bring back the pipelines that were open before a reload, ahead of any

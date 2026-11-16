@@ -12,6 +12,18 @@ follows the compatibility rules documented there.
 
 ### Added
 
+- Streams and queues: Amazon Kinesis, Amazon SQS, Google Pub/Sub, Azure Event Hubs, MQTT, RabbitMQ, NATS JetStream and Apache Pulsar sources and destinations (RabbitMQ, Pulsar, Event Hubs and Kinesis were "Coming soon"). Logs keep each step's place; queue messages are confirmed only after the whole run succeeds and given back after a failure or a Sample run.
+- Kafka: one connection for Apache Kafka, Redpanda, Confluent Cloud, Amazon MSK (including IAM sign-in) and Azure Event Hubs' Kafka endpoint; message keys, headers and times as columns; Avro with a Schema Registry; headers and Avro on the Kafka destination; Debezium change events as change rows.
+- Change data capture (Flow Enterprise): PostgreSQL straight from the database's change log (no Debezium or Kafka), and MySQL / MariaDB from the binary log; the Database destination's new Apply changes mode keeps a copy of a table up to date.
+
+### Fixed
+
+- A read position is saved only if no other run, and no Reset, moved it while the run was reading.
+- The Change Data Capture step could not work: it decoded PostgreSQL's binary change format as text, confirmed each change as it read it, waited forever when fewer changes were waiting, and its Debezium mode saved its place in Kafka while still reading.
+- Kinesis and SQS browsing ignored the keys saved in the connection.
+
+### Added
+
 - **Start a pipeline when a file arrives.** In a pipeline's Schedule dialog,
   "A file arriving" watches a folder on the Flow server, on an SFTP server, on a
   Windows file share, in Amazon S3 (or MinIO), Google Cloud Storage or Azure Blob

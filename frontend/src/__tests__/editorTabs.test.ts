@@ -272,10 +272,12 @@ describe('entering the editor', () => {
     expect(api.getWorkflow).toHaveBeenCalledTimes(1);
   });
 
-  it('says so when the pipeline in the address cannot be opened, and adds no tab', async () => {
+  it('says so when the pipeline in the address cannot be opened, and shows an empty canvas instead', async () => {
     vi.spyOn(api, 'getWorkflow').mockRejectedValue(new Error('Workflow not found'));
     await store().ensureEditorTab('deleted');
     expect(store().openTabs.filter((t) => describeTab(t, store()).workflowId === 'deleted')).toHaveLength(0);
+    expect(store().openTabs).toHaveLength(1);
+    expect(store().workflowId).toBeNull();
   });
 
   it('with no pipeline named, shows an empty canvas in a tab of its own', async () => {

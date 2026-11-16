@@ -812,6 +812,21 @@ describe('validateWorkflow — what a database step with a saved connection must
     expect(found[0].message).toMatch(/Missing required field: table/);
   });
 
+  // 2026-11-15: streams and queues have no table. Flow Enterprise still ran the old check on
+  // them, so every Kinesis or MQTT step with its connection chosen was refused with
+  // "Missing required field: table" and Run stayed blocked.
+  it.each(['kafka', 'kinesis', 'sqs', 'pubsub', 'eventhub', 'mqtt', 'rabbitmq', 'nats', 'pulsar'])(
+    'asks a %s step with a saved connection for no table or query',
+    (connector) => {
+      const target = { topic: 't', stream_name: 's', queue: 'q', subscription: 'sub', event_hub_name: 'h', subject: 'x' };
+      const src = node('src', 'source', { connector_type: connector, connection_id: 'c1', ...target });
+      const out = node('out', 'destination', { connector_type: connector, connection_id: 'c2', ...target });
+      const tableOrQuery = validateWorkflow([src, out], [edge('src', 'out')])
+        .filter((i) => i.level === 'error' && (i.field === 'table' || i.field === 'query'));
+      expect(tableOrQuery).toEqual([]);
+    },
+  );
+
   it('asks for the connection first, and for nothing else until there is one', () => {
     const noConnection = validateWorkflow(
       [node('src', 'source', { connector_type: 'database', query: 'SELECT 1' }), sink],

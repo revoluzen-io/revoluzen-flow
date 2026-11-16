@@ -32,8 +32,10 @@ CONNECTION_TYPES = [
     # smb: Windows file shares, read and written by the File step (2026-11-11).
     "ftp", "sftp", "hdfs", "local_file", "smb",
     # ── Streaming / Messaging ──
+    # 2026-11-13: every one of these has a source and a destination step
+    # (nodes/streams.py); mqtt is new.
     "kafka", "rabbitmq", "pulsar", "kinesis", "eventhub",
-    "sqs", "pubsub", "nats",
+    "sqs", "pubsub", "nats", "mqtt",
     # ── APIs ──
     # 2026-05-22 — microsoft_graph slotted here (NOT under
     # Collaboration) because it's a generic API surface that
@@ -85,7 +87,7 @@ CONNECTION_CATEGORIES = {
     "Cloud Storage": ["s3", "gcs", "azure_blob", "adls_gen2", "minio"],
     "File Systems": ["ftp", "sftp", "hdfs", "local_file", "smb"],
     "Streaming": ["kafka", "rabbitmq", "pulsar", "kinesis", "eventhub",
-                   "sqs", "pubsub", "nats"],
+                   "sqs", "pubsub", "nats", "mqtt"],
     "APIs": ["rest_api", "graphql", "odata", "microsoft_graph"],
     "SaaS": ["salesforce", "hubspot", "zendesk", "jira", "servicenow",
              # 2026-05-23: Oracle / SAP product families.

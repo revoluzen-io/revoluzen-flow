@@ -372,7 +372,9 @@ def secured_kafka_python(cluster: SecuredKafka) -> types.ModuleType:
         def send(self, topic, value=None, key=None):
             if cluster.refuse_writes:
                 return Sent(RuntimeError(cluster.refuse_writes))
-            cluster.append(topic, self.config["value_serializer"](value))
+            # As kafka-python: with no value_serializer the value must already be bytes.
+            serializer = self.config.get("value_serializer")
+            cluster.append(topic, serializer(value) if serializer else value)
             return Sent()
 
         def flush(self, timeout=None):

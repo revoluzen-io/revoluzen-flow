@@ -34,6 +34,9 @@ _READ_REQUIRED_TYPES: frozenset[StepType] = frozenset({
     StepType.DROPBOX_SOURCE, StepType.BOX_SOURCE,
     StepType.JDBC_SOURCE, StepType.CDC_SOURCE, StepType.OPENAPI_SOURCE,
     StepType.VECTOR_SOURCE,
+    StepType.KINESIS_SOURCE, StepType.SQS_SOURCE, StepType.PUBSUB_SOURCE,
+    StepType.EVENTHUB_SOURCE, StepType.MQTT_SOURCE, StepType.RABBITMQ_SOURCE,
+    StepType.NATS_SOURCE, StepType.PULSAR_SOURCE,
 })
 
 _WRITE_REQUIRED_TYPES: frozenset[StepType] = frozenset({
@@ -47,6 +50,9 @@ _WRITE_REQUIRED_TYPES: frozenset[StepType] = frozenset({
     StepType.DROPBOX_SINK, StepType.BOX_SINK,
     StepType.JDBC_SINK, StepType.VECTOR_SINK,
     StepType.SEND_EMAIL, StepType.SLACK_NOTIFY,
+    StepType.KINESIS_SINK, StepType.SQS_SINK, StepType.PUBSUB_SINK,
+    StepType.EVENTHUB_SINK, StepType.MQTT_SINK, StepType.RABBITMQ_SINK,
+    StepType.NATS_SINK, StepType.PULSAR_SINK,
 })
 
 

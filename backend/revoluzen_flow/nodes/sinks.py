@@ -21,7 +21,6 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     import duckdb
 
-    from revoluzen_flow.connections.kafka_settings import KafkaSettings
 
 from revoluzen_flow.ir.schema import StepType
 from revoluzen_flow.intelligence.schema_policy import (
@@ -875,12 +874,6 @@ def _kafka_batch_size(value: Any) -> int:
 
 
 _KAFKA_COMPRESSION = ("none", "gzip", "snappy", "lz4", "zstd")
-# kafka-python compresses with gzip by itself; the others need a package each.
-_KAFKA_PYTHON_CODECS = {
-    "snappy": ("has_snappy", "python-snappy"),
-    "lz4": ("has_lz4", "lz4"),
-    "zstd": ("has_zstd", "zstandard"),
-}
 
 
 def _kafka_compression(value: Any) -> str:
@@ -896,20 +889,31 @@ def _kafka_compression(value: Any) -> str:
 
 @register(StepType.KAFKA_SINK)
 class KafkaSinkNode(BaseNode):
-    """Send data to a Kafka topic as JSON messages."""
+    """Send rows to a Kafka topic (Kafka, Redpanda, Confluent Cloud, Amazon MSK,
+    Azure Event Hubs' Kafka endpoint) as JSON or Avro messages.
+
+    The writing itself is ``streams/kafka.py`` and how a row becomes a message
+    ``streams/kafka_formats.py``. Every delivery is checked: a message Kafka
+    did not take fails the run.
+    """
     display_name = "Kafka Sink"
     category = "output"
     description = "Send data to a Kafka topic"
 
     def execute(self, ctx: ExecutionContext) -> duckdb.DuckDBPyRelation:
         from revoluzen_flow.connections.kafka_settings import kafka_settings
+        from revoluzen_flow.streams import kafka as kafka_client
+        from revoluzen_flow.streams.kafka_formats import WRITE_FORMATS, MessageWriter, check_format
 
+        who = "Kafka Sink"
         source = _get_input(ctx, self.params)
 
         topic = str(self.params.get("topic") or "").strip()
-        key_column = self.params.get("key_column", "")
+        key_column = str(self.params.get("key_column") or "").strip()
+        headers_column = str(self.params.get("headers_column") or "").strip()
         batch_size = _kafka_batch_size(self.params.get("batch_size"))
         compression = _kafka_compression(self.params.get("compression"))
+        fmt = check_format(self.params.get("message_format"), who, WRITE_FORMATS)
         connection_id = self.params.get("connection_id", "")
 
         if not topic:
@@ -917,180 +921,55 @@ class KafkaSinkNode(BaseNode):
 
         connection = None
         if connection_id:
-            from revoluzen_flow.nodes.db_source import _get_connection_config
-            result = _get_connection_config(connection_id)
-            if result:
-                connection, _ = result
+            from revoluzen_flow.streams.connection import saved_connection
+
+            connection, _type = saved_connection(ctx, connection_id, who)
         # The brokers and the sign-in: the connection's when the step has one.
         # The Connections page saves the broker list as `brokers`; reading only
         # the older `bootstrap_servers` sent every run to localhost:9092.
-        settings = kafka_settings(connection, self.params, who="Kafka Sink")
+        settings = kafka_settings(connection, self.params, who=who)
 
-        # Convert relation to list of dicts
         records = _relation_to_dicts(ctx.conn, source, "__kafka_sink_export")
-
-        # Try confluent_kafka first
-        try:
-            self._send_confluent(records, topic, settings, key_column, batch_size, compression)
-            return source
-        except ImportError:
-            pass
-
-        # Try kafka-python
-        try:
-            self._send_kafka_python(records, topic, settings, key_column, batch_size, compression)
-            return source
-        except ImportError:
-            from revoluzen_flow.connections.addons import addon_message
-            raise ValueError(f"Kafka Sink: {addon_message('kafka')}") from None
-
-    @staticmethod
-    def _send_confluent(records: list[dict], topic: str, settings: KafkaSettings,
-                         key_column: str, batch_size: int, compression: str = "none"):
-        """Send messages using confluent_kafka.
-
-        Kafka is asked about the topic first, so a refused sign-in or a broker
-        that cannot be reached stops the run at once. Then each message's
-        delivery report is checked: a message Kafka did not take stops the run
-        with a plain message. The step used to finish as if every message had
-        gone.
-        """
-        from confluent_kafka import KafkaException, Producer  # type: ignore
-
-        from revoluzen_flow.connections.kafka_settings import ClientErrors, error_text
-
         if not records:
-            return
-        client_errors = ClientErrors(settings)
-        try:
-            producer = Producer({
-                **settings.confluent(),
-                "error_cb": client_errors,
-                "compression.type": compression,
-            })
-        except KafkaException as exc:
-            raise ValueError(
-                f"Kafka Sink: the Kafka client could not start: {settings.hide(error_text(exc))}"
-            ) from None
-        try:
-            producer.list_topics(topic, timeout=10)
-        except KafkaException as exc:
-            raise ValueError(
-                f"Kafka Sink: could not reach Kafka at {settings.brokers}: "
-                f"{client_errors.explain(error_text(exc))}"
-            ) from None
+            return source
+        registry = None
+        if fmt == "avro" and settings.registry_url:
+            from revoluzen_flow.streams.schema_registry import SchemaRegistry
 
-        written = 0
-        failed: list[str] = []
-
-        def delivered(error, _message) -> None:
-            nonlocal written
-            if error is None:
-                written += 1
-            else:
-                failed.append(error_text(error))
-
-        count = 0
-        for record in records:
-            key_bytes = None
-            if key_column and key_column in record:
-                key_bytes = str(record[key_column]).encode("utf-8")
-
-            value_bytes = json.dumps(record, default=str).encode("utf-8")
-            producer.produce(topic, value=value_bytes, key=key_bytes, on_delivery=delivered)
-            count += 1
-
-            if count % batch_size == 0:
-                producer.flush()
-                if failed:
-                    break
-
-        producer.flush()
-        if written < len(records):
-            reason = client_errors.explain(failed[0] if failed else "Kafka did not confirm them")
-            raise ValueError(
-                f"Kafka Sink: {len(records) - written} of {len(records)} messages were not "
-                f"written to topic '{topic}' at {settings.brokers}: {reason}"
-            )
-
-    @staticmethod
-    def _send_kafka_python(records: list[dict], topic: str, settings: KafkaSettings,
-                            key_column: str, batch_size: int, compression: str = "none"):
-        """Send messages using kafka-python, checking each one the same way."""
-        from kafka import KafkaProducer  # type: ignore
-
-        from revoluzen_flow.connections.kafka_settings import error_text
-
-        if not records:
-            return
-        if compression in _KAFKA_PYTHON_CODECS:
-            check, package = _KAFKA_PYTHON_CODECS[compression]
-            try:
-                from kafka import codec  # type: ignore
-            except ImportError:
-                codec = None
-            if codec is not None and not getattr(codec, check)():
-                raise ValueError(
-                    f"Kafka Sink: {compression} compression needs the {package} package, which "
-                    f"this install does not have. Choose gzip, or ask whoever set up Revoluzen "
-                    f"Flow to add {package}."
-                )
-        try:
-            producer = KafkaProducer(
-                # The brokers and, with SASL_PLAINTEXT or SASL_SSL, the sign-in.
-                **settings.kafka_python(),
-                compression_type=None if compression == "none" else compression,
-                value_serializer=lambda v: json.dumps(v, default=str).encode("utf-8"),
-                key_serializer=lambda k: k.encode("utf-8") if k else None,
-            )
-        except Exception as exc:  # noqa: BLE001 — kafka-python raises its own error types
-            # It connects here, so a refused sign-in or an unreachable broker
-            # stops the run now.
-            raise ValueError(
-                f"Kafka Sink: could not reach Kafka at {settings.brokers}: {settings.hide(error_text(exc))}"
-            ) from None
-
-        sent = []
-        try:
-            for record in records:
-                key = str(record.get(key_column, "")) if key_column else None
-                sent.append(producer.send(topic, value=record, key=key))
-                if len(sent) % batch_size == 0:
-                    producer.flush()
-            producer.flush()
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(
-                f"Kafka Sink: messages could not be written to topic '{topic}' at "
-                f"{settings.brokers}: {settings.hide(error_text(exc))}"
-            ) from None
-        finally:
-            producer.close()
-        failed = [future.exception for future in sent if future.failed()]
-        if failed:
-            raise ValueError(
-                f"Kafka Sink: {len(failed)} of {len(sent)} messages were not written to topic "
-                f"'{topic}' at {settings.brokers}: {settings.hide(error_text(failed[0]))}"
-            )
+            registry = SchemaRegistry.from_settings(settings, who)
+        writer = MessageWriter(fmt, topic, list(source.columns), [str(t) for t in source.types],
+                               key_column, headers_column, registry, who=who)
+        kafka_client.write(settings, topic, [writer.message(r) for r in records], batch_size,
+                           compression, who=who)
+        return source
 
     @staticmethod
     def default_params() -> dict[str, Any]:
         return {
-            "connection_id": "", "topic": "", "key_column": "",
-            "compression": "none", "batch_size": 500,
+            "connection_id": "", "topic": "", "message_format": "json", "key_column": "",
+            "headers_column": "", "compression": "none", "batch_size": 500,
         }
 
     @staticmethod
     def param_schema() -> list[dict]:
-        # 2026-11-11: only settings a run uses. The broker list and the sign-in
-        # come from the saved connection; Value Serializer was never read.
+        # Only settings a run uses. The broker list, the sign-in and the Schema
+        # Registry come from the saved connection.
         return [
             {"name": "connection_id", "type": "connection_picker", "label": "Connection",
              "required": True,
              "description": "A saved Kafka connection. Its brokers and sign-in are used."},
             {"name": "topic", "type": "text", "label": "Topic", "required": True,
              "placeholder": "events.processed"},
+            {"name": "message_format", "type": "select", "label": "Message Format",
+             "options": list(("json", "avro")), "default": "json",
+             "description": "json: each row as a JSON object. avro: Avro, with the rows' schema "
+                            "registered in the connection's Schema Registry as <topic>-value."},
             {"name": "key_column", "type": "text", "label": "Key Column",
-             "description": "Column to use as Kafka message key. Leave empty for no key."},
+             "description": "Column to use as Kafka message key. Leave empty for no key. "
+                            "Messages with the same key stay in order."},
+            {"name": "headers_column", "type": "text", "label": "Headers Column",
+             "description": "Optional. A column holding a JSON object; each of its fields "
+                            "becomes a message header. The column is not part of the message."},
             {"name": "compression", "type": "select", "label": "Compression",
              "options": list(_KAFKA_COMPRESSION), "default": "none",
              "description": "How messages are compressed on the way to Kafka."},

@@ -189,3 +189,7 @@ Revoluzen Flow Enterprise is a paid extension that adds team-oriented governance
 | 2026-11-10 | Section 8, version history: every change kept, compared with the settings now and restored; passwords and keys kept only as fingerprints. |
 | 2026-05-03 | Rewritten for Revoluzen Flow audience. Vault references + DEV/PROD scoping consolidated into section 9 (Revoluzen Flow Enterprise section). Connector status badges section added. |
 | 2026-04-22 | Initial publication. |
+
+## Streams, queues and change data capture
+
+Kafka (with Redpanda, Confluent Cloud, Amazon MSK and Event Hubs' Kafka endpoint), Amazon Kinesis and SQS, Google Pub/Sub, Azure Event Hubs, MQTT, RabbitMQ, NATS JetStream and Apache Pulsar connections, and reading the changes made in PostgreSQL, MySQL and MariaDB, are described in [Streams, queues and change data capture](streaming-and-change-data-capture.md).

@@ -50,6 +50,9 @@ _FORM_SECRET_FIELDS = frozenset({
     "consumer_secret", "token_secret", "auth_token", "app_key",
     "routing_key", "webhook_url", "credentials_json",
     "ssl_key_pem", "ssl_key_password",
+    # 2026-11-13: a Kafka connection's Schema Registry password and an AWS
+    # session token (Amazon MSK, Kinesis, SQS), and a NATS NKey seed.
+    "schema_registry_password", "aws_session_token", "nkey_seed",
 })
 
 #: A PEM private key (PKCS#8, RSA, EC, OpenSSH, PGP) anywhere in a value.

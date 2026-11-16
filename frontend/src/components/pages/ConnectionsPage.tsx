@@ -187,11 +187,18 @@ export const CONNECTION_TYPES = [
   // Hidden from the picker but still loadable for existing rows; new
   // pipelines pick `oracle_fusion` for Oracle Cloud REST.
   // ── 8. Streaming & Messaging ──
-  { type: 'kafka', label: 'Kafka', icon: '⚡', color: '#231F20', category: 'Streaming' },
+  // 2026-11-13: one Kafka card for every Kafka-compatible service (the
+  // founders' choice); search finds it by each service's name.
+  { type: 'kafka', label: 'Kafka (Redpanda, Confluent, MSK)', icon: '⚡', color: '#231F20', category: 'Streaming',
+    search: 'apache kafka redpanda confluent cloud amazon msk aws azure event hubs aiven' },
   { type: 'rabbitmq', label: 'RabbitMQ', icon: '🐰', color: '#FF6600', category: 'Streaming' },
   { type: 'pulsar', label: 'Apache Pulsar', icon: '⚡', color: '#188FFF', category: 'Streaming' },
   { type: 'eventhub', label: 'Azure Event Hubs', icon: '🟦', color: '#0078D4', category: 'Streaming' },
-  { type: 'kinesis', label: 'AWS Kinesis', icon: '⚡', color: '#FF9900', category: 'Streaming' },
+  { type: 'kinesis', label: 'Amazon Kinesis', icon: '⚡', color: '#FF9900', category: 'Streaming' },
+  { type: 'sqs', label: 'Amazon SQS', icon: '📨', color: '#FF4F8B', category: 'Streaming' },
+  { type: 'pubsub', label: 'Google Pub/Sub', icon: '📬', color: '#4285F4', category: 'Streaming' },
+  { type: 'nats', label: 'NATS JetStream', icon: '⚡', color: '#27AAE1', category: 'Streaming' },
+  { type: 'mqtt', label: 'MQTT', icon: '📡', color: '#660066', category: 'Streaming' },
   // ── 9. SaaS (Prebuilt) ──
   { type: 'salesforce', label: 'Salesforce', icon: '☁️', color: '#00A1E0', category: 'SaaS' },
   { type: 'dynamics365', label: 'Dynamics 365', icon: '🟦', color: '#002050', category: 'SaaS' },
@@ -288,15 +295,11 @@ const CONNECTOR_STATUS: Record<string, ConnectorStatus> = {
   // 2026-11-11: Windows file shares. Checked with a stand-in SMB client and
   // the real library; Certified once run against a real Windows server.
   smb: 'beta',
-  // Streaming: only Kafka has a pipeline source+sink runtime today
-  // (nodes/generic.py SOURCE_MAP/DEST_MAP + KAFKA_SOURCE/KAFKA_SINK).
-  // RabbitMQ / Kinesis / Event Hubs have connection + catalog (discovery)
-  // support but NO pipeline node - so they would dead-end after "test +
-  // browse". Marked 'roadmap' (below, with Pulsar) so the pipeline-connection
-  // picker does not offer them, matching the backend maturity_label (they
-  // compute as 'configurable', never 'production'/runtime). Fixes a prior
-  // 'beta' overclaim (2026-07-03).
-  kafka: 'beta',
+  // Streaming (2026-11-13): each has a source and a destination step
+  // (backend nodes/streams.py, nodes/sources.py, nodes/sinks.py). Beta until
+  // each is run against a real service; BETA_NOTES says what was checked.
+  kafka: 'beta', rabbitmq: 'beta', pulsar: 'beta', kinesis: 'beta', eventhub: 'beta',
+  sqs: 'beta', pubsub: 'beta', nats: 'beta', mqtt: 'beta',
   jira: 'beta', hubspot: 'beta', zendesk: 'beta',
   sendgrid: 'beta', twilio: 'beta',
   pinecone: 'beta', weaviate: 'beta', qdrant: 'beta', chroma: 'beta', pgvector: 'beta',
@@ -323,11 +326,6 @@ const CONNECTOR_STATUS: Record<string, ConnectorStatus> = {
   // Roadmap — UI present, backend not yet shipped
   cassandra: 'roadmap', couchbase: 'roadmap', dynamodb: 'roadmap',
   cosmosdb: 'roadmap', neo4j: 'roadmap', firebase: 'roadmap',
-  // Streaming connectors with connection+catalog but no pipeline source/sink
-  // node yet (only Kafka has runtime). Hidden from the pipeline picker to
-  // avoid a "test passes, then no node to use it" dead-end. See the note by
-  // the streaming block above.
-  pulsar: 'roadmap', rabbitmq: 'roadmap', kinesis: 'roadmap', eventhub: 'roadmap',
   datadog: 'roadmap', pagerduty: 'roadmap', splunk: 'roadmap',
   // Legacy alias — kept as 'beta' so existing rows continue to render
   // their status badge; new pipelines should use oracle_fusion.
@@ -347,7 +345,21 @@ const DEFAULT_BETA_NOTES = [
   'Schema drift is logged but not enforced',
   'Test fixtures are incomplete — re-runs may reveal edge cases',
 ];
+const STREAM_NOTE = 'Reads in batches each time the pipeline runs (it does not process a continuous stream); each run carries on after the last successful one';
 const BETA_NOTES: Record<string, string[]> = {
+  kafka: [
+    'Run against a real Apache Kafka 4.3 broker: reading, writing, SASL PLAIN and SCRAM, TLS and client certificates',
+    'Redpanda, Confluent Cloud, Amazon MSK and Event Hubs speak the same Kafka protocol but were not run here; Amazon MSK IAM sign-in and the Schema Registry were checked with stand-ins',
+    STREAM_NOTE,
+  ],
+  kinesis: ['Checked against AWS\'s own API definitions, not against a real AWS account', STREAM_NOTE],
+  sqs: ['Checked against AWS\'s own API definitions, not against a real AWS account', 'Messages are deleted only after the whole run succeeds', STREAM_NOTE],
+  pubsub: ['Checked with a stand-in of the Pub/Sub API, not against Google Cloud', 'Messages are acknowledged only after the whole run succeeds', STREAM_NOTE],
+  eventhub: ['Needs the azure-eventhub add-on', 'Checked with a stand-in client, not against Azure', STREAM_NOTE],
+  mqtt: ['Needs the paho-mqtt add-on', 'Checked with a stand-in client, not against a real broker', 'Messages are acknowledged only after the whole run succeeds', STREAM_NOTE],
+  rabbitmq: ['Needs the pika add-on', 'Checked with a stand-in client, not against a real broker', 'Messages are acknowledged only after the whole run succeeds', STREAM_NOTE],
+  nats: ['Needs the nats-py add-on', 'Checked with a stand-in client, not against a real server', STREAM_NOTE],
+  pulsar: ['Needs the pulsar-client add-on', 'Checked with a stand-in client, not against a real broker', STREAM_NOTE],
   smb: [
     'Tested with a simulated file server and the SMB library, not yet against a real Windows server',
     'A new file on a share starts a pipeline at the next check of the folder (every 30 seconds at most), not the moment it lands',
@@ -418,7 +430,23 @@ export interface ConnField {
   hint?: string;
   options?: Array<{ value: string; label: string }>;
   defaultValue?: string;
+  /** Show the field only while each named field holds one of the listed
+   *  values (2026-11-13), so a form shows only the settings that are used. */
+  showWhen?: Record<string, string[]>;
 }
+
+/** The fields a connection form shows for this config (see `showWhen`). */
+export function shownFields(fields: ConnField[], config: Record<string, string>): ConnField[] {
+  return fields.filter((f) => !f.showWhen || Object.entries(f.showWhen).every(
+    ([key, values]) => values.includes(String(config[key] ?? '')),
+  ));
+}
+
+// Kafka-compatible services reached by brokers and a sign-in; Azure Event Hubs
+// is reached by its connection string (backend connections/kafka_settings.py).
+const KAFKA_DIRECT = ['apache_kafka', 'redpanda', 'confluent_cloud', 'amazon_msk', 'aiven', 'other'];
+const KAFKA_SASL = { service: KAFKA_DIRECT, security_protocol: ['SASL_PLAINTEXT', 'SASL_SSL'] };
+const KAFKA_TLS = { service: KAFKA_DIRECT, security_protocol: ['SSL', 'SASL_SSL'] };
 
 export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
   // ── Relational Databases ──
@@ -855,24 +883,40 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
   ],
   // ── Streaming & Messaging ──
   kafka: [
-    { key: 'brokers', label: 'Bootstrap Servers', type: 'text', placeholder: 'broker1:9092, broker2:9092', required: true, hint: 'Comma-separated list of host:port' },
-    { key: 'security_protocol', label: 'Security Protocol', type: 'select', placeholder: '', required: true, defaultValue: 'PLAINTEXT', options: [
+    { key: 'service', label: 'Service', type: 'select', placeholder: '', defaultValue: 'apache_kafka', options: [
+      { value: 'apache_kafka', label: 'Apache Kafka' }, { value: 'redpanda', label: 'Redpanda' },
+      { value: 'confluent_cloud', label: 'Confluent Cloud' }, { value: 'amazon_msk', label: 'Amazon MSK' },
+      { value: 'azure_event_hubs', label: 'Azure Event Hubs (Kafka endpoint)' }, { value: 'aiven', label: 'Aiven for Apache Kafka' },
+      { value: 'other', label: 'Another Kafka-compatible service' },
+    ], hint: 'They all speak the Kafka protocol. Confluent Cloud: SASL_SSL, PLAIN, the API key and secret. Amazon MSK: SCRAM, certificates or IAM. Redpanda Cloud: SASL_SSL with SCRAM.' },
+    { key: 'connection_string', label: 'Connection String', type: 'password', placeholder: 'Endpoint=sb://mynamespace.servicebus.windows.net/;SharedAccessKeyName=...;SharedAccessKey=...', required: true, hint: 'Azure Portal → Event Hubs namespace → Shared access policies. Standard tier or above; Flow signs in over SASL_SSL on port 9093.', showWhen: { service: ['azure_event_hubs'] } },
+    { key: 'brokers', label: 'Bootstrap Servers', type: 'text', placeholder: 'broker1:9092, broker2:9092', required: true, hint: 'Comma-separated list of host:port', showWhen: { service: KAFKA_DIRECT } },
+    { key: 'security_protocol', label: 'Security Protocol', type: 'select', placeholder: '', required: true, defaultValue: 'PLAINTEXT', showWhen: { service: KAFKA_DIRECT }, options: [
       { value: 'PLAINTEXT', label: 'PLAINTEXT' }, { value: 'SSL', label: 'SSL' },
       { value: 'SASL_PLAINTEXT', label: 'SASL_PLAINTEXT' }, { value: 'SASL_SSL', label: 'SASL_SSL' },
     ]},
     { key: 'sasl_mechanism', label: 'SASL Mechanism', type: 'select', placeholder: '', options: [
       { value: 'PLAIN', label: 'PLAIN' }, { value: 'SCRAM-SHA-256', label: 'SCRAM-SHA-256' }, { value: 'SCRAM-SHA-512', label: 'SCRAM-SHA-512' },
-    ], hint: 'Required when using SASL_* security protocol' },
-    { key: 'username', label: 'Username', type: 'text', placeholder: '', hint: 'For SASL authentication' },
-    { key: 'password', label: 'Password', type: 'password', placeholder: '' },
+      { value: 'AWS_MSK_IAM', label: 'Amazon MSK IAM' },
+    ], hint: 'Required when using SASL_* security protocol', showWhen: KAFKA_SASL },
+    { key: 'username', label: 'Username', type: 'text', placeholder: '', hint: 'For SASL authentication (Confluent Cloud: the API key)', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['', 'PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'] } },
+    { key: 'password', label: 'Password', type: 'password', placeholder: '', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['', 'PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'] } },
+    { key: 'aws_region', label: 'AWS Region', type: 'text', placeholder: 'eu-west-1', hint: 'Empty: read from the broker addresses.', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['AWS_MSK_IAM'] } },
+    { key: 'aws_access_key_id', label: 'AWS Access Key ID', type: 'text', placeholder: 'AKIA...', hint: 'Empty: the AWS role of the computer Flow runs on.', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['AWS_MSK_IAM'] } },
+    { key: 'aws_secret_access_key', label: 'AWS Secret Access Key', type: 'password', placeholder: '', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['AWS_MSK_IAM'] } },
+    { key: 'aws_session_token', label: 'AWS Session Token', type: 'password', placeholder: '', hint: 'Only for temporary keys.', showWhen: { ...KAFKA_SASL, sasl_mechanism: ['AWS_MSK_IAM'] } },
     // 2026-11-12: certificates for SSL and SASL_SSL, pasted as PEM text
     // (backend connections/kafka_settings.py). The key and its password are
     // kept encrypted and never sent back.
-    { key: 'ssl_ca_pem', label: 'CA Certificate', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', hint: 'For SSL or SASL_SSL when your company signs the brokers\' certificates. Paste the certificate of the authority that signed them. Leave blank to trust the certificates this computer trusts.' },
-    { key: 'ssl_certificate_pem', label: 'Client Certificate', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', hint: 'Only if the brokers ask Flow for a certificate. Paste the certificate Flow shows them.' },
-    { key: 'ssl_key_pem', label: 'Client Private Key', type: 'textarea', placeholder: '-----BEGIN PRIVATE KEY-----', hint: 'The private key of the client certificate. Stored encrypted and never shown again.' },
-    { key: 'ssl_key_password', label: 'Private Key Password', type: 'password', placeholder: '', hint: 'Only if the private key is locked with a password.' },
+    { key: 'ssl_ca_pem', label: 'CA Certificate', type: 'textarea', showWhen: KAFKA_TLS, placeholder: '-----BEGIN CERTIFICATE-----', hint: 'For SSL or SASL_SSL when your company signs the brokers\' certificates. Paste the certificate of the authority that signed them. Leave blank to trust the certificates this computer trusts.' },
+    { key: 'ssl_certificate_pem', label: 'Client Certificate', type: 'textarea', showWhen: KAFKA_TLS, placeholder: '-----BEGIN CERTIFICATE-----', hint: 'Only if the brokers ask Flow for a certificate. Paste the certificate Flow shows them.' },
+    { key: 'ssl_key_pem', label: 'Client Private Key', type: 'textarea', showWhen: KAFKA_TLS, placeholder: '-----BEGIN PRIVATE KEY-----', hint: 'The private key of the client certificate. Stored encrypted and never shown again.' },
+    { key: 'ssl_key_password', label: 'Private Key Password', type: 'password', showWhen: KAFKA_TLS, placeholder: '', hint: 'Only if the private key is locked with a password.' },
     { key: 'group_id', label: 'Consumer Group', type: 'text', placeholder: 'revoluzen-flow-consumer', hint: 'Default consumer group ID' },
+    // 2026-11-13: for Avro messages (backend streams/schema_registry.py).
+    { key: 'schema_registry_url', label: 'Schema Registry (for Avro)', type: 'text', placeholder: 'https://registry.example.com:8081', hint: 'Only for Avro messages: Confluent Schema Registry, Redpanda, Apicurio, Karapace.' },
+    { key: 'schema_registry_username', label: 'Schema Registry Username', type: 'text', placeholder: '' },
+    { key: 'schema_registry_password', label: 'Schema Registry Password', type: 'password', placeholder: '' },
   ],
   rabbitmq: [
     { key: 'host', label: 'Host', type: 'text', placeholder: 'rabbitmq.example.com', required: true },
@@ -887,8 +931,7 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     { key: 'service_url', label: 'Service URL', type: 'text', placeholder: 'pulsar://localhost:6650', required: true },
     { key: 'admin_url', label: 'Admin URL', type: 'text', placeholder: 'http://localhost:8080', hint: 'For topic management operations' },
     { key: 'token', label: 'Auth Token', type: 'password', placeholder: '' },
-    { key: 'tenant', label: 'Tenant', type: 'text', placeholder: 'public' },
-    { key: 'namespace', label: 'Namespace', type: 'text', placeholder: 'default' },
+    { key: 'ssl_ca_pem', label: 'CA Certificate (optional)', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', hint: 'For pulsar+ssl:// when your company signs the brokers\' certificates.' },
   ],
   eventhub: [
     { key: 'connection_string', label: 'Connection String', type: 'password', placeholder: 'Endpoint=sb://myhub.servicebus.windows.net/;...', required: true, hint: 'From Azure Portal → Event Hub → Shared access policies' },
@@ -896,10 +939,44 @@ export const CONNECTION_FIELDS: Record<string, ConnField[]> = {
     { key: 'consumer_group', label: 'Consumer Group', type: 'text', placeholder: '$Default', defaultValue: '$Default' },
   ],
   kinesis: [
-    { key: 'stream_name', label: 'Stream Name', type: 'text', placeholder: 'my-data-stream', required: true },
     { key: 'region', label: 'AWS Region', type: 'text', placeholder: 'us-east-1', required: true },
-    { key: 'access_key', label: 'Access Key ID', type: 'text', placeholder: 'AKIA...', required: true },
-    { key: 'secret_key', label: 'Secret Access Key', type: 'password', placeholder: '', required: true },
+    { key: 'stream_name', label: 'Stream Name (optional)', type: 'text', placeholder: 'my-data-stream', hint: 'The stream a step uses when it names none.' },
+    { key: 'access_key', label: 'Access Key ID', type: 'text', placeholder: 'AKIA...', hint: 'Empty: the AWS role of the computer Flow runs on.' },
+    { key: 'secret_key', label: 'Secret Access Key', type: 'password', placeholder: '' },
+    { key: 'aws_session_token', label: 'Session Token', type: 'password', placeholder: '', hint: 'Only for temporary keys.' },
+    { key: 'endpoint_url', label: 'Endpoint (optional)', type: 'text', placeholder: 'https://kinesis.eu-west-1.amazonaws.com', hint: 'For a VPC endpoint or LocalStack.' },
+  ],
+  // 2026-11-13: the new streaming connections (backend nodes/streams.py).
+  sqs: [
+    { key: 'region', label: 'AWS Region', type: 'text', placeholder: 'us-east-1', required: true },
+    { key: 'queue_url', label: 'Queue URL (optional)', type: 'text', placeholder: 'https://sqs.us-east-1.amazonaws.com/123456789012/orders', hint: 'The queue a step uses when it names none.' },
+    { key: 'access_key', label: 'Access Key ID', type: 'text', placeholder: 'AKIA...', hint: 'Empty: the AWS role of the computer Flow runs on.' },
+    { key: 'secret_key', label: 'Secret Access Key', type: 'password', placeholder: '' },
+    { key: 'aws_session_token', label: 'Session Token', type: 'password', placeholder: '', hint: 'Only for temporary keys.' },
+    { key: 'endpoint_url', label: 'Endpoint (optional)', type: 'text', placeholder: 'https://sqs.us-east-1.amazonaws.com', hint: 'For a VPC endpoint or LocalStack.' },
+  ],
+  pubsub: [
+    { key: 'project_id', label: 'Project ID', type: 'text', placeholder: 'my-project', required: true },
+    { key: 'credentials_json', label: 'Service Account Key (JSON)', type: 'textarea', placeholder: '{"type": "service_account", ...}', hint: 'The key file of a service account with the Pub/Sub Subscriber role (to read) or Publisher role (to write). Stored encrypted.' },
+    { key: 'subscription', label: 'Subscription (optional)', type: 'text', placeholder: 'orders-sub', hint: 'Used by Test connection.' },
+    { key: 'api_endpoint', label: 'API Endpoint (optional)', type: 'text', placeholder: 'http://localhost:8085', hint: 'Only for the Pub/Sub emulator; it needs no key.' },
+  ],
+  nats: [
+    { key: 'servers', label: 'Servers', type: 'text', placeholder: 'nats://nats1:4222, nats://nats2:4222', required: true },
+    { key: 'username', label: 'Username', type: 'text', placeholder: '' },
+    { key: 'password', label: 'Password', type: 'password', placeholder: '' },
+    { key: 'token', label: 'Token', type: 'password', placeholder: '', hint: 'Instead of a username and password.' },
+    { key: 'nkey_seed', label: 'NKey Seed', type: 'password', placeholder: 'SU...', hint: 'Instead of a username and password.' },
+    { key: 'ssl', label: 'Use TLS', type: 'checkbox', placeholder: '' },
+    { key: 'ssl_ca_pem', label: 'CA Certificate (optional)', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', showWhen: { ssl: ['true'] } },
+  ],
+  mqtt: [
+    { key: 'host', label: 'Broker Host', type: 'text', placeholder: 'mqtt.example.com', required: true },
+    { key: 'port', label: 'Port', type: 'number', placeholder: '1883', required: true, defaultValue: '1883', hint: '1883, or 8883 with TLS' },
+    { key: 'username', label: 'Username', type: 'text', placeholder: '' },
+    { key: 'password', label: 'Password', type: 'password', placeholder: '' },
+    { key: 'ssl', label: 'Use TLS', type: 'checkbox', placeholder: '' },
+    { key: 'ssl_ca_pem', label: 'CA Certificate (optional)', type: 'textarea', placeholder: '-----BEGIN CERTIFICATE-----', showWhen: { ssl: ['true'] } },
   ],
   // ── SaaS ──
   salesforce: [
@@ -2669,9 +2746,10 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
 
   // ── CREATE VIEW ──
   if (view === 'create') {
-    const fields = formType ? (CONNECTION_FIELDS[formType] || CONNECTION_FIELDS['rest_api'] || []) : [];
+    const allFields = formType ? (CONNECTION_FIELDS[formType] || CONNECTION_FIELDS['rest_api'] || []) : [];
     const categories = [...new Set(CONNECTION_TYPES.map(t => t.category))];
     const effectiveFormConfig = formType ? configWithFieldDefaults(formType, formConfig) : formConfig;
+    const fields = shownFields(allFields, effectiveFormConfig);
     const availableCredentials = credentials.filter(c => credentialMatchesEnvironment(c, effectiveFormEnvironment));
     const selectedCredential = availableCredentials.find(c => c.id === formCredentialId);
     const credentialFieldKeys = selectedCredential?.config ? Object.keys(selectedCredential.config) : [];
@@ -2718,7 +2796,8 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
         : CONNECTION_TYPES.filter(t =>
             t.label.toLowerCase().includes(q) ||
             t.type.toLowerCase().includes(q) ||
-            t.category.toLowerCase().includes(q)
+            t.category.toLowerCase().includes(q) ||
+            ((t as { search?: string }).search || '').includes(q)
           )
     ).filter(t => connectorStatus(t.type) !== 'roadmap');
     const visibleGroups = CONNECTOR_MENU_GROUPS
@@ -3748,7 +3827,10 @@ export default function ConnectionsPage({ projectId, projectName: activeProjectN
 
   // ── EDIT VIEW ──
   if (view === 'edit' && selectedConnection) {
-    const fields = formType ? (CONNECTION_FIELDS[formType] || CONNECTION_FIELDS['rest_api'] || []) : [];
+    const fields = shownFields(
+      formType ? (CONNECTION_FIELDS[formType] || CONNECTION_FIELDS['rest_api'] || []) : [],
+      formType ? configWithFieldDefaults(formType, formConfig) : formConfig,
+    );
     const meta = typeMeta(selectedConnection.type);
     const availableCredentials = credentials.filter(c => credentialMatchesEnvironment(c, effectiveFormEnvironment));
     const selectedCredential = availableCredentials.find(c => c.id === formCredentialId);

@@ -18,7 +18,7 @@ Three previously backend-only types now visible in the picker: **DB2, SAP HANA, 
 
 OSS Free ships **68 connection types visible by default** in the New Connection
 picker — Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps
-21 · Operations & AI 11. That is 82 declared types minus 14 marked roadmap
+21 · Operations & AI 19. That is 86 declared types minus 10 marked roadmap
 (UI-only today, hidden so they don't set false expectations). Verified against
 `CONNECTION_TYPES` / `CONNECTOR_STATUS` in
 `frontend/src/components/pages/ConnectionsPage.tsx` on 2026-11-11, when

@@ -91,7 +91,7 @@ count + actions.
 
 **Bad:** "Revoluzen Flow supports 124 connectors out of the box."
 
-**Why wrong:** The actual count is **68 connectors visible by default** —
+**Why wrong:** The actual count is **76 connectors visible by default** —
 the New Connection picker's own number. `CONNECTION_TYPES` declares 82
 entries and `CONNECTOR_STATUS` marks 14 as `roadmap`, which the picker
 filters out: 82 − 14 = 68 (66 until Windows File Share and the ODBC
@@ -100,13 +100,13 @@ database connection were added on 2026-11-11). Earlier marketing claimed 60+, th
 saying which. The 33 counted only SaaS manifests on disk and missed every
 database, warehouse and file connector.
 
-**Correct:** "Revoluzen Flow ships 68 connectors visible by default:
+**Correct:** "Revoluzen Flow ships 76 connectors visible by default:
 Databases 12 · Warehouses & Lake 12 · Files & Storage 12 · APIs & Apps 21
-· Operations & AI 11. Plus an OpenAPI import page to build your own."
+· Operations & AI 19. Plus an OpenAPI import page to build your own."
 
 **Two traps when quoting this number:**
 
-- Say **"68 connectors"**, never *"68 open-source connectors"*. Nine
+- Say **"76 connectors"**, never *"76 open-source connectors"*. Nine
   (sap, sap_hana, netsuite, workday, dynamics365, servicenow, salesforce,
   teradata, db2) carry a Plus tier label in the catalog. There is no
   license check behind it — it is a pricing posture, not a runtime gate —

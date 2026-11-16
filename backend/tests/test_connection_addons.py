@@ -28,10 +28,14 @@ def everything_installed(monkeypatch):
 
 
 def test_the_add_on_list_covers_the_vendor_drivers():
-    assert set(ADDONS) == {"db2", "informix", "sap_hana", "teradata", "kafka", "trino", "presto"}
-    # Drivers that now ship are not add-ons.
+    assert set(ADDONS) == {"db2", "informix", "sap_hana", "teradata", "kafka", "trino", "presto",
+                           # 2026-11-13: streams, queues and MySQL change capture.
+                           "mysql_cdc", "eventhub", "mqtt", "rabbitmq", "nats", "pulsar"}
+    # Drivers that now ship are not add-ons. Kinesis and SQS use boto3 and
+    # Pub/Sub plain HTTPS, so they are not add-ons either.
     for shipped in ("bigquery", "databricks", "snowflake", "oracle", "postgresql",
-                    "clickhouse", "redshift", "gcs", "azure_blob", "adls_gen2", "elasticsearch"):
+                    "clickhouse", "redshift", "gcs", "azure_blob", "adls_gen2", "elasticsearch",
+                    "kinesis", "sqs", "pubsub"):
         assert not addon_missing(shipped)
 
 

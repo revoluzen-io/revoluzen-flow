@@ -72,6 +72,11 @@ const SOURCE_REQUIREMENTS: Record<string, string[]> = {
   // step has no broker field (nodes/sources.py KafkaSourceNode.param_schema).
   kafka_source: ['topic', 'connection_id'],
   kafka: ['topic', 'connection_id'],
+  // 2026-11-13: streams, queues and change data capture need a saved
+  // connection; the stream or queue may come from the connection itself.
+  kinesis: ['connection_id'], sqs: ['connection_id'], pubsub: ['connection_id'],
+  eventhub: ['connection_id'], mqtt: ['connection_id'], rabbitmq: ['connection_id'],
+  nats: ['connection_id'], pulsar: ['connection_id'], cdc: ['connection_id'],
   gsheet_source: ['spreadsheet_id'],
   delta_source: ['path'],
   graphql: ['url', 'query'],
