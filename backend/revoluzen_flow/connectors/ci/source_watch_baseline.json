@@ -5,13 +5,13 @@
     },
     "github": {
       "api_version": "2026-03-10",
-      "spec_sha256": "f7a3de68869181d34b232d88840d31f8157ade45cad1746eaab90cd3c801b31c"
+      "spec_sha256": "6d9bbb20d8865b01464028937f2403954ad46598b4ebd3513dcb1a15b1a84aa7"
     },
     "intercom": {
-      "spec_sha256": "0624d034b3fd096e99efba8e968243c9a2820d0c05c709a0b5cc5fe3227dc92f"
+      "spec_sha256": "1ef0a7f176f84c6689da5618bc278c3f61bf4846ea0d8326f9c1f188ffd7087d"
     },
     "mailchimp": {
-      "spec_sha256": "20f1e27435a72a1e3636ae5afc2d016a827105e7edee9995e8a1d3b435c4e891"
+      "spec_sha256": "9bd08668be13b0f90410cea0b7ab36e72d4aa23b6b5b612454db8aa93cbdbdf0"
     },
     "pagerduty": {
       "spec_sha256": "cbae7d77f588e8fb5b14118003c9b8a71f274c57719ddc39eb8e77a71994f6d8"
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-16T13:16:36.285109+00:00"
+  "updated_at": "2026-11-17T14:02:09.527719+00:00"
 }
