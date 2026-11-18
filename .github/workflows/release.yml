@@ -35,7 +35,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
@@ -82,7 +82,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install backend requirements
@@ -182,7 +182,7 @@ jobs:
     # then Windows/macOS) when the certs exist; see installer/readme.md.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - uses: actions/setup-node@v4
@@ -325,7 +325,7 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
@@ -375,7 +375,7 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
@@ -519,7 +519,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 

@@ -49,7 +49,7 @@ jobs:
           # rebase, so the retry below would fail for a second reason.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
