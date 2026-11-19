@@ -1,7 +1,7 @@
 {
   "connectors": {
     "asana": {
-      "spec_sha256": "c79c386b1f24abd163ea844450b66f85851a53d0f3fb13e1611b7cd3569a91dc"
+      "spec_sha256": "034cecb821af15040070c48d3032714cc2ef6e42339a48fabc7c6a87cd72394a"
     },
     "github": {
       "api_version": "2026-03-10",
@@ -11,7 +11,7 @@
       "spec_sha256": "1ef0a7f176f84c6689da5618bc278c3f61bf4846ea0d8326f9c1f188ffd7087d"
     },
     "mailchimp": {
-      "spec_sha256": "9bd08668be13b0f90410cea0b7ab36e72d4aa23b6b5b612454db8aa93cbdbdf0"
+      "spec_sha256": "50ec8046a0ab47064a842f92b6268c1966a009f21f8fe023f3a123399bf8e938"
     },
     "pagerduty": {
       "spec_sha256": "788e9bf1e3575109d9e89d845650a56050082d8a63c83430b8218425032c2fa0"
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-18T13:36:53.528152+00:00"
+  "updated_at": "2026-11-19T14:03:00.074976+00:00"
 }
