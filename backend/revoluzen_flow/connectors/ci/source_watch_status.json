@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-11-19T14:03:00.074976+00:00",
+  "generated_at": "2026-11-20T13:46:22.267470+00:00",
   "signals": [
     {
       "connector_id": "asana",
-      "fingerprint": "034cecb821af15040070c48d3032714cc2ef6e42339a48fabc7c6a87cd72394a",
+      "fingerprint": "e150fced56c97c4d9325bd77dd856f90ed1f74e3a82e4b9fdb41b6d79947db4a",
       "kind": "spec",
-      "observed": "034cecb821af",
-      "pinned": "c79c386b1f24",
+      "observed": "e150fced56c9",
+      "pinned": "034cecb821af",
       "severity": "warn",
       "summary": "vendor's published API spec changed since the last run"
     },
@@ -30,21 +30,21 @@
     },
     {
       "connector_id": "intercom",
-      "fingerprint": "1ef0a7f176f84c6689da5618bc278c3f61bf4846ea0d8326f9c1f188ffd7087d",
+      "fingerprint": "fce059cb3c83863b71902dcb8c5409e572d5750c037575433b9768b8f4c0549f",
       "kind": "spec",
-      "observed": "1ef0a7f176f8",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "fce059cb3c83",
+      "pinned": "1ef0a7f176f8",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "mailchimp",
       "fingerprint": "50ec8046a0ab47064a842f92b6268c1966a009f21f8fe023f3a123399bf8e938",
       "kind": "spec",
       "observed": "50ec8046a0ab",
-      "pinned": "9bd08668be13",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "pagerduty",
