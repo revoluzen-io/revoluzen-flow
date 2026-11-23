@@ -1,7 +1,7 @@
 {
   "connectors": {
     "asana": {
-      "spec_sha256": "e150fced56c97c4d9325bd77dd856f90ed1f74e3a82e4b9fdb41b6d79947db4a"
+      "spec_sha256": "ac8f6dcca3741ead38d32f12fd90473ede2c43a7e8df0dba4cbd6a132d79cde9"
     },
     "github": {
       "api_version": "2026-03-10",
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-22T12:57:52.413204+00:00"
+  "updated_at": "2026-11-23T15:35:09.695633+00:00"
 }

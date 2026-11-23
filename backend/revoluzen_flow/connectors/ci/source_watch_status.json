@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-11-22T12:57:52.413204+00:00",
+  "generated_at": "2026-11-23T15:35:09.695633+00:00",
   "signals": [
     {
       "connector_id": "asana",
-      "fingerprint": "e150fced56c97c4d9325bd77dd856f90ed1f74e3a82e4b9fdb41b6d79947db4a",
+      "fingerprint": "ac8f6dcca3741ead38d32f12fd90473ede2c43a7e8df0dba4cbd6a132d79cde9",
       "kind": "spec",
-      "observed": "e150fced56c9",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "ac8f6dcca374",
+      "pinned": "e150fced56c9",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "github",
