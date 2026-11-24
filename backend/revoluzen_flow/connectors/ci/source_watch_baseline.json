@@ -1,20 +1,20 @@
 {
   "connectors": {
     "asana": {
-      "spec_sha256": "ac8f6dcca3741ead38d32f12fd90473ede2c43a7e8df0dba4cbd6a132d79cde9"
+      "spec_sha256": "48609ae9b7e203fc352cc47f72ac8804aba491ddf1409ec873480f2278ae6131"
     },
     "github": {
       "api_version": "2026-03-10",
       "spec_sha256": "6d9bbb20d8865b01464028937f2403954ad46598b4ebd3513dcb1a15b1a84aa7"
     },
     "intercom": {
-      "spec_sha256": "fce059cb3c83863b71902dcb8c5409e572d5750c037575433b9768b8f4c0549f"
+      "spec_sha256": "89c0eea72d9c894201d5e95ed44093d18eb489a1597e0e435280da3ad5736705"
     },
     "mailchimp": {
       "spec_sha256": "50ec8046a0ab47064a842f92b6268c1966a009f21f8fe023f3a123399bf8e938"
     },
     "pagerduty": {
-      "spec_sha256": "788e9bf1e3575109d9e89d845650a56050082d8a63c83430b8218425032c2fa0"
+      "spec_sha256": "691b9534e0e77336f5277307c06eca63acf8043f4a30d5fe352f4d235d8e7c18"
     },
     "slack_api": {
       "spec_sha256": "742a5c977180a829df8767cf57bc417d99b3713583aee83741efb9c08ca731e7"
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-23T15:35:09.695633+00:00"
+  "updated_at": "2026-11-24T15:28:03.168115+00:00"
 }
