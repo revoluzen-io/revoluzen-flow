@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-25T15:13:43.145138+00:00",
+  "generated_at": "2026-11-26T14:38:39.132560+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -21,12 +21,12 @@
     },
     {
       "connector_id": "github",
-      "fingerprint": "6d9bbb20d8865b01464028937f2403954ad46598b4ebd3513dcb1a15b1a84aa7",
+      "fingerprint": "8b22618a0f749ef2f3edcc99c1d4ac6d5626e385057f4cedcccdc8acd5280593",
       "kind": "spec",
-      "observed": "6d9bbb20d886",
-      "pinned": null,
-      "severity": "info",
-      "summary": "spec unchanged"
+      "observed": "8b22618a0f74",
+      "pinned": "6d9bbb20d886",
+      "severity": "warn",
+      "summary": "vendor's published API spec changed since the last run"
     },
     {
       "connector_id": "intercom",
