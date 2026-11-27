@@ -5,7 +5,7 @@
     },
     "github": {
       "api_version": "2026-03-10",
-      "spec_sha256": "8b22618a0f749ef2f3edcc99c1d4ac6d5626e385057f4cedcccdc8acd5280593"
+      "spec_sha256": "d84f59f8b6bbcba620ffd5a7946131fc1d23927e26e4bf1540612a93e906626a"
     },
     "intercom": {
       "spec_sha256": "89c0eea72d9c894201d5e95ed44093d18eb489a1597e0e435280da3ad5736705"
@@ -26,5 +26,5 @@
       "spec_sha256": "f5efc0ed7078b035f675e04aa2774eaea43a0606c1d699b1fd35759258e5ddc6"
     }
   },
-  "updated_at": "2026-11-26T14:38:39.132560+00:00"
+  "updated_at": "2026-11-27T14:33:13.546649+00:00"
 }
