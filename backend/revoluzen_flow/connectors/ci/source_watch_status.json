@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-27T14:33:13.546649+00:00",
+  "generated_at": "2026-11-28T13:47:40.844694+00:00",
   "signals": [
     {
       "connector_id": "asana",
@@ -13,20 +13,20 @@
     {
       "connector_id": "github",
       "fingerprint": null,
-      "kind": "probe_error",
-      "observed": null,
-      "pinned": null,
+      "kind": "api_version",
+      "observed": "2026-03-10",
+      "pinned": "2022-11-28",
       "severity": "warn",
-      "summary": "version probe failed: HTTPError: HTTP Error 403: rate limit exceeded"
+      "summary": "vendor has released API version '2026-03-10'; this connector pins '2022-11-28', which is still supported"
     },
     {
       "connector_id": "github",
       "fingerprint": "d84f59f8b6bbcba620ffd5a7946131fc1d23927e26e4bf1540612a93e906626a",
       "kind": "spec",
       "observed": "d84f59f8b6bb",
-      "pinned": "8b22618a0f74",
-      "severity": "warn",
-      "summary": "vendor's published API spec changed since the last run"
+      "pinned": null,
+      "severity": "info",
+      "summary": "spec unchanged"
     },
     {
       "connector_id": "intercom",
